@@ -584,7 +584,8 @@ const freightNode = (r: ReturnType<typeof computeQuoteCosting>) =>
 
 const shipmentBreak = (over: Record<string, unknown> = {}) => ({
   freightSubcategoryId: "ship-1",
-  ownerSkuId: LEAF,
+  memberCount: 1,
+  memberSkuId: LEAF,
   tierId: TIER,
   treatment: "bundled" as const,
   tierUnits: 1000,

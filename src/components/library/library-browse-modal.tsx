@@ -905,10 +905,22 @@ export function LibraryBrowseModal({
                   type silently dropped every unclassified product. */}
               <option value={UNCLASSIFIED_SOURCE_TYPE}>Unclassified</option>
             </select>
+            {/* B-11.1 · this said `${rows.length} of ${libraryTotal}` — "50 of
+                1,082" — no matter what the filters were set to. It sits beside
+                the filters, so it is the number an operator reads immediately
+                after changing one, and it answered a question nobody asked:
+                how big is the page, out of how big is the library.
+
+                It now answers the question the filter poses — how many products
+                match — and the pager below answers where in those matches this
+                page sits. Two counts that were contradicting each other became
+                two counts answering different questions. */}
             <span className="lib-result-count">
               {pending && rows.length === 0
                 ? "loading…"
-                : `${rows.length} of ${libraryTotal}`}
+                : total === libraryTotal
+                  ? `${libraryTotal.toLocaleString()} products`
+                  : `${total.toLocaleString()} of ${libraryTotal.toLocaleString()} match`}
             </span>
           </div>
 
@@ -1288,11 +1300,6 @@ export function LibraryBrowseModal({
                     {(offset + 1).toLocaleString()}–
                     {(offset + rows.length).toLocaleString()} of{" "}
                     {total.toLocaleString()}
-                    {total !== libraryTotal && (
-                      <span className="lib-pager-scope">
-                        {" "}· {libraryTotal.toLocaleString()} in the library
-                      </span>
-                    )}
                   </span>
                   <div className="lib-pager-controls">
                     <button

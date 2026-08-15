@@ -1257,3 +1257,60 @@ authorized it — a separate read is a separate moment.
 No further mutable demos or validation. All writes go to explicit
 `ZZ-VALIDATION-*` fixtures. This is the third time this quote has moved the
 gate; the boundary is only worth anything if the next movement is diagnostic.
+
+## P-UX-1 · Excessive status redundancy above the Pricing grid (2026-08-15)
+
+**Status:** LOGGED for the §1 presentation closeout. **Non-blocking.** Not to be
+implemented during the current blocker repair.
+
+The upper Pricing surface states substantially the same compliance fact six
+times before the operator reaches the grid: page header (*4 tiers below
+target*), Next Move, the REVIEW strip (*4 tiers below target*), an individual
+Tier warning card, What You're Sending, and then the grid itself.
+
+The cost is vertical distance to the grid — which **B-16 has just made the most
+precise source of truth on the surface**, because it now locates the affected
+cells rather than restating the conclusion. Repeating the verdict five times
+above the one place that answers "where" inverts the surface's own hierarchy.
+
+### Proposed hierarchy
+
+```
+Next Move  →  [Applied adjustments, when any]  →  What You're Sending
+           →  Pricing grid  →  adjustment controls
+```
+
+**Keep:** Next Move (action guidance) · What You're Sending (quote-level
+summary) · the grid (detailed compliance) · Applied adjustments **only when
+adjustments exist**, because that card communicates PROVENANCE, not compliance —
+a different question, and the only one of the six that is not a restatement.
+
+**Remove or collapse:** the standalone `REVIEW · N tiers below target` strip and
+the large per-Tier warning card above What You're Sending.
+
+If tier-level status still needs explicit presentation, integrate it compactly
+into the grid or the blended-margin treatment rather than keeping another
+full-width card.
+
+### Removal-safety verification — DONE 2026-08-15, before implementation
+
+The instruction was to verify that neither proposed removal carries an action or
+governed state unavailable elsewhere. Checked, because "it only restates
+something" is exactly the belief under which a governance affordance gets
+deleted:
+
+| Component | Actions? | Governed state? | Verdict |
+|---|---|---|---|
+| `StateLine` (the REVIEW strip) | **none** — no `<button>`, no `onClick`, no `action` reference in `state-zone.tsx` | presentational only | safe to collapse |
+| `StateCard` (blocked-mode tier card) | **none** — same sweep, no action of any kind | presentational only | safe to collapse |
+
+**Below-floor governance is NOT in either.** The approval path is
+`ApprovalStateCard` + `RequestOverrideModal`, rendered separately by
+`pricing-surface-shell.tsx` (≈874/878), below `DetailZone` and outside both
+proposed removals. Neither removal touches request, approval, or authorization
+state.
+
+**One caveat for the implementer:** this verification is a source-level sweep of
+the two named components. It establishes they contain no action — it does not
+establish that no OTHER surface depends on their presence for layout or focus
+order. Check that at implementation time.

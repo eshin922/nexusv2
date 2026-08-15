@@ -21,6 +21,7 @@ import {
   freightLegs,
   freightLegTiers,
   freightSubcategories,
+  freightSubcategoryItems,
   leaves,
   quotes,
   quoteLeafLifts,
@@ -401,31 +402,32 @@ async function loadWorksheetFreightForQuote(
     .innerJoin(quoteTiers, eq(quoteTiers.id, freightDestinationBreaks.tierId))
     .where(eq(freightSubcategories.quoteId, quoteId));
   if (rows.length === 0) return [];
-  // OD-017 · anchors are CANONICAL. This path previously emitted
-  // `assembly_leaves.id`, which the math layer keyed on before the re-key; it no
-  // longer does, so an uncorrected anchor here would name a SKU that does not
-  // exist and worksheet freight would silently vanish from every draft quote.
+  // V1 FREIGHT DISTRIBUTION POLICY · membership, not an owner.
   //
-  // Nulls are filtered before `inArray`: a Direct-only shipment has no assembly,
-  // and its anchor comes from membership below.
-  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId).filter((id): id is string => id !== null))];
-  const anchors = assemblyIds.length
-    ? await db.select({ id: quoteLeaves.id, assemblyId: quoteLeaves.assemblyId, position: quoteLeaves.position })
-        .from(quoteLeaves).where(inArray(quoteLeaves.assemblyId, assemblyIds)).orderBy(asc(quoteLeaves.position))
-    : [];
-  const anchorByAssembly = new Map<string, string>();
-  for (const anchor of anchors) {
-    if (anchor.assemblyId && !anchorByAssembly.has(anchor.assemblyId)) {
-      anchorByAssembly.set(anchor.assemblyId, anchor.id);
-    }
+  // This resolved ONE anchor leaf per shipment — the lowest-position leaf of
+  // the shipment's ASSEMBLY. That set is not the shipment. On `2f29af72` a
+  // two-product shipment's freight was attributed to a third product that was
+  // not in it, and because the positions tie, the pick moved between a quote
+  // and its copy: 107,225 against 113,105 on identical inputs.
+  //
+  // `freight_subcategory_items` is the operator's own record of what is being
+  // shipped. It excludes products that are not in the shipment, it is identical
+  // in a copy, and it depends on no row order, timestamp or id.
+  const memberRows = await db
+    .select({
+      subcategoryId: freightSubcategoryItems.freightSubcategoryId,
+      quoteLeafId: freightSubcategoryItems.quoteLeafId,
+    })
+    .from(freightSubcategoryItems)
+    .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightSubcategoryItems.freightSubcategoryId))
+    .where(eq(freightSubcategories.quoteId, quoteId));
+  const membersBySubcategory = new Map<string, string[]>();
+  for (const row of memberRows) {
+    const list = membersBySubcategory.get(row.subcategoryId) ?? [];
+    list.push(row.quoteLeafId);
+    membersBySubcategory.set(row.subcategoryId, list);
   }
-  // Anchor for shipments with no assembly. DERIVED IN THE FREIGHT LIB, not
-  // here: the costing path consumes anchors, it does not compute them. See
-  // `loadShipmentMemberAnchors` for why this narrows — but does not break — the
-  // "membership is descriptive only" invariant.
-  const anchorBySubcategory = await loadShipmentMemberAnchors(
-    [...new Set(rows.map((row) => row.subcategoryId))],
-  );
+
   const customs = await db.select({
     subcategoryId: freightCustomsEntries.freightSubcategoryId,
     tierId: freightCustomsBreaks.tierId,
@@ -438,22 +440,22 @@ async function loadWorksheetFreightForQuote(
     .where(eq(freightSubcategories.quoteId, quoteId));
   const charge = (subcategoryId: string, tierId: string, type: "duty" | "tariff") =>
     customs.find((row) => row.subcategoryId === subcategoryId && row.tierId === tierId && row.chargeType === type);
-  return rows.map((row) => {
+  return rows.flatMap((row) => {
     const duty = charge(row.subcategoryId, row.tierId, "duty");
     const tariff = charge(row.subcategoryId, row.tierId, "tariff");
-    const ownerSkuId = row.assemblyId
-      ? anchorByAssembly.get(row.assemblyId)
-      : anchorBySubcategory.get(row.subcategoryId);
-    if (!ownerSkuId)
+    const members = membersBySubcategory.get(row.subcategoryId) ?? [];
+    if (members.length === 0)
       throw new ActionGuardError(
         ERR.VALIDATION,
-        row.assemblyId
-          ? "Freight-owning commercial product has no costing item"
-          : "This shipment has no components, so its freight has nothing to cost against",
+        "This shipment has no components, so its freight has nothing to cost against",
       );
-    return {
+    // ONE BREAK PER MEMBER. The amounts stay whole; `memberCount` carries the
+    // split so the engine can state it and the trace can show the operator's
+    // entered figure rather than a divided one.
+    return members.map((memberSkuId) => ({
       freightSubcategoryId: row.subcategoryId,
-      ownerSkuId,
+      memberSkuId,
+      memberCount: members.length,
       tierId: row.tierId,
       tierUnits: row.tierUnits ?? 0,
       treatment: row.treatment,
@@ -463,7 +465,7 @@ async function loadWorksheetFreightForQuote(
       dutyMarkupPct: num(duty?.markupPct ?? null, 0),
       tariffAmount: numOrNull(tariff?.amount ?? null),
       tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
-    };
+    }));
   });
 }
 
@@ -479,34 +481,31 @@ function projectSnapshotWorkbook(
     const entryId = customsBySubcategory.get(subcategoryId);
     return workbook.customsBreaks.find((row) => row.freightCustomsEntryId === entryId && row.tierId === tierId && row.chargeType === chargeType);
   };
-  return selectedBreaks.map((row) => {
+  return selectedBreaks.flatMap((row) => {
     const destination = workbook.destinations.find((candidate) => candidate.id === row.freightDestinationId);
     const subcategory = workbook.subcategories.find((candidate) => candidate.id === destination?.freightSubcategoryId);
     if (!subcategory) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot contains a drifting destination mapping");
-    // OD-017 · a shipment with no assembly anchors on its own membership. This
-    // is not an assembly requirement reintroduced by another name: a Direct-only
-    // shipment resolves entirely through its recorded membership.
+    // V1 FREIGHT DISTRIBUTION POLICY, applied to a SENT version too.
     //
-    // Assembly-owned shipments deliberately keep the assembly anchor. Their
-    // anchor is the product's lowest-position leaf, which need not be a member
-    // of this particular shipment, so re-deriving it from membership would move
-    // WHICH leaf bears freight on live quotes — a commercial change, not a
-    // structural one, and out of scope here.
-    const ownerSkuId = subcategory.assemblyId
-      ? workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId]
-      : workbook.costingContext.ownerSkuBySubcategory[subcategory.id];
-    if (!ownerSkuId)
+    // The snapshot carries its own `memberships`, frozen at send, so a
+    // historical read distributes across exactly the products that shipment
+    // contained at the time — not across whatever the live tables say now.
+    // That is the same governed boundary the draft path uses, read from the
+    // frozen copy.
+    const members = workbook.memberships
+      .filter((m) => m.freightSubcategoryId === subcategory.id)
+      .map((m) => m.quoteLeafId);
+    if (members.length === 0)
       throw new ActionGuardError(
         ERR.VALIDATION,
-        subcategory.assemblyId
-          ? "Freight snapshot has no commercial-product costing anchor"
-          : "This shipment has no components, so its freight has nothing to cost against",
+        "This shipment has no components, so its freight has nothing to cost against",
       );
     const duty = customsCharge(subcategory.id, row.tierId, "duty");
     const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
-    return {
+    return members.map((memberSkuId) => ({
       freightSubcategoryId: subcategory.id,
-      ownerSkuId,
+      memberSkuId,
+      memberCount: members.length,
       tierId: row.tierId,
       tierUnits: workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0,
       treatment: subcategory.treatment,
@@ -516,7 +515,7 @@ function projectSnapshotWorkbook(
       dutyMarkupPct: num(duty?.markupPct ?? null, 0),
       tariffAmount: numOrNull(tariff?.amount ?? null),
       tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
-    };
+    }));
   });
 }
 

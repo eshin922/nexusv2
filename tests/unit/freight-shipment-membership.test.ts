@@ -270,45 +270,79 @@ test("Pattern 47(f) is recorded in the pattern library", () => {
   assert.match(claudeMd, /NOT yet standardised/);
 });
 
-test("freight totals are unaffected by membership — it is descriptive only", () => {
-  // GOVERNING INVARIANT (Pattern 58, ratified 2026-08-12):
+test("membership determines DISTRIBUTION, never the shipment's total", () => {
+  // GOVERNING INVARIANT, as amended by the V1 freight distribution policy
+  // (2026-08-15):
   //
-  //   Membership may determine ATTRIBUTION, but must never determine
-  //   COMMERCIAL ARITHMETIC.
+  //   Membership determines how a shipment's freight is DISTRIBUTED among the
+  //   products in it. It must never determine the AMOUNT.
   //
-  // This supersedes the broader "nothing in the costing path may read
-  // membership", which was a proxy for the real property and forbade a
-  // legitimate case: a shipment with no assembly has nothing BUT its membership
-  // relating it to a commercial leaf, so a Direct Component's freight could
-  // never have reached costing under the old wording.
+  // The previous wording was "membership may determine attribution but never
+  // commercial arithmetic", and the grep below enforced it by forbidding
+  // `costing.ts` and the adapter to name the membership table at all.
   //
-  // Freight amount, freight markup, customs, landed cost and quoted sell must
-  // remain invariant to the anchor. That property is asserted BEHAVIOURALLY in
-  // the test below — the required evidence — rather than inferred from the
-  // absence of a symbol.
+  // That proxy has now failed twice in the same place. It permitted the real
+  // defect it was meant to prevent: with membership unreadable, the engine
+  // picked an owner from the shipment's ASSEMBLY instead — a set that is not
+  // the shipment — and on `2f29af72` attributed a two-product shipment's
+  // freight to a third product that was not in it, moving quote revenue by
+  // 5,880 between a quote and its copy.
   //
-  // Anchor selection: an assembly-owned shipment retains its product owner; a
-  // shipment with no assembly derives its anchor from governed
-  // `freight_subcategory_items.quote_leaf_id`. Derivation lives in
-  // `freight-workbook.ts` beside the assembly anchor; costing consumes anchors
-  // and does not compute them. The grep below is retained for the modules that
-  // must never touch membership at all.
-  for (const [name, source] of [
-    ["costing.ts", costing],
-    ["costing-adapter.ts", adapter],
-  ] as const) {
+  // So the rule is asserted where it actually lives: the ENGINE may read
+  // membership (it is the only governed statement of what is being shipped),
+  // and what it may not do is let membership change the total. That is a
+  // behavioural property and is asserted behaviourally below.
+  //
+  // The grep survives for the ADAPTER, which projects rows and has no business
+  // resolving what is in a shipment.
+  assert.ok(
+    !/freightSubcategoryItems|freight_subcategory_items/.test(adapter),
+    "costing-adapter.ts must not consume shipment membership",
+  );
+});
+
+test("equal split · N members each bear 1/N, and the parts sum to the whole", () => {
+  // The policy, stated as arithmetic. Deliberately covers N = 3 as well as
+  // N = 2, because a two-member case cannot distinguish "divide by N" from
+  // "halve" — and halving is exactly the shortcut this would otherwise invite.
+  for (const n of [1, 2, 3, 4]) {
+    const whole = computeShipmentContribution({
+      memberCount: 1,
+      tierUnits: 1000,
+      freightAmount: 600,
+      freightMarkupPct: 0.1,
+      dutyAmount: 300,
+      dutyMarkupPct: 0.1,
+      tariffAmount: 150,
+      tariffMarkupPct: 0.1,
+    });
+    const share = computeShipmentContribution({
+      memberCount: n,
+      tierUnits: 1000,
+      freightAmount: 600,
+      freightMarkupPct: 0.1,
+      dutyAmount: 300,
+      dutyMarkupPct: 0.1,
+      tariffAmount: 150,
+      tariffMarkupPct: 0.1,
+    });
     assert.ok(
-      !/freightSubcategoryItems|freight_subcategory_items/.test(source),
-      `${name} must not consume shipment membership`,
+      Math.abs(share.totalCostPerUnit * n - whole.totalCostPerUnit) < 1e-12,
+      `${n} members must sum to the whole shipment cost`,
+    );
+    assert.ok(
+      Math.abs(share.totalBillablePerUnit * n - whole.totalBillablePerUnit) < 1e-12,
+      `${n} members must sum to the whole shipment sell`,
     );
   }
 });
 
-test("membership changes which leaf anchors a Direct-only shipment, never the total", () => {
-  // The behavioural form of the invariant above. Two different membership sets
-  // over the SAME shipment amount must produce the same tier freight total —
-  // if membership could divide cost, these would differ.
-  const shipment = (ownerSkuId: string) => ({
+test("which member a portion belongs to never changes that portion's amount", () => {
+  // The half of the old invariant that survives intact: the identity of the
+  // member is a label on a portion, not an input to it. Two members of the
+  // same shipment, same member count, receive identical amounts.
+  const shipment = (memberSkuId: string) => ({
+    memberCount: 1,
     tierUnits: 1000,
     freightAmount: 500,
     freightMarkupPct: 0,
@@ -316,9 +350,9 @@ test("membership changes which leaf anchors a Direct-only shipment, never the to
     dutyMarkupPct: 0,
     tariffAmount: 50,
     tariffMarkupPct: 0,
-    ownerSkuId,
+    memberSkuId,
   });
   const a = computeShipmentContribution(shipment("leaf-a"));
   const b = computeShipmentContribution(shipment("leaf-b"));
-  assert.deepEqual(a, b, "the anchor identity must not change the contribution");
+  assert.deepEqual(a, b, "which member a portion belongs to must not change its amount");
 });

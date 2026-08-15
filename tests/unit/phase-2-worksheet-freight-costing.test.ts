@@ -14,7 +14,7 @@ test("selected worksheet shipment replaces legacy freight and contributes once",
     freightLegGroups: [{ id: "legacy-group", label: "Legacy", displayOrder: 0 }],
     freightLegs: [{ id: "legacy-leg", legGroupId: "legacy-group", direction: "outbound", label: null, origin: null, destination: null, crossesInternationalBorder: false, treatment: "bundled", mode: null, carrier: null, incoterm: null, cargoReadyDate: null, vesselEtd: null, vesselEta: null, actualDeliveryDate: null, dutyMarkupPct: 0, tariffMarkupPct: 0, customs: {}, displayOrder: 0 }],
     freightLegTiers: [{ freightLegId: "legacy-leg", tierId: "tier", totalFreight: 100, unitsInShipment: null }],
-    freightShipmentBreaks: [{ freightSubcategoryId: "shipment", ownerSkuId: "anchor", tierId: "tier", tierUnits: 100, treatment: "bundled", freightAmount: 600, freightMarkupPct: 0.2, dutyAmount: 100, dutyMarkupPct: 0.2, tariffAmount: 200, tariffMarkupPct: 0.2 }],
+    freightShipmentBreaks: [{ freightSubcategoryId: "shipment", memberSkuId: "anchor", memberCount: 1, tierId: "tier", tierUnits: 100, treatment: "bundled", freightAmount: 600, freightMarkupPct: 0.2, dutyAmount: 100, dutyMarkupPct: 0.2, tariffAmount: 200, tariffMarkupPct: 0.2 }],
     cellOverrides: [], cellTargets: [],
   };
 
@@ -27,13 +27,28 @@ test("selected worksheet shipment replaces legacy freight and contributes once",
 test("loader reaches only the selected destination and maps one assembly anchor", async () => {
   const source = await readFile(new URL("../../src/app/actions/costing.ts", import.meta.url), "utf8");
   assert.match(source, /eq\(freightDestinations\.id, freightSubcategories\.selectedDestinationId\)/);
-  // OD-017 · the anchor is CANONICAL and the assembly may be absent, so the
-  // guard gained a null check. One anchor per assembly is still the rule.
-  assert.match(source, /anchor\.assemblyId && !anchorByAssembly\.has\(anchor\.assemblyId\)/);
+  // V1 FREIGHT DISTRIBUTION POLICY (2026-08-15) · there is no anchor to map.
+  //
+  // This asserted "one anchor per assembly" and that the loader must NOT read
+  // `freightSubcategoryItems`. Both encoded the rule that has just been
+  // replaced: a shipment's freight went to one leaf chosen from the shipment's
+  // ASSEMBLY, a set that is not the shipment. The prohibition on reading
+  // membership is what forced that substitution.
+  //
+  // The loader now emits one break PER MEMBER, read from the governed
+  // membership table, so the assertions invert.
+  assert.doesNotMatch(
+    source,
+    /anchorByAssembly/,
+    "assembly-derived anchor selection must be gone, not merely unused",
+  );
+  assert.match(source, /membersBySubcategory/);
   assert.match(
     source,
-    /from\(quoteLeaves\)\.where\(inArray\(quoteLeaves\.assemblyId, assemblyIds\)\)/,
-    "the worksheet anchor must be a canonical quote_leaf id, not a legacy junction id",
+    /\.from\(freightSubcategoryItems\)/,
+    "the loader must read the governed membership boundary",
   );
-  assert.doesNotMatch(source.slice(source.indexOf("loadWorksheetFreightForQuote"), source.indexOf("Slice 11.5", source.indexOf("loadWorksheetFreightForQuote"))), /freightSubcategoryItems/);
+  // And every emitted break must carry the count it was divided by, or the
+  // engine cannot state the split.
+  assert.match(source, /memberCount: members\.length/);
 });

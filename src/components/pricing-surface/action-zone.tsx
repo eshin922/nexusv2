@@ -50,6 +50,20 @@ export function SendableSummary({ state }: { state: QuoteState }) {
   const sc = state.summary_card;
   if (!sc) return null;
   const recTier = state.tiers.find((t) => t.id === sc.recommended_tier);
+  // P-Summary-1 · no recommended tier is a STATE, not missing data.
+  //
+  // Measured on 52bd0077: all four tiers carry `recommended = false`, so there
+  // is nothing to resolve — the null is correct. What was wrong is how the card
+  // rendered it: "T · —", "—", "—%", which reads as a surface that failed to
+  // load rather than a quote nobody has chosen a tier for.
+  //
+  // Order value and blended margin are BOTH projected from the recommended
+  // tier, and deliberately so — tiers are mutually exclusive quantity breaks,
+  // a customer buys at one, so a cross-tier aggregate prices a transaction that
+  // cannot occur (D-1). With no tier chosen there is no order value and no
+  // margin to state, and inventing one by defaulting to Tier 1 would put a
+  // number on this card that no one decided.
+  const noRecommendedTier = sc.recommended_tier == null;
   return (
     <div className="psr-summary-card">
       <h3>What you&apos;re sending</h3>
@@ -64,17 +78,38 @@ export function SendableSummary({ state }: { state: QuoteState }) {
         </div>
         <div className="psr-summary-cell">
           <span className="lab">Recommended tier</span>
-          <span className="val numeric">
-            T{sc.recommended_tier} · {fmtQty(recTier?.qty ?? null)}
-          </span>
-          <span className="sub">order value at this tier</span>
+          {noRecommendedTier ? (
+            <>
+              <span className="val muted">None chosen</span>
+              <span className="sub">set one to price the order</span>
+            </>
+          ) : (
+            <>
+              <span className="val numeric">
+                T{sc.recommended_tier} · {fmtQty(recTier?.qty ?? null)}
+              </span>
+              <span className="sub">order value at this tier</span>
+            </>
+          )}
         </div>
         <div className="psr-summary-cell">
-          <span className="lab">Order value · T{sc.recommended_tier}</span>
-          <span className="val numeric">
-            {fmtUsd(sc.recommended_tier_value)}
+          <span className="lab">
+            Order value
+            {!noRecommendedTier && ` · T${sc.recommended_tier}`}
           </span>
-          <span className="sub">across all SKUs</span>
+          {noRecommendedTier ? (
+            <>
+              <span className="val muted">Needs a recommended tier</span>
+              <span className="sub">no tier selected</span>
+            </>
+          ) : (
+            <>
+              <span className="val numeric">
+                {fmtUsd(sc.recommended_tier_value)}
+              </span>
+              <span className="sub">across all SKUs</span>
+            </>
+          )}
         </div>
         <div className="psr-summary-cell">
           {/*
@@ -88,12 +123,22 @@ export function SendableSummary({ state }: { state: QuoteState }) {
             Blended margin
             {sc.recommended_tier != null && ` · T${sc.recommended_tier}`}
           </span>
-          <span className="val numeric">
-            {fmtPct(sc.blended_margin_pct)}%
-          </span>
+          {noRecommendedTier ? (
+            <span className="val muted">Needs a recommended tier</span>
+          ) : (
+            <span className="val numeric">
+              {fmtPct(sc.blended_margin_pct)}%
+            </span>
+          )}
           <span className="sub">
-            target {fmtPct0(state.policy.target_margin_pct)}% · floor{" "}
-            {fmtPct0(state.policy.floor_margin_pct)}%
+            {noRecommendedTier ? (
+              "no tier selected"
+            ) : (
+              <>
+                target {fmtPct0(state.policy.target_margin_pct)}% · floor{" "}
+                {fmtPct0(state.policy.floor_margin_pct)}%
+              </>
+            )}
           </span>
         </div>
       </div>

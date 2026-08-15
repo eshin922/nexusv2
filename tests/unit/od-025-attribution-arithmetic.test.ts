@@ -57,10 +57,10 @@ const pkg = (id: string, unitCost: string) => ({
   markupPct: null,
 });
 
-/** A fixed governed shipment. Only `ownerSkuId` ever varies. */
-const ship = (ownerSkuId: string) => ({
+/** A fixed governed shipment. Only `memberSkuId` ever varies. */
+const ship = (memberSkuId: string) => ({
   freightSubcategoryId: "sub-1",
-  ownerSkuId,
+  memberSkuId,
   tierId: T,
   treatment: "bundled" as const,
   tierUnits: TIER_UNITS,
