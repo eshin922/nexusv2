@@ -4084,11 +4084,18 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         const operands = members.flatMap((m) => {
           const mpt = rollupBySku.get(m.id)?.perTier.find((x) => x.tierId === tier.id);
           if (!mpt) return [];
+          // x qtyPerParent, exactly as `rollUpAssemblyPerTier` folds children.
+          // Omitting it made the operands sum to the members' own per-unit
+          // values while the parent carried the quantity-weighted total — 84
+          // against 322 on the nested unequal-quantity fixture. The members are
+          // DIRECT children of any role, and a child assembly's rollup already
+          // aggregates its own subtree, so this recurses without recursing.
+          const qty = m.id === unit.id ? 1 : num(m.qtyPerParent, 1);
           return [{
             key: nodeKey(unitBase, name, m.canonicalQuoteLeafId ?? m.id),
             kind: "origin" as const,
             label: productIdentityLabel(m),
-            value: pick(mpt),
+            value: pick(mpt) * qty,
             unit: "usd" as const,
             origin: { grade: "thin" as const, actor: null, when: null, doc: null },
           }];
@@ -4131,7 +4138,44 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // every fixture because those fixtures carried no adjustment, no lift and
       // no override, so the build and the terminal happened to coincide. A test
       // now pins them apart.
-      graphNodes.push({
+      // P-PriceBuild-UX3 · THE TERMINAL IS DERIVED, SO IT SAYS WHAT DERIVES IT.
+      //
+      // `sell` was emitted through the scalar helper as a thin `origin` — a
+      // TERMINAL. The renderer was right to print "not yet attributed / END OF
+      // CHAIN": that is what a terminal with no author IS. A finished-good sell
+      // has no author and needs none; it is computed, and the shape given to it
+      // said otherwise.
+      //
+      // The operands are the pricing ladder, which is also exactly the
+      // reconciliation identity already proven green:
+      //
+      //     sell-before + adj-delta + lift-delta + override-delta === sell
+      //
+      // so the node is self-consistent by construction rather than by a second
+      // assertion, and following it walks the operator back through the build.
+      //
+      // GATE 1B SINGLE-REACHABILITY. These four are operands ONLY — they are no
+      // longer pushed as roots, or the key would be reachable twice and
+      // `resolveNode` would resolve it to nothing. `readNodeValue` traverses
+      // operands, so every consumer reads them exactly as before.
+      const scalar = (name: string, label: string, value: number) =>
+        graphNodes.push({
+          key: nodeKey(unitBase, name),
+          kind: "origin" as const,
+          label: label + " · " + unit.skuLabel,
+          value,
+          unit: "usd" as const,
+          origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+        });
+      const rung = (name: string, label: string, value: number): CostingNode => ({
+        key: nodeKey(unitBase, name),
+        kind: "origin",
+        label: label + " · " + unit.skuLabel,
+        value,
+        unit: "usd",
+        origin: { grade: "thin", actor: null, when: null, doc: null },
+      });
+      const sellBeforeNode: CostingNode = {
         key: nodeKey(unitBase, "sell-before"),
         kind: "sum",
         label: "Sell before adjustment · " + unit.skuLabel,
@@ -4139,37 +4183,30 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         unit: "usd",
         op: "Packaging + Production + Bulk raw + Freight + Duty & tariff",
         operands: parts,
+      };
+      graphNodes.push({
+        key: nodeKey(unitBase, "sell"),
+        kind: "sum",
+        label:
+          (unit.skuRole === "assembly"
+            ? "Finished-good sell per unit · "
+            : "Product sell per unit · ") + unit.skuLabel,
+        value: upt.requiredSellPerUnit,
+        unit: "usd",
+        op: "Sell before adjustment + price adjustment + surgical lift + override",
+        operands: [
+          sellBeforeNode,
+          rung("adj-delta", "Price adjustment contribution", upt.adjDeltaPerUnit),
+          rung("lift-delta", "Surgical lift contribution", upt.liftDeltaPerUnit),
+          rung("override-delta", "Override contribution", upt.overrideDeltaPerUnit),
+        ],
       });
-      // THE LADDER, per unit. The Pricing section's analytical purpose is how a
-      // price moved from build to quoted — build, adjustment, lift, override —
-      // and that purpose is worth keeping; only the POPULATION the dollars were
-      // taken over was wrong. Mirrors the blend set name-for-name so the
-      // consumer's shape is unchanged and it reads a scope instead of a mean.
-      const scalar = (name: string, label: string, value: number) =>
-        graphNodes.push({
-          key: nodeKey(unitBase, name),
-          kind: "origin",
-          label: label + " · " + unit.skuLabel,
-          value,
-          unit: "usd",
-          origin: { grade: "thin", actor: null, when: null, doc: null },
-        });
       scalar("cost", "Cost per unit", upt.contributionCostPerUnit);
-      // THE GOVERNED TERMINAL. Read from the rollup, which already applied
-      // adjustment, lift and override under the engine's own precedence — a
-      // direct price is terminal there and stays terminal here. Deliberately
-      // NOT the sum of the displayed deltas: summing what a surface renders is
-      // how a presentation starts deciding a price.
-      scalar(
-        "sell",
-        unit.skuRole === "assembly" ? "Finished-good sell per unit" : "Product sell per unit",
-        upt.requiredSellPerUnit,
-      );
-      scalar("adj-delta", "Price adjustment contribution", upt.adjDeltaPerUnit);
+      // Intermediate LEVELS, not contributions — they are what the ladder reads
+      // BETWEEN rungs, so they cannot be operands of a sum without
+      // double-counting. Distinct keys, so no reachability conflict.
       scalar("sell-after-adj", "Sell after adjustment", upt.sellAfterAdjustmentPerUnit);
-      scalar("lift-delta", "Surgical lift contribution", upt.liftDeltaPerUnit);
       scalar("sell-after-lift", "Sell after lift", upt.sellAfterLiftPerUnit);
-      scalar("override-delta", "Override contribution", upt.overrideDeltaPerUnit);
       // Margin is READ from the unit's own rollup, never re-derived here. It
       // keeps whatever authority the engine gave it; this scope publishes it so
       // the Price Build can state it without a second computation.

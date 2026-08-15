@@ -128,13 +128,38 @@ export function planApply(input: {
     ? null
     : { from: input.globalAdjFrom, to: input.globalAdjTo };
 
+  // A NEW GLOBAL ADJUSTMENT CLEARS EXISTING TIER OVERRIDES.
+  //
+  // Precedence is `tier ?? global`, so a tier carrying its own rate ignores the
+  // quote-wide one entirely. On a live quote every tier held a legacy
+  // Setup-origin rate, so an operator applied 300%, saw it persisted and
+  // displayed, and it moved nothing: 3.0 was in force nowhere while four tier
+  // rates of 0.2911 and 0.1115 were.
+  //
+  // Two pricing authorities were live at once and the newer one silently lost.
+  // Explanatory copy would not have fixed that — it would have documented it.
+  // So setting a global rate is now a statement about the whole quote, and it
+  // clears the exceptions.
+  //
+  // A tier override SET IN THE SAME APPLY survives, because the operator asked
+  // for both in one gesture and the exception is deliberate. Only stale ones go.
+  const tierAdjRemoved = [...tierAdj.removed];
+  if (globalAdj !== null) {
+    const explicit = new Set(tierAdj.set.map((c) => c.key));
+    const alreadyRemoved = new Set(tierAdj.removed.map((c) => c.key));
+    for (const [key, from] of input.persistedTierAdj) {
+      if (explicit.has(key) || alreadyRemoved.has(key)) continue;
+      tierAdjRemoved.push({ key, from });
+    }
+  }
+
   return {
     liftsSet: lifts.set,
     liftsRemoved: lifts.removed,
     overridesSet: overrides.set,
     overridesRemoved: overrides.removed,
     tierAdjSet: tierAdj.set,
-    tierAdjRemoved: tierAdj.removed,
+    tierAdjRemoved,
     globalAdj,
     changeCount:
       lifts.set.length +
@@ -142,7 +167,7 @@ export function planApply(input: {
       overrides.set.length +
       overrides.removed.length +
       tierAdj.set.length +
-      tierAdj.removed.length +
+      tierAdjRemoved.length +
       (globalAdj === null ? 0 : 1),
   };
 }
