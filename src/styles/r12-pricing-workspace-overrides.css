@@ -231,3 +231,56 @@
   top: 0;
   z-index: 30;
 }
+
+/* ── B-16 · the grid locates the compliance condition ──────────────────────
+ *
+ * Next Move correctly said a quote was below target or below floor; the grid
+ * did not say WHERE. The operator read a verdict and then scanned individual
+ * percentages to find the cells it referred to — the surface stated the
+ * conclusion without locating the evidence.
+ *
+ * The bundle already colours the PERCENTAGE (`.cgm.below_target` etc). That is
+ * a read, not a scan: at 27 cells the eye still has to visit each one. These
+ * carry the same governed state to the CELL, which is what makes a grid
+ * scannable at a glance.
+ *
+ * The class is `cg-{status}` and the status is the classifier's own per-cell
+ * verdict, forwarded. No margin policy is expressed here — this file cannot
+ * know what a target is, and that is deliberate: a stylesheet that could
+ * decide compliance is a second authority waiting to disagree with the first.
+ *
+ * PATTERN 50 — WHICH BASIS THIS READS, STATED
+ *
+ * Per-CELL. `cell.status` is the classifier's cell verdict (this SKU × this
+ * tier), NOT the suggestion engine's revenue-weighted per-tier blend. The two
+ * can legitimately disagree — `suggestion_manual_only` exists to name that
+ * intersection — so a tinted cell may sit in a tier whose blend is compliant.
+ * That is correct and is the point of the finding: the operator is being shown
+ * where the cell-level breach is. The banner continues to speak from whichever
+ * basis it always did; neither is being made to agree with the other.
+ *
+ * Restraint is deliberate: a soft background from the existing warn/bad
+ * vocabulary, no borders, no accents, no weight change. The percentage keeps
+ * its colour — this adds a scan layer, it does not replace the read.
+ */
+.r11-bcell.r11-cg.cg-below_target { background: var(--warn-soft); }
+.r11-bcell.r11-cg.cg-below_floor  { background: var(--bad-soft); }
+
+/* Hover must not erase the state it is hovering over. The bundle's
+ * `.r11-bcell:hover { background: var(--paper-3) }` would do exactly that. */
+.r11-bcell.r11-cg.cg-below_target:hover { background: var(--warn-soft); }
+.r11-bcell.r11-cg.cg-below_floor:hover  { background: var(--bad-soft); }
+
+/* SELECTION COEXISTS WITH COMPLIANCE — the constraint most likely to be got
+ * wrong quietly.
+ *
+ * The bundle's `.sel` sets an accent background AND an accent ring. On a red
+ * cell the background would win and the breach would vanish at the exact
+ * moment the operator clicked it to act on it. So selection keeps its RING —
+ * which is what actually communicates "this one is open" — and yields the
+ * background to the compliance state.
+ *
+ * Non-compliant cells are untouched here and keep the bundle's `.sel`
+ * treatment in full. */
+.r11-bcell.r11-cg.sel.cg-below_target { background: var(--warn-soft); }
+.r11-bcell.r11-cg.sel.cg-below_floor  { background: var(--bad-soft); }

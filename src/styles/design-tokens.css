@@ -122,8 +122,38 @@
   --paper-2:  oklch(0.19 0.013 255);
   --paper-3:  oklch(0.225 0.014 255);
   --paper-4:  oklch(0.265 0.015 255);
-  --rule:     oklch(0.30 0.014 255);
-  --rule-2:   oklch(0.36 0.016 255);
+  /* B-17 · dark-mode structural contrast.
+   *
+   * Content was readable; STRUCTURE was not. Table and card boundaries and row
+   * separators sat too close in luminance to the near-black background, so an
+   * operator could not perceive where one division ended and the next began —
+   * observed on the Setup SKU table, its row separators, Item Group/member
+   * divisions, the Tier table and adjacent card boundaries.
+   *
+   * FIXED AT THE TOKEN, which is where the finding actually lives. These two
+   * are shared by 400 and 96 declarations across every surface, so patching
+   * Setup would have left the same defect everywhere else while appearing
+   * resolved. Verified borders-only before changing: every `background:
+   * var(--rule)` in the tree is a 1px hairline drawn as a grid-gap, not a
+   * surface, so raising these moves lines and nothing else.
+   *
+   *   --rule    0.30 -> 0.355   separators, against paper 0.16
+   *   --rule-2  0.36 -> 0.44    container boundaries
+   *
+   * The GAP BETWEEN THEM widens too, 0.06 -> 0.085. That is deliberate: the
+   * hierarchy between an outer boundary and an internal separator is itself
+   * the signal, and lifting both equally would have restored visibility while
+   * flattening the thing that tells an operator which is which.
+   *
+   * Paper tokens are untouched and light mode is untouched. The goal is to
+   * make structure easier to SCAN, not to make borders prominent or dark mode
+   * brighter.
+   *
+   * Follow-up belongs to operator review: a token change reaches surfaces this
+   * finding never looked at, so representative surfaces want a check for
+   * unintended OVER-contrast. */
+  --rule:     oklch(0.355 0.014 255);
+  --rule-2:   oklch(0.44 0.016 255);
 
   /* Ink palette
      --ink-4 lifted from R2's 0.50 to 0.58 per UX_BACKLOG entry "Light

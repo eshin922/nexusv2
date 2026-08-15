@@ -253,7 +253,20 @@ export function ComplianceGrid({
                   // Pressability follows `selectable`, remediation follows
                   // `actionable`. They were one flag, and a compliant quote
                   // rendered 27 cells nobody could open.
-                  "r11-bcell r11-cg" +
+                  // B-16 · the compliance state belongs to the CELL, not to
+                  // the percentage inside it.
+                  //
+                  // Next Move already told the operator a cell was below
+                  // target or floor; the grid did not say WHICH, so they read
+                  // the verdict and then scanned percentages to find it. A
+                  // tinted digit is still a read. A tinted cell is a scan.
+                  //
+                  // The status is FORWARDED, never recomputed:
+                  // `cell.status` is the classifier's own per-cell verdict,
+                  // the same authority Next Move speaks from. Nothing here
+                  // knows what a target or a floor is, which is what keeps
+                  // the grid and the banner from disagreeing.
+                  "r11-bcell r11-cg cg-" + cell.status +
                   (cell.selectable ? " act" : " inert") +
                   (isSel ? " sel" : "")
                 }
