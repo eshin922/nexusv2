@@ -38,6 +38,7 @@ import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
 import { cloneQuoteGraph } from "@/app/actions/quotes";
 import { quotes, quoteLeaves, quoteTiers, assemblies } from "@/db/schema";
+import type { QuoteCostingResult } from "@/lib/costing";
 
 const SOURCE_ID = "2f29af72-805b-446c-866c-73e9b0991b1a";
 const NOISE = 1e-9;
@@ -70,12 +71,48 @@ function numerics(node: unknown, path: string, out: Map<string, number[]>) {
   }
 }
 
+type Costing = QuoteCostingResult;
+
 async function economics(quoteId: string) {
   const res = await getCostingBundle(quoteId);
   if (!res.ok) throw new Error(`getCostingBundle failed for ${quoteId}`);
+  const costing = res.data.costing;
   const out = new Map<string, number[]>();
-  numerics((res.data as Record<string, unknown>).costing, "costing", out);
-  return out;
+  numerics(costing as unknown, "costing", out);
+  return { paths: out, costing };
+}
+
+/**
+ * The tier economics, read straight off `quoteRollup` rather than off the path
+ * walk.
+ *
+ * A SECOND, INDEPENDENT AGGREGATION of the same quantities is also taken, by
+ * summing the top-level SKU rows. The two have to agree on each side, which is
+ * what makes "the totals match" a falsification rather than a restatement: a
+ * compensating pair of per-SKU errors moves the re-aggregation and not the
+ * engine's own total, and only comparing both can see it.
+ */
+function tierEconomics(c: Costing) {
+  return c.quoteRollup.map((t, i) => {
+    let revenue = 0;
+    let cost = 0;
+    for (const s of c.skuRollups) {
+      if (s.parentSkuId !== null) continue;
+      const pt = s.perTier.find((p) => p.tierId === t.tierId);
+      if (!pt) continue;
+      revenue += pt.revenue;
+      cost += pt.cost;
+    }
+    return {
+      label: t.label ?? `tier ${i}`,
+      tierId: t.tierId,
+      revenue: t.totalRevenue,
+      cost: t.totalCost,
+      margin: t.blendedMarginPct,
+      resummedRevenue: revenue,
+      resummedCost: cost,
+    };
+  });
 }
 
 /** Returns the paths whose numeric multiset genuinely moved. */
@@ -214,11 +251,103 @@ async function main() {
     `${srcDirect} direct`,
   );
 
-  const moved = movedPaths(srcEcon, cpyEcon);
+  // ── economic equivalence, in the two questions it is actually made of ─────
+  //
+  // This was ONE claim comparing every numeric leaf in `costing` as a multiset,
+  // and it could not distinguish money moving from freight being ATTRIBUTED to
+  // a different product. Pattern 58 makes that distinction load-bearing: the
+  // anchor may move attribution and must never move arithmetic, so an
+  // instrument that fails on both cannot certify either.
+  //
+  // It is a real distinction here, not a convenient one. Source quote 2f29af72
+  // has three leaves sharing position 0 in one assembly, so "the lowest-position
+  // leaf" is a tie, and source and copy break it differently — deterministically
+  // on each side (measured: five consecutive reads of each are identical), just
+  // not identically to each other. The freight AMOUNTS are unchanged; which
+  // product carries them is not.
+  //
+  // So the questions are separated, and each is asserted where it is true.
+  const srcTiers2 = tierEconomics(srcEcon.costing);
+  const cpyTiers2 = tierEconomics(cpyEcon.costing);
+  const tierMoved: string[] = [];
+  for (let i = 0; i < Math.max(srcTiers2.length, cpyTiers2.length); i++) {
+    const a = srcTiers2[i];
+    const b = cpyTiers2[i];
+    if (!a || !b) {
+      tierMoved.push(`tier ${i} present on one side only`);
+      continue;
+    }
+    for (const f of ["revenue", "cost", "margin"] as const) {
+      const x = a[f];
+      const y = b[f];
+      if (x === null || y === null) {
+        if (x !== y) tierMoved.push(`${a.label}.${f} (${x} → ${y})`);
+        continue;
+      }
+      if (!isNoise(x, y)) tierMoved.push(`${a.label}.${f} (${x} → ${y})`);
+    }
+  }
   claim(
-    moved.length === 0,
+    tierMoved.length === 0,
     "cost / sell / revenue / margin identical at every tier",
-    moved.length ? moved.slice(0, 6).join("; ") : "no numeric moved",
+    tierMoved.length ? tierMoved.join("; ") : srcTiers2.map((t) => `${t.label}:${t.revenue}`).join(" "),
+  );
+
+  // The independent re-aggregation, on BOTH sides. Without this the claim above
+  // compares one engine total to another engine total, and a per-SKU
+  // redistribution that did not conserve the total would still have to pass
+  // through `quoteRollup` to be seen. This sees it from the other end.
+  const resumOff: string[] = [];
+  for (const [tag, rows] of [["source", srcTiers2], ["copy", cpyTiers2]] as const)
+    for (const t of rows) {
+      if (!isNoise(t.revenue, t.resummedRevenue))
+        resumOff.push(`${tag} ${t.label} revenue ${t.revenue} vs ${t.resummedRevenue}`);
+      if (!isNoise(t.cost, t.resummedCost))
+        resumOff.push(`${tag} ${t.label} cost ${t.cost} vs ${t.resummedCost}`);
+    }
+  claim(
+    resumOff.length === 0,
+    "per-product rows re-aggregate to the tier totals on both sides",
+    resumOff.length ? resumOff.join("; ") : "two independent aggregations agree",
+  );
+
+  // Everything OUTSIDE the per-product rows and the node graph still has to be
+  // bit-for-bit equal as a multiset. Narrowing the exclusion to those two
+  // subtrees keeps the original instrument's reach over the rest of `costing`.
+  const moved = movedPaths(srcEcon.paths, cpyEcon.paths);
+  const attributionScoped = (p: string) =>
+    p.startsWith("costing.skuRollups") || p.startsWith("costing.graph");
+  const movedElsewhere = moved.filter((p) => !attributionScoped(p));
+  claim(
+    movedElsewhere.length === 0,
+    "no number moved outside per-product attribution",
+    movedElsewhere.length ? movedElsewhere.slice(0, 6).join("; ") : "no numeric moved",
+  );
+
+  // And the freight itself is UNCHANGED — same amounts, as a multiset over
+  // products, whichever product each one landed on. This is what makes the
+  // exclusion above safe rather than merely convenient: if the anchor move had
+  // altered a freight figure instead of relocating it, the multiset would differ and
+  // this claim would fail while the two above still passed.
+  const freightMultiset = (c: Costing) => {
+    const out: number[] = [];
+    for (const s of c.skuRollups)
+      for (const pt of s.perTier)
+        out.push(
+          Number(
+            (
+              pt.totalContainerFreightBeforeMarkup + pt.totalDutyTariffBeforeMarkup
+            ).toFixed(9),
+          ),
+        );
+    return out.sort((m, n) => m - n);
+  };
+  const fSrc = freightMultiset(srcEcon.costing);
+  const fCpy = freightMultiset(cpyEcon.costing);
+  claim(
+    fSrc.length === fCpy.length && fSrc.every((v, i) => isNoise(v, fCpy[i])),
+    "freight amounts unchanged — only which product carries them may differ",
+    `${fSrc.filter((v) => v !== 0).length} bearing product-tier cell(s)`,
   );
 
   // Canonical-only rows are the ones the legacy-keyed SELECT could not see.
@@ -286,7 +415,7 @@ async function main() {
      where quote_leaf_id in (select id from quote_leaves where quote_id = ${copyId})
   `);
   claim(
-    movedPaths(before2, await economics(copy2Id)).length === 0,
+    movedPaths(before2.paths, (await economics(copy2Id)).paths).length === 0,
     "mutating the copy leaves the other scenario unchanged",
   );
 
@@ -295,7 +424,7 @@ async function main() {
      where quote_leaf_id in (select id from quote_leaves where quote_id = ${copy2Id})
   `);
   const after1 = await economics(copyId);
-  const moved1 = movedPaths(before1, after1);
+  const moved1 = movedPaths(before1.paths, after1.paths);
   claim(
     moved1.length > 0,
     "control: the first mutation did move that scenario's own economics",
