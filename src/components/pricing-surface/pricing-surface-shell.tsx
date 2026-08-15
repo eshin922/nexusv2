@@ -71,6 +71,15 @@ import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
 import { readNodeValue, quoteScopeKey, priceBuildKey } from "@/lib/costing-nodes";
 
+/**
+ * A stable empty map for "no unit selected yet".
+ *
+ * A fresh `new Map()` per render is a new identity, which would re-run the
+ * click handler's memo and the self-closing effect on every render for no
+ * change at all.
+ */
+const EMPTY_STACK: Map<number, BlendedTierComponents> = new Map();
+
 // 30s persistent "↻ just updated" hint after a mode transition. CD
 // §4.6 / §9.2 pushback 2. Restart on each subsequent transition.
 const JUST_UPDATED_MS = 30_000;
@@ -361,73 +370,13 @@ export function PricingSurfaceShell({
   // entirely rather than partially filled. Half a stack read from the graph and
   // half invented is the exact failure this increment exists to remove.
   const graph = useCostingStore(selectGraph);
-  const blendedByTier = useMemo(() => {
-    const byNumeric = new Map<number, BlendedTierComponents>();
-    for (const [tierUuid, numeric] of uuidToNumeric) {
-      // `readNodeValue` also fails closed on a flagged-out node, which
-      // `node ? node.value : null` did not. No blend key carries one today, so
-      // this changes no rendered value — it removes the trap where adding one
-      // later would surface a commercial zero here instead of a dash.
-      const read = (name: string): number | null =>
-        readNodeValue(graph, quoteScopeKey(tierUuid, name));
-      const pkg = read("pkg");
-      const prod = read("prod");
-      const raw = read("raw");
-      const frt = read("frt");
-      const dt = read("dt");
-      const sellBefore = read("sell-before");
-      const sell = read("sell");
-      const cost = read("cost");
-      // P3-017 — the levers BETWEEN the first level and the last. The blend
-      // used to publish only its ends, so the ladder the Cost Stack renders was
-      // unstateable at this scope and the reconciliation could not be asserted
-      // against anything. These five are read, never derived: a delta obtained
-      // by subtracting two published levels telescopes through the aggregation
-      // and yields an identity true for any four numbers.
-      const adjDelta = read("adj-delta");
-      const sellAfterAdj = read("sell-after-adj");
-      const liftDelta = read("lift-delta");
-      const sellAfterLift = read("sell-after-lift");
-      const overrideDelta = read("override-delta");
-      if (
-        pkg === null || prod === null || raw === null || frt === null ||
-        dt === null || sellBefore === null || sell === null || cost === null ||
-        adjDelta === null || sellAfterAdj === null || liftDelta === null ||
-        sellAfterLift === null || overrideDelta === null
-      ) {
-        continue;
-      }
-      // OPTIONAL, unlike the six above: the ratio is undefined at zero blended
-      // sell, the engine flags that node out rather than publishing 0%, and
-      // `readNodeValue` refuses it. Requiring it would blank a complete cost
-      // stack to withhold a seventh value that does not exist.
-      const margin = readNodeValue(graph, quoteScopeKey(tierUuid, "margin"));
-      byNumeric.set(numeric, {
-        pkg, prod, raw, frt, dt, sellBefore, sell, cost, margin,
-        adjDelta, sellAfterAdj, liftDelta, sellAfterLift, overrideDelta,
-        // The same keys the values were just read from, carried down so the
-        // trace opens at the node the operator pressed rather than at one
-        // reconstructed from a numeric id the graph has never heard of.
-        keys: {
-          pkg: quoteScopeKey(tierUuid, "pkg"),
-          prod: quoteScopeKey(tierUuid, "prod"),
-          raw: quoteScopeKey(tierUuid, "raw"),
-          frt: quoteScopeKey(tierUuid, "frt"),
-          dt: quoteScopeKey(tierUuid, "dt"),
-          sellBefore: quoteScopeKey(tierUuid, "sell-before"),
-          sell: quoteScopeKey(tierUuid, "sell"),
-          cost: quoteScopeKey(tierUuid, "cost"),
-          margin: quoteScopeKey(tierUuid, "margin"),
-          adjDelta: quoteScopeKey(tierUuid, "adj-delta"),
-          sellAfterAdj: quoteScopeKey(tierUuid, "sell-after-adj"),
-          liftDelta: quoteScopeKey(tierUuid, "lift-delta"),
-          sellAfterLift: quoteScopeKey(tierUuid, "sell-after-lift"),
-          overrideDelta: quoteScopeKey(tierUuid, "override-delta"),
-        },
-      });
-    }
-    return byNumeric;
-  }, [graph, uuidToNumeric]);
+  // The quote-wide leaf BLEND was resolved here and rendered as the Cost
+  // Stack's dollars. It is gone as a PRESENTATION source: on a mixed quote its
+  // denominator spans unrelated sellable products, and it rendered an Item
+  // Group's $7.51 finished-good sell as $1.0729. The blend NODES remain in the
+  // graph — the margin is built from them and they are a valid analytical
+  // primitive — but nothing here reads them for dollars any more. Price Build
+  // reads a per-commercial-unit scope instead; see below.
 
 
   // ── display metadata ────────────────────────────────────────────
@@ -608,6 +557,28 @@ export function PricingSurfaceShell({
   const [priceBuildUnitId, setPriceBuildUnitId] = useState<string | null>(null);
 
   /**
+   * THE ONE MAP THE STACK RENDERS FROM — and therefore the one a click
+   * resolves against.
+   *
+   * P-PriceBuild-UX1: these were two. The cells were switched to the per-unit
+   * price build while `onTraceStackCell` still searched the quote-wide blend
+   * for the clicked key. `unit/{id}/{tier}/pkg` is not in a map of
+   * `quote/{tier}/…` keys, so the lookup missed, the handler returned early,
+   * and every contribution cell rendered as a button that did nothing.
+   *
+   * Naming it once removes the class of defect rather than the instance: a
+   * future change to what the stack shows cannot leave the click behind,
+   * because there is no second map to leave it in.
+   */
+  const stackByTier = useMemo(
+    () =>
+      (priceBuildUnitId === null
+        ? undefined
+        : priceBuildByUnit.get(priceBuildUnitId)) ?? EMPTY_STACK,
+    [priceBuildByUnit, priceBuildUnitId],
+  );
+
+  /**
    * The same fail-closed contract as `cellLabel`, for the tier a per-tier
    * adjustment chip names. An unresolved tier shows its raw id rather than a
    * blank — ugly and recoverable, where a chip naming the wrong tier beside an
@@ -756,7 +727,7 @@ export function PricingSurfaceShell({
       // list, matched on the key the cell was built from — not parsed out of
       // the key string.
       let tierId: number | null = null;
-      for (const [numeric, blend] of blendedByTier) {
+      for (const [numeric, blend] of stackByTier) {
         if (Object.values(blend.keys).includes(nodeKey)) {
           tierId = numeric;
           break;
@@ -767,16 +738,16 @@ export function PricingSurfaceShell({
         prev?.nodeKey === nodeKey ? null : { tierId, nodeKey, title },
       );
     },
-    [blendedByTier],
+    [stackByTier],
   );
 
   // A traced node whose tier has dropped out of the graph closes itself rather
   // than leaving a panel pinned beneath a row that no longer renders.
   useEffect(() => {
-    if (tracedTierId !== null && !blendedByTier.has(tracedTierId)) {
+    if (tracedTierId !== null && !stackByTier.has(tracedTierId)) {
       setTraced(null);
     }
-  }, [blendedByTier, tracedTierId]);
+  }, [stackByTier, tracedTierId]);
 
   // A-2 · the trace reads the graph with attribution merged in. The merge is
   // per-node and returns the same object where nothing resolved, so an
@@ -927,13 +898,9 @@ export function PricingSurfaceShell({
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
       <DetailZone
         state={state}
-        blendedByTier={
-          // The SELECTED unit's own price build. `blendedByTier` — the
-          // quote-wide leaf mean — is deliberately not passed: it is not the
-          // dollar construction of anything anyone sells.
-          (priceBuildUnitId === null ? undefined : priceBuildByUnit.get(priceBuildUnitId)) ??
-          new Map()
-        }
+        // The SELECTED unit's own price build — the same map the click
+        // handler resolves against, by construction.
+        blendedByTier={stackByTier}
         units={priceBuildUnits}
         selectedUnitId={priceBuildUnitId}
         onSelectUnit={setPriceBuildUnitId}

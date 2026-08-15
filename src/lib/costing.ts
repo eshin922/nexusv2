@@ -4027,29 +4027,82 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       const upt = rollupBySku.get(unit.id)?.perTier.find((p) => p.tierId === tier.id);
       if (!upt) continue;
       const unitBase = priceBuildKey(unit.id, tier.id);
-      const part = (name: string, label: string, value: number) => ({
-        key: nodeKey(unitBase, name),
-        kind: "origin" as const,
-        label,
-        value,
-        unit: "usd" as const,
-        origin: { grade: "thin" as const, actor: null, when: null, doc: null },
-      });
+      // The leaves this unit is made of. An Item Group traces to its members;
+      // a Direct Component standing alone is its own single contributor.
+      const members = unit.skuRole === "assembly"
+        ? skus.filter((s) => s.parentSkuId === unit.id)
+        : [unit];
+      // A COMPONENT TRACES TO THE LEAVES THAT COMPOSE IT (P-PriceBuild-UX1).
+      //
+      // These were bare origins, so clicking one opened a terminal with a
+      // number and no derivation — technically a trace, and useless. The
+      // operator's question is "what makes packaging $6.95", and the answer is
+      // the members.
+      //
+      // Value is the SUM OF THE OPERANDS, not the rollup's scalar, so the node
+      // is self-consistent by construction and cannot raise a reconciliation
+      // violation on a live surface. A test asserts the sum equals the unit
+      // rollup's own figure — if those ever diverge, a test fails rather than
+      // the Pricing page.
+      const part = (
+        name: string,
+        label: string,
+        pick: (p: SkuPerTierRollup) => number,
+      ) => {
+        const operands = members.flatMap((m) => {
+          const mpt = rollupBySku.get(m.id)?.perTier.find((x) => x.tierId === tier.id);
+          if (!mpt) return [];
+          return [{
+            key: nodeKey(unitBase, name, m.canonicalQuoteLeafId ?? m.id),
+            kind: "origin" as const,
+            label: m.skuLabel,
+            value: pick(mpt),
+            unit: "usd" as const,
+            origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+          }];
+        });
+        const value = operands.reduce((acc, o) => acc + o.value, 0);
+        return operands.length > 1
+          ? {
+              key: nodeKey(unitBase, name),
+              kind: "sum" as const,
+              label,
+              value,
+              unit: "usd" as const,
+              op: "Sigma " + label.toLowerCase() + " across " + operands.length + " product(s)",
+              operands,
+            }
+          : {
+              key: nodeKey(unitBase, name),
+              kind: "origin" as const,
+              label,
+              value,
+              unit: "usd" as const,
+              origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+            };
+      };
       // Exactly the five that compose the per-unit sell. Verified on live data:
       // 6.95 + 0 + 0 + 0.56 + 0 = 7.51 = requiredSellPerUnit.
       const parts = [
-        part("pkg", "Packaging", upt.packagingMarkupSumPerUnit),
-        part("prod", "Production", upt.productionMarkupSumPerUnit),
-        part("raw", "Bulk raw", upt.rawMarkupSumPerUnit),
-        part("frt", "Freight", upt.freightContainerMarkupSumPerUnit),
-        part("dt", "Duty & tariff", upt.freightDutyTariffMarkupSumPerUnit),
+        part("pkg", "Packaging", (p) => p.packagingMarkupSumPerUnit),
+        part("prod", "Production", (p) => p.productionMarkupSumPerUnit),
+        part("raw", "Bulk raw", (p) => p.rawMarkupSumPerUnit),
+        part("frt", "Freight", (p) => p.freightContainerMarkupSumPerUnit),
+        part("dt", "Duty & tariff", (p) => p.freightDutyTariffMarkupSumPerUnit),
       ];
+      // THE COMPONENTS SUM TO THE BUILD, NOT TO THE TERMINAL SELL.
+      //
+      // P-PriceBuild-1: this node was keyed `sell` and labelled as the
+      // finished-good sell. It is neither — it is the pre-adjustment baseline,
+      // and binding the terminal row to it made Tier 2 report $4.3262 as the
+      // customer sell while the ladder beneath it ran to $4.8337. It passed
+      // every fixture because those fixtures carried no adjustment, no lift and
+      // no override, so the build and the terminal happened to coincide. A test
+      // now pins them apart.
       graphNodes.push({
-        key: nodeKey(unitBase, "sell"),
+        key: nodeKey(unitBase, "sell-before"),
         kind: "sum",
-        label: unit.skuRole === "assembly"
-          ? "Finished-good sell per unit · " + unit.skuLabel
-          : "Product sell per unit · " + unit.skuLabel,
+        label: "Sell before adjustment · " + unit.skuLabel,
         value: parts.reduce((acc, p) => acc + p.value, 0),
         unit: "usd",
         op: "Packaging + Production + Bulk raw + Freight + Duty & tariff",
@@ -4070,7 +4123,16 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           origin: { grade: "thin", actor: null, when: null, doc: null },
         });
       scalar("cost", "Cost per unit", upt.contributionCostPerUnit);
-      scalar("sell-before", "Sell before adjustment", upt.sellBeforeAdjustmentPerUnit);
+      // THE GOVERNED TERMINAL. Read from the rollup, which already applied
+      // adjustment, lift and override under the engine's own precedence — a
+      // direct price is terminal there and stays terminal here. Deliberately
+      // NOT the sum of the displayed deltas: summing what a surface renders is
+      // how a presentation starts deciding a price.
+      scalar(
+        "sell",
+        unit.skuRole === "assembly" ? "Finished-good sell per unit" : "Product sell per unit",
+        upt.requiredSellPerUnit,
+      );
       scalar("adj-delta", "Price adjustment contribution", upt.adjDeltaPerUnit);
       scalar("sell-after-adj", "Sell after adjustment", upt.sellAfterAdjustmentPerUnit);
       scalar("lift-delta", "Surgical lift contribution", upt.liftDeltaPerUnit);

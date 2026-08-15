@@ -72,13 +72,17 @@ function quote(extra: {
   };
 }
 
+/** The BUILD — components summed. Pre-adjustment by construction. */
 const build = (input: QuoteCostingInput, unitId: string) =>
+  findNode(computeQuoteCosting(input).graph, priceBuildKey(unitId, TIER, "sell-before"));
+/** The governed TERMINAL sell, after adjustment, lift and override. */
+const terminal = (input: QuoteCostingInput, unitId: string) =>
   findNode(computeQuoteCosting(input).graph, priceBuildKey(unitId, TIER, "sell"));
 
 const parts = (node: any): Record<string, number> =>
   Object.fromEntries((node.operands ?? []).map((o: any) => [o.key.split("/").pop(), o.value]));
 
-test("F1 · an Item Group's components ADD to its finished-good sell", () => {
+test("F1 · an Item Group's components ADD to its pre-adjustment build", () => {
   const node = build(quote(), "A");
   // 16 of cost at 25% = 20. Composition, not a coincidence of one number:
   // every component is named and they sum to the whole.
@@ -154,10 +158,11 @@ test("F5b · a Direct Component standing alone is its own unit of account", () =
   const input = quote({ skus: [leaf("d1", null)], packaging: [pkg("d1", 40)] });
   const direct = build(input, "d1");
   assert.equal(direct.value, 50);
+  assert.equal(terminal(input, "d1").value, 50); // no levers on this fixture
   // Its label names a product, not a finished good — the two are different
   // commercial objects and the copy must not conflate them.
-  assert.match(direct.label, /^Product sell per unit/);
-  assert.match(build(input, "A").label, /^Finished-good sell per unit/);
+  assert.match(terminal(input, "d1").label, /^Product sell per unit/);
+  assert.match(terminal(input, "A").label, /^Finished-good sell per unit/);
   // And a leaf INSIDE a group is not a unit of account, or the same dollars
   // would be addressable twice.
   assert.equal(findNode(computeQuoteCosting(input).graph, priceBuildKey("a1", TIER, "sell")), null);
@@ -185,4 +190,40 @@ test("the blend nodes are NOT removed — they remain a margin-analysis primitiv
   const sellBlend = findNode(g, `quote/${TIER}/sell`);
   assert.ok(sellBlend);
   assert.equal(sellBlend.kind, "blend");
+});
+
+test("P-PriceBuild-1 · the terminal sell is NOT the build when a lever is applied", () => {
+  // THE TEST THAT WAS MISSING. Every fixture above carries no adjustment, no
+  // lift and no override, so the build and the terminal coincide and a binding
+  // to the wrong one passes all of them. Live Tier 2 showed the cost of that:
+  // a $4.3262 baseline presented as the customer sell while the ladder beneath
+  // it ran to $4.8337.
+  const adjusted: QuoteCostingInput = {
+    ...quote(),
+    quote: { id: "q", globalPriceAdjPct: 0.1, targetMarginPct: null },
+  };
+  const b = build(adjusted, "A");
+  const t = terminal(adjusted, "A");
+  assert.equal(b.value, 20, "the build is unmoved by a pricing lever");
+  assert.ok(t.value > b.value, `terminal ${t.value} must exceed build ${b.value}`);
+  assert.equal(t.value, 22);
+  // And it is the engine's own figure, not a sum of rendered deltas.
+  const roll = computeQuoteCosting(adjusted).skuRollups.find((s) => s.skuId === "A")!.perTier[0];
+  assert.equal(t.value, roll.requiredSellPerUnit);
+});
+
+test("P-PriceBuild-1 · the ladder reconciles to the terminal, which is why the footer goes green", () => {
+  // `sellBefore + adjDelta + liftDelta + overrideDelta === sell` is the rule
+  // the strip enforces. It reported three failing columns because `sell` was
+  // bound to the baseline, so the identity could only hold where every lever
+  // was zero. Asserted here so the footer turns green from the binding rather
+  // than from a loosened epsilon.
+  const adjusted: QuoteCostingInput = {
+    ...quote(),
+    quote: { id: "q", globalPriceAdjPct: 0.1, targetMarginPct: null },
+  };
+  const g = computeQuoteCosting(adjusted).graph;
+  const v = (n: string) => findNode(g, priceBuildKey("A", TIER, n)).value;
+  const sum = v("sell-before") + v("adj-delta") + v("lift-delta") + v("override-delta");
+  assert.ok(Math.abs(sum - v("sell")) < 1e-9, `ladder ${sum} vs terminal ${v("sell")}`);
 });
