@@ -284,3 +284,43 @@
  * treatment in full. */
 .r11-bcell.r11-cg.sel.cg-below_target { background: var(--warn-soft); }
 .r11-bcell.r11-cg.sel.cg-below_floor  { background: var(--bad-soft); }
+
+/* ── P-Lift-2 · the breach a lift cannot reach ────────────────────────────
+ *
+ * A tier whose only remaining below-floor cells carry direct prices has no
+ * bulk correction available, because a direct price is terminal. It used to
+ * render an em-dash there, which reads as "nothing to do" — the opposite of
+ * true — and before that an actionable button that silently did nothing.
+ *
+ * Deliberately NOT a `.btn`. It is not a correction; it is a statement about
+ * why no correction is offered, that happens to be navigable. Giving it button
+ * chrome next to "Lift all N to floor" would present two equal-looking actions
+ * where only one acts.
+ *
+ * Warn rather than bad: the cell is already tinted `--bad-soft` by B-16, and
+ * a second red here would double-signal one condition. This says "your bulk
+ * action stops short", which is a caution about the tool, not the breach. */
+.r11-manual-remains {
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  border-left: 2px solid var(--warn);
+}
+
+.r11-manual-remains:hover { background: var(--warn-soft); color: var(--ink); }
+
+.r11-manual-remains:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* When a lift IS available and still cannot finish, this sits under the
+ * button and must read as its footnote rather than a competing control. */
+.btn + .r11-manual-remains { margin-top: 4px; }

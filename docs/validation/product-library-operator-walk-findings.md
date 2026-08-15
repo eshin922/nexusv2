@@ -1314,3 +1314,96 @@ state.
 the two named components. It establishes they contain no action — it does not
 establish that no OTHER surface depends on their presence for layout or focus
 order. Check that at implementation time.
+
+---
+
+## P-Lift-2 — "Lift all to floor" offered a correction precedence had ruled out
+
+**Reported:** Pricing re-walk, 2026-08-15. **Status:** repaired, pending re-walk.
+
+**Observed.** A tier sits below floor, one of its cells has a directly-set
+price, the bulk CTA remains available, and invoking it produces no visible
+correction.
+
+### Characterization, before any arithmetic changed
+
+The semantics were already decided and are unchanged: a direct price is
+terminal. The engine refuses a lift over one (`LiftRejection` "overridden") and
+the classifier already computes `lift_blocked`.
+
+| question | answer |
+|---|---|
+| below-floor cells in the tier | both cells of the fixture |
+| direct-priced | one (`sellSource: "cell_override"`) |
+| lift-eligible | one |
+| **cells the bulk action actually attempted to mutate** | **both** |
+
+That last row is the defect. `lift_offer_pct` is populated for ANY below-floor
+cell — deliberately, so a cell can show what WOULD clear it. The CTA filtered on
+that field alone, so it counted the blocked cell, promised "Lift all 2 to
+floor", staged both, and the engine refused the one a person had priced. The
+count was the thing that was wrong, not the refusal.
+
+**Eligible cells were NOT affected** — measured rather than assumed, since the
+instruction was to stop and trace if they were. In the same batch the eligible
+cell moves 10.50 → 15.75 and clears the floor while its blocked sibling is
+refused. The refusal is per-cell; the batch is not poisoned. No second
+functional defect on that axis.
+
+### Repair
+
+- `need` — the set the button both COUNTS and MUTATES — excludes
+  `lift_blocked`, so the promise and the act cannot drift apart.
+- The section's visibility gate uses the same predicate, so a tier whose only
+  breaches are direct-priced renders no actionable CTA.
+- Where a lift is available but cannot finish, the excluded cells are stated
+  beneath it as a footnote.
+- Where nothing is liftable, the em-dash — which reads as "nothing to do", the
+  opposite of true — is replaced by
+  **`1 manual price remains below floor · adjust directly`**, which opens the
+  affected cell's action panel.
+
+Pricing precedence is untouched. No lift layers over a terminal direct price.
+
+## P-Lift-3 — a REFUSED lift zeroed the cell's computed sell
+
+**Found:** while characterizing P-Lift-2. **Status:** repaired. **Distinct
+defect**, more serious than the one that surfaced it.
+
+`costing.ts` read `const computedSellPerUnit = (liftedNode ?? adjustmentNode).value`.
+When a lift is refused, `liftedNode` is the `flagged-out` node, whose value is 0
+**by definition** — that is what flagged-out means, and the node is correct.
+Taking it as the computed sell made a refusal zero the cell's computed price.
+
+Invisible on an overridden cell's own margin, because the override is terminal
+and margin reads through it. **Not invisible downstream:** the assembly rollup
+sums children's `computedSellPerUnit`, and the tier-adjust derivation divides by
+it — so a refused lift silently under-reported a parent's computed sell and
+could hand the solver a base of zero.
+
+The discriminator used by the repair is the one the very next statement already
+applies (`liftedNode.kind === "adjustment"`). Only an APPLIED lift is the chain;
+a refused one leaves the computed chain standing and hangs the reason off it.
+
+Reach is wider than the override case: the same zeroing occurred for any
+`liftRejection`, including `attachment_ambiguous` on a cell with no override at
+all, where margin WOULD have been affected.
+
+1358/1358 with the fix; no test moved that was not about this.
+
+## Governance note — 2f29af72 moved again, during the re-walk
+
+The pre-refresh isolation went from CLEAN to flagging `2f29af72` mid-session.
+Established rather than assumed: the movement is identical with all working-tree
+changes stashed, so it is data, not code. Audit shows three `source:
+"pricing_apply"` writes at 19:34:50, 19:35:03 and 19:36:16 — direct prices set
+to 4.0000 then 3.0000, then adjustments cleared and GPA reset 0.05 → 0. The
+clean run preceded all three.
+
+This is the operator walking the Pricing surface — the same session that
+produced P-Lift-2 — so it is expected activity, not a harness incident. But it
+is the fourth time this quote has moved the gate, and it was already retired
+from mutation as S-7 evidence. **A quote cannot be both frozen evidence and the
+live walk subject.** While the re-walk continues, S-7 differences on 2f29af72
+are a moving target, which is a further reason not to refresh the baseline
+against it.

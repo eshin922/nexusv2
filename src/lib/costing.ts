@@ -2451,7 +2451,25 @@ function computeLeafPerTier(args: {
           }
         : null;
 
-  const computedSellPerUnit = (liftedNode ?? adjustmentNode).value;
+  // A REFUSED lift must be inert, not destructive.
+  //
+  // This read `(liftedNode ?? adjustmentNode).value`. When a lift is refused,
+  // `liftedNode` is the `flagged-out` node, whose value is 0 BY DEFINITION —
+  // that is what flagged-out means, and the node is right. Taking it as the
+  // computed sell made a refusal zero the cell's computed price.
+  //
+  // Invisible on an overridden cell's own margin, because the override is
+  // terminal and margin reads through it. Not invisible downstream: the
+  // assembly rollup sums children's `computedSellPerUnit`, and the tier-adjust
+  // derivation divides by it — so a refused lift silently under-reported a
+  // parent's computed sell and could hand the solver a base of 0.
+  //
+  // The discriminator is the one the very next statement already uses. Only an
+  // APPLIED lift is the chain; a refused one leaves the computed chain standing
+  // and hangs the reason off it.
+  const computedSellPerUnit = (
+    liftedNode !== null && liftedNode.kind === "adjustment" ? liftedNode : adjustmentNode
+  ).value;
   // Slice 9.3 — per-cell override is TERMINAL. When set, it replaces
   // computedSellPerUnit entirely; downstream margin/revenue use this
   // value. Action layer rejects override <= 0, so positive value

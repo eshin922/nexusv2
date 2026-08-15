@@ -160,6 +160,39 @@ export interface ComplianceGridProps {
   resolveCell?: (skuId: string, tierId: number) => CellRef | null;
 }
 
+/**
+ * P-Lift-2 · the tier's breach that no lift can reach.
+ *
+ * A direct price is terminal, so a below-floor cell carrying one is not a
+ * failure of the bulk action — it is outside its authority. The operator needs
+ * three things and this says all three: that something is still below floor,
+ * that a percentage lift is not the instrument, and which cell it is.
+ *
+ * Navigable rather than descriptive. Pressing it opens the same `CellAction`
+ * panel the grid opens anywhere else, so "adjust directly" is a step the
+ * operator can take from here instead of a hunt through the grid for a red
+ * cell they have already been told about.
+ */
+function ManualPriceRemains({
+  cells,
+  onSelect,
+}: {
+  cells: ReadonlyArray<Cell>;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="r11-manual-remains"
+      title={cells.map((c) => c.sku_name).join(" · ")}
+      onClick={() => onSelect(`${cells[0].sku_id}:${cells[0].tier_id}`)}
+    >
+      {cells.length} manual price{cells.length === 1 ? "" : "s"} remain
+      {cells.length === 1 ? "s" : ""} below floor · adjust directly
+    </button>
+  );
+}
+
 export function ComplianceGrid({
   targetPct,
   floorPct,
@@ -398,7 +431,7 @@ export function ComplianceGrid({
         Nothing is written. These land in the working set with everything else
         and wait for the one Apply that governs the page.
       */}
-      {state.cells.some((c) => c.outstanding && c.lift_offer_pct !== null) && (
+      {state.cells.some((c) => c.outstanding && c.lift_offer_pct !== null && !c.lift_blocked) && (
         <div className="r11-brow">
           <div className="r11-slab">
             <span className="n" style={{ fontSize: 12, color: "var(--ink-3)" }}>
@@ -409,29 +442,56 @@ export function ComplianceGrid({
             // Only cells the solver actually offered a lift for. An outstanding
             // cell with no offer is one the solver declined — bulk-staging a
             // number it refused to name would be inventing the correction.
-            const need = state.cells.filter(
-              (c) =>
-                c.tier_id === t.id &&
-                c.outstanding &&
-                c.lift_offer_pct !== null &&
-                resolveCell?.(c.sku_id, c.tier_id) != null,
+            //
+            // P-Lift-2 · AND ONLY CELLS A LIFT CAN REACH. `lift_offer_pct` is
+            // computed for ANY below-floor cell, deliberately, so a cell can
+            // show what WOULD clear it. Counting on that alone put direct-priced
+            // cells in the batch: the button promised "Lift all 2 to floor",
+            // staged both, and the engine refused the one whose price a person
+            // had set. A direct price is terminal, so the correction was never
+            // available — the count was the thing that was wrong.
+            //
+            // The exclusion is here, on the set the button both COUNTS and
+            // MUTATES, so the promise and the act cannot drift apart.
+            const outstanding = state.cells.filter(
+              (c) => c.tier_id === t.id && c.outstanding && resolveCell?.(c.sku_id, c.tier_id) != null,
             );
+            const need = outstanding.filter((c) => c.lift_offer_pct !== null && !c.lift_blocked);
+            const blocked = outstanding.filter((c) => c.lift_blocked);
             return (
               <div className="r11-scell flat" key={t.id}>
                 {need.length > 0 ? (
-                  <button
-                    type="button"
-                    className="btn sm"
-                    style={{ width: "100%" }}
-                    onClick={() => {
-                      for (const c of need) {
-                        const ref = resolveCell?.(c.sku_id, c.tier_id);
-                        if (ref) stageLift(ref, c.lift_offer_pct as number);
-                      }
-                    }}
-                  >
-                    Lift all {need.length} to floor
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn sm"
+                      style={{ width: "100%" }}
+                      onClick={() => {
+                        for (const c of need) {
+                          const ref = resolveCell?.(c.sku_id, c.tier_id);
+                          if (ref) stageLift(ref, c.lift_offer_pct as number);
+                        }
+                      }}
+                    >
+                      Lift all {need.length} to floor
+                    </button>
+                    {/*
+                      The lift is available AND cannot finish the job. Saying
+                      only "Lift all 3" would let an operator press it, watch
+                      the tier stay red, and have nothing on screen account for
+                      the difference.
+                    */}
+                    {blocked.length > 0 && (
+                      <ManualPriceRemains cells={blocked} onSelect={setSelected} />
+                    )}
+                  </>
+                ) : blocked.length > 0 ? (
+                  // Nothing is liftable and something is still breaching. An
+                  // em-dash here reads as "nothing to do", which is the exact
+                  // opposite of true, and the previous CTA was worse: it was
+                  // actionable and did nothing. State the real condition and
+                  // point at the cell that owns it.
+                  <ManualPriceRemains cells={blocked} onSelect={setSelected} />
                 ) : (
                   <span className="cost">—</span>
                 )}
