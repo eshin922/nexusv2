@@ -412,8 +412,28 @@ export function PricingStagingProvider({
           setCommitError(result.error.message);
           return;
         }
-        setCommitted(next);
-        setWorking(next);
+        // ADOPT THE SERVER'S RESULTING STATE, do not assume the request was it.
+        //
+        // This set both to `next` — what the client SENT. Fine while every write
+        // was something the client asked for; wrong the moment a global Apply
+        // began clearing tier overrides the client never mentioned. The client
+        // kept believing those rows existed, resent them next Apply against an
+        // empty quote, the server wrote them back as `null -> 0.0000`, and the
+        // sweep cleared them again — a strict alternation where every second
+        // Apply suppressed the global with explicit zeros.
+        //
+        // The entered percentage was never involved. 11% and 101% landed on the
+        // failing phase and 12% and 50% on the passing one, which is what made
+        // it read as a value problem.
+        const serverTierAdj: Record<string, number> = {};
+        for (const t of result.data.tierAdjustments) serverTierAdj[t.tierId] = t.adjPct;
+        const reconciled: PricingSet = {
+          ...next,
+          tierAdj: serverTierAdj,
+          globalAdj: result.data.globalAdjPct,
+        };
+        setCommitted(reconciled);
+        setWorking(reconciled);
       });
     },
     [committable, quoteId, storeApi],

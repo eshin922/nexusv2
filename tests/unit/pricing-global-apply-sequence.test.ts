@@ -150,3 +150,89 @@ test("an operator-authored tier 0% suppresses the global, and only a global Appl
     t1: "0.3000", t2: "0.3000", t3: "0.3000", t4: "0.3000",
   });
 });
+
+
+/**
+ * ROUND-TRIP, the way the browser actually does it.
+ *
+ * Every test above modelled the SERVER's state machine and passed while the
+ * browser alternated, because they re-derived the client's next request from
+ * server truth — which is precisely the thing that was broken. The client set
+ * its committed state from what it SENT, so after a clearing Apply it still
+ * believed four zero rows existed and resent them.
+ *
+ * This models both halves: the server's persisted state AND the client's belief
+ * about it, with the client updating only from what the action RETURNS.
+ */
+type Client = { tierAdj: Map<string, string>; globalAdj: string };
+
+function roundTrip(server: Persisted, client: Client, nextGlobal: string) {
+  // The client sends its own belief, exactly as `commit()` does.
+  const plan = planApply({
+    intendedLifts: new Map(), intendedOverrides: new Map(),
+    persistedLifts: new Map(), persistedOverrides: new Map(),
+    intendedTierAdj: new Map(client.tierAdj),
+    persistedTierAdj: server.tierAdj,
+    globalAdjFrom: server.globalAdj,
+    globalAdjTo: nextGlobal,
+  });
+  const tierAdj = new Map(server.tierAdj);
+  for (const r of plan.tierAdjRemoved) tierAdj.delete(r.key);
+  for (const c of plan.tierAdjSet) tierAdj.set(c.key, c.to);
+  const nextServer: Persisted = {
+    globalAdj: plan.globalAdj ? plan.globalAdj.to : server.globalAdj,
+    tierAdj,
+  };
+  // THE REPAIR: the action returns the RESULTING state and the client adopts
+  // it, rather than echoing the request back.
+  const nextClient: Client = {
+    tierAdj: new Map(nextServer.tierAdj),
+    globalAdj: nextServer.globalAdj,
+  };
+  return { nextServer, nextClient, created: plan.tierAdjSet.map((c) => c.key) };
+}
+
+test("THE BROWSER PATH · every governed percentage applies, none is silently zeroed", () => {
+  // The operator's exact set. Values are irrelevant to the defect — it was a
+  // phase, not a threshold — so the point of running all of them is that the
+  // alternation cannot hide in any one of them.
+  const PCTS = ["0.0000", "0.0100", "0.1100", "0.1200", "0.5000", "1.0000", "1.0100", "3.0000"];
+  // Start from the live broken state: four explicit zeros left by the defect.
+  let server: Persisted = {
+    globalAdj: "0.1000",
+    tierAdj: new Map(TIERS.map((t) => [t, "0.0000"])),
+  };
+  let client: Client = { tierAdj: new Map(server.tierAdj), globalAdj: server.globalAdj };
+
+  for (const pct of PCTS) {
+    const step = roundTrip(server, client, pct);
+    server = step.nextServer;
+    client = step.nextClient;
+    assert.deepEqual(step.created, [], `applying ${pct} created tier rows`);
+    // The governed rule: with no tier override, every tier prices at the global.
+    assert.deepEqual(
+      effective(server),
+      Object.fromEntries(TIERS.map((t) => [t, pct])),
+      `applying ${pct} did not reach every tier`,
+    );
+    // And the UI's claim matches the effective rate — never "currently X%"
+    // over a silent zero.
+    assert.equal(client.globalAdj, pct);
+  }
+});
+
+test("the client never diverges from the server about tier state", () => {
+  // The divergence WAS the defect. One assertion, checked at every step.
+  let server: Persisted = { globalAdj: "0.0000", tierAdj: new Map([["t2", "0.0500"]]) };
+  let client: Client = { tierAdj: new Map(server.tierAdj), globalAdj: server.globalAdj };
+  for (const pct of ["0.1100", "0.1200", "1.0100", "0.1100"]) {
+    const step = roundTrip(server, client, pct);
+    server = step.nextServer;
+    client = step.nextClient;
+    assert.deepEqual(
+      [...client.tierAdj].sort(),
+      [...server.tierAdj].sort(),
+      `client and server disagree after applying ${pct}`,
+    );
+  }
+});

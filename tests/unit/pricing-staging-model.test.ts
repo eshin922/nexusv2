@@ -186,8 +186,17 @@ test("committed moves only after the write succeeded", () => {
   // The ordering IS the property. Moving `committed` first clears the chips and
   // leaves an APPLIED bar describing adjustments the quote does not carry —
   // the precise failure the bar exists to prevent.
-  const guard = CODE.indexOf("if (!result.ok)");
-  const move = CODE.indexOf("setCommitted(next)");
+  // SCOPED TO `commit`, and matched on the call rather than its argument.
+  //
+  // It searched the whole file for `setCommitted(next)` and broke when the
+  // committed state stopped being the request and became the server's returned
+  // result — a change that made this property MORE true, not less. Broadening
+  // to `setCommitted(` then matched an unrelated identity-set earlier in the
+  // file, which sits before the guard and inverted the assertion. Both failures
+  // came from asking the file a question that only makes sense of one function.
+  const fn = CODE.slice(CODE.indexOf("const commit = useCallback("));
+  const guard = fn.indexOf("if (!result.ok)");
+  const move = fn.indexOf("setCommitted(");
   assert.ok(guard > -1, "no failure branch on the write result");
   assert.ok(move > -1, "committed is never advanced");
   assert.ok(guard < move, "committed advances before the result is checked");

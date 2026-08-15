@@ -431,6 +431,30 @@ export async function applyPricingAdjustments(
     } = plan;
     const globalAdjMoved = plan.globalAdj !== null;
 
+    /**
+     * THE RESULTING TIER STATE, not the requested one.
+     *
+     * This action returned `input.tierAdjustments` — an echo of what the client
+     * SENT — and the client set its committed state from it. That was survivable
+     * while every write was something the client had asked for. It stopped being
+     * survivable when a global Apply began clearing tier overrides the client
+     * never mentioned: the client kept believing four zero rows existed, resent
+     * them next Apply against a now-empty quote, the server wrote them back as
+     * `null -> 0.0000`, and the sweep cleared them again. A strict alternation,
+     * every second Apply silently suppressing the global with explicit zeros.
+     *
+     * The value the operator entered was never involved, which is why 11% and
+     * 101% "failed" while 12% and 50% "worked" — they landed on opposite phases.
+     *
+     * So the server states what IS, and the client adopts it.
+     */
+    const resultingTierAdj = new Map(persistedTierAdj);
+    for (const r of tierAdjRemoved) resultingTierAdj.delete(r.key);
+    for (const c of tierAdjSet) resultingTierAdj.set(c.key, c.to);
+    const resultingTierAdjustments: AppliedTierAdjInput[] = [...resultingTierAdj].map(
+      ([tierId, adjPct]) => ({ tierId, adjPct: Number(adjPct) }),
+    );
+
     if (changeCount === 0) {
       // Nothing to write and nothing to record. An audit row saying an operator
       // committed no change is noise in the one log that has to stay readable.
@@ -438,7 +462,7 @@ export async function applyPricingAdjustments(
         quoteId: quote.id,
         lifts: input.lifts,
         overrides: input.overrides,
-        tierAdjustments: input.tierAdjustments,
+        tierAdjustments: resultingTierAdjustments,
         globalAdjPct: Number(storedGlobalAdj),
         changeCount: 0,
       };
@@ -665,7 +689,7 @@ export async function applyPricingAdjustments(
       quoteId: quote.id,
       lifts: input.lifts,
       overrides: input.overrides,
-      tierAdjustments: input.tierAdjustments,
+      tierAdjustments: resultingTierAdjustments,
       globalAdjPct: Number(storedGlobalAdj),
       changeCount,
     };
