@@ -20,6 +20,7 @@ import { type FreightLegMode, isFreightLegMode } from "@/lib/enum-labels";
 import {
   ActionGuardError,
   ERR,
+  assertDraft,
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
@@ -919,12 +920,11 @@ export async function updateLegTierCell(
     if (rows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Leg rate cell not found");
     const { row, quote } = rows[0];
-    if (quote.status !== "draft") {
-      throw new ActionGuardError(
-        ERR.QUOTE_NOT_DRAFT,
-        `Quote is ${quote.status} and not editable.`,
-      );
-    }
+    // OD-023 · normalized from an inline `status !== "draft"` check. Same
+    // invariant, same refusal — but stated in the shared helper, so measuring
+    // draft coverage finds it. The inline form is why an earlier sweep reported
+    // this path as unguarded.
+    assertDraft(quote);
 
     const newTotalFreight = parseNumericOrNull(formData.get("totalFreight"));
     const newUnitsInShipment = parseIntOrNull(formData.get("unitsInShipment"));
@@ -1025,9 +1025,8 @@ export async function updateFreightComponentTierCost(
     if (owner.quoteId !== owner.leafQuoteId || owner.quoteId !== owner.tierQuoteId) {
       throw new ActionGuardError(ERR.VALIDATION, "Freight component identity crosses Quotes.");
     }
-    if (owner.status !== "draft") {
-      throw new ActionGuardError(ERR.QUOTE_NOT_DRAFT, `Quote is ${owner.status} and not editable.`);
-    }
+    // OD-023 · normalized from an inline check, as above.
+    assertDraft(owner);
     const [saved] = await db
       .insert(freightLegComponentTierCosts)
       .values({ freightLegId, quoteLeafId, tierId, actualFreightCost })

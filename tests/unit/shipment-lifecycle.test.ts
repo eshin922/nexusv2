@@ -114,12 +114,24 @@ test("multiple blockers are all reported, not just the first", () => {
 // ---------------------------------------------------------------------------
 
 test("5 · a frozen quote is refused before any evaluation or mutation", () => {
-  assert.match(body, /assertNotFrozen\(row\.quote\)/);
+  // OD-023 · this also asserted `assertNotFrozen(row.quote)`. That call was
+  // REMOVED, and the property it was standing in for is unchanged.
+  //
+  // `assertNotFrozen` passes on `sent`, so it never expressed this action's
+  // rule; `quoteByIdDraft` beside it already refused strictly more — every
+  // status the removed call rejected, plus `sent`. Asserting the weaker call
+  // made the module read as not-frozen-governed, which is how an OD-023 sweep
+  // came to attribute it to the wrong function and conclude the module was
+  // unguarded.
+  //
+  // So the assertion is now the PROPERTY — a frozen quote is refused, and the
+  // refusal precedes any read of the shipment's children — rather than the
+  // mechanism that happened to be written first.
   assert.match(body, /quoteByIdDraft\(row\.quote\.id\)/);
-  // The freeze check must precede the child queries, not follow them.
   assert.ok(
-    body.indexOf("assertNotFrozen") < body.indexOf("select({ id: freightDestinations.id"),
-    "assertNotFrozen must run before shipment data is read",
+    body.indexOf("quoteByIdDraft(row.quote.id)") <
+      body.indexOf("select({ id: freightDestinations.id"),
+    "the refusal must run before shipment data is read",
   );
 });
 

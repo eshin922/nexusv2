@@ -12,6 +12,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { assertCanEditSpecs } from "@/lib/spec-permission-guard";
+import { quoteByIdDraft } from "@/lib/quote-guards";
 import {
   decodePinnedSchema,
   resolveSpecSchema,
@@ -104,6 +105,24 @@ export async function updateLeafSpec(
 
     // Permission gate (Path B per Architect Gate 5; impl-1 helper).
     const user = await assertCanEditSpecs();
+
+    // OD-023 · a QUOTE-scoped spec value is customer-visible: it renders in the
+    // PDF specification addendum. Editing one after Send would change an
+    // artifact the customer already has, which is the whole defect OD-023
+    // exists to close.
+    //
+    // LIBRARY scope is deliberately NOT gated. That row is a template owning no
+    // quote's values, so there is no quote whose draft-ness could be asserted —
+    // and requiring one would make master data uneditable whenever any quote
+    // happened to be sent. The pin at attachment is what stops a later library
+    // edit from reaching an already-sent quote; this guard covers the other
+    // direction, which the pin does not.
+    //
+    // The only unguarded commercial writer the per-function classification
+    // found. Every other module in the sweep already enforced draft through a
+    // loader guard, which the earlier count missed because it searched for a
+    // helper NAME rather than for the property.
+    if ("quoteId" in scope) await quoteByIdDraft(scope.quoteId);
 
     // Load leaf + verify product_type and schema validates the key.
     const leafRows = await db
