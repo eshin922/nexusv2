@@ -1237,6 +1237,59 @@ Kept SEPARATE from OD-026. Not merged without evidence.
 
 ---
 
+### OD-028 · Duplicate member positions let physical row order choose the visible freight owner
+
+**Owner:** Nexus engineering + Edward · **Status:** OPEN, logged not repaired ·
+**Severity:** presentation. **Explicitly NOT a commercial-integrity defect** —
+see the arithmetic note below before treating it as one.
+
+> `quote_leaves.position` is not unique within an assembly, and the freight
+> anchor is "the lowest-position leaf". When members tie, the tie is broken by
+> physical row order, so which product is shown bearing a shipment's freight is
+> decided by storage layout rather than by anything governed.
+
+Measured on `2f29af72`, which carries three members of one Item Group all at
+`position 0`:
+
+```
+source quote          anchor 7733dc76      (the leaf carrying a cell override)
+copy of that quote    anchor 45cf4e60      same structure, same positions
+S-7 captured baseline anchor 36ba0f31      same quote, earlier row layout
+```
+
+Stable per quote — five consecutive reads of each side return the same anchor —
+but not stable across a copy, and not stable across time for one quote.
+
+**Quote arithmetic is now owner-invariant.** The Pattern 58 repair (`fae9098`)
+holds freight sell outside the owning SKU's per-cell levers, so cost, sell,
+revenue and margin at quote and tier scope no longer move when the anchor does.
+Verified against all three tiers plus the quote summary: 27 aggregate checks,
+zero breaches, max |Δ| 5.8e-11.
+
+What remains is **presentation**: per-product freight, per-product margin and
+the per-product cost/revenue split differ between a quote and an otherwise
+equivalent copy. An operator comparing two scenarios sees the shipment filed
+against a different product line, with correct totals.
+
+**Treat as a separate structural-consistency item — total order / position
+normalization.** Do NOT fold it into the freight arithmetic repair:
+
+- the repair's whole value is that it makes the anchor commercially irrelevant;
+  stabilising the anchor instead would have made the symptom reproducible while
+  leaving revenue dependent on which product a shipment was filed under
+- normalizing positions is a write against live quotes, and
+  `projectSnapshotWorkbook` already warns that re-deriving anchors "would move
+  WHICH leaf bears freight on live quotes"
+- a total order needs deciding on its merits (position, then created_at, then
+  id?) and applying wherever member order is read, not only at the anchor
+
+**Consequence for S-7 while this is open:** the captured baseline holds a third
+anchor again, so `verify:s7-preserved` reports the per-SKU residue as a
+preservation breach. That residue is attribution-only and is characterized in
+OD-013's neighbourhood by `scripts/gate-1b/characterize-s7-residual.ts`.
+
+---
+
 ### OD-026 · Direct Component packaging ignores the leaf's own multiplicity
 
 **Owner:** Nexus engineering + Edward · **Status:** OPEN, traced not repaired ·
