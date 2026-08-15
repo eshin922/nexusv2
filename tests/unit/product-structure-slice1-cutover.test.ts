@@ -308,6 +308,12 @@ const classifiedIdentityFiles = new Set([
   // fewer groups. Holding both is what makes that a comparison rather than an
   // assertion; the junction appears only inside a `count(*)` taken to be beaten.
   "scripts/verify/od-023-snapshot-completeness.ts",
+  // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
+  // what the V1 freight distribution policy moved across the S-7 basket before
+  // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment
+  // membership key the policy distributes across. It writes nothing and
+  // resolves no legacy junction.
+  "scripts/gate-1b/pre-refresh-isolation.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

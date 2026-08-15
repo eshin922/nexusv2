@@ -56,6 +56,7 @@ import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
+import { resolveLegacyFreightAttribution } from "@/lib/freight-legacy-attribution";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
   parseMarginPercent,
@@ -374,10 +375,15 @@ async function loadWorksheetFreightForQuote(
   // OD-023 · current-version read, as above. Historical customer output is
   // addressed by `readQuoteVersion`, not inferred from this predicate.
   if (quote.status !== "draft" && quote.snapshotId) {
-    const [snapshot] = await db.select({ workbook: quoteSnapshotFreightWorkbooks.workbook })
+    const [snapshot] = await db.select({
+      workbook: quoteSnapshotFreightWorkbooks.workbook,
+      // The legacy-attribution discriminator. Capture time, not quote age:
+      // what matters is which contract the record was FROZEN under.
+      frozenAt: quoteSnapshotFreightWorkbooks.createdAt,
+    })
       .from(quoteSnapshotFreightWorkbooks)
       .where(eq(quoteSnapshotFreightWorkbooks.quoteSnapshotId, quote.snapshotId)).limit(1);
-    if (snapshot) return projectSnapshotWorkbook(snapshot.workbook as FreightWorkbook);
+    if (snapshot) return projectSnapshotWorkbook(snapshot.workbook as FreightWorkbook, snapshot.frozenAt);
   }
   if (quote.status !== "draft") return [];
   const rows = await db
@@ -483,6 +489,7 @@ async function loadWorksheetFreightForQuote(
 
 function projectSnapshotWorkbook(
   workbook: FreightWorkbook,
+  frozenAt: Date,
 ): NonNullable<QuoteCostingInput["freightShipmentBreaks"]> {
   const selectedDestinationIds = new Set(
     workbook.subcategories.map((row) => row.selectedDestinationId).filter((id): id is string => id !== null),
@@ -504,13 +511,35 @@ function projectSnapshotWorkbook(
     // contained at the time — not across whatever the live tables say now.
     // That is the same governed boundary the draft path uses, read from the
     // frozen copy.
-    const members = workbook.memberships
+    const recorded = workbook.memberships
       .filter((m) => m.freightSubcategoryId === subcategory.id)
       .map((m) => m.quoteLeafId);
-    // Same declination on a historical read, and more emphatically: a sent
-    // version is a record of what was sent. Refusing to render one because its
-    // frozen membership is empty would make a past quote unreadable over a
-    // rule introduced after it was sent.
+    // LEGACY COMPATIBILITY — historical preservation, not current policy.
+    //
+    // A sent version is a record of what was sent. DPS-1050 was sent, accepted
+    // and pushed before membership existed as a requirement, and reading it
+    // under the equal-split rule finds no recipient and silently drops $650 of
+    // real cost from a completed customer-facing quote.
+    //
+    // The snapshot already holds the answer: `costingContext` froze the
+    // attribution AT SEND. This reads it. It does not reconstruct one, and if
+    // the record does not carry one it declines — see the resolver, which has
+    // no fallback by design.
+    //
+    // Unreachable from the draft path, which is the real guarantee that a
+    // malformed CURRENT quote cannot be exempted: it is not gated away from
+    // this branch, it cannot arrive at it.
+    const legacy =
+      recorded.length === 0
+        ? resolveLegacyFreightAttribution({
+            frozenAt,
+            subcategoryId: subcategory.id,
+            assemblyId: subcategory.assemblyId ?? null,
+            frozenMemberCount: 0,
+            costingContext: workbook.costingContext,
+          })
+        : null;
+    const members = legacy?.eligible ? [legacy.memberSkuId] : recorded;
     if (members.length === 0) return [];
     const duty = customsCharge(subcategory.id, row.tierId, "duty");
     const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
