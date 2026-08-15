@@ -395,6 +395,15 @@ export function classifyNodeKey(
       };
     }
     case "quoted": {
+      // The operator's terminal is `quoted` when it stands alone and
+      // `quoted/operator` when a shipment rides the same cell and the root
+      // becomes a sum. Both are the same human act.
+      //
+      // `quoted/freight` is NOT. It is the shipment's governed sell, held
+      // outside the override per Pattern 58, and attributing it to the person
+      // who typed the price would name the wrong author for a figure they did
+      // not set — and, worse, would make it look authored at all.
+      if (parts[3] !== undefined && parts[3] !== "operator") return null;
       const legacy = index.legacyLeafBySkuId.get(skuId);
       return {
         inputType: "sell_price_override",

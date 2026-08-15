@@ -436,6 +436,25 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
   // genuinely invariant: the QUOTE. Per-leaf placement is expected to differ,
   // because that is precisely what "attribution" means; a test asserting
   // per-leaf equality would be asserting that attribution does nothing.
+  //
+  // ── WHY THE TWO ANCHORS CARRY DIFFERENT ECONOMICS ────────────────────────
+  //
+  // The earlier form of this test gave both candidate anchors the SAME markup
+  // and no per-cell pricing lever, so every route through the sell ladder
+  // multiplied the freight portion by the same scalar and the invariant held
+  // for a reason the test never stated. A fixture that cannot distinguish the
+  // anchors cannot certify that the anchor does not matter — it can only
+  // report that nothing in it varied. Pattern 58 demands a falsification, so
+  // each case below makes the two anchors deliberately UNALIKE on one
+  // SKU-level pricing lever at a time, holding shipment, freight amount,
+  // membership and quantities identical and moving only ownership.
+  //
+  // Measured on production quote 2f29af72: three leaves share position 0 in
+  // one assembly, so the lowest-position anchor is a tie the copy is free to
+  // break differently. One of those leaves carries a cell override. Anchored
+  // there the shipment's governed freight sell vanished into the operator's
+  // stated price; anchored on a sibling it survived — Tier 2 revenue 107,225
+  // against 113,105 for the same costs. Case (b) is that quote in miniature.
   const shipment = (ownerSkuId: string) => ({
     freightSubcategoryId: "sub-1",
     ownerSkuId,
@@ -454,51 +473,133 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
   // currently guaranteed only where leaf quantity is 1, which is every live
   // attachment — so it holds on production data but not by construction.
   const uniform = attachments().map((a) => ({ ...a, quantity: "1" }));
-  const runUniform = (ownerSkuId: string) =>
+
+  // The two anchors already differ in COST and in MARKUP CATEGORY, so their
+  // effective sell ratios differ in every case below before any per-cell lever
+  // is added: 10 at Primary 0.40 against 20 at Secondary 1.50.
+  const runUniform = (
+    ownerSkuId: string,
+    extra: Partial<BuildQuoteCostingInputFromNewModelArgs> = {},
+  ) =>
     computeQuoteCosting(
       buildQuoteCostingInputFromNewModel(
         args({
+          markupDefaults: { Primary: 0.4, Secondary: 1.5 },
           quoteLeafAttachments: uniform,
           assemblyLeafInputs: [
             line("ql-direct", TIER_A, "10"),
-            line("ql-member", TIER_A, "20"),
+            { ...line("ql-member", TIER_A, "20"), category: "Secondary" },
           ],
           freightShipmentBreaks: [shipment(ownerSkuId)],
+          ...extra,
         } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
       ),
     );
-  const onDirect = runUniform("ql-direct");
-  const onMember = runUniform("ql-member");
-  const tier = (r: typeof onDirect) => r.quoteRollup.find((t) => t.tierId === TIER_A)!;
 
-  // Freight amount, markup, customs and landed cost — one figure covering all
-  // four, because they compose into it and a change in any would move it.
-  assert.equal(
-    tier(onDirect).costBreakdown.freight,
-    tier(onMember).costBreakdown.freight,
-    "freight/customs contribution must not depend on the anchor",
-  );
-  assert.equal(
-    tier(onDirect).costBreakdown.freightContainer,
-    tier(onMember).costBreakdown.freightContainer,
-  );
-  assert.equal(
-    tier(onDirect).costBreakdown.dutyAndTariff,
-    tier(onMember).costBreakdown.dutyAndTariff,
-  );
-  // Landed cost and quoted sell at the quote level.
-  assert.equal(tier(onDirect).totalCost, tier(onMember).totalCost, "landed cost");
-  assert.equal(tier(onDirect).totalRevenue, tier(onMember).totalRevenue, "quoted sell");
-
-  // And the anchor DID do something — otherwise this test would pass on a
-  // build where attribution was silently dropped altogether.
-  const leafFreight = (r: typeof onDirect, skuId: string) =>
+  const tierOf = (r: ReturnType<typeof runUniform>) =>
+    r.quoteRollup.find((t) => t.tierId === TIER_A)!;
+  const leafFreight = (r: ReturnType<typeof runUniform>, skuId: string) =>
     r.skuRollups.find((s) => s.skuId === skuId)!.perTier.find((t) => t.tierId === TIER_A)!
       .totalContainerFreightBeforeMarkup;
-  assert.ok(leafFreight(onDirect, "ql-direct") > 0);
-  assert.equal(leafFreight(onDirect, "ql-member"), 0);
-  assert.ok(leafFreight(onMember, "ql-member") > 0);
-  assert.equal(leafFreight(onMember, "ql-direct"), 0);
+
+  function invariant(
+    label: string,
+    extra: Partial<BuildQuoteCostingInputFromNewModelArgs> = {},
+  ) {
+    const onDirect = runUniform("ql-direct", extra);
+    const onMember = runUniform("ql-member", extra);
+
+    // Freight amount, markup, customs and landed cost — one figure covering
+    // all four, because they compose into it and a change in any would move it.
+    assert.equal(
+      tierOf(onDirect).costBreakdown.freight,
+      tierOf(onMember).costBreakdown.freight,
+      `${label}: freight/customs contribution must not depend on the anchor`,
+    );
+    assert.equal(
+      tierOf(onDirect).costBreakdown.freightContainer,
+      tierOf(onMember).costBreakdown.freightContainer,
+      `${label}: container freight`,
+    );
+    assert.equal(
+      tierOf(onDirect).costBreakdown.dutyAndTariff,
+      tierOf(onMember).costBreakdown.dutyAndTariff,
+      `${label}: duty and tariff`,
+    );
+    // Landed cost, quoted sell and margin at the quote level.
+    assert.equal(
+      tierOf(onDirect).totalCost,
+      tierOf(onMember).totalCost,
+      `${label}: landed cost`,
+    );
+    assert.equal(
+      tierOf(onDirect).totalRevenue,
+      tierOf(onMember).totalRevenue,
+      `${label}: quoted sell`,
+    );
+    assert.equal(
+      tierOf(onDirect).blendedMarginPct,
+      tierOf(onMember).blendedMarginPct,
+      `${label}: margin`,
+    );
+
+    // And the anchor DID do something — otherwise these assertions would pass
+    // on a build where attribution was silently dropped altogether.
+    assert.ok(leafFreight(onDirect, "ql-direct") > 0, `${label}: attribution present`);
+    assert.equal(leafFreight(onDirect, "ql-member"), 0, `${label}: attribution exclusive`);
+    assert.ok(leafFreight(onMember, "ql-member") > 0, `${label}: attribution moves`);
+    assert.equal(leafFreight(onMember, "ql-direct"), 0, `${label}: attribution moves`);
+
+    // P3-017 · the ladder still reconciles on every cell.
+    //
+    // Holding freight out of the lift and out of the override changes two of
+    // these four rungs, and no pre-existing fixture combines freight with
+    // either lever — so without this the identity would be unasserted in
+    // exactly the configuration that moved. Checked per CELL, which is where
+    // the rungs are produced; the tier-scope aggregation of the same identity
+    // is p3-017-tier-ladder-authority.test.ts.
+    for (const r of [onDirect, onMember])
+      for (const s of r.skuRollups)
+        for (const pt of s.perTier) {
+          const rungs =
+            pt.sellBeforeAdjustmentPerUnit +
+            pt.adjDeltaPerUnit +
+            pt.liftDeltaPerUnit +
+            pt.overrideDeltaPerUnit;
+          assert.ok(
+            Math.abs(rungs - pt.requiredSellPerUnit) < 1e-9,
+            `${label}: ladder reconciles on ${s.skuId} — ` +
+              `${rungs} vs ${pt.requiredSellPerUnit}`,
+          );
+        }
+  }
+
+  // (a) Unequal cost and unequal markup category, no per-cell lever.
+  invariant("markup");
+
+  // (b) One anchor is priced by operator override — a TERMINAL value that
+  //     replaces the computed chain. This is the production case.
+  invariant("cell override", {
+    assemblyLeafOverrides: [
+      { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "5" },
+    ],
+  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+
+  // (c) One anchor carries a surgical lift — a per-cell multiplier the other
+  //     anchor does not have. Same shape as (b): a lever belonging to the SKU,
+  //     not to the shipment.
+  invariant("surgical lift", {
+    lifts: [{ quoteLeafId: "ql-direct", tierId: TIER_A, liftPct: "0.2" }],
+  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+
+  // (d) Both levers at once, on opposite anchors — the arrangement in which a
+  //     partial repair still reads as a pass.
+  invariant("override and lift on opposite anchors", {
+    assemblyLeafOverrides: [
+      { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "5" },
+    ],
+    lifts: [{ quoteLeafId: "ql-member", tierId: TIER_A, liftPct: "0.2" }],
+  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
 });
 
 test("PATTERN 58 (was the OD-025 tripwire) · anchor invariance, now permanent", () => {

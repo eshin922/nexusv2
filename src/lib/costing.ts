@@ -2049,6 +2049,12 @@ function computeLeafPerTier(args: {
   //
   // Emitting rate nodes for the worksheet would assert a percentage nobody
   // entered. The graph follows whichever model the engine actually used.
+  //
+  // Held outside the block so the sell ladder below can name the freight
+  // section as a quantity. Pattern 58: freight sell is governed by the freight
+  // pricing authority, and the levers that price the OWNING SKU must be able
+  // to say what they do and do not cover.
+  let freightSectionValue = 0;
   {
     const frtBase = nodeKey(sku.id, tier.id, "frt");
     const money = (v: number) => "$" + v;
@@ -2226,6 +2232,7 @@ function computeLeafPerTier(args: {
       operands: shipmentNodes,
     };
     cellSections.push(freightSectionNode);
+    freightSectionValue = freightSectionNode.value;
 
     // ---------- OWNERSHIP TRANSITION 3 of 6 · Freight / customs ----------
     // `totalLandedWithMarkup` is the freight scalar that feeds sell, and it now
@@ -2268,6 +2275,44 @@ function computeLeafPerTier(args: {
     operands: cellSections,
   };
   const sellBeforeAdjustment = sellBeforeNode.value;
+
+  // ---------- PATTERN 58 · the freight/product boundary in the sell ladder ---
+  //
+  // Which leaf a shipment anchors on is an ATTRIBUTION choice — on production
+  // quote 2f29af72 three leaves share position 0, so the lowest-position anchor
+  // is a tie any rebuild is free to break differently. Pattern 58 therefore
+  // requires that the anchor move nothing commercial, and freight sell is
+  // commercial.
+  //
+  // The price adjustment is safe to leave over the whole cell: it resolves
+  // `tier ?? global`, so every SKU in a tier carries the same one and it cannot
+  // vary with the anchor. The two levers BELOW are not safe — a surgical lift
+  // and a per-cell override both belong to one (SKU, tier) cell, so routing
+  // freight through either makes the shipment's governed sell depend on which
+  // leaf happened to carry it. Measured: the same quote read 107,225 or 113,105
+  // at Tier 2 on identical costs, according to whether the anchor landed on the
+  // overridden leaf.
+  //
+  // So the product build-up is summed here SEPARATELY — added, never obtained
+  // by subtracting freight from the total. `(A − F)` cancels catastrophically
+  // when the freight portion approaches the composite, which is the float
+  // hazard OD-025 already paid for once.
+  const productBeforeAdjustment = cellSections.reduce(
+    (acc, n) => (n.key === nodeKey(sku.id, tier.id, "frt") ? acc : acc + n.value),
+    0,
+  );
+  const productAfterAdjustment = productBeforeAdjustment * (1 + effectiveAdj);
+  // The governed freight sell as it reaches the quote: the freight authority's
+  // figure, carrying the quote-or-tier adjustment and nothing else.
+  const freightAfterAdjustment = freightSectionValue * (1 + effectiveAdj);
+  // A cell with no freight has nothing to hold out, and the two forms are then
+  // the SAME arithmetic: `product` is `sell-before` term for term, so
+  // `A + P x lift` and `A x (1 + lift)` are one expression. Keeping the
+  // existing nodes there is not a special case hiding the defect — it is
+  // declining to restate an identity, and it keeps the float bit-identical on
+  // every cell the shipment never touched.
+  const freightRidesThisCell = freightSectionValue !== 0;
+
   // Slice 9.3 — `computedSellPerUnit` is the pure markup-chain result.
   // Always exposed for UI ("was $X" tooltip on OVR badges).
   // ---------- OWNERSHIP TRANSITION 5 of 6 · Final sell / override ----------
@@ -2322,8 +2367,20 @@ function computeLeafPerTier(args: {
   // traversable, valued zero, and carrying the reason. Omitting it would make
   // a refusal indistinguishable from an absence at exactly the moment an
   // operator needs to know their lever did nothing and why.
+  //
+  // PATTERN 58 · the lift acts on the PRODUCT, not on the shipment. It is a
+  // per-cell lever, so a lift reaching freight would make the shipment's sell
+  // depend on which leaf the shipment anchored to. The node therefore publishes
+  // the lift as a CONTRIBUTION over a stated basis, and the sum above it
+  // carries the adjusted cell — freight included, exactly once, still owned by
+  // `sell-before`.
+  //
+  // The basis is DATA rather than an operand for the reason `rate` and `ratio`
+  // already give: the product build-up is computed elsewhere in this chain, and
+  // making it an operand would put one node under two parents, which resolves
+  // every duplicated key to nothing.
   const liftedNode: CostingNode | null =
-    cellLift !== null
+    cellLift !== null && !freightRidesThisCell
       ? {
           key: nodeKey(sku.id, tier.id, "lift"),
           kind: "adjustment",
@@ -2333,17 +2390,6 @@ function computeLeafPerTier(args: {
           op: "$" + adjustmentNode.value + " x (1 + " + cellLift + " lift)",
           operands: [
             adjustmentNode,
-            // An `origin`, not a `rate`. The reconciliation guard caught the
-            // difference and it is a real one: `rate` is a non-terminal — an
-            // amount DERIVED by applying a percentage to a basis, as duty and
-            // tariff are. The lift percentage is not derived from anything. A
-            // person chose it, which makes it a terminal with provenance, and
-            // the same shape the adjustment's own percentage already uses.
-            //
-            // `grade: "thin"` until A-2 lands the input-type -> audit-row
-            // query. Stated rather than defaulted: the trace's promise is that
-            // a chain terminates in a human act, and this terminal knows it
-            // cannot name one yet.
             {
               key: nodeKey(sku.id, tier.id, "lift", "pct"),
               kind: "origin",
@@ -2351,6 +2397,54 @@ function computeLeafPerTier(args: {
               value: cellLift,
               unit: "pct",
               origin: { grade: "thin", actor: null, when: null, doc: null },
+            },
+          ],
+        }
+      : cellLift !== null
+      ? {
+          key: nodeKey(sku.id, tier.id, "lift"),
+          kind: "sum",
+          label: "Sell after lift",
+          value: adjustmentNode.value + productAfterAdjustment * cellLift,
+          unit: "usd",
+          op: "sell after adjustment + surgical lift on the product",
+          operands: [
+            adjustmentNode,
+            {
+              key: nodeKey(sku.id, tier.id, "lift", "contribution"),
+              kind: "rate",
+              label: "Surgical lift",
+              value: productAfterAdjustment * cellLift,
+              unit: "usd",
+              op:
+                "$" + productAfterAdjustment + " product x " + cellLift + " lift",
+              basis: {
+                label:
+                  "Sell after adjustment, excluding freight and customs — a lift " +
+                  "prices this product, and the shipment is only attributed here",
+                value: productAfterAdjustment,
+              },
+              operands: [
+                // An `origin`, not a `rate`. The reconciliation guard caught the
+                // difference and it is a real one: `rate` is a non-terminal — an
+                // amount DERIVED by applying a percentage to a basis, as duty and
+                // tariff are. The lift percentage is not derived from anything. A
+                // person chose it, which makes it a terminal with provenance, and
+                // the same shape the adjustment's own percentage already uses.
+                //
+                // `grade: "thin"` until A-2 lands the input-type -> audit-row
+                // query. Stated rather than defaulted: the trace's promise is that
+                // a chain terminates in a human act, and this terminal knows it
+                // cannot name one yet.
+                {
+                  key: nodeKey(sku.id, tier.id, "lift", "pct"),
+                  kind: "origin",
+                  label: "Lift",
+                  value: cellLift,
+                  unit: "pct",
+                  origin: { grade: "thin", actor: null, when: null, doc: null },
+                },
+              ],
             },
           ],
         }
@@ -2381,7 +2475,8 @@ function computeLeafPerTier(args: {
   // computed chain so the refusal is reachable from the cell it concerns
   // rather than filed somewhere the operator would have to know to look.
   const computedChain: CostingNode =
-    liftedNode !== null && liftedNode.kind === "adjustment"
+    liftedNode !== null &&
+    (liftedNode.kind === "sum" || liftedNode.kind === "adjustment")
       ? liftedNode
       : liftedNode !== null
         ? {
@@ -2389,18 +2484,84 @@ function computeLeafPerTier(args: {
             operands: [...(adjustmentNode.operands ?? []), liftedNode],
           }
         : adjustmentNode;
-  const cellRootNode: CostingNode =
-    cellOverride !== null
+  // PATTERN 58 · what the operator's price REPLACES.
+  //
+  // It replaces the computed price of this product. It does not replace the
+  // shipment's freight, because the operator was not pricing the shipment: the
+  // cell they typed into is the freight anchor only by an ordering accident
+  // they cannot see, and on a rebuild the accident can fall elsewhere. Letting
+  // the override swallow the freight is what made the same quote worth 107,225
+  // or 113,105 at Tier 2 on identical costs.
+  //
+  // So the root is a SUM of two governed figures — the operator's product price
+  // and the freight authority's sell — and the override terminal keeps its own
+  // key, its own value, and the superseded computation beneath it.
+  const overrideRootNode: CostingNode | null =
+    cellOverride !== null && freightRidesThisCell
       ? {
-          key: nodeKey(sku.id, tier.id, "quoted"),
+          key: nodeKey(sku.id, tier.id, "quoted", "operator"),
           kind: "override",
-          label: "Quoted sell",
+          label: "Operator price",
           value: cellOverride,
           unit: "usd",
           origin: { grade: "thin", actor: null, when: null, doc: null },
           superseded: computedChain,
         }
-      : computedChain;
+      : null;
+  const cellRootNode: CostingNode =
+    overrideRootNode !== null
+      ? {
+          key: nodeKey(sku.id, tier.id, "quoted"),
+          kind: "sum",
+          label: "Quoted sell",
+          value: cellOverride! + freightAfterAdjustment,
+          unit: "usd",
+          op: "operator price + freight and customs",
+          operands: [
+            overrideRootNode,
+            {
+              key: nodeKey(sku.id, tier.id, "quoted", "freight"),
+              kind: "rate",
+              label: "Freight and customs",
+              value: freightAfterAdjustment,
+              unit: "usd",
+              op:
+                "$" + freightSectionValue + " freight x " + (1 + effectiveAdj),
+              // DATA, not an operand — the freight section already has a parent
+              // in the superseded computation, and a key reachable twice
+              // resolves to nothing for every consumer of it.
+              basis: {
+                label:
+                  "Freight and customs sell per unit, before the price " +
+                  "adjustment — governed by the shipment, not by this price",
+                value: freightSectionValue,
+              },
+              operands: [
+                {
+                  key: nodeKey(sku.id, tier.id, "quoted", "freight", "adj"),
+                  kind: "origin",
+                  label: "Price adjustment multiplier",
+                  value: 1 + effectiveAdj,
+                  unit: "pct",
+                  origin: { grade: "thin", actor: null, when: null, doc: null },
+                },
+              ],
+            },
+          ],
+        }
+      : cellOverride !== null
+        ? {
+            // No freight on this cell, so the operator's price IS the whole
+            // answer and the terminal stands alone, exactly as before.
+            key: nodeKey(sku.id, tier.id, "quoted"),
+            kind: "override",
+            label: "Quoted sell",
+            value: cellOverride,
+            unit: "usd",
+            origin: { grade: "thin", actor: null, when: null, doc: null },
+            superseded: computedChain,
+          }
+        : computedChain;
   graphSink?.push(cellRootNode);
   const requiredSellPerUnit = cellRootNode.value;
   const sellSource: SellSource = cellOverride !== null ? "cell_override" : "computed";
@@ -2455,10 +2616,17 @@ function computeLeafPerTier(args: {
     // reason. Absent and refused are different states everywhere else in this
     // graph; they are the same number here only because a refusal genuinely
     // moves the price by nothing.
-    liftDeltaPerUnit: cellLift !== null ? adjustmentNode.value * cellLift : 0,
+    //
+    // PATTERN 58 · the lift contribution is over the PRODUCT. The rungs above
+    // are unchanged — `sell-before` and the adjustment still carry the whole
+    // build-up, freight included — so the tier ladder identity
+    // `sellBefore + adjDelta + liftDelta + overrideDelta === quotedSell`
+    // continues to hold, with the override rung absorbing the freight the
+    // operator's price does not cover.
+    liftDeltaPerUnit: cellLift !== null ? productAfterAdjustment * cellLift : 0,
     sellAfterLiftPerUnit: computedChain.value,
     overrideDeltaPerUnit:
-      cellOverride !== null ? cellOverride - computedChain.value : 0,
+      cellOverride !== null ? cellRootNode.value - computedChain.value : 0,
     marginPct,
     // Slice 9.4a — verdict band against effective target (per-quote
     // override or firm) and firm floor. Uses the same computeStatus
@@ -2644,17 +2812,22 @@ function rollUpAssemblyPerTier(
         ? r.sellAfterAdjustmentPerUnit / r.sellBeforeAdjustmentPerUnit
         : 1;
     const fAfterAdj = fSellBefore * adjRatio;
-    const liftRatio =
-      r.sellAfterAdjustmentPerUnit !== 0
-        ? r.sellAfterLiftPerUnit / r.sellAfterAdjustmentPerUnit
-        : 1;
-    const fAfterLift = fAfterAdj * liftRatio;
 
-    // A per-cell override REPLACES the computed price outright. It is an
-    // operator-stated price for one component unit and carries no separable
-    // freight portion, so it folds by quantity in full — the pre-existing
-    // behaviour, preserved deliberately rather than by omission.
-    const fRequired = r.sellSource === "cell_override" ? 0 : fAfterLift;
+    // PATTERN 58 · below the adjustment the freight portion STOPS MOVING.
+    //
+    // The lift and the override are per-cell levers, and the cell they act on
+    // is the freight anchor by an ordering accident. Both used to reach the
+    // freight — the lift by scaling it, the override by annihilating it — which
+    // made the shipment's contribution to quote revenue depend on which leaf
+    // carried it. The engine now holds freight out of both, so the freight
+    // inside `requiredSellPerUnit` is `fAfterAdj` whichever route the cell took.
+    //
+    // The former asymmetry read as reasonable: "an operator-stated price for
+    // one component unit carries no separable freight portion." It was true of
+    // the price and false of the quote — the freight had not been priced by the
+    // operator, so treating it as absorbed simply lost it.
+    const fAfterLift = fAfterAdj;
+    const fRequired = fAfterAdj;
 
     // Mixed-dimension composites.
     contribution += foldMixed(r.contributionCostPerUnit, fCost, q);

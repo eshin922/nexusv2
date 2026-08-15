@@ -71,6 +71,7 @@ import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workboo
 import {
   attachGroupedMembership,
 } from "@/lib/product-structure/grouped-membership-compatibility";
+import { attachDirectProduct } from "@/lib/product-structure/direct-attachment";
 import {
   revalidateQuoteLifecycleSurfaces,
   revalidateQuoteTree,
@@ -3068,20 +3069,41 @@ export async function clearCustomerAcceptance(
 // freight clone graph per the locked Cloneable bucket
 // (docs/cc-fr12-copy-operations-kickoff.md §3).
 //
-// Cloneable:  assemblies, assembly_leaves (point at SAME library
-//             leaves), quote_tiers (qty RESET), freight_leg_groups,
-//             freight_legs (POLICY columns + customs JSONB)
-// Inherited:  project_id (from `targetProjectId` arg — different
-//             from source.projectId on cross-project; same on
-//             within-project)
-// Reset:      id, version_number=1, status='draft', sent_at,
-//             accepted_at, pdf_url, hubspot_quote_id, notes,
-//             valid_until, retail_benchmark, all quote_tiers.qty,
-//             freight leg shipment dates, scenario_status='active',
-//             copied_from_quote_id=source.id
-// Dropped per Pattern 32: packaging_inputs, production_inputs,
-//             quote_sku_tiers, quote_sku_tier_targets — all FK to
-//             legacy quoteSkus.id chain; orphan for v1 quotes.
+// THE CONTRACT: a copy is an editable ALTERNATIVE whose initial working
+// commercial state is EQUIVALENT to the source. Immediately after the copy and
+// before any operator edit, cost / sell / revenue / margin must match at every
+// tier. Anything that does not carry must be justified as workflow or history,
+// never as an oversight.
+//
+// Cloneable:  assemblies, grouped membership, DIRECT products, quote_tiers
+//             INCLUDING qty, quote-owned specs, per-leaf packaging inputs +
+//             overrides + targets, per-assembly production inputs, freight
+//             (leg groups, legs, POLICY columns + customs JSONB), pricing
+//             adjustments, and BOTH working note fields
+// Inherited:  project_id (from `targetProjectId` arg — different from
+//             source.projectId on cross-project; same on within-project)
+// Reset:      id, version_number=1, status='draft', sent_at, accepted_at,
+//             pdf_url, quote_number, hubspot_quote_id, valid_until,
+//             NetSuite/provider transaction state, audit history,
+//             scenario_status='active', copied_from_quote_id=source.id
+//
+// ── IDENTITY (2026-08-14; this is what the previous note got wrong) ─────────
+// `quote_leaves.id` is the canonical cost identity per OD-017. Per-leaf source
+// queries MUST select on `quote_leaf_id`. The legacy `assembly_leaf_id` is
+// NULLABLE, and NULL is never `IN` a list — so selecting through it silently
+// EXCLUDES canonical-only rows before the unmapped-reference guards below can
+// ever see them. That is not a caught failure; it is a successful commit of an
+// incomplete clone, which is strictly worse because nothing reports it.
+//
+// The note this replaces said cost inputs were "dropped per Pattern 32" as an
+// orphan legacy chain. That was TRUE when written and became false at Slice
+// 11.5 — the tables it named stopped carrying the data, and the comment went on
+// explaining a decision that no longer described the code. It then justified
+// the omission to every reader who checked. A stale rationale is more dangerous
+// than no rationale: it answers the question that would otherwise be asked.
+//
+// Do NOT reintroduce dual-key or legacy-fallback selection to "preserve old
+// behavior". Canonical identity is `quote_leaf_id`.
 //
 // All inserts run inside the caller's transaction `tx`. Returns
 // the new quote id. Does NOT emit the scenario_copied audit row —
@@ -3176,7 +3198,11 @@ async function cloneFreightWorksheet(
   // Tracking is operational execution state and intentionally starts empty.
 }
 
-async function cloneQuoteGraph(
+// Exported for the rollback proof in scripts/gate-1b/verify-scenario-copy.ts,
+// which runs this inside a transaction it then aborts. That falsifies the one
+// property a static read cannot settle: that NO write here escapes the caller's
+// `tx` onto the ambient `db` connection. Not part of the action surface.
+export async function cloneQuoteGraph(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   args: {
     sourceQuoteId: string;
@@ -3219,6 +3245,14 @@ async function cloneQuoteGraph(
       pdfLayoutSnapshot: source.pdfLayoutSnapshot,
       detailLevelSnapshot: source.detailLevelSnapshot,
       includeSpecAddendumSnapshot: source.includeSpecAddendumSnapshot,
+      // Working notes carry (2026-08-14). A copy is an alternative taken from
+      // the current commercial context, not a blank quote — the sourcing
+      // dependency or customer caveat that motivated the alternative is
+      // usually the reason it exists. The operator can edit or clear either
+      // field on the copy; recovering a lost note is harder than deleting an
+      // unwanted one.
+      internalNotes: source.internalNotes,
+      customerFacingNotes: source.customerFacingNotes,
       // PM-provided label (defaults to "Alt N" upstream of caller)
       scenarioLabel: args.newScenarioLabel,
       intentNote: args.intentNote,
@@ -3331,7 +3365,22 @@ async function cloneQuoteGraph(
       .select()
       .from(assemblyLeaves)
       .where(inArray(assemblyLeaves.assemblyId, sourceAssemblyIds))
-      .orderBy(asc(assemblyLeaves.position));
+      // `position` is NOT unique — real quotes carry ties (2f29af72 has three
+      // members of one Item Group all at position 0). Ordering on it alone
+      // leaves the read order to the plan, so two clones of one source can
+      // insert the same members in different orders. `createdAt, id` makes the
+      // CLONE repeatable.
+      //
+      // It does NOT make the anchor stable: the costing loader orders by
+      // (assemblyId, position) with no tiebreak of its own, so which member
+      // anchors per-assembly production is decided by physical row order at
+      // read time. See the Scenario Copy finding — that is a costing-layer
+      // defect, not something this clone can close.
+      .orderBy(
+        asc(assemblyLeaves.position),
+        asc(assemblyLeaves.createdAt),
+        asc(assemblyLeaves.id),
+      );
     if (sourceJunctions.length > 0) {
       for (const sourceJunction of sourceJunctions) {
         const newAsyId = assemblyIdMap.get(sourceJunction.assemblyId);
@@ -3360,141 +3409,6 @@ async function cloneQuoteGraph(
         });
         assemblyLeafIdMap.set(sourceJunction.id, attached.assemblyLeafId);
         quoteLeafIdMap.set(sourceJunction.quoteLeafId, attached.quoteLeafId);
-      }
-    }
-
-    // Copy-scenario extension (2026-07-15) — Clone cost data
-    // that FR-12 spec missed. Slice 11.5 migrated cost data from
-    // legacy quote_skus-based tables (packaging_inputs /
-    // production_inputs / quote_sku_tiers) to NEW-model
-    // assembly_leaf_inputs / assembly_production_inputs /
-    // assembly_leaf_overrides / assembly_leaf_targets. The FR-12
-    // Cloneable bucket was authored against the OLD model and never
-    // updated post-11.5 migration. Result: clones had structure
-    // (assemblies + leaves + tiers) but zero cost data → useless
-    // draft (PM had to re-enter every cost input).
-    //
-    // These are copied under the Cloneable bucket (same posture as
-    // assemblies.unit_price / .unit_cost — commercial data survives
-    // the clone). PMs can still edit any cell on the new draft.
-
-    // 1. assembly_leaf_inputs — packaging cost rows (per-leaf per-tier)
-    if (sourceJunctions.length > 0) {
-      const sourceLeafInputs = await tx
-        .select()
-        .from(assemblyLeafInputs)
-        .where(
-          inArray(
-            assemblyLeafInputs.assemblyLeafId,
-            sourceJunctions.map((j) => j.id),
-          ),
-        );
-      if (sourceLeafInputs.length > 0) {
-        // line_group_id is a synthetic UUID grouping rows across
-        // tiers for the same "packaging line." Generate new ids to
-        // avoid confusing forensic queries between source and new
-        // (both refs to same line_group_id would read as "same line"
-        // when they're not).
-        const lineGroupIdMap = new Map<string, string>();
-        for (const r of sourceLeafInputs) {
-          if (!lineGroupIdMap.has(r.lineGroupId)) {
-            lineGroupIdMap.set(r.lineGroupId, randomUUID());
-          }
-        }
-        await tx.insert(assemblyLeafInputs).values(
-          sourceLeafInputs.map((r) => {
-            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
-            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
-            const newTierId = tierIdMap.get(r.tierId);
-            const newLineGroupId = lineGroupIdMap.get(r.lineGroupId);
-            if (!newLeafId || !newTierId || !newLineGroupId) {
-              throw new Error(
-                `clone: assembly_leaf_inputs unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
-              );
-            }
-            return {
-              quoteLeafId: newLeafId,
-              assemblyLeafId: newLegacyId,
-              tierId: newTierId,
-              lineGroupId: newLineGroupId,
-              sortOrder: r.sortOrder,
-              pricingVendorHubspotCompanyId:
-                r.pricingVendorHubspotCompanyId,
-              pricingVendorNameSnapshot: r.pricingVendorNameSnapshot,
-              supplier: r.supplier,
-              qtyPerSellableUnit: r.qtyPerSellableUnit,
-              category: r.category,
-              markupPct: r.markupPct,
-              markupPctSource: r.markupPctSource,
-              inventoryEligible: r.inventoryEligible,
-              notes: r.notes,
-              unitCost: r.unitCost,
-              purchaseQty: r.purchaseQty,
-            };
-          }),
-        );
-      }
-
-      // 2. assembly_leaf_overrides — per-cell sell-price overrides
-      const sourceOverrides = await tx
-        .select()
-        .from(assemblyLeafOverrides)
-        .where(
-          inArray(
-            assemblyLeafOverrides.assemblyLeafId,
-            sourceJunctions.map((j) => j.id),
-          ),
-        );
-      if (sourceOverrides.length > 0) {
-        await tx.insert(assemblyLeafOverrides).values(
-          sourceOverrides.map((r) => {
-            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
-            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
-            const newTierId = tierIdMap.get(r.tierId);
-            if (!newLeafId || !newTierId) {
-              throw new Error(
-                `clone: assembly_leaf_overrides unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
-              );
-            }
-            return {
-              quoteLeafId: newLeafId,
-              assemblyLeafId: newLegacyId,
-              tierId: newTierId,
-              sellPriceOverride: r.sellPriceOverride,
-            };
-          }),
-        );
-      }
-
-      // 3. assembly_leaf_targets — per-cell client benchmarks
-      const sourceTargets = await tx
-        .select()
-        .from(assemblyLeafTargets)
-        .where(
-          inArray(
-            assemblyLeafTargets.assemblyLeafId,
-            sourceJunctions.map((j) => j.id),
-          ),
-        );
-      if (sourceTargets.length > 0) {
-        await tx.insert(assemblyLeafTargets).values(
-          sourceTargets.map((r) => {
-            const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
-            const newLegacyId = r.assemblyLeafId ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null : null;
-            const newTierId = tierIdMap.get(r.tierId);
-            if (!newLeafId || !newTierId) {
-              throw new Error(
-                `clone: assembly_leaf_targets unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
-              );
-            }
-            return {
-              quoteLeafId: newLeafId,
-              assemblyLeafId: newLegacyId,
-              tierId: newTierId,
-              clientTargetPricePerUnit: r.clientTargetPricePerUnit,
-            };
-          }),
-        );
       }
     }
 
@@ -3527,6 +3441,159 @@ async function cloneQuoteGraph(
             otherServiceTotal: r.otherServiceTotal,
             bulkRawCost: r.bulkRawCost,
             actualUnitsProduced: r.actualUnitsProduced,
+          };
+        }),
+      );
+    }
+  }
+
+  // ── DIRECT PRODUCTS ──────────────────────────────────────────────────────
+  // A Direct Product is a `quote_leaves` row with `assembly_id = NULL` and NO
+  // `assembly_leaves` junction (see direct-attachment.ts — the asymmetry is
+  // the design). The clone used to enumerate products ONLY by walking
+  // `assembly_leaves`, so a Direct Product was structurally invisible to it:
+  // not dropped by a decision, never seen at all. Nothing errored, because
+  // nothing looked.
+  //
+  // Attached through the same path the operator's own Add Product uses, so a
+  // copy is BUILT the way a quote is built rather than assembled by inserting
+  // rows behind the invariants — the duplicate check and the quote-owned spec
+  // authority both apply here exactly as they do interactively.
+  const sourceDirectLeaves = await tx
+    .select()
+    .from(quoteLeaves)
+    .where(
+      and(
+        eq(quoteLeaves.quoteId, args.sourceQuoteId),
+        isNull(quoteLeaves.assemblyId),
+      ),
+    )
+    .orderBy(asc(quoteLeaves.position));
+  for (const direct of sourceDirectLeaves) {
+    const attached = await attachDirectProduct(tx, {
+      quoteId: newQuoteId,
+      leafId: direct.leafId,
+      quantity: direct.quantity,
+      position: direct.position,
+      createdBy: args.createdByUserId,
+      specTemplateFromQuoteId: args.sourceQuoteId,
+    });
+    quoteLeafIdMap.set(direct.id, attached.quoteLeafId);
+  }
+
+  // ── PER-LEAF COST DATA — selected on CANONICAL quote_leaf_id ─────────────
+  // These three tables were previously selected through the nullable legacy
+  // `assembly_leaf_id`. NULL is never `IN` a list, so every canonical-only row
+  // was filtered out BEFORE the unmapped-reference guards below could see it.
+  // The guards were real but unreachable: they can only validate rows the
+  // query already matched. The result was a successful commit of an incomplete
+  // clone — no error, no rollback, nothing to notice.
+  //
+  // Keying on `quote_leaf_id` also makes ONE query cover grouped and Direct
+  // leaves alike, because the canonical id is what both kinds actually have.
+  const sourceLeafIds = [...quoteLeafIdMap.keys()];
+  if (sourceLeafIds.length > 0) {
+    // 1. assembly_leaf_inputs — packaging cost rows (per-leaf per-tier)
+    const sourceLeafInputs = await tx
+      .select()
+      .from(assemblyLeafInputs)
+      .where(inArray(assemblyLeafInputs.quoteLeafId, sourceLeafIds));
+    if (sourceLeafInputs.length > 0) {
+      // line_group_id is a synthetic UUID grouping rows across tiers for the
+      // same packaging line. Fresh ids, so a forensic query cannot read the
+      // source's line and the copy's line as the same line.
+      const lineGroupIdMap = new Map<string, string>();
+      for (const r of sourceLeafInputs) {
+        if (!lineGroupIdMap.has(r.lineGroupId)) {
+          lineGroupIdMap.set(r.lineGroupId, randomUUID());
+        }
+      }
+      await tx.insert(assemblyLeafInputs).values(
+        sourceLeafInputs.map((r) => {
+          const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+          const newLegacyId = r.assemblyLeafId
+            ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null
+            : null;
+          const newTierId = tierIdMap.get(r.tierId);
+          const newLineGroupId = lineGroupIdMap.get(r.lineGroupId);
+          if (!newLeafId || !newTierId || !newLineGroupId) {
+            throw new Error(
+              `clone: assembly_leaf_inputs unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId}, lineGroup=${r.lineGroupId})`,
+            );
+          }
+          return {
+            quoteLeafId: newLeafId,
+            assemblyLeafId: newLegacyId,
+            tierId: newTierId,
+            lineGroupId: newLineGroupId,
+            sortOrder: r.sortOrder,
+            pricingVendorHubspotCompanyId: r.pricingVendorHubspotCompanyId,
+            pricingVendorNameSnapshot: r.pricingVendorNameSnapshot,
+            supplier: r.supplier,
+            qtyPerSellableUnit: r.qtyPerSellableUnit,
+            category: r.category,
+            markupPct: r.markupPct,
+            markupPctSource: r.markupPctSource,
+            inventoryEligible: r.inventoryEligible,
+            notes: r.notes,
+            unitCost: r.unitCost,
+            purchaseQty: r.purchaseQty,
+          };
+        }),
+      );
+    }
+
+    // 2. assembly_leaf_overrides — per-cell sell-price overrides
+    const sourceOverrides = await tx
+      .select()
+      .from(assemblyLeafOverrides)
+      .where(inArray(assemblyLeafOverrides.quoteLeafId, sourceLeafIds));
+    if (sourceOverrides.length > 0) {
+      await tx.insert(assemblyLeafOverrides).values(
+        sourceOverrides.map((r) => {
+          const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+          const newLegacyId = r.assemblyLeafId
+            ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null
+            : null;
+          const newTierId = tierIdMap.get(r.tierId);
+          if (!newLeafId || !newTierId) {
+            throw new Error(
+              `clone: assembly_leaf_overrides unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
+            );
+          }
+          return {
+            quoteLeafId: newLeafId,
+            assemblyLeafId: newLegacyId,
+            tierId: newTierId,
+            sellPriceOverride: r.sellPriceOverride,
+          };
+        }),
+      );
+    }
+
+    // 3. assembly_leaf_targets — per-cell client benchmarks
+    const sourceTargets = await tx
+      .select()
+      .from(assemblyLeafTargets)
+      .where(inArray(assemblyLeafTargets.quoteLeafId, sourceLeafIds));
+    if (sourceTargets.length > 0) {
+      await tx.insert(assemblyLeafTargets).values(
+        sourceTargets.map((r) => {
+          const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+          const newLegacyId = r.assemblyLeafId
+            ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null
+            : null;
+          const newTierId = tierIdMap.get(r.tierId);
+          if (!newLeafId || !newTierId) {
+            throw new Error(
+              `clone: assembly_leaf_targets unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
+            );
+          }
+          return {
+            quoteLeafId: newLeafId,
+            assemblyLeafId: newLegacyId,
+            tierId: newTierId,
+            clientTargetPricePerUnit: r.clientTargetPricePerUnit,
           };
         }),
       );
