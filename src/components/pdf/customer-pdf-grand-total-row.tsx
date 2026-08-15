@@ -36,16 +36,20 @@ export function GrandTotalRow({
 }: {
   skuSet: ReadonlyArray<CpdfSku>;
   tiers: ReadonlyArray<CpdfTier>;
-  recommendedTierIdx: number;
+  recommendedTierIdx: number | null;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   layout: CpdfPdfLayout;
   foldFees: boolean;
   freightAtCost: boolean;
   allInUnit: boolean;
 }) {
+  // SINGLE-TIER LAYOUT picks which tier to SHOW. With no recommendation it
+  // shows the first — a display choice, not a claim that the tier is
+  // recommended. Nothing in this component says the word.
+  const soloIdx = recommendedTierIdx ?? 0;
   const isSingle = layout === "single_tier";
   const cols = isSingle
-    ? [{ tier: tiers[recommendedTierIdx], ti: recommendedTierIdx }]
+    ? [{ tier: tiers[soloIdx], ti: soloIdx }]
     : tiers.map((t, i) => ({ tier: t, ti: i }));
   const colData = cols.map(({ tier, ti }) => ({
     tier,

@@ -143,11 +143,14 @@ export function customerViewToCpdf(
     customer,
     quote,
     tiers,
-    // Fallback to 0 when null — the render still needs a valid
-    // index. Consumer never renders the ★ / bracket when idx points
-    // to a non-recommended tier (per-tier `recommended` boolean
-    // above gates the treatment).
-    recommendedTierIdx: view.recommendedTierIdx ?? 0,
+    // NULL PASSES THROUGH. This coerced to 0 — Tier 1 — on the reasoning that
+    // the ★ is gated by the per-tier boolean above, so a bad index was
+    // harmless. It was not: the charges block reads this index to choose which
+    // tier's freight to quote per unit, AND names that tier in a sentence to
+    // the customer. So a quote with no recommendation printed freight "for
+    // Tier 1" on the strength of a fallback, and the second fabrication of the
+    // same value sat one layer under the first.
+    recommendedTierIdx: view.recommendedTierIdx,
     skus,
     serviceFees,
     freightLines,

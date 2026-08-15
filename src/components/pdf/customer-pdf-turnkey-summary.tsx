@@ -39,7 +39,7 @@ export function TurnkeySummary({
 }: {
   skuSet: ReadonlyArray<CpdfSku>;
   tiers: ReadonlyArray<CpdfTier>;
-  recommendedTierIdx: number;
+  recommendedTierIdx: number | null;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   layout: CpdfPdfLayout;
   foldFees: boolean;
@@ -111,14 +111,17 @@ export function TurnkeySummary({
   );
 
   if (isSingle) {
+    // Display basis for the single-tier layout; see the note in
+    // customer-pdf-pricing-table. Not a recommendation.
+    const soloIdx = recommendedTierIdx ?? 0;
     const { total, hasUnpriced, perUnit } = tierGrand(
       skuSet,
       tiers,
-      recommendedTierIdx,
+      soloIdx,
       foldFees,
       serviceFees
     );
-    const t = tiers[recommendedTierIdx];
+    const t = tiers[soloIdx];
     return (
       // Slice 11 Step 3 Fix 2 (CA 2026-06-30): single-tier turnkey
       // hero block is atomic — eyebrow + headline + hero figure +
