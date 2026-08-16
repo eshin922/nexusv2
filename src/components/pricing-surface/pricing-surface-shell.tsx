@@ -1004,11 +1004,16 @@ export function PricingSurfaceShell({
           cellRef: ref,
           label: `${cell.sku_name} · ${tierLabel}`,
           tierLabel,
-          // The quoted-price node, addressed exactly as CellAction addresses
-          // its provenance lookups: engine SKU id + tier UUID. Null when the
-          // canonical address did not resolve — the drawer then says there is
-          // no derivation rather than tracing a guessed key.
-          quotedNodeKey: ref ? `${cell.sku_id}/${ref.tierId}/quoted` : null,
+          // THE ENGINE'S OWN ANSWER, forwarded — not a key built here.
+          //
+          // Built here first, as `{sku}/{tier}/quoted`, and it was wrong: that
+          // node exists only when the cell carries an override. Without one the
+          // root is the computed chain, whose key depends on whether a lift
+          // applied. The trace refused rather than showing a chain that might
+          // belong to a different figure, which is the guard working — and is
+          // also the second time on this surface that a display layer
+          // reconstructing identity resolved nothing while looking like it had.
+          quotedNodeKey: cell.sell_node_key,
         };
       }
     }

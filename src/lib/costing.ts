@@ -589,6 +589,25 @@ export type SkuPerTierRollup = {
   computedSellPerUnit: number;
   requiredSellPerUnit: number;
   sellSource: SellSource;
+  /**
+   * The graph key of the node that ANSWERS for `requiredSellPerUnit`.
+   *
+   * Reported, not derived. Which node is the cell root depends on what is on
+   * the cell — an override makes `.../quoted` the root and demotes the computed
+   * chain; without one the root IS the computed chain, whose own key depends on
+   * whether a lift applied. A display layer that reconstructed that precedence
+   * would be a second copy of it, and would open a trace on a different number
+   * than the one pressed the first time the rules moved.
+   *
+   * No arithmetic depends on this. It is the key of a node this function has
+   * already chosen and pushed.
+   *
+   * NULL on an assembly rollup, which is a fold of its children rather than a
+   * cell: no single node answers for it, and saying so is the honest answer.
+   * A consumer showing a trace renders nothing for null rather than opening a
+   * chain that belongs to one of the children.
+   */
+  sellNodeKey: string | null;
   // ---------- P3-017 · the ladder, at cell scope ----------
   //
   // The four levels a quoted price passes through, and the three contributions
@@ -2617,6 +2636,7 @@ function computeLeafPerTier(args: {
     contributionCostPerUnit,
     computedSellPerUnit,
     requiredSellPerUnit,
+    sellNodeKey: cellRootNode.key,
     sellSource,
     // P3-017 — see the type for why the deltas are products of the levers'
     // own rates rather than differences between the levels beside them.
@@ -2661,6 +2681,7 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     // P3-017 ladder — an assembly with no children has passed through no
     // levers, so every level and every contribution is zero. The identity
     // holds trivially, which is correct rather than merely convenient.
+    sellNodeKey: null,
     sellBeforeAdjustmentPerUnit: 0,
     adjDeltaPerUnit: 0,
     sellAfterAdjustmentPerUnit: 0,
@@ -2881,6 +2902,8 @@ function rollUpAssemblyPerTier(
   const marginPct: number | null =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;
   return {
+    // A fold, not a cell. See the field's note.
+    sellNodeKey: null,
     sellBeforeAdjustmentPerUnit: sellBeforeAdj,
     adjDeltaPerUnit: adjDelta,
     sellAfterAdjustmentPerUnit: sellAfterAdj,

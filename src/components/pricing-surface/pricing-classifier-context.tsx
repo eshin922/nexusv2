@@ -498,6 +498,7 @@ function buildClassifierInputs({
       const cells: Record<number, {
         margin_pct: number | null;
         sell_unit: number | null;
+        sell_node_key: string | null;
         cost_unit: number | null;
         lift_applied_pct: number | null;
         override_applied: boolean;
@@ -541,6 +542,9 @@ function buildClassifierInputs({
                 ? "unpriced"
                 : null,
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
+          // The engine's own answer for which node this price came from. A
+          // missing cell has no price, so it has no node either.
+          sell_node_key: isMissing ? null : pt.sellNodeKey,
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
           // The APPLIED lift, read from the graph.
