@@ -459,7 +459,19 @@ export function PricingStagingProvider({
         setWorking(reconciled);
       });
     },
-    [committable, quoteId, storeApi],
+    // `committed` IS a dependency, and leaving it out was a live defect.
+    //
+    // Before the stale guard, this callback read only `next`, `quoteId` and the
+    // store, so the list was complete. Adding the authority baseline made it
+    // read `committed` too — and the memo kept handing the server the value
+    // from whichever render created the callback. After a successful apply the
+    // component's `committed` advanced while the closure's did not, so the next
+    // Apply sent a baseline that was two states old and the server refused a
+    // mismatch that existed nowhere but in the closure.
+    //
+    // A guard that falsely refuses is worse than no guard: it teaches operators
+    // to distrust the one refusal that matters.
+    [committable, committed, quoteId, storeApi],
   );
 
   const apply = useCallback(

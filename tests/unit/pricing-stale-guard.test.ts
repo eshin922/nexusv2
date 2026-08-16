@@ -17,6 +17,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { costBaseFingerprint } from "../../src/lib/pricing-cost-base.ts";
 import {
   detectStale,
@@ -266,4 +267,26 @@ test("the two refusals send the operator to different surfaces", () => {
   assert.match(pricing, /Pricing on this quote changed/);
   assert.match(pricing, /a tier adjustment/);
   assert.notEqual(costs, pricing);
+});
+
+test("the commit callback depends on the baseline it sends", () => {
+  // A LIVE FALSE REFUSAL, caught in the browser and not by any test here.
+  //
+  // `commit` is memoized. It reads `committed` to build the authority baseline,
+  // so `committed` must be in its dependency list — otherwise the callback
+  // keeps sending the value from whichever render created it, and after a
+  // successful Apply the server refuses a mismatch that exists only in the
+  // closure. The stale guard then fires on a quote nobody else touched.
+  //
+  // Asserted structurally because the failure is invisible to a unit test of
+  // the guard: `detectStale` was correct throughout — it was fed a stale input.
+  const src = readFileSync(
+    "src/components/pricing-surface/pricing-staging-context.tsx",
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  const fn = src.slice(src.indexOf("const commit = useCallback"));
+  const deps = fn.slice(fn.indexOf("\n    ["), fn.indexOf("]", fn.indexOf("\n    [")) + 1);
+  assert.match(deps, /committed/, `commit must depend on committed; deps were ${deps}`);
+  // And it must actually be the one it sends.
+  assert.match(fn.slice(0, fn.indexOf("\n    [")), /globalAdj: String\(committed\.globalAdj\)/);
 });
