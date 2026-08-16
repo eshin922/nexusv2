@@ -57,6 +57,7 @@ import {
 } from "react";
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import { costBaseFingerprint } from "@/lib/pricing-cost-base";
+import { planApply } from "@/lib/pricing-apply-plan";
 import { pricingAuthorityBaseline, staleMessage } from "@/lib/pricing-stale-guard";
 import {
   computeQuoteCosting,
@@ -536,18 +537,49 @@ export function PricingStagingProvider({
         `[staging] ${unresolvedOverrides} staged override(s) did not resolve to an engine cell and were not applied to the preview.`,
       );
     }
+    // TIER-PREV-1 · THE PREVIEW RUNS THE TRANSITION, NOT THE WORKING SET.
+    //
+    // The staged tiers came straight from `working.tierAdj`, which is the
+    // operator's intent — not the state Apply produces from it. A global Apply
+    // CLEARS tier overrides, and that rule lives server-side in `planApply`, so
+    // staging a new global while a tier override existed previewed the override
+    // surviving: Tier 2 shown at 10% / $4.8151, committed at 30% / $5.6905. The
+    // operator reviewed one set of economics and committed another.
+    //
+    // Asking the same planner Apply asks is the repair. The clearing semantics
+    // are NOT reproduced here — reproducing them is how the two drift again,
+    // and drift is the defect. Lifts and overrides are passed empty on both
+    // sides because they do not participate in tier clearing; only the global
+    // transition and the tier maps decide it.
+    const plan = planApply({
+      intendedLifts: new Map(),
+      intendedOverrides: new Map(),
+      persistedLifts: new Map(),
+      persistedOverrides: new Map(),
+      intendedTierAdj: new Map(
+        Object.entries(working.tierAdj).map(([k, v]) => [k, String(v)]),
+      ),
+      persistedTierAdj: new Map(
+        Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
+      ),
+      globalAdjFrom: String(committed.globalAdj),
+      globalAdjTo: String(working.globalAdj),
+    });
+    const plannedTierAdj = new Map(
+      Object.entries(committed.tierAdj).map(([k, v]) => [k, Number(v)]),
+    );
+    for (const removed of plan.tierAdjRemoved) plannedTierAdj.delete(removed.key);
+    for (const set of plan.tierAdjSet) plannedTierAdj.set(set.key, Number(set.to));
+
     const preview: QuoteCostingInput = {
       ...base,
       quote: { ...base.quote, globalPriceAdjPct: working.globalAdj },
-      // The fourth lever, resolved the same way as the others: the working set
-      // is the COMPLETE intended state, so a tier absent from it has no
-      // adjustment of its own and falls back to the quote-wide one. Rebuilding
-      // from the committed rows and layering staged values over them would
-      // make a staged REMOVAL invisible in the preview — the chip would say
-      // the adjustment was gone while the figures still carried it.
+      // The PLANNED tier state — what the quote looks like after this Apply,
+      // which is the only thing a preview is for. A staged REMOVAL is still
+      // visible, because the plan carries removals too.
       tiers: base.tiers.map((t) => ({
         ...t,
-        tierPriceAdjPct: working.tierAdj[t.id] ?? null,
+        tierPriceAdjPct: plannedTierAdj.has(t.id) ? plannedTierAdj.get(t.id)! : null,
       })),
       // A new array with new objects for the touched cells only; the committed
       // input's own objects are never written to. A permanent test asserts it.
