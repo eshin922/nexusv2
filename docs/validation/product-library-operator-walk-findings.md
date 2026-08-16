@@ -1469,3 +1469,55 @@ same as saying it balances.
 
 **Unit-of-account isolation is unaffected.** No blending, no summing across
 unrelated Item Groups, no arithmetic change of any kind.
+
+---
+
+## ROUND-1 · customer-display rounding is two instruments, not one rule
+
+**Logged 2026-08-16, Item 4 walk. Not an Item 4 blocker — extended economics
+are unchanged. For disposition at Quote-surface closeout.**
+
+**Observation.** 75ml Aluminum Wax Stick · Tier 3, quoted sell **2.8350**
+exactly:
+
+| surface | displays | formatter |
+|---|---|---|
+| Pricing compliance grid | **$2.84** | `fmtUsd` → `toLocaleString("en-US", {style:"currency", …})` |
+| Customer PDF | **$2.83** | `unit()` → `"$" + n.toFixed(2)` |
+
+**Why they disagree.** Not two rounding *policies* — two different
+instruments measuring different things.
+
+`Intl.NumberFormat` rounds the decimal value, so a half goes up: 2.84.
+`toFixed` rounds the IEEE-754 double, and 2.8350 is stored as
+`2.8349999999999999645`, which is below the half: 2.83.
+
+They agree on every value whose 3rd decimal is not an exact 5, and on exact
+halves that happen to sit above their binary neighbour. That is why this
+surfaced on one cell out of eight rather than reading as an obvious systematic
+offset — and it is the reason a per-cell patch would be the wrong repair.
+
+**A second, independent divergence in the same pair.** `money()` in
+`customer-pdf-helpers.ts` switches to **0 dp** at `Math.abs(n) >= 100`, while
+Pricing holds 2 dp at every magnitude. So extended and turnkey figures round on
+a different rule again, by design, and that design is not written down
+anywhere as a governed rule.
+
+**Not affected.** Extended amounts are exact: 2.8350 × 10,000 = $28,350 on the
+PDF, and the tier turnkey reconciles ($58,125 + $28,350 + $4,000 = $90,475).
+The disagreement is display-only and does not reach quoted sell, margin, or any
+persisted value.
+
+**Disposition asked for.** One governed customer-display rounding rule, applied
+at Quote-surface closeout across Pricing, the customer PDF and the SO
+projection — covering both the half-case instrument AND the dp-by-magnitude
+rule. Do not patch the one literal cell: the next value with an exact-half 3rd
+decimal reopens it somewhere else.
+
+**Candidate shape when it is taken up:** a single shared formatter that rounds
+half-away-from-zero on a decimal-corrected value (e.g. round at a scaled
+integer) so the instrument is the same everywhere, with dp policy passed in
+rather than inferred from magnitude inside the formatter.
+
+**Files:** `src/components/pricing-surface/compliance-grid.tsx` (`fmtUsd`),
+`src/components/pdf/customer-pdf-helpers.ts` (`unit`, `money`).
