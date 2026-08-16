@@ -1273,9 +1273,10 @@ export function DetailCostStack({
             {selectedUnit.label} has no costs entered yet.
           </span>
           <span className="r11-unpriced-s">
-            Its products are on the quote, but none carries a unit cost — so
-            there is no price to build. Enter its costs on Costs, then come
-            back.
+            {selectedUnit.isFinishedGood
+              ? "Its products are on the quote, but none carries a unit cost — so there is no price to build."
+              : "It is on the quote, but carries no unit cost — so there is no price to build."}{" "}
+            Enter costs on Costs, then come back.
           </span>
         </div>
       </div>
