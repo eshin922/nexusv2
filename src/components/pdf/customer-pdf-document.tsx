@@ -303,7 +303,15 @@ export function CustomerPdfDocument({
                   freightAtCost={hasSeparateFreight}
                   allInUnit={!hasCharges}
                 />
-                <PricingFoot partial={hasUnpriced} />
+                <PricingFoot
+                  partial={hasUnpriced}
+                  // Same governed source as the lede above. Two sentences on
+                  // one page naming the recommended tier must not be able to
+                  // disagree, and the way to guarantee that is one input.
+                  recommendedTierFullLabel={
+                    recommendedTier ? recommendedTier.full : null
+                  }
+                />
               </View>
               {hasCharges && (
                 <View style={styles.section}>

@@ -18,6 +18,7 @@ import { Text, View } from "@react-pdf/renderer";
 
 import { money, qtyK, serviceFeesTotal, tierGrand, unit } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
+import { unpricedLinePhrase } from "./customer-pdf-unpriced";
 import type {
   CpdfPdfLayout,
   CpdfServiceFee,
@@ -102,8 +103,8 @@ export function TurnkeySummary({
           <Text style={[styles.tkIncl, styles.tkInclOut]}>
             <Text style={styles.tkInclOutTick}>×</Text>
             {"  "}
-            CAP-60 · Tier 1 — quote on request; the total finalizes once that
-            line is priced.
+            {unpricedLinePhrase(skuSet, tiers) ?? "One or more lines"} — quote
+            on request; the total finalizes once those lines are priced.
           </Text>
         )}
       </View>
