@@ -928,73 +928,24 @@ export async function updateQuoteGlobalPriceAdj(
   });
 }
 
-// ---------- mutation: updateTierPriceAdj (Slice 9.2) ----------
-
-// Per-tier price-adjustment override. NULL = inherit GPA; value =
-// REPLACE GPA for this tier (does not stack — see CLAUDE.md "Slice 9
-// pricing-control columns").
+// ---------- REMOVED: updateTierPriceAdj (Slice 9.2 → removed 2026-08-16) ----------
 //
-// Form contract: tierId, tierPriceAdjPct (percent display string, or
-// empty string to clear → NULL). Audit `tier_price_adj_updated`
-// records from/to including the explicit null-string for clarity.
-export async function updateTierPriceAdj(
-  formData: FormData,
-): Promise<
-  ActionResult<{ tierId: string; tierPriceAdjPct: string | null }>
-> {
-  return runAction(async () => {
-    const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!tierId)
-      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
-
-    const user = await ensureUser();
-    const tierRows = await db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.id, tierId))
-      .limit(1);
-    if (tierRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
-    const tier = tierRows[0];
-
-    // Re-uses the central draft guard via the quote.
-    const quote = await quoteByIdDraft(tier.quoteId);
-
-    const newAdj = parsePercentDisplay(formData.get("tierPriceAdjPct"), {
-      field: "tierPriceAdjPct",
-      label: "Tier price adjustment",
-      nullable: true,
-      minPercent: -99.99,
-      maxPercent: 999,
-    });
-
-    if (numericEquals(tier.tierPriceAdjPct, newAdj)) {
-      return { tierId, tierPriceAdjPct: tier.tierPriceAdjPct };
-    }
-
-    await db
-      .update(quoteTiers)
-      .set({ tierPriceAdjPct: newAdj, updatedAt: new Date() })
-      .where(eq(quoteTiers.id, tierId));
-
-    await logAudit({
-      userId: user.id,
-      entityType: "quote_tier",
-      entityId: tierId,
-      action: "tier_price_adj_updated",
-      diffJson: {
-        tier_price_adj_pct: {
-          from: tier.tierPriceAdjPct,
-          to: newAdj,
-        },
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return { tierId, tierPriceAdjPct: newAdj };
-  });
-}
+// The per-tier price adjustment had TWO writers over one column. Setup's tier
+// row wrote `quote_tiers.tier_price_adj_pct` through this action on a
+// debounce, immediately — no staging, no preview, no Discard — while Pricing
+// staged the same column through `planApply`.
+//
+// Same column, same audit action, same meaning; no distinct semantics on
+// either side. What differed was governance, entirely in Setup's disfavour:
+// this path never participated in the rule that clears tier overrides when the
+// quote-wide rate moves, and it sat outside both staleness guards. An operator
+// could change a committed price from Setup and see no chip for it, and a
+// concurrent write from here could move a lever a Pricing operator had already
+// staged against, with the guard's refusal being the only sign.
+//
+// Pricing is the authority. `applyPricingAdjustments` is the only writer, and
+// the column, its audit action `tier_price_adj_updated`, and every persisted
+// value are unchanged — this removes a door, not a capability.
 
 // ---------- mutation: updateQuoteTargetMargin (Slice 9.2) ----------
 

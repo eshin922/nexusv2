@@ -33,11 +33,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Mode } from "@/lib/pricing-classifier";
-import {
-  applyGlobalAdj,
-  previewGlobalAdj,
-  undoGlobalAdj,
-} from "@/app/actions/pricing-apply";
+// `applyGlobalAdj` is deliberately NOT imported. It is still exported, and
+// still guarded, but this surface stopped calling it when accepting a preview
+// became a staging act — see `onApplyGlobalPreview`. An unused import of a
+// writer whose own docstring says calling it re-creates a removed defect is
+// one keystroke from re-creating it.
+import { previewGlobalAdj, undoGlobalAdj } from "@/app/actions/pricing-apply";
 import { requestBelowFloorApproval } from "@/app/actions/below-floor-approval-request";
 import {
   mayRequestApproval,

@@ -318,7 +318,6 @@ export default async function QuoteBuilderPage({
                   label: t.label,
                   qty: t.qty,
                   recommended: t.recommended,
-                  tierPriceAdjPct: t.tierPriceAdjPct,
                 }}
                 disabled={!editable}
               />

@@ -151,7 +151,10 @@ const PROTECTED: Array<[string, string, string]> = [
   ["assembly-production-inputs.ts", "updateAssemblyProductionPolicy", "production policy changes cost allocation"],
 
   ["costing.ts", "updateQuoteGlobalPriceAdj", "quote-level price adjustment"],
-  ["costing.ts", "updateTierPriceAdj", "per-tier price adjustment"],
+  // `updateTierPriceAdj` was removed 2026-08-16. It was Setup's writer for
+  // `quote_tiers.tier_price_adj_pct` — a second, ungoverned authority over a
+  // column Pricing also writes, bypassing the staged plan and both staleness
+  // guards. Its draft guard was never the problem; having two writers was.
   ["costing.ts", "updateQuoteTargetMargin", "margin policy for this quote"],
   ["costing.ts", "applySuggestedGlobalAdj", "applies a price adjustment"],
   ["costing.ts", "updateAssemblyLeafOverride", "per-cell quoted sell price"],
@@ -204,7 +207,9 @@ test("the protected set covers every commercial writer the classification named"
   // A count, deliberately, and ONLY as a tripwire on the list above — not as
   // the measurement. If a writer is added to one of these modules the list does
   // not grow by itself, and this is what says so.
-  assert.equal(PROTECTED.length, 40);
+  // 40 → 39 on 2026-08-16, when `updateTierPriceAdj` was removed. The tripwire
+  // fired exactly as designed: the list does not shrink by itself either.
+  assert.equal(PROTECTED.length, 39);
 });
 
 // ---------------------------------------------------------------------------

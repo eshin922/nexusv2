@@ -300,8 +300,6 @@ export type CostingStoreState = {
     fields: FreightCustomerArrangesMetaFields,
   ) => void;
   updateGlobalAdj: (value: number) => void;
-  // Slice 9.2 — per-tier price-adj override (NULL = inherit global).
-  updateTierPriceAdj: (tierId: string, value: number | null) => void;
   // Slice 9.2 — per-quote target-margin override (NULL = inherit firm).
   updateTargetMargin: (value: number | null) => void;
   // Slice 9.3 — per-cell sell-price override. value === null clears
@@ -926,20 +924,12 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         lastUserEditAt: Date.now(),
       })),
 
-    // Slice 9.2 — per-tier price-adj override. value === null clears
-    // back to "inherit global"; otherwise the tier's revenue uses the
-    // override (REPLACES global, does not stack — see costing.ts).
-    updateTierPriceAdj: (tierId, value) =>
-      set((s) => {
-        const tiers = s.tiers.map((t) =>
-          t.id === tierId ? { ...t, tierPriceAdjPct: value } : t,
-        );
-        return {
-          tiers,
-          ...recompute({ ...s, tiers }),
-          lastUserEditAt: Date.now(),
-        };
-      }),
+    // The optimistic per-tier price-adj setter went with Setup's writer
+    // (2026-08-16). It existed to make that surface's immediate write feel
+    // instant; Pricing does not need it, because a staged adjustment is
+    // rendered from the preview evaluation and nothing is optimistic about a
+    // value that has not been committed. Tier adjustments still reach this
+    // store — through reconcile, as server truth.
 
     // Slice 9.2 — per-quote target-margin override. value === null
     // reverts to firm-level target. Drives verdict bands + suggestion
@@ -1152,8 +1142,6 @@ export const selectFreightCustomerArrangesMeta = (s: CostingStoreState) =>
   s.freightCustomerArrangesMeta;
 export const selectUpdateGlobalAdj = (s: CostingStoreState) =>
   s.updateGlobalAdj;
-export const selectUpdateTierPriceAdj = (s: CostingStoreState) =>
-  s.updateTierPriceAdj;
 export const selectUpdateTargetMargin = (s: CostingStoreState) =>
   s.updateTargetMargin;
 

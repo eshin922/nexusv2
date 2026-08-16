@@ -6,14 +6,12 @@ import {
   setTierRecommended,
   updateTier,
 } from "@/app/actions/quotes";
-import { updateTierPriceAdj } from "@/app/actions/costing";
 
 type Tier = {
   id: string;
   label: string;
   qty: number | null;
   recommended: boolean;
-  tierPriceAdjPct: string | null;
 };
 
 const DEBOUNCE_MS = 500;
@@ -49,17 +47,11 @@ export function TierRow({
 }) {
   const [label, setLabel] = useState(tier.label);
   const [qty, setQty] = useState(tier.qty == null ? "" : String(tier.qty));
-  const [priceAdj, setPriceAdj] = useState(
-    tier.tierPriceAdjPct === null
-      ? ""
-      : (Number(tier.tierPriceAdjPct) * 100).toString(),
-  );
-
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ label, qty, priceAdj });
-  stateRef.current = { label, qty, priceAdj };
+  const stateRef = useRef({ label, qty });
+  stateRef.current = { label, qty };
 
   useEffect(
     () => () => {
@@ -68,7 +60,7 @@ export function TierRow({
     [],
   );
 
-  type Overrides = Partial<{ label: string; qty: string; priceAdj: string }>;
+  type Overrides = Partial<{ label: string; qty: string }>;
 
   function scheduleLabelQtySave(overrides: Overrides = {}) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -80,21 +72,6 @@ export function TierRow({
       fd.set("qty", s.qty);
       startTransition(async () => {
         const r = await updateTier(fd);
-        if (!r.ok) setSaveError(r.error.message);
-        else setSaveError(null);
-      });
-    }, DEBOUNCE_MS);
-  }
-
-  function schedulePriceAdjSave(overrides: Overrides = {}) {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const s = { ...stateRef.current, ...overrides };
-      const fd = new FormData();
-      fd.set("tierId", tier.id);
-      fd.set("tierPriceAdjPct", s.priceAdj);
-      startTransition(async () => {
-        const r = await updateTierPriceAdj(fd);
         if (!r.ok) setSaveError(r.error.message);
         else setSaveError(null);
       });
@@ -176,21 +153,17 @@ export function TierRow({
           aria-label="Quantity"
         />
       </div>
-      <div className="adj">
-        <input
-          type="number"
-          step="0.01"
-          placeholder="—"
-          value={priceAdj}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setPriceAdj(v);
-            schedulePriceAdjSave({ priceAdj: v });
-          }}
-          aria-label="Per-tier price adjustment percent"
-        />
-      </div>
+      {/* The per-tier price adjustment used to be authored here.
+          It is not a second way to do the same thing — it was a SECOND
+          AUTHORITY over one column. This input wrote
+          `quote_tiers.tier_price_adj_pct` on a debounce, immediately: no
+          staging, no preview, no Discard, outside the plan that clears tier
+          overrides when the quote-wide rate moves, and outside both staleness
+          guards. An operator could change a committed price here and never see
+          a chip for it.
+          Pricing owns the lever now — staged, previewed against the exact
+          state Apply will write, and refused when someone else moved it first.
+          The column and its audit action are unchanged; only this door is. */}
       <div className="actions">
         <button
           type="button"
