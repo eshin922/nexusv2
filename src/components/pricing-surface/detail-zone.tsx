@@ -1303,18 +1303,18 @@ export function DetailCostStack({
             previewing staged changes
           </span>
         )}
-        {units.length > 1 && (
-          <select
-            className="r11-unit-switch"
-            value={selectedUnit.id}
-            onChange={(e) => onSelectUnit(e.target.value)}
-            aria-label="Product whose price build is shown"
-          >
-            {units.map((u) => (
-              <option key={u.id} value={u.id}>{u.label}</option>
-            ))}
-          </select>
-        )}
+        {/*
+          The SHARED switch, and it is shared for a reason. This branch kept an
+          inline select of its own that listed units only — so from a unit view
+          there was no route back to Entire Quote, and unpriced units appeared
+          unlabelled. Two switches for one navigation is how half of it goes
+          stale; caught in the browser walk, not by a test.
+
+          Rendered unconditionally, unlike the old one: even with a single unit
+          there are two views, and hiding the control strands the operator on
+          whichever they landed on.
+        */}
+        <UnitSwitch units={units} selected={selectedUnit.id} onSelect={onSelectUnit} />
       </div>
 
       <div className="r11-stack">
