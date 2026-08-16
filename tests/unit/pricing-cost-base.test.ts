@@ -232,7 +232,12 @@ test("the guard is checked on apply and skipped on baseline", async () => {
   // Return to baseline removes every lever, so it is safe against ANY base —
   // there is no staged figure to commit against the wrong numbers, and
   // refusing it would strand an operator with adjustments they chose to drop.
-  assert.match(src, /Costs changed while these adjustments were staged/);
+  // The literal sentence moved into `staleMessage` when the client and server
+  // refusals were aligned — they compare different reads on purpose, so an
+  // operator can meet either, and two different sentences for one condition
+  // read as two problems. The property here is that the client REFUSES, not
+  // which words it uses; the wording itself is asserted where it now lives.
+  assert.match(src, /setCommitError\(staleMessage\(\{ stale: true, kind: "economic_basis" \}\)\)/);
   // Captured when staging begins, released when it ends.
   assert.match(src, /if \(changes\.length === 0\) stagedAgainst\.current = null;/);
 });
