@@ -61,6 +61,15 @@ import {
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { writeAuditEntries, writeAuditEntryReturningId } from "@/lib/audit";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import { getCostingBundle } from "@/app/actions/costing";
+import {
+  detectStale,
+  pricingAuthorityBaseline,
+  staleMessage,
+  type PricingAuthorityBaseline,
+} from "@/lib/pricing-stale-guard";
+import { costBaseFingerprint } from "@/lib/pricing-cost-base";
+import { costingInputFromSnapshot } from "@/lib/costing-store";
 
 // ── the wire shape ────────────────────────────────────────────────────────
 
@@ -108,6 +117,16 @@ export type ApplyPricingAdjustmentsInput = {
    */
   tierAdjustments: AppliedTierAdjInput[];
   globalAdjPct: number;
+  /**
+   * What the client believed was COMMITTED when it staged, and the economic
+   * fingerprint the Preview computed against.
+   *
+   * Both optional: this is a contract addition, and refusing every caller that
+   * predates it would break more than it protects. A caller that sends neither
+   * is simply unguarded — which is where every caller was until now.
+   */
+  authorityBaseline?: PricingAuthorityBaseline | null;
+  economicFingerprint?: string | null;
   /**
    * Which operator act this is.
    *
@@ -403,6 +422,39 @@ export async function applyPricingAdjustments(
     // The decision itself is pure and lives in `pricing-apply-plan`, so it can
     // be exercised without a database. Everything above this line loads state;
     // everything below writes it.
+    // ── STALENESS ─────────────────────────────────────────────────────────
+    //
+    // A staged commercial decision was made against a state the operator could
+    // see. If that state moved, committing anyway is last-write-wins on a price
+    // and the quote silently becomes something nobody reviewed.
+    //
+    // Checked HERE: after every read that establishes current state, before the
+    // plan is built and long before anything is written.
+    const persistedAuthority = pricingAuthorityBaseline({
+      globalAdj: String(quote.globalPriceAdjPct),
+      tierAdj: persistedTierAdj,
+      lifts: persistedLifts,
+      overrides: new Map(
+        Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
+      ),
+    });
+    const freshBundle = await getCostingBundle(quote.id);
+    if (!freshBundle.ok) {
+      throw new ActionGuardError(freshBundle.error.code, freshBundle.error.message);
+    }
+    const verdict = detectStale({
+      baseline: input.authorityBaseline ?? null,
+      persisted: persistedAuthority,
+      previewFingerprint: input.economicFingerprint ?? null,
+      currentFingerprint: costBaseFingerprint(costingInputFromSnapshot(freshBundle.data)),
+    });
+    if (verdict.stale) {
+      throw new ActionGuardError(
+        verdict.kind === "economic_basis" ? ERR.COSTS_STALE : ERR.PRICING_STALE,
+        staleMessage(verdict),
+      );
+    }
+
     const globalAdjFrom = String(quote.globalPriceAdjPct);
     const plan: ApplyPlan = planApply({
       intendedLifts: new Map(

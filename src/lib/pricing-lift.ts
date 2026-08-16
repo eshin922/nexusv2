@@ -21,7 +21,7 @@
  */
 
 import { computeQuoteCosting, type QuoteCostingInput } from "./costing";
-import type { HydrateSnapshot } from "./costing-store";
+import { costingInputFromSnapshot, type HydrateSnapshot } from "./costing-store";
 import { planApply } from "./pricing-apply-plan";
 
 export type GlobalPricingPreviewTier = {
@@ -82,26 +82,21 @@ export function buildGlobalPricingPreview(
   for (const removed of plan.tierAdjRemoved) proposedTierAdj.delete(removed.key);
   for (const set of plan.tierAdjSet) proposedTierAdj.set(set.key, set.to);
 
+  // ONE definition of "the quote's economic input", shared with the Apply
+  // staleness guard. Hand-assembling it here is what let worksheet freight,
+  // per-component freight costs and applied lifts go missing while the
+  // projection still looked coherent.
   const input: QuoteCostingInput = {
+    ...costingInputFromSnapshot(snapshot),
     quote: {
       id: snapshot.quoteId,
       globalPriceAdjPct: proposedGlobalAdj,
       targetMarginPct: snapshot.targetMarginPct,
     },
-    firmSettings: snapshot.firmSettings,
-    markupDefaults: snapshot.markupDefaults,
-    skus: snapshot.skus,
     tiers: snapshot.tiers.map((tier) => {
       const proposed = proposedTierAdj.get(tier.id);
       return { ...tier, tierPriceAdjPct: proposed === undefined ? null : Number(proposed) };
     }),
-    packaging: snapshot.packaging,
-    production: snapshot.production,
-    freightLegGroups: snapshot.freightLegGroups,
-    freightLegs: snapshot.freightLegs,
-    freightLegTiers: snapshot.freightLegTiers,
-    cellOverrides: snapshot.cellOverrides,
-    cellTargets: snapshot.cellTargets,
   };
   const resulting = computeQuoteCosting(input);
 

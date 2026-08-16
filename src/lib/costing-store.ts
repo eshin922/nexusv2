@@ -527,6 +527,42 @@ function recompute(
  * previews would be a parallel derivation of the engine's own input — the same
  * failure this gate removes, one layer earlier.
  */
+/**
+ * A `QuoteCostingInput` from a bundle SNAPSHOT rather than from store state.
+ *
+ * `buildCostingInput` takes the live store, which server code does not have.
+ * Both the global preview and the Apply staleness guard need the same shape
+ * from the same snapshot, and each had hand-assembled it — which is how the
+ * preview came to omit worksheet freight and lifts while looking correct.
+ * One definition, so an omission is impossible to make in one place only.
+ */
+export function costingInputFromSnapshot(
+  s: HydrateSnapshot,
+): Required<QuoteCostingInput> {
+  return {
+    quote: {
+      id: s.quoteId,
+      globalPriceAdjPct: s.globalPriceAdjPct,
+      targetMarginPct: s.targetMarginPct,
+      freightMarkupPct: 0,
+    },
+    firmSettings: s.firmSettings,
+    markupDefaults: s.markupDefaults,
+    skus: s.skus,
+    tiers: s.tiers,
+    packaging: s.packaging,
+    production: s.production,
+    freightLegGroups: s.freightLegGroups,
+    freightLegs: s.freightLegs,
+    freightLegTiers: s.freightLegTiers,
+    freightComponentTierCosts: s.freightComponentTierCosts,
+    freightShipmentBreaks: s.freightShipmentBreaks,
+    cellOverrides: s.cellOverrides,
+    cellTargets: s.cellTargets,
+    lifts: s.lifts,
+  };
+}
+
 export function buildCostingInput(
   s: Parameters<typeof recompute>[0],
 ): Required<QuoteCostingInput> {

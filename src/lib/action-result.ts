@@ -40,6 +40,21 @@ export const ERR = {
    * work list rather than a sentence — `error.details` carries the rows.
    */
   UNRESOLVED_COSTS: "UNRESOLVED_COSTS",
+  /**
+   * A staged pricing decision was made against a state that has since moved.
+   *
+   * TWO CODES, not one, because the operator's remedy differs and a single
+   * "something changed" tells them nothing about where to look:
+   *
+   *   PRICING_STALE — a lever moved. Someone else's pricing decision landed on
+   *   this quote; reload Pricing and decide again.
+   *   COSTS_STALE — the economic basis moved. The prices were calculated
+   *   against figures that are no longer current; re-check Costs.
+   *
+   * Business refusals, not faults. The guard working is the guard refusing.
+   */
+  PRICING_STALE: "PRICING_STALE",
+  COSTS_STALE: "COSTS_STALE",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().

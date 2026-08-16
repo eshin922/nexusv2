@@ -193,10 +193,19 @@ test("a freight amount moving is a moved base — the case §7 names", () => {
   );
 });
 
-test("a client target moving is a moved base", () => {
-  // Never a price, but it decides the competitive verdict a PM may have staged
-  // against, so a move is material to the decision.
-  assert.notEqual(
+test("a CLIENT TARGET move is not a moved base", () => {
+  // REVERSED by disposition, 2026-08-15. This asserted the opposite, on the
+  // reasoning that a target decides the competitive verdict a PM may have
+  // staged against. True, and not sufficient: a client target is an EXTERNAL
+  // BENCHMARK that does not participate in quoted-sell arithmetic. Nothing
+  // about the staged price changes when one moves, so refusing the Apply is a
+  // false stale — and false stales are what teach operators to click through
+  // the real ones.
+  //
+  // It also put a benchmark inside the cost base, which is a category error:
+  // Client Target, Margin Target and Final Quoted Sell are three concepts and
+  // this fingerprint is about the third one's inputs.
+  assert.equal(
     costBaseFingerprint(base()),
     costBaseFingerprint(
       base({

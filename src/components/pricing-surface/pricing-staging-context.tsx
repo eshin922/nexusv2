@@ -57,6 +57,7 @@ import {
 } from "react";
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import { costBaseFingerprint } from "@/lib/pricing-cost-base";
+import { pricingAuthorityBaseline } from "@/lib/pricing-stale-guard";
 import {
   computeQuoteCosting,
   type CostingLift,
@@ -404,6 +405,27 @@ export function PricingStagingProvider({
             adjPct,
           })),
           globalAdjPct: next.globalAdj,
+          // STALENESS. What the client believed was COMMITTED when it staged —
+          // the server refuses if a lever moved since. `committed` is exactly
+          // that belief, kept in step with the server by the same repair that
+          // stopped it drifting after a clearing Apply.
+          authorityBaseline: pricingAuthorityBaseline({
+            globalAdj: String(committed.globalAdj),
+            tierAdj: new Map(
+              Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
+            ),
+            lifts: new Map(
+              Object.entries(committed.lifts).map(([k, v]) => [k, String(v)]),
+            ),
+            overrides: new Map(
+              Object.entries(committed.overrides).map(([k, v]) => [k, String(v)]),
+            ),
+          }),
+          // The economic basis this decision was STAGED against — the same
+          // fingerprint the client-side guard above compares, now sent so the
+          // server can enforce it too. The client can only see costs that have
+          // reconciled into this tab; the server reads them fresh.
+          economicFingerprint: stagedAgainst.current,
           intent,
         });
         if (!result.ok) {
