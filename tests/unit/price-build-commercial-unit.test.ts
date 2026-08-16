@@ -21,6 +21,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+
+/** Source minus comments — an assertion about rendered copy must not read the
+ *  rationale that explains the copy. */
+const stripComments = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 import { computeQuoteCosting, type QuoteCostingInput } from "../../src/lib/costing.ts";
 import { priceBuildKey } from "../../src/lib/costing-nodes.ts";
 
@@ -306,7 +311,14 @@ test("P-PriceBuild-2 · the stack reads the staged graph, and no longer says `??
   // permanent source.
   assert.match(shell, /const previewing = previewResult !== null;/);
 
-  const zone = readFileSync("src/components/pricing-surface/detail-zone.tsx", "utf8");
+  // COMMENTS STRIPPED, and this is the fourth time the same shape has bitten in
+  // this workstream. The assertion is about what an OPERATOR sees; a rationale
+  // that names the precedence rule in source notation is not that, and every
+  // author who explains why the string was removed trips the check that removed
+  // it. Reworded the prose three times before fixing the instrument.
+  const zone = stripComments(
+    readFileSync("src/components/pricing-surface/detail-zone.tsx", "utf8"),
+  );
   // The scope is RESOLVED, and the operator never sees an operator.
   assert.doesNotMatch(zone, /tier \?\? global/);
   assert.match(zone, /adjScopeLabel/);

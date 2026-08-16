@@ -150,6 +150,107 @@ function NothingPriced() {
   );
 }
 
+
+/**
+ * TIER ADJUSTMENT — the Pricing-owned replacement for Setup's Price Adj.
+ *
+ * AUTHORITY, stated on the cell rather than inferred. A tier either follows the
+ * quote-wide rate or carries one of its own, and the difference decides what an
+ * Apply does: precedence is `tier ?? global`, so an override REPLACES the
+ * quote-wide rate for that tier rather than compounding with it. A surface that
+ * shows only the resulting percentage cannot tell an operator which of those
+ * two situations they are in — which is exactly how a legacy Setup-origin tier
+ * rate silently made a 300% global inert.
+ *
+ * An explicit 0% is a real override: it suppresses the quote-wide rate for that
+ * tier. So it is offered, and it is never confused with "no override".
+ *
+ * Stages like every other lever. Nothing is written until the one page-level
+ * Apply, and a tier change is covered by the same stale guards.
+ */
+function TierAdjustCell({
+  tierUuid,
+  label,
+}: {
+  tierUuid: string | undefined;
+  label: string;
+}) {
+  const { working, stageTierAdj, committable } = usePricingStaging();
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (tierUuid === undefined) {
+    return <div className="r11-scell flat"><span className="cost">—</span></div>;
+  }
+  const override = working.tierAdj[tierUuid];
+  const hasOverride = override !== undefined;
+  const globalPct = working.globalAdj * 100;
+  const shownPct = (hasOverride ? override : working.globalAdj) * 100;
+
+  const commit = (raw: string) => {
+    setDraft(null);
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return;
+    // Only stage a real change. Re-entering the rate already in force must not
+    // create an override out of nothing — the same no-op discipline the
+    // recommendation path uses.
+    if (hasOverride && Math.abs(v / 100 - override) < 5e-7) return;
+    if (!hasOverride && Math.abs(v / 100 - working.globalAdj) < 5e-7) return;
+    stageTierAdj(tierUuid, v / 100);
+  };
+
+  return (
+    <div className="r11-scell flat r11-tieradj">
+      {draft !== null ? (
+        <input
+          className="r11-tieradj-in"
+          autoFocus
+          value={draft}
+          disabled={!committable}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") setDraft(null);
+          }}
+          aria-label={`${label} adjustment, percent`}
+        />
+      ) : (
+        <button
+          type="button"
+          className={"r11-tieradj-v" + (hasOverride ? " own" : "")}
+          onClick={() => setDraft(String(Number(shownPct.toFixed(4))))}
+          disabled={!committable}
+          title={
+            hasOverride
+              ? `Tier override — replaces the quote-wide ${fmtPct(working.globalAdj)}%`
+              : "Following the quote-wide rate. Click to set an override for this tier."
+          }
+        >
+          {fmtPct(shownPct / 100)}%
+        </button>
+      )}
+      <span className="r11-tieradj-a">
+        {hasOverride ? (
+          <>
+            Tier override · replaces quote-wide {fmtPct(globalPct / 100)}%
+            {" "}
+            <button
+              type="button"
+              className="r11-tieradj-revert"
+              onClick={() => stageTierAdj(tierUuid, null)}
+              disabled={!committable}
+            >
+              Revert to quote-wide
+            </button>
+          </>
+        ) : (
+          <>Quote-wide</>
+        )}
+      </span>
+    </div>
+  );
+}
+
 /** The sentinel for the aggregate view. Not a unit id; no unit can collide. */
 export const ENTIRE_QUOTE = "__entire_quote__";
 
@@ -164,12 +265,14 @@ export const ENTIRE_QUOTE = "__entire_quote__";
 function EntireQuoteBuild({
   columns,
   byTier,
+  tierUuidByNumeric,
   traced,
   onTrace,
   renderTrace,
 }: {
   columns: ReadonlyArray<{ numericId: number; label: string; qty: number | null; recommended: boolean }>;
   byTier: ReadonlyMap<number, EntireQuoteTier>;
+  tierUuidByNumeric: ReadonlyMap<number, string>;
   traced?: TracedStackCell | null;
   onTrace?: (nodeKey: string, title: string) => void;
   renderTrace?: () => React.ReactNode;
@@ -257,7 +360,22 @@ function EntireQuoteBuild({
         <><span className="n">Base sell</span><span className="s">per unit, before any pricing decision</span></>,
         "baseSell", (n) => fmtUsd4(n))}
 
-      {band("eq-pricing", "Pricing decisions", "editable on the unit views")}
+      {band("eq-pricing", "Pricing decisions", "editable here")}
+      {/*
+        Tier authority is TIER-scoped, not unit-scoped, so it belongs on the
+        aggregate view as much as on a drill-down. Rendering it only on the unit
+        views would make a quote-level decision reachable solely by first
+        choosing a product it does not belong to.
+      */}
+      <div className="r11-srow" key="eq-tier-adj">
+        <div className="r11-slab">
+          <span className="n">Tier adjustment</span>
+          <span className="s">replaces the quote-wide rate for that tier</span>
+        </div>
+        {columns.map((c) => (
+          <TierAdjustCell key={c.numericId} tierUuid={tierUuidByNumeric.get(c.numericId)} label={c.label} />
+        ))}
+      </div>
       {row("eq-decision", "r11-srow",
         <><span className="n">Pricing decision</span><span className="s">quoted less base, all levers combined</span></>,
         "decision", (n) => (n >= 0 ? "+" : "") + fmtUsd4(n), "delta")}
@@ -303,6 +421,7 @@ export function DetailZone({
   entireQuoteByTier,
   previewing,
   adjScopeByTier,
+  tierUuidByNumeric,
   selectedUnitId,
   onSelectUnit,
   tierMeta,
@@ -333,6 +452,8 @@ export function DetailZone({
   previewing: boolean;
   /** Which authority set each tier's adjustment, by numeric tier id. */
   adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
+  /** Numeric tier id -> tier UUID. Staging keys on the real identity. */
+  tierUuidByNumeric: ReadonlyMap<number, string>;
   selectedUnitId: string | null;
   onSelectUnit: (id: string) => void;
   /** Tier label + ★ by numeric id, forwarded to the stack's header row. */
@@ -415,6 +536,7 @@ export function DetailZone({
           entireQuoteByTier={entireQuoteByTier}
           previewing={previewing}
           adjScopeByTier={adjScopeByTier}
+          tierUuidByNumeric={tierUuidByNumeric}
           selectedUnitId={selectedUnitId}
           onSelectUnit={onSelectUnit}
           tierMeta={tierMeta}
@@ -954,6 +1076,7 @@ export function DetailCostStack({
   entireQuoteByTier,
   previewing,
   adjScopeByTier,
+  tierUuidByNumeric,
   selectedUnitId,
   onSelectUnit,
   tierMeta,
@@ -977,6 +1100,8 @@ export function DetailCostStack({
   entireQuoteByTier: ReadonlyMap<number, EntireQuoteTier>;
   previewing: boolean;
   adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
+  /** Numeric tier id -> tier UUID. Staging keys on the real identity. */
+  tierUuidByNumeric: ReadonlyMap<number, string>;
   /** Null until the operator chooses. Never auto-selected on a mixed quote. */
   selectedUnitId: string | null;
   onSelectUnit: (id: string) => void;
@@ -1245,6 +1370,7 @@ export function DetailCostStack({
           <EntireQuoteBuild
             columns={columns}
             byTier={entireQuoteByTier}
+            tierUuidByNumeric={tierUuidByNumeric}
             traced={traced}
             onTrace={onTrace}
             renderTrace={renderTrace}
@@ -1372,6 +1498,25 @@ export function DetailCostStack({
         )}
 
         {band("band-pricing", "Pricing decisions", "editable here")}
+
+        {/*
+          TIER AUTHORITY, above the dollar it produces. The rate decides the
+          amount, so reading them in the other order asks the operator to infer
+          the cause from the effect.
+        */}
+        <div className="r11-srow" key="tier-adj">
+          <div className="r11-slab">
+            <span className="n">Tier adjustment</span>
+            <span className="s">replaces the quote-wide rate for that tier</span>
+          </div>
+          {columns.map((c) => (
+            <TierAdjustCell
+              key={c.numericId}
+              tierUuid={tierUuidByNumeric.get(c.numericId)}
+              label={c.label}
+            />
+          ))}
+        </div>
 
         {row(
           "adj",

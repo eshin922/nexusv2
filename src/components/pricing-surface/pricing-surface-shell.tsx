@@ -1069,6 +1069,7 @@ export function PricingSurfaceShell({
         entireQuoteByTier={entireQuoteByTier}
         previewing={previewing}
         adjScopeByTier={adjScopeByTier}
+        tierUuidByNumeric={idMap.numericToUuid}
         selectedUnitId={priceBuildUnitId}
         onSelectUnit={setPriceBuildUnitId}
         tierMeta={tierMeta}

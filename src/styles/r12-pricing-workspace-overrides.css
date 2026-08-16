@@ -445,3 +445,66 @@
 
 .r11-unpriced-t { font-size: 13px; color: var(--ink); }
 .r11-unpriced-s { font-size: 12px; color: var(--ink-2); max-width: 60ch; line-height: 1.45; }
+
+/* ── Item 4 · tier adjustment, with its authority stated ──────────────────
+ *
+ * A tier either follows the quote-wide rate or carries one of its own, and the
+ * difference decides what an Apply does. A cell showing only the resulting
+ * percentage cannot tell an operator which situation they are in — which is
+ * how a legacy Setup-origin tier rate silently made a 300% global inert. */
+.r11-tieradj { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+
+.r11-tieradj-v {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+/* A tier carrying its OWN rate reads as a decision; one following the
+ * quote-wide rate reads as inherited. That contrast is the whole point. */
+.r11-tieradj-v.own { color: var(--ink); font-weight: 500; border-color: var(--rule); }
+.r11-tieradj-v:hover:not(:disabled) { background: var(--paper-3); border-color: var(--rule); }
+.r11-tieradj-v:disabled { cursor: default; opacity: 0.6; }
+
+.r11-tieradj-in {
+  width: 72px;
+  text-align: right;
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.r11-tieradj-a {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: right;
+  line-height: 1.3;
+}
+
+/* Revert is the only non-global way to clear an override, so it is a real
+ * control rather than a hint — but a quiet one, since the common case is
+ * leaving the override in place. */
+.r11-tieradj-revert {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.r11-tieradj-revert:disabled { color: var(--ink-3); cursor: default; text-decoration: none; }
