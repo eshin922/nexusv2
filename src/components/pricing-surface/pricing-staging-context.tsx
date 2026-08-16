@@ -155,6 +155,16 @@ export interface PricingStagingValue {
   stagedAgainstCostBase: string | null;
 
   /**
+   * The tier adjustments this staged set would PRODUCE, keyed by tier id.
+   *
+   * Not `working.tierAdj`. A global Apply clears standing tier overrides, so the
+   * intent and the result differ exactly when the rule does something — which is
+   * when an operator most needs the screen to be honest. Every surface that
+   * renders a tier's effective rate reads this.
+   */
+  plannedTierAdj: Readonly<Record<string, number>>;
+
+  /**
    * The engine's result for the WORKING set, labelled `preview`.
    *
    * Null when nothing is staged — there is no preview of the committed state,
@@ -495,6 +505,39 @@ export function PricingStagingProvider({
    * committed state is not a preview, and returning one would let a consumer
    * read preview authority on every render without noticing.
    */
+  /**
+   * TIER-PREV-1 · THE TIER STATE THIS STAGED SET WOULD PRODUCE.
+   *
+   * Not the operator's intent — the RESULT of running their intent through the
+   * planner Apply uses. A global Apply CLEARS standing tier overrides, and that
+   * rule lives in `planApply`, so anything rendering `working.tierAdj` directly
+   * shows overrides outliving a global that is about to remove them.
+   *
+   * Exposed rather than computed twice: the figures and the labels that explain
+   * them have to come from one place, or they disagree the moment the rule does
+   * anything interesting. Clearing semantics are NOT reproduced here.
+   */
+  const plannedTierAdj = useMemo<Record<string, number>>(() => {
+    const plan = planApply({
+      intendedLifts: new Map(),
+      intendedOverrides: new Map(),
+      persistedLifts: new Map(),
+      persistedOverrides: new Map(),
+      intendedTierAdj: new Map(
+        Object.entries(working.tierAdj).map(([k, v]) => [k, String(v)]),
+      ),
+      persistedTierAdj: new Map(
+        Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
+      ),
+      globalAdjFrom: String(committed.globalAdj),
+      globalAdjTo: String(working.globalAdj),
+    });
+    const out: Record<string, number> = { ...committed.tierAdj };
+    for (const removed of plan.tierAdjRemoved) delete out[removed.key];
+    for (const set of plan.tierAdjSet) out[set.key] = Number(set.to);
+    return out;
+  }, [committed, working]);
+
   const previewResult = useMemo<QuoteCostingResult | null>(() => {
     if (changes.length === 0) return null;
     const base = buildCostingInput(storeApi.getState());
@@ -537,40 +580,6 @@ export function PricingStagingProvider({
         `[staging] ${unresolvedOverrides} staged override(s) did not resolve to an engine cell and were not applied to the preview.`,
       );
     }
-    // TIER-PREV-1 · THE PREVIEW RUNS THE TRANSITION, NOT THE WORKING SET.
-    //
-    // The staged tiers came straight from `working.tierAdj`, which is the
-    // operator's intent — not the state Apply produces from it. A global Apply
-    // CLEARS tier overrides, and that rule lives server-side in `planApply`, so
-    // staging a new global while a tier override existed previewed the override
-    // surviving: Tier 2 shown at 10% / $4.8151, committed at 30% / $5.6905. The
-    // operator reviewed one set of economics and committed another.
-    //
-    // Asking the same planner Apply asks is the repair. The clearing semantics
-    // are NOT reproduced here — reproducing them is how the two drift again,
-    // and drift is the defect. Lifts and overrides are passed empty on both
-    // sides because they do not participate in tier clearing; only the global
-    // transition and the tier maps decide it.
-    const plan = planApply({
-      intendedLifts: new Map(),
-      intendedOverrides: new Map(),
-      persistedLifts: new Map(),
-      persistedOverrides: new Map(),
-      intendedTierAdj: new Map(
-        Object.entries(working.tierAdj).map(([k, v]) => [k, String(v)]),
-      ),
-      persistedTierAdj: new Map(
-        Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
-      ),
-      globalAdjFrom: String(committed.globalAdj),
-      globalAdjTo: String(working.globalAdj),
-    });
-    const plannedTierAdj = new Map(
-      Object.entries(committed.tierAdj).map(([k, v]) => [k, Number(v)]),
-    );
-    for (const removed of plan.tierAdjRemoved) plannedTierAdj.delete(removed.key);
-    for (const set of plan.tierAdjSet) plannedTierAdj.set(set.key, Number(set.to));
-
     const preview: QuoteCostingInput = {
       ...base,
       quote: { ...base.quote, globalPriceAdjPct: working.globalAdj },
@@ -579,7 +588,7 @@ export function PricingStagingProvider({
       // visible, because the plan carries removals too.
       tiers: base.tiers.map((t) => ({
         ...t,
-        tierPriceAdjPct: plannedTierAdj.has(t.id) ? plannedTierAdj.get(t.id)! : null,
+        tierPriceAdjPct: t.id in plannedTierAdj ? plannedTierAdj[t.id]! : null,
       })),
       // A new array with new objects for the touched cells only; the committed
       // input's own objects are never written to. A permanent test asserts it.
@@ -652,6 +661,7 @@ export function PricingStagingProvider({
     commitError,
     committable,
     stagedAgainstCostBase: stagedAgainst.current,
+    plannedTierAdj,
     previewResult,
   };
 

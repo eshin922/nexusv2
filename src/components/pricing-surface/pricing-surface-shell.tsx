@@ -170,7 +170,8 @@ export function PricingSurfaceShell({
   // Read here rather than further down because the recommendation handlers
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
-  const { stageTierAdj, stageGlobalAdj, committed, working, previewResult } = usePricingStaging();
+  const { stageTierAdj, stageGlobalAdj, committed, working, plannedTierAdj, previewResult } =
+    usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -569,10 +570,14 @@ export function PricingSurfaceShell({
   const adjScopeByTier = useMemo(() => {
     const out = new Map<number, "tier" | "quote-wide">();
     for (const [tierUuid, numeric] of uuidToNumeric) {
-      out.set(numeric, working.tierAdj[tierUuid] != null ? "tier" : "quote-wide");
+      // TIER-PREV-1 · the PLANNED state, for the same reason the figures use it:
+      // a staged quote-wide rate clears standing tier overrides, so intent and
+      // result diverge exactly here, and this row's whole job is naming which
+      // authority is in force.
+      out.set(numeric, plannedTierAdj[tierUuid] != null ? "tier" : "quote-wide");
     }
     return out;
-  }, [working.tierAdj, uuidToNumeric]);
+  }, [plannedTierAdj, uuidToNumeric]);
 
   const priceBuildByUnit = useMemo(() => {
     const out = new Map<string, Map<number, BlendedTierComponents>>();

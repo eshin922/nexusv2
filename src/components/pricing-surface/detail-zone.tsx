@@ -175,13 +175,19 @@ function TierAdjustCell({
   tierUuid: string | undefined;
   label: string;
 }) {
-  const { working, stageTierAdj, committable } = usePricingStaging();
+  const { working, plannedTierAdj, stageTierAdj, committable } = usePricingStaging();
   const [draft, setDraft] = useState<string | null>(null);
 
   if (tierUuid === undefined) {
     return <div className="r11-scell flat"><span className="cost">—</span></div>;
   }
-  const override = working.tierAdj[tierUuid];
+  // TIER-PREV-1 · the PLANNED rate, which is what the figures beside it use.
+  //
+  // Reading `working.tierAdj` here read the operator's intent while the sell
+  // above read the planned result, so staging a new quote-wide rate labelled
+  // Tier 2 "10% TIER OVERRIDE" next to a sell computed at 30%. The label
+  // contradicted the number it was there to explain.
+  const override = plannedTierAdj[tierUuid];
   const hasOverride = override !== undefined;
   const globalPct = working.globalAdj * 100;
   const shownPct = (hasOverride ? override : working.globalAdj) * 100;

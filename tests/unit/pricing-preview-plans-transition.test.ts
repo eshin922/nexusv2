@@ -116,6 +116,12 @@ test("a staged REMOVAL is still previewed as removed", () => {
 
 // ── the seam ──────────────────────────────────────────────────────────────
 
+/** Source with comments removed — see the note in the first consumer below. */
+async function codeOf(rel: string): Promise<string> {
+  const src = await readFile(new URL(rel, import.meta.url), "utf8");
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
 test("the preview takes its tier figures from the plan, not from the working set", async () => {
   const src = await readFile(
     new URL(
@@ -138,4 +144,23 @@ test("the preview takes its tier figures from the plan, not from the working set
   // Clearing semantics are the planner's. Reproducing them here is how the two
   // drift apart again, and drift IS the defect.
   assert.doesNotMatch(code, /tierAdj[\s\S]{0,40}?delete[\s\S]{0,60}?globalAdj/);
+});
+
+test("the LABELS read the same planned state the FIGURES do", async () => {
+  // The first repair moved the figures and left the labels behind, so a staged
+  // quote-wide 30% showed Tier 2 as "10% TIER OVERRIDE" beside a sell computed
+  // at 30%. A label whose only job is explaining a number must not be sourced
+  // from somewhere the number is not — that is worse than the original defect,
+  // because it looks authoritative while contradicting the figure it annotates.
+  for (const file of [
+    "../../src/components/pricing-surface/detail-zone.tsx",
+    "../../src/components/pricing-surface/pricing-surface-shell.tsx",
+  ]) {
+    const code = await codeOf(file);
+    assert.doesNotMatch(
+      code,
+      /working\.tierAdj\[/,
+      `${file} renders tier authority from intent rather than from the plan`,
+    );
+  }
 });
