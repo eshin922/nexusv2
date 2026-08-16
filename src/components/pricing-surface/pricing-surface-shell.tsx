@@ -749,6 +749,33 @@ export function PricingSurfaceShell({
   );
 
   /**
+   * THE KEYS THE VISIBLE TABLE ACTUALLY RENDERED, per tier row.
+   *
+   * The note above says a click resolves against the one map the stack renders
+   * from, and that naming it once removes the class of defect. It named the
+   * per-unit map — and then Entire Quote arrived as a NEW DEFAULT view with its
+   * own keys, `stackByTier` fell through to `EMPTY_STACK` for it, and the
+   * lookup missed on every cell of the view an operator sees first. The
+   * invariant was right; a second map was added underneath it.
+   *
+   * So the resolution source is derived from the SELECTED VIEW rather than from
+   * one of the tables, and both tables feed it. A third view cannot repeat this
+   * unless it also fails to appear here, which is a visible omission rather
+   * than a silent miss.
+   */
+  const traceKeysByTier = useMemo(() => {
+    const source: ReadonlyMap<number, { keys: Record<string, string> }> =
+      priceBuildUnitId === null
+        ? entireQuoteByTier
+        : (priceBuildByUnit.get(priceBuildUnitId) ?? EMPTY_STACK);
+    const out = new Map<number, Set<string>>();
+    for (const [numeric, row] of source) {
+      out.set(numeric, new Set(Object.values(row.keys)));
+    }
+    return out;
+  }, [entireQuoteByTier, priceBuildByUnit, priceBuildUnitId]);
+
+  /**
    * The same fail-closed contract as `cellLabel`, for the tier a per-tier
    * adjustment chip names. An unresolved tier shows its raw id rather than a
    * blank — ugly and recoverable, where a chip naming the wrong tier beside an
@@ -897,27 +924,37 @@ export function PricingSurfaceShell({
       // list, matched on the key the cell was built from — not parsed out of
       // the key string.
       let tierId: number | null = null;
-      for (const [numeric, blend] of stackByTier) {
-        if (Object.values(blend.keys).includes(nodeKey)) {
+      for (const [numeric, keys] of traceKeysByTier) {
+        if (keys.has(nodeKey)) {
           tierId = numeric;
           break;
         }
       }
-      if (tierId === null) return;
+      // An unresolvable key means the cell that was pressed is not in the table
+      // this handler knows about — which is a wiring fault, not an operator
+      // one, and returning silently is how it stayed invisible. Nothing else
+      // can be done here, so it is at least said out loud.
+      if (tierId === null) {
+        console.warn(
+          `[pricing] trace: no tier row owns node "${nodeKey}" — the visible ` +
+            "table and the click resolver disagree about what is on screen.",
+        );
+        return;
+      }
       setTraced((prev) =>
         prev?.nodeKey === nodeKey ? null : { tierId, nodeKey, title },
       );
     },
-    [stackByTier],
+    [traceKeysByTier],
   );
 
   // A traced node whose tier has dropped out of the graph closes itself rather
   // than leaving a panel pinned beneath a row that no longer renders.
   useEffect(() => {
-    if (tracedTierId !== null && !stackByTier.has(tracedTierId)) {
+    if (tracedTierId !== null && !traceKeysByTier.has(tracedTierId)) {
       setTraced(null);
     }
-  }, [stackByTier, tracedTierId]);
+  }, [traceKeysByTier, tracedTierId]);
 
   // A-2 · the trace reads the graph with attribution merged in. The merge is
   // per-node and returns the same object where nothing resolved, so an
