@@ -274,22 +274,13 @@ function EntireQuoteBuild({
   tierUuidByNumeric,
   traced,
   onTrace,
-  renderTrace,
 }: {
   columns: ReadonlyArray<{ numericId: number; label: string; qty: number | null; recommended: boolean }>;
   byTier: ReadonlyMap<number, EntireQuoteTier>;
   tierUuidByNumeric: ReadonlyMap<number, string>;
   traced?: TracedStackCell | null;
   onTrace?: (nodeKey: string, title: string) => void;
-  renderTrace?: () => React.ReactNode;
 }) {
-  const tracedField =
-    traced == null
-      ? null
-      : (["pkg", "prod", "raw", "frt", "dt", "baseSell", "decision", "quoted", "unitCost", "margin"] as const)
-          .find((f) =>
-            columns.some((c) => byTier.get(c.numericId)?.keys[f] === traced.nodeKey),
-          ) ?? null;
 
   const cell = (
     c: { numericId: number; label: string },
@@ -326,7 +317,6 @@ function EntireQuoteBuild({
         <div className="r11-slab">{slab}</div>
         {columns.map((c) => cell(c, field, fmt, valueClass))}
       </div>
-      {field === tracedField && renderTrace && renderTrace()}
     </Fragment>
   );
 
@@ -442,7 +432,6 @@ export function DetailZone({
   pricingConfirmation,
   onTraceStackCell,
   tracedStackCell,
-  renderStackTrace,
   renderStackDelta,
   renderStackMarginDelta,
 }: {
@@ -491,7 +480,6 @@ export function DetailZone({
   // fixtures) mount the zone without them.
   onTraceStackCell?: (nodeKey: string, title: string) => void;
   tracedStackCell?: TracedStackCell | null;
-  renderStackTrace?: () => React.ReactNode;
   renderStackDelta?: (nodeKey: string) => React.ReactNode;
   renderStackMarginDelta?: (nodeKey: string) => React.ReactNode;
 }) {
@@ -549,7 +537,6 @@ export function DetailZone({
           leversByTier={leversByTier}
           onTrace={onTraceStackCell}
           traced={tracedStackCell}
-          renderTrace={renderStackTrace}
           renderDelta={renderStackDelta}
           renderMarginDelta={renderStackMarginDelta}
         />
@@ -1089,7 +1076,6 @@ export function DetailCostStack({
   leversByTier,
   onTrace,
   traced,
-  renderTrace,
   renderDelta,
   renderMarginDelta,
 }: {
@@ -1135,7 +1121,6 @@ export function DetailCostStack({
   onTrace?: (nodeKey: string, title: string) => void;
   traced?: TracedStackCell | null;
   /** The panel itself, supplied by the composition point that holds the graph. */
-  renderTrace?: () => React.ReactNode;
   /**
    * The staged movement on one node, supplied as a render prop.
    *
@@ -1216,45 +1201,21 @@ export function DetailCostStack({
   const anyOverrides = columns.some((c) => c.overrideSkus.length > 0);
 
   /**
-   * WHICH ROW the open trace belongs to, resolved by matching the traced node
-   * key against the keys each row rendered.
+   * A row of cells, one per tier.
    *
-   * Matched rather than parsed. The key grammar is `quote/{tierUuid}/{name}`
-   * and reading the row out of that string would be identity derivation in the
-   * layout layer — it would break silently the first time the grammar gained a
-   * segment. These are the same key objects the cells were built from.
-   */
-  let tracedField: string | null = null;
-  if (traced) {
-    outer: for (const c of columns) {
-      if (!c.blend) continue;
-      for (const [field, key] of Object.entries(c.blend.keys)) {
-        if (key === traced.nodeKey) {
-          tracedField = field;
-          break outer;
-        }
-      }
-    }
-  }
-
-  /**
-   * A row of cells, one per tier — and the trace INLINE beneath it when the
-   * open node is one of that row's own cells.
+   * The trace used to render INLINE beneath whichever row owned the open node —
+   * an accepted Nexus extension over the Design Authority, which puts it after
+   * the whole stack (`pricing-page.jsx:978`). The reason held: transposed, this
+   * stack is thirteen rows tall, so a panel at its foot sits ~1200px from the
+   * cell that opened it and reads as an unrelated block.
    *
-   * The Design Authority renders the stack trace after the whole stack
-   * (`pricing-page.jsx:978`), and the restoration followed it. Edward's
-   * operator-acceptance review dispositioned inline instead: transposed, the
-   * stack is thirteen rows tall, so a panel at its foot can sit ~1200px from
-   * the cell that opened it and reads as an unrelated block rather than as that
-   * row expanding.
-   *
-   * **Accepted Nexus extension (Pattern 39), not a fidelity gap.** Documented
-   * here and in `phase-3-operator-acceptance.md` R-1 so a later audit finds the
-   * reason rather than re-raising the divergence. The panel keeps the canonical
-   * `.r11-tracewrap` register — an accent top-rule butted flush against what it
-   * expands — which is the vocabulary that makes an inline expansion legible,
-   * and which the prototype already uses inline for the per-SKU breakdown
-   * (`SkuTrace`).
+   * Both placements have the same cost, and it is the one the disposition
+   * names: a full-width block appears INSIDE the table because a cell was
+   * pressed, and every row below it moves. The trace is now in the cell drawer,
+   * beside the grid rather than within it, so nothing moves and the neighbours
+   * an operator wants to compare stay where they were. The row renders cells
+   * and raises the press; it renders nothing for the open state but the
+   * pressed cell's own `open` styling.
    */
   /**
    * A band header. Three of them, and they are the substance of Item 3.
@@ -1290,7 +1251,6 @@ export function DetailCostStack({
           <Fragment key={c.numericId}>{cell(c)}</Fragment>
         ))}
       </div>
-      {field != null && field === tracedField && renderTrace && renderTrace()}
     </Fragment>
   );
 
@@ -1379,7 +1339,6 @@ export function DetailCostStack({
             tierUuidByNumeric={tierUuidByNumeric}
             traced={traced}
             onTrace={onTrace}
-            renderTrace={renderTrace}
           />
         )}
       </div>

@@ -31,6 +31,23 @@ const canonical = readFileSync(
   "utf8",
 );
 
+/**
+ * JUST the B-16 section, not everything after it.
+ *
+ * This sliced to end-of-file, so every rule appended to the overrides sheet
+ * later was read as part of B-16 — and the cell drawer's shadow token failed
+ * a "no literal colour in B-16" assertion for a declaration B-16 never made.
+ * A check that cannot say where its subject ends will eventually fail on
+ * something else's code, and the report will name the wrong author.
+ */
+function b16Block(): string {
+  const start = overrides.indexOf("B-16");
+  assert.notEqual(start, -1, "the B-16 section is gone");
+  // Sections in this file open with a `/* ── ` heading rule.
+  const next = overrides.indexOf("/* ── ", start);
+  return next === -1 ? overrides.slice(start) : overrides.slice(start, next);
+}
+
 test("the cell carries the compliance state, not only the percentage", () => {
   // The defect B-16 names: the bundle colours `.cgm`, which is the digits. At
   // 27 cells a coloured digit is still a per-cell read.
@@ -115,7 +132,7 @@ test("the treatment uses the existing warn/bad vocabulary, not new colour", () =
   // "Restrained, and within the existing Nexus warning/error vocabulary." A new
   // hue here would be a fourth signal colour on a surface that already has
   // three, and it would not follow the theme.
-  const block = overrides.slice(overrides.indexOf("B-16"));
+  const block = b16Block();
   assert.match(block, /var\(--warn-soft\)/);
   assert.match(block, /var\(--bad-soft\)/);
   assert.doesNotMatch(
@@ -129,7 +146,7 @@ test("above_target and unknown get no cell treatment", () => {
   // A compliant cell is the normal case and must stay visually quiet; tinting
   // it would make the grid uniformly loud and locate nothing. `unknown` has no
   // verdict to state, and a tint would assert one.
-  const block = overrides.slice(overrides.indexOf("B-16"));
+  const block = b16Block();
   assert.doesNotMatch(block, /\.cg-above_target\s*\{/);
   assert.doesNotMatch(block, /\.cg-unknown\s*\{/);
 });

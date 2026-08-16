@@ -158,6 +158,17 @@ export interface ComplianceGridProps {
    * stage rather than addressing a guess.
    */
   resolveCell?: (skuId: string, tierId: number) => CellRef | null;
+  /**
+   * The pressed cell, as `"{skuId}:{tierId}"`, owned by the SHELL.
+   *
+   * It was local state here, which was right while the detail rendered inside
+   * this grid. It now renders in the cell drawer, and the Price Build can open
+   * that same drawer — two components each holding their own idea of what is
+   * selected would put two panels on screen, or leave one showing a cell the
+   * other had already replaced.
+   */
+  selected: string | null;
+  onSelect: (key: string | null) => void;
 }
 
 /**
@@ -198,10 +209,11 @@ export function ComplianceGrid({
   floorPct,
   tierMeta,
   resolveCell,
+  selected,
+  onSelect,
 }: ComplianceGridProps) {
   const { state } = usePricingClassifier();
   const { stageLift } = usePricingStaging();
-  const [selected, setSelected] = useState<string | null>(null);
 
   // One lookup over the one evaluation. Not a second pass, not a re-partition
   // — an index into `state.cells` so a row can find its cell in constant time.
@@ -305,7 +317,7 @@ export function ComplianceGrid({
                 }
                 onClick={
                   cell.selectable
-                    ? () => setSelected(isSel ? null : key)
+                    ? () => onSelect(isSel ? null : key)
                     : undefined
                 }
               >
@@ -351,30 +363,11 @@ export function ComplianceGrid({
           })}
         </div>
 
-        {/*
-          The panel opens beneath the SKU row whose cell was pressed — the same
-          shape as the cost stack's inline trace, and for the same reason: an
-          action names a cell, and the cell should still be visible while it is
-          being acted on.
-        */}
-        {selected?.startsWith(`${sku.id}:`) &&
-          (() => {
-            const cell = byCell.get(selected);
-            if (!cell) return null;
-            const meta = tierMeta.get(cell.tier_id);
-            return (
-              <CellAction
-                cell={cell}
-                cellRef={resolveCell?.(cell.sku_id, cell.tier_id) ?? null}
-                floorPct={floorPct}
-                // Display identity, built here from what the caller supplied.
-                // Falls back to the numeric tier id rather than inventing a
-                // label — an ugly heading beats a wrong one.
-                label={`${cell.sku_name} · ${meta?.label ?? `T${cell.tier_id}`}`}
-                onClose={() => setSelected(null)}
-              />
-            );
-          })()}
+        {/* The detail of a pressed cell used to be spliced in here, full
+            width, pushing every row below it down. It is in the cell drawer
+            now — same content, at the side, with the grid still legible
+            beside it. This grid raises the selection and renders nothing for
+            it. */}
         </Fragment>
       ))}
 
@@ -482,7 +475,7 @@ export function ComplianceGrid({
                       the difference.
                     */}
                     {blocked.length > 0 && (
-                      <ManualPriceRemains cells={blocked} onSelect={setSelected} />
+                      <ManualPriceRemains cells={blocked} onSelect={onSelect} />
                     )}
                   </>
                 ) : blocked.length > 0 ? (
@@ -491,7 +484,7 @@ export function ComplianceGrid({
                   // opposite of true, and the previous CTA was worse: it was
                   // actionable and did nothing. State the real condition and
                   // point at the cell that owns it.
-                  <ManualPriceRemains cells={blocked} onSelect={setSelected} />
+                  <ManualPriceRemains cells={blocked} onSelect={onSelect} />
                 ) : (
                   <span className="cost">—</span>
                 )}

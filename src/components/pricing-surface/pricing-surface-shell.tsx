@@ -61,7 +61,7 @@ import {
 } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { ComplianceGrid } from "./compliance-grid";
-import { PricingTrace } from "./pricing-trace";
+import { CellDrawer, type DrawerTarget } from "./cell-drawer";
 import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
 import { RequestOverrideModal } from "./request-override-modal";
@@ -917,6 +917,21 @@ export function PricingSurfaceShell({
     (TracedStackCell & { title: string }) | null
   >(null);
 
+  /**
+   * The pressed compliance cell, as `"{skuId}:{tierId}"`.
+   *
+   * Lifted out of ComplianceGrid when the detail moved into the drawer. The
+   * grid and the Price Build can each open that drawer, and exactly one thing
+   * can be in it — so exactly one place holds what that is, and opening from
+   * either side closes the other.
+   */
+  const [selectedCell, setSelectedCell] = useState<string | null>(null);
+
+  const selectCell = useCallback((key: string | null) => {
+    setSelectedCell(key);
+    if (key !== null) setTraced(null);
+  }, []);
+
   const tracedTierId = traced?.tierId ?? null;
   const onTraceStackCell = useCallback(
     (nodeKey: string, title: string) => {
@@ -941,6 +956,7 @@ export function PricingSurfaceShell({
         );
         return;
       }
+      setSelectedCell(null);
       setTraced((prev) =>
         prev?.nodeKey === nodeKey ? null : { tierId, nodeKey, title },
       );
@@ -965,25 +981,68 @@ export function PricingSurfaceShell({
     [graph, provenantNodes],
   );
 
-  const renderStackTrace = useCallback(() => {
-    if (!traced) return null;
-    // `.r11-tracewrap` is the canonical vocabulary for "the trace as an
-    // expansion inside a section", and carries the three R11 overrides of the
-    // standalone R10 panel — no outer border, the depth badge dropped because
-    // depth 0 is whatever was pressed, and the anchor bar released from
-    // `position: sticky`. That last one is why the PRESSED ROW can pin: two
-    // elements both sticking to top: 0 would overlay each other.
-    return (
-      <div className="r11-tracewrap">
-        <PricingTrace
-          graph={provenantGraph}
-          nodeKey={traced.nodeKey}
-          title={traced.title}
-          onClose={() => setTraced(null)}
-        />
-      </div>
-    );
-  }, [provenantGraph, traced]);
+  /**
+   * WHAT THE ONE DRAWER IS OPEN ON.
+   *
+   * Derived, not stored. Two things can open it — a compliance cell and a
+   * Price Build contribution — and each already has authoritative state
+   * (`selectedCell`, `traced`). A third piece of state saying which is showing
+   * would be a copy that can disagree with both; here the derivation IS the
+   * answer, and the two setters clear each other so at most one is ever live.
+   */
+  const drawerTarget = useMemo<DrawerTarget | null>(() => {
+    if (selectedCell !== null) {
+      const cell = state.cells.find(
+        (c) => `${c.sku_id}:${c.tier_id}` === selectedCell,
+      );
+      if (cell) {
+        const ref = resolveCell(cell.sku_id, cell.tier_id);
+        const tierLabel = tierMeta.get(cell.tier_id)?.label ?? `T${cell.tier_id}`;
+        return {
+          kind: "compliance",
+          cell,
+          cellRef: ref,
+          label: `${cell.sku_name} · ${tierLabel}`,
+          tierLabel,
+          // The quoted-price node, addressed exactly as CellAction addresses
+          // its provenance lookups: engine SKU id + tier UUID. Null when the
+          // canonical address did not resolve — the drawer then says there is
+          // no derivation rather than tracing a guessed key.
+          quotedNodeKey: ref ? `${cell.sku_id}/${ref.tierId}/quoted` : null,
+        };
+      }
+    }
+    if (traced !== null) {
+      const tierLabel =
+        tierMeta.get(traced.tierId)?.label ?? `T${traced.tierId}`;
+      return {
+        kind: "contribution",
+        rowLabel: traced.title,
+        tierLabel,
+        scopeLabel:
+          priceBuildUnitId === null
+            ? "Entire quote"
+            : (priceBuildUnits.find((u) => u.id === priceBuildUnitId)?.label ??
+              "This unit"),
+        nodeKey: traced.nodeKey,
+      };
+    }
+    return null;
+  }, [
+    selectedCell,
+    traced,
+    state.cells,
+    resolveCell,
+    tierMeta,
+    priceBuildUnitId,
+    priceBuildUnits,
+  ]);
+
+  const closeDrawer = useCallback(() => {
+    setSelectedCell(null);
+    setTraced(null);
+  }, []);
+
 
   return (
     <section className="psr-section">
@@ -1097,6 +1156,8 @@ export function PricingSurfaceShell({
           floorPct={state.policy.floor_margin_pct}
           tierMeta={tierMeta}
           resolveCell={resolveCell}
+          selected={selectedCell}
+          onSelect={selectCell}
         />
       </div>
 
@@ -1127,7 +1188,6 @@ export function PricingSurfaceShell({
         pricingConfirmation={pricingConfirmation}
         onTraceStackCell={onTraceStackCell}
         tracedStackCell={traced}
-        renderStackTrace={renderStackTrace}
         renderStackDelta={renderStackDelta}
         renderStackMarginDelta={renderStackMarginDelta}
       />
@@ -1136,6 +1196,16 @@ export function PricingSurfaceShell({
       {requestTier && approvalState.kind !== "none" && (
         <ApprovalStateCard state={approvalState} tierLabel={requestTier.label} />
       )}
+
+      {/* THE ONE CELL DRAWER. Portalled, so where it sits in this tree is a
+          statement about ownership rather than about layout: the shell holds
+          both selections, so the shell mounts the surface that shows them. */}
+      <CellDrawer
+        target={drawerTarget}
+        graph={provenantGraph}
+        floorPct={state.policy.floor_margin_pct}
+        onClose={closeDrawer}
+      />
 
       {requestTier && (
         <RequestOverrideModal
