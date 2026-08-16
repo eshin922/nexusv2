@@ -161,8 +161,15 @@ export function StagingBar({
       <div className="r12-staging">
         <div className="left">
           <span className="k">Staged · not yet applied</span>
+          {/* "Leaving the page discards these" was true and is no longer.
+              Staged intent now survives a remount of this tab, because it was
+              a remount that silently deleted an operator's staged Tier 4
+              decision mid-walk — no chip, no refusal, nothing written. The
+              sentence has to describe what the surface does, and what it does
+              now is hold the work until the operator disposes of it. Reset all
+              is right there, so the way out is named rather than implied. */}
           <span className="v">
-            Nothing is written until you apply. Leaving the page discards these.
+            Nothing is written until you apply. Reset all discards them.
           </span>
           {error}
           <div className="chips">

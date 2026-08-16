@@ -49,6 +49,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -58,6 +59,12 @@ import {
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import { costBaseFingerprint } from "@/lib/pricing-cost-base";
 import { planApply } from "@/lib/pricing-apply-plan";
+import {
+  clearStagedSnapshot,
+  readStagedSnapshot,
+  resolveInitialSets,
+  writeStagedSnapshot,
+} from "@/lib/pricing-staged-persistence";
 import { pricingAuthorityBaseline, staleMessage } from "@/lib/pricing-stale-guard";
 import {
   computeQuoteCosting,
@@ -269,10 +276,51 @@ export function PricingStagingProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialGlobalAdj, storeApi]);
 
-  const [committed, setCommitted] = useState<PricingSet>(initial);
-  const [working, setWorking] = useState<PricingSet>(initial);
+  /**
+   * Both sets, resolved once — from a staged snapshot this tab left behind if
+   * there is one, otherwise from the store.
+   *
+   * A REMOUNT is the only way staged intent could disappear from this surface:
+   * nothing reconciles these sets from the server, so no incoming update can
+   * overwrite them, but a second `useState(seed)` against a store that has
+   * meanwhile reconciled brings both back equal and empties the chip list with
+   * nothing written and nothing said. That happened once in a two-operator
+   * walk and did not reproduce on a second run — see the module header for the
+   * mount-seeded draft that evidences it, and for why the repair targets the
+   * invariant rather than the trigger.
+   *
+   * Restoring BOTH halves is what keeps the stale guard working: the baseline
+   * is this tab's belief at staging time, so Apply is refused exactly as it
+   * would have been had the remount never happened.
+   */
+  const seeded = useMemo(() => {
+    return resolveInitialSets({
+      storeSeed: initial,
+      snapshot: readStagedSnapshot(quoteId),
+      hasStagedWork: (c, w) => diffSets(c, w).length > 0,
+    });
+    // Mount-time only, with `initial`. Re-running would re-adopt a snapshot the
+    // operator has since discarded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, quoteId]);
+
+  const [committed, setCommitted] = useState<PricingSet>(seeded.committed);
+  const [working, setWorking] = useState<PricingSet>(seeded.working);
 
   const changes = useMemo(() => diffSets(committed, working), [committed, working]);
+
+  /**
+   * Keep the snapshot in step with what is on screen.
+   *
+   * Written whenever something is staged, removed the moment nothing is —
+   * which covers Apply, Reset and Return to baseline without any of them
+   * needing to know this exists. An empty snapshot would be worse than none:
+   * it would pin a baseline the store has moved past.
+   */
+  useEffect(() => {
+    if (changes.length === 0) clearStagedSnapshot(quoteId);
+    else writeStagedSnapshot(quoteId, { committed, working });
+  }, [changes.length, committed, working, quoteId]);
 
   /**
    * R12 load-bearing 22 — the cost base the staged decision was evaluated
