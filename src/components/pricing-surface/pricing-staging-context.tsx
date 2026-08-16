@@ -57,7 +57,7 @@ import {
 } from "react";
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import { costBaseFingerprint } from "@/lib/pricing-cost-base";
-import { pricingAuthorityBaseline } from "@/lib/pricing-stale-guard";
+import { pricingAuthorityBaseline, staleMessage } from "@/lib/pricing-stale-guard";
 import {
   computeQuoteCosting,
   type CostingLift,
@@ -374,11 +374,12 @@ export function PricingStagingProvider({
       if (intent === "apply" && stagedAgainst.current !== null) {
         const now = costBaseFingerprint(buildCostingInput(storeApi.getState()));
         if (now !== stagedAgainst.current) {
-          setCommitError(
-            "Costs changed while these adjustments were staged, so the figures " +
-              "you reviewed are no longer the ones that would be committed. " +
-              "Reset and re-stage against the current costs.",
-          );
+          // Same wording as the server's COSTS_STALE refusal. The two guards
+          // compare different reads on purpose — the client sees what has
+          // reconciled into this tab, the server reads fresh — so an operator
+          // can meet either. Meeting the same sentence twice reads as one
+          // condition; meeting two different sentences reads as two problems.
+          setCommitError(staleMessage({ stale: true, kind: "economic_basis" }));
           return;
         }
       }

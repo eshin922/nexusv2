@@ -55,6 +55,7 @@ import { StateCallout, StateCard, StateLine } from "./state-zone";
 import {
   DetailZone,
   type BlendedTierComponents,
+  type EntireQuoteTier,
   type TracedStackCell,
 } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
@@ -74,6 +75,7 @@ import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
 import { readNodeValue, quoteScopeKey, priceBuildKey } from "@/lib/costing-nodes";
+import { selectQuoteRollup, selectPackaging } from "@/lib/costing-store";
 import type { GraphEvaluation } from "@/lib/costing-nodes";
 
 /**
@@ -469,6 +471,15 @@ export function PricingSurfaceShell({
   // this on the classifier id matches nothing, and every chip would fall back
   // to two raw UUIDs in the one place the operator looks before committing.
   const skuRollups = useCostingStore(selectSkuRollups);
+  // Item 3 · Entire Quote reads the governed per-tier rollup for one thing the
+  // node family does not carry — the one-time service fees, which are kept
+  // beside the per-unit build rather than folded into it.
+  const quoteRollupRows = useCostingStore(selectQuoteRollup);
+  const packagingRows = useCostingStore(selectPackaging);
+  const rollupByTierUuid = useMemo(
+    () => new Map(quoteRollupRows.map((t) => [t.tierId, t])),
+    [quoteRollupRows],
+  );
   const cellLabel = useMemo(() => {
     const nameByQuoteLeafId = new Map<string, string>();
     for (const sr of skuRollups) {
@@ -514,6 +525,7 @@ export function PricingSurfaceShell({
         })),
     [skuRollups],
   );
+
 
   /**
    * P-PriceBuild-2 · Price Build follows the STAGED economics.
@@ -612,7 +624,101 @@ export function PricingSurfaceShell({
   // No auto-selection. On a quote with more than one sellable unit, choosing
   // one for the operator would present a single product's economics as though
   // it were the quote's — the same category error one level up.
+  /**
+   * ENTIRE QUOTE — the default view, and a different question from the others.
+   *
+   *   Entire Quote     what are the economics of everything we are quoting?
+   *   Item Group / SKU what drives them for this one sellable unit?
+   *
+   * Backed by the governed `quote/{tier}/per-unit` family — the SAME nodes the
+   * Costs Price build header renders, so the two surfaces reconcile by
+   * construction rather than by agreement. Not derived by averaging leaves and
+   * not by summing displayed per-unit rows.
+   */
+  const ENTIRE_QUOTE = "__entire_quote__";
+
+  const entireQuoteByTier = useMemo(() => {
+    const byNumeric = new Map<number, EntireQuoteTier>();
+    for (const [tierUuid, numeric] of uuidToNumeric) {
+      const read = (name: string) =>
+        readNodeValue(priceBuildGraph, quoteScopeKey(tierUuid, name), priceBuildEvaluation);
+      const pkg = read("per-unit/pkg");
+      const prod = read("per-unit/prod");
+      const raw = read("per-unit/raw");
+      const frt = read("per-unit/frt");
+      const dt = read("per-unit/dt");
+      const baseSell = read("per-unit");
+      const quoted = read("per-unit/revenue");
+      const unitCost = read("per-unit/cost-total");
+      const decision = read("per-unit/departure");
+      if (
+        pkg === null || prod === null || raw === null || frt === null ||
+        dt === null || baseSell === null || quoted === null ||
+        unitCost === null || decision === null
+      ) {
+        continue;
+      }
+      byNumeric.set(numeric, {
+        pkg, prod, raw, frt, dt, baseSell, quoted, unitCost, decision,
+        margin: readNodeValue(priceBuildGraph, quoteScopeKey(tierUuid, "margin"), priceBuildEvaluation),
+        // ONE-TIME CHARGES, kept apart. They bill as fixed amounts and are not
+        // part of any per-unit figure, so they are stated as a tier total
+        // beside the build rather than folded into it. The Production/OTC
+        // accounting semantics are a separate body of work; this only
+        // preserves the distinction.
+        oneTimeCharges:
+          rollupByTierUuid.get(tierUuid)?.costBreakdown.serviceFees ?? 0,
+        keys: {
+          pkg: quoteScopeKey(tierUuid, "per-unit/pkg"),
+          prod: quoteScopeKey(tierUuid, "per-unit/prod"),
+          raw: quoteScopeKey(tierUuid, "per-unit/raw"),
+          frt: quoteScopeKey(tierUuid, "per-unit/frt"),
+          dt: quoteScopeKey(tierUuid, "per-unit/dt"),
+          baseSell: quoteScopeKey(tierUuid, "per-unit"),
+          quoted: quoteScopeKey(tierUuid, "per-unit/revenue"),
+          unitCost: quoteScopeKey(tierUuid, "per-unit/cost-total"),
+          decision: quoteScopeKey(tierUuid, "per-unit/departure"),
+          margin: quoteScopeKey(tierUuid, "margin"),
+        },
+      });
+    }
+    return byNumeric;
+  }, [priceBuildGraph, priceBuildEvaluation, uuidToNumeric, rollupByTierUuid]);
+
+  /**
+   * Which units have resolved economics.
+   *
+   * PB-UNIT-UX1: a unit whose costs were never entered rendered a full
+   * $0.0000 Price Build with a green reconciliation footer — "no data" in the
+   * vocabulary reserved for "data, and it balances". A genuine zero and an
+   * absent cost are different facts, so this reads the same signal the Send
+   * gate reads (an unentered `unitCost`) rather than testing for a zero total.
+   */
+  const pricedUnits = useMemo(() => {
+    const membersOf = (unitId: string) => {
+      const kids = skuRollups.filter((r) => r.parentSkuId === unitId).map((r) => r.skuId);
+      return kids.length > 0 ? kids : [unitId];
+    };
+    const out = new Set<string>();
+    for (const unit of priceBuildUnits) {
+      const ids = new Set(membersOf(unit.id));
+      const rows = packagingRows.filter((r) => ids.has(r.quoteSkuId));
+      if (rows.some((r) => r.unitCost !== null)) out.add(unit.id);
+    }
+    return out;
+  }, [priceBuildUnits, skuRollups, packagingRows]);
+
+  /** The same list, each unit carrying whether its costs resolve. */
+  const priceBuildUnitsWithState = useMemo(
+    () => priceBuildUnits.map((u) => ({ ...u, priced: pricedUnits.has(u.id) })),
+    [priceBuildUnits, pricedUnits],
+  );
+
   const [priceBuildUnitId, setPriceBuildUnitId] = useState<string | null>(null);
+  // Entire Quote is the default. A quote with one priced unit still opens here
+  // — the aggregate and the unit agree in that case, and defaulting to the
+  // same place every time is worth more than skipping one click.
+  const selectedUnit = priceBuildUnitId ?? ENTIRE_QUOTE;
 
   /**
    * THE ONE MAP THE STACK RENDERS FROM — and therefore the one a click
@@ -959,7 +1065,8 @@ export function PricingSurfaceShell({
         // The SELECTED unit's own price build — the same map the click
         // handler resolves against, by construction.
         blendedByTier={stackByTier}
-        units={priceBuildUnits}
+        units={priceBuildUnitsWithState}
+        entireQuoteByTier={entireQuoteByTier}
         previewing={previewing}
         adjScopeByTier={adjScopeByTier}
         selectedUnitId={priceBuildUnitId}

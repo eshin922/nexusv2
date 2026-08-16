@@ -395,3 +395,53 @@
   background: var(--warn-soft);
   white-space: nowrap;
 }
+
+/* ── Item 3 · three-band Price Build hierarchy ────────────────────────────
+ *
+ * The table read as one flat list, so a Costs-derived figure and a Pricing
+ * decision sat in the same visual register and nothing said which half the
+ * operator owns. The bands name the authority and the direction of travel:
+ * base from Costs, decisions here, result. */
+.r11-band {
+  background: var(--paper-3);
+  border-top: 1px solid var(--rule-2);
+}
+
+.r11-band .r11-slab { display: flex; align-items: baseline; gap: 8px; }
+
+.r11-band-t {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* The authority tag is the load-bearing half — "from Costs · read-only here"
+ * is what stops a locked row reading as a disabled one. */
+.r11-band-a {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+/* A band's closing total carries slightly more weight than its rows without
+ * competing with the final quoted sell. */
+.r11-band-total .r11-slab .n { font-weight: 500; }
+
+/* ── unpriced / nothing-priced states ─────────────────────────────────────
+ *
+ * PB-UNIT-UX1. A unit with no costs entered used to render a full $0.0000
+ * build with a green reconciliation footer. Absence gets its own treatment so
+ * it cannot be read as a completed price of zero. */
+.r11-unpriced {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px 16px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 8px;
+  background: var(--paper-2);
+}
+
+.r11-unpriced-t { font-size: 13px; color: var(--ink); }
+.r11-unpriced-s { font-size: 12px; color: var(--ink-2); max-width: 60ch; line-height: 1.45; }

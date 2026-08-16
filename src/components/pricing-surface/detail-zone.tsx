@@ -100,10 +100,207 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
   }
 }
 
+
+
+/**
+ * The view switch. Entire Quote first, then every sellable unit — including
+ * unpriced ones, labelled.
+ *
+ * Unpriced units stay LISTED rather than hidden: they are real products on the
+ * quote, and an operator who cannot see one cannot discover that its costs are
+ * missing. What changes is that the list says so before they select it.
+ */
+function UnitSwitch({
+  units,
+  selected,
+  onSelect,
+}: {
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean; priced: boolean }>;
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <select
+      className="r11-unit-switch"
+      value={selected}
+      onChange={(e) => onSelect(e.target.value)}
+      aria-label="Which price build to show"
+    >
+      <option value={ENTIRE_QUOTE}>Entire quote</option>
+      {units.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.label}
+          {u.priced ? "" : " · not priced"}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** No sellable unit has resolved economics. There is no price to build. */
+function NothingPriced() {
+  return (
+    <div className="r11-unpriced">
+      <span className="r11-unpriced-t">Nothing on this quote is priced yet.</span>
+      <span className="r11-unpriced-s">
+        No product carries a unit cost, so there is no price to build. Enter
+        costs on Costs, then come back.
+      </span>
+    </div>
+  );
+}
+
+/** The sentinel for the aggregate view. Not a unit id; no unit can collide. */
+export const ENTIRE_QUOTE = "__entire_quote__";
+
+/**
+ * The default Pricing view: everything being quoted, at each tier.
+ *
+ * Reads `quote/{tier}/per-unit/*` — the same governed family the Costs Price
+ * build header renders — so the two surfaces reconcile by construction. Not
+ * derived by averaging leaves, and not by summing the displayed per-unit rows
+ * of the drill-downs.
+ */
+function EntireQuoteBuild({
+  columns,
+  byTier,
+  traced,
+  onTrace,
+  renderTrace,
+}: {
+  columns: ReadonlyArray<{ numericId: number; label: string; qty: number | null; recommended: boolean }>;
+  byTier: ReadonlyMap<number, EntireQuoteTier>;
+  traced?: TracedStackCell | null;
+  onTrace?: (nodeKey: string, title: string) => void;
+  renderTrace?: () => React.ReactNode;
+}) {
+  const tracedField =
+    traced == null
+      ? null
+      : (["pkg", "prod", "raw", "frt", "dt", "baseSell", "decision", "quoted", "unitCost", "margin"] as const)
+          .find((f) =>
+            columns.some((c) => byTier.get(c.numericId)?.keys[f] === traced.nodeKey),
+          ) ?? null;
+
+  const cell = (
+    c: { numericId: number; label: string },
+    field: keyof EntireQuoteTier["keys"],
+    fmt: (n: number) => string,
+    valueClass = "sell",
+  ) => {
+    const t = byTier.get(c.numericId);
+    if (!t) return <div className="r11-scell flat" key={c.numericId}><span className="cost">—</span></div>;
+    const v = t[field] as number | null;
+    return (
+      <StackCell
+        key={c.numericId}
+        text={v === null ? "—" : fmt(v)}
+        nodeKey={v === null ? null : t.keys[field]}
+        title={`${c.label} · ${field}`}
+        traced={traced}
+        onTrace={onTrace}
+        valueClass={valueClass}
+      />
+    );
+  };
+
+  const row = (
+    key: string,
+    className: string,
+    slab: React.ReactNode,
+    field: keyof EntireQuoteTier["keys"],
+    fmt: (n: number) => string,
+    valueClass?: string,
+  ) => (
+    <Fragment key={key}>
+      <div className={className}>
+        <div className="r11-slab">{slab}</div>
+        {columns.map((c) => cell(c, field, fmt, valueClass))}
+      </div>
+      {field === tracedField && renderTrace && renderTrace()}
+    </Fragment>
+  );
+
+  const band = (key: string, title: string, authority: string) => (
+    <div className="r11-srow r11-band" key={key}>
+      <div className="r11-slab">
+        <span className="r11-band-t">{title}</span>
+        <span className="r11-band-a">{authority}</span>
+      </div>
+      {columns.map((c) => <div className="r11-scell flat" key={c.numericId} />)}
+    </div>
+  );
+
+  const anyCharges = columns.some((c) => (byTier.get(c.numericId)?.oneTimeCharges ?? 0) !== 0);
+
+  return (
+    <div className="r11-stack">
+      <div className="r11-srow head">
+        <div className="r11-slab"><span className="colhead">Entire quote · per unit</span></div>
+        {columns.map((c) => (
+          <div className="r11-scell flat" key={c.numericId}>
+            <span className="sell" style={{ fontSize: 11, letterSpacing: "0.06em" }}>
+              {c.label}{c.recommended && <span style={{ color: "oklch(0.56 0.13 72)" }}> ★</span>}
+            </span>
+            <span className="cost">{c.qty == null ? "—" : c.qty.toLocaleString()} units</span>
+          </div>
+        ))}
+      </div>
+
+      {band("eq-base", "Base price", "from Costs · read-only here")}
+      {row("eq-pkg", "r11-srow", <><span className="n">Packaging</span><span className="s">sell per unit</span></>, "pkg", (n) => fmtUsd4(n))}
+      {row("eq-prod", "r11-srow", <><span className="n">Production</span><span className="s">sell per unit</span></>, "prod", (n) => fmtUsd4(n))}
+      {row("eq-raw", "r11-srow", <><span className="n">Bulk raw</span><span className="s">sell per unit</span></>, "raw", (n) => fmtUsd4(n))}
+      {row("eq-frt", "r11-srow", <><span className="n">Freight</span><span className="s">sell per unit</span></>, "frt", (n) => fmtUsd4(n))}
+      {row("eq-dt", "r11-srow", <><span className="n">Duty + tariff</span><span className="s">sell per unit</span></>, "dt", (n) => fmtUsd4(n))}
+      {row("eq-base-sell", "r11-srow rule r11-band-total",
+        <><span className="n">Base sell</span><span className="s">per unit, before any pricing decision</span></>,
+        "baseSell", (n) => fmtUsd4(n))}
+
+      {band("eq-pricing", "Pricing decisions", "editable on the unit views")}
+      {row("eq-decision", "r11-srow",
+        <><span className="n">Pricing decision</span><span className="s">quoted less base, all levers combined</span></>,
+        "decision", (n) => (n >= 0 ? "+" : "") + fmtUsd4(n), "delta")}
+
+      {band("eq-result", "Final quoted sell", "result")}
+      {row("eq-quoted", "r11-srow total rule r11-band-total",
+        <><span className="n">Final quoted sell</span><span className="s">per unit · everything quoted</span></>,
+        "quoted", (n) => fmtUsd4(n))}
+      {row("eq-cost", "r11-srow", <><span className="n">Unit cost</span><span className="s">from Costs</span></>, "unitCost", (n) => fmtUsd4(n))}
+      {row("eq-margin", "r11-srow", <span className="n">Margin</span>, "margin", (n) => fmtPct(n) + "%", "mg")}
+
+      {/*
+        ONE-TIME CHARGES sit OUTSIDE the per-unit build, because they are not
+        per-unit. Folding a fixed fee into a unit price makes the price depend
+        on the tier quantity in a way the customer document does not, and the
+        two would stop reconciling. The Production/OTC accounting semantics are
+        a separate body of work; this only keeps the distinction visible.
+      */}
+      {anyCharges && (
+        <>
+          {band("eq-otc", "One-time charges", "billed separately · not per unit")}
+          <div className="r11-srow">
+            <div className="r11-slab">
+              <span className="n">Project &amp; SKU fees</span>
+              <span className="s">tier total, excluded from the per-unit figure above</span>
+            </div>
+            {columns.map((c) => (
+              <div className="r11-scell flat" key={c.numericId}>
+                <span className="sell">{fmtUsd2(byTier.get(c.numericId)?.oneTimeCharges ?? 0)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function DetailZone({
   state,
   blendedByTier,
   units,
+  entireQuoteByTier,
   previewing,
   adjScopeByTier,
   selectedUnitId,
@@ -130,7 +327,8 @@ export function DetailZone({
    *  once at the composition point. */
   blendedByTier: Map<number, BlendedTierComponents>;
   /** Top-level sellable units — Item Groups, and Direct Components alone. */
-  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean }>;
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean; priced: boolean }>;
+  entireQuoteByTier: ReadonlyMap<number, EntireQuoteTier>;
   /** True while the stack is showing STAGED economics rather than committed. */
   previewing: boolean;
   /** Which authority set each tier's adjustment, by numeric tier id. */
@@ -214,6 +412,7 @@ export function DetailZone({
           state={state}
           blendedByTier={blendedByTier}
           units={units}
+          entireQuoteByTier={entireQuoteByTier}
           previewing={previewing}
           adjScopeByTier={adjScopeByTier}
           selectedUnitId={selectedUnitId}
@@ -482,6 +681,40 @@ interface CostStackBucketDisplay {
  * the mechanism that enforces that for everything else in the file. Resolution
  * happens once, at the composition point.
  */
+/**
+ * ENTIRE QUOTE — one tier's aggregate economics.
+ *
+ * A DIFFERENT SHAPE from `BlendedTierComponents`, deliberately. The unit ladder
+ * has rungs the quote scope does not publish — sell-after-adjustment,
+ * per-cell lifts, per-cell overrides — and reusing that type would have meant
+ * filling them with zeros. A fabricated zero in a pricing ladder is the exact
+ * defect this workstream keeps removing, so the aggregate gets the rows it can
+ * actually answer for and no others.
+ *
+ * The aggregate pricing movement is `departure`: quoted price less the
+ * component build-up. It is one governed number rather than a decomposition,
+ * because at quote scope the individual levers do not aggregate — a global, a
+ * tier rate and a cell override are not summable into "the decision".
+ */
+export type EntireQuoteTier = {
+  pkg: number;
+  prod: number;
+  raw: number;
+  frt: number;
+  dt: number;
+  baseSell: number;
+  decision: number;
+  quoted: number;
+  unitCost: number;
+  margin: number | null;
+  /** Tier TOTAL, not per unit. Billed as fixed charges; never folded in. */
+  oneTimeCharges: number;
+  keys: Record<
+    "pkg" | "prod" | "raw" | "frt" | "dt" | "baseSell" | "decision" | "quoted" | "unitCost" | "margin",
+    string
+  >;
+};
+
 export type BlendedTierComponents = {
   pkg: number;
   prod: number;
@@ -603,8 +836,8 @@ const COLUMN_TITLE = {
   raw: "Raw materials · per unit",
   frt: "Freight · per unit",
   dt: "Duty + tariff · per unit",
-  sellBefore: "Sell before adjustment · per unit",
-  sell: "Finished-good sell · per unit",
+  sellBefore: "Base sell · per unit",
+  sell: "Final quoted sell · per unit",
   cost: "Unit cost · per unit",
   margin: "Blended margin · this tier",
   adjDelta: "Price adjustment contribution · per unit",
@@ -718,6 +951,7 @@ export function DetailCostStack({
   state,
   blendedByTier,
   units,
+  entireQuoteByTier,
   previewing,
   adjScopeByTier,
   selectedUnitId,
@@ -739,7 +973,8 @@ export function DetailCostStack({
    */
   blendedByTier: Map<number, BlendedTierComponents>;
   /** Top-level sellable units — Item Groups, and Direct Components standing alone. */
-  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean }>;
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean; priced: boolean }>;
+  entireQuoteByTier: ReadonlyMap<number, EntireQuoteTier>;
   previewing: boolean;
   adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
   /** Null until the operator chooses. Never auto-selected on a mixed quote. */
@@ -890,6 +1125,26 @@ export function DetailCostStack({
    * and which the prototype already uses inline for the per-SKU breakdown
    * (`SkuTrace`).
    */
+  /**
+   * A band header. Three of them, and they are the substance of Item 3.
+   *
+   * The table read as one flat list, so a Costs-derived figure and a Pricing
+   * decision sat in the same visual register and nothing said which half the
+   * operator owns. The bands name the authority and the direction of travel:
+   * base from Costs, decisions here, result.
+   */
+  const band = (key: string, title: string, authority: string) => (
+    <div className="r11-srow r11-band" key={key}>
+      <div className="r11-slab">
+        <span className="r11-band-t">{title}</span>
+        <span className="r11-band-a">{authority}</span>
+      </div>
+      {columns.map((c) => (
+        <div className="r11-scell flat" key={c.numericId} />
+      ))}
+    </div>
+  );
+
   const row = (
     key: string,
     className: string,
@@ -965,39 +1220,70 @@ export function DetailCostStack({
   // a single product's economics under a heading they will read as the quote's,
   // which is the same category error the leaf blend made one level up. A single
   // sellable unit is not a choice, so it resolves itself.
-  if (selectedUnit === null) {
-    if (units.length === 1) {
-      onSelectUnit(units[0].id);
-      return null;
-    }
+  // ── WHICH VIEW ────────────────────────────────────────────────────────
+  //
+  // Entire Quote is the default and answers "what are the economics of
+  // everything we are quoting at this tier". A unit view answers "what drives
+  // them for this one sellable unit". Different questions, so different tables.
+  if (selectedUnitId === ENTIRE_QUOTE || selectedUnitId === null) {
     return (
       <div className="psr-detail-section psr-detail-section--cost-stack">
         <div className="section-head">
-          <h4>Price build</h4>
+          <h4>Price build · Entire quote</h4>
           <span className="meta">
-            Dollar economics belong to one sellable product. This quote has{" "}
-            {units.length}.
+            Per-tier · everything being quoted · one-time charges shown
+            separately
           </span>
+          {previewing && (
+            <span className="r11-pb-preview">previewing staged changes</span>
+          )}
+          <UnitSwitch units={units} selected={ENTIRE_QUOTE} onSelect={onSelectUnit} />
         </div>
-        <div className="r11-unit-picker">
-          <span className="r11-unit-picker-prompt">
-            Select a product to view its price build
+        {entireQuoteByTier.size === 0 ? (
+          <NothingPriced />
+        ) : (
+          <EntireQuoteBuild
+            columns={columns}
+            byTier={entireQuoteByTier}
+            traced={traced}
+            onTrace={onTrace}
+            renderTrace={renderTrace}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // AN UNPRICED UNIT IS NOT A $0.0000 PRICE BUILD.
+  //
+  // PB-UNIT-UX1: a unit whose costs were never entered rendered every row at
+  // zero with a green reconciliation footer. The zeros were real sums of
+  // nothing; the defect was presenting "no data" in the vocabulary reserved
+  // for "data, and it balances".
+  if (selectedUnit != null && !selectedUnit.priced) {
+    return (
+      <div className="psr-detail-section psr-detail-section--cost-stack">
+        <div className="section-head">
+          <h4>Price build · {selectedUnit.label}</h4>
+          <span className="meta">Not priced · costs incomplete</span>
+          <UnitSwitch units={units} selected={selectedUnit.id} onSelect={onSelectUnit} />
+        </div>
+        <div className="r11-unpriced">
+          <span className="r11-unpriced-t">
+            {selectedUnit.label} has no costs entered yet.
           </span>
-          {units.map((u) => (
-            <button
-              key={u.id}
-              type="button"
-              className="r11-unit-option"
-              onClick={() => onSelectUnit(u.id)}
-            >
-              <span className="n">{u.label}</span>
-              <span className="s">{u.isFinishedGood ? "Item Group" : "Direct product"}</span>
-            </button>
-          ))}
+          <span className="r11-unpriced-s">
+            Its products are on the quote, but none carries a unit cost — so
+            there is no price to build. Enter its costs on Costs, then come
+            back.
+          </span>
         </div>
       </div>
     );
   }
+
+  // Past both early returns: a unit is selected and it is priced.
+  if (selectedUnit == null) return null;
 
   return (
     <div className="psr-detail-section psr-detail-section--cost-stack">
@@ -1058,6 +1344,8 @@ export function DetailCostStack({
           ))}
         </div>
 
+        {band("band-base", "Base price", "from Costs · read-only here")}
+
         {SECTIONS.map((s) =>
           row(
             s.key,
@@ -1073,11 +1361,16 @@ export function DetailCostStack({
 
         {row(
           "sell-before",
-          "r11-srow rule",
-          <span className="n">Sell before adjustment</span>,
+          "r11-srow rule r11-band-total",
+          <>
+            <span className="n">Base sell</span>
+            <span className="s">per unit, before any pricing decision</span>
+          </>,
           (c) => level(c, "sellBefore"),
           "sellBefore",
         )}
+
+        {band("band-pricing", "Pricing decisions", "editable here")}
 
         {row(
           "adj",
@@ -1165,14 +1458,16 @@ export function DetailCostStack({
             "overrideDelta",
           )}
 
+        {band("band-result", "Final quoted sell", "result")}
+
         {row(
           "quoted",
-          "r11-srow total rule",
+          "r11-srow total rule r11-band-total",
           <>
-            <span className="n">
-              {selectedIsFinishedGood ? "Finished-good sell" : "Product sell"}
+            <span className="n">Final quoted sell</span>
+            <span className="s">
+              per unit{selectedIsFinishedGood ? " · finished good" : " · product"}
             </span>
-            <span className="s">per unit</span>
           </>,
           (c) => level(c, "sell"),
           "sell",
@@ -1181,7 +1476,10 @@ export function DetailCostStack({
         {row(
           "cost",
           "r11-srow",
-          <span className="n">Unit cost</span>,
+          <>
+            <span className="n">Unit cost</span>
+            <span className="s">from Costs</span>
+          </>,
           (c) => level(c, "cost"),
           "cost",
         )}
