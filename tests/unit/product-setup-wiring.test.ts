@@ -1028,9 +1028,15 @@ test("§1 · the assembly row holds identity only; allocation moved to the secti
   const src = await code("src/components/costs/production-drilldown.tsx");
 
   assert.ok(
-    src.indexOf("Production rolls up from leaf children.") > 0,
+    src.indexOf("Production belongs to the finished good.") > 0,
     "the assembly identity strip must survive",
   );
+  // The caption was "Production rolls up from leaf children." — the PREVIOUS
+  // ownership model speaking. BV-012 (2026-08-17) settles that Production is
+  // owned by the Item Group and does not roll up from its components, so the
+  // old wording described the defect rather than the design. The strip itself
+  // is what this assertion protects; the copy corrected with the authority.
+  assert.doesNotMatch(src, /rolls up from leaf children/);
   assert.doesNotMatch(src, /AssemblyAllocationToggle/);
 
   // Per-assembly write, from the section-head control.

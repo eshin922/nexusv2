@@ -453,37 +453,31 @@ export default async function CostBuildPage({
     },
   }));
 
-  // Anchor-leaf fan-out for production. assembly_production_inputs
-  // is keyed by (assembly_id, tier_id); the math layer + drilldown
-  // iterate leaf skus. Pick the lowest-position assembly_leaf per
-  // assembly as the anchor.
-  const anchorLeafByAssembly = new Map<string, string>();
-  {
-    const leavesByAssembly = new Map<
-      string,
-      typeof newAssemblyLeafRows
-    >();
-    for (const r of newAssemblyLeafRows) {
-      const arr = leavesByAssembly.get(r.al.assemblyId) ?? [];
-      arr.push(r);
-      leavesByAssembly.set(r.al.assemblyId, arr);
-    }
-    for (const [assemblyId, group] of leavesByAssembly) {
-      const sorted = [...group].sort((a, b) => a.al.position - b.al.position);
-      if (sorted.length > 0)
-        anchorLeafByAssembly.set(assemblyId, sorted[0].al.id);
-    }
-  }
-
+  // BV-012 — Production economics are owned by the ITEM GROUP.
+  //
+  // This DISPLAY fan-out used to attach each `assembly_production_inputs` row
+  // to the assembly's lowest-position member leaf, so the drilldown could
+  // iterate leaves. That put an Item Group's economics on one of its
+  // components, and rendered a Production table under every member leaf and
+  // every Direct Product — objects BV-012 says own no Production at all.
+  //
+  // It is now keyed by `assemblyId`, which is what the storage has always
+  // been keyed by (`assembly_production_inputs.assembly_id NOT NULL`).
+  //
+  // DISPLAY ONLY. `getCostingBundle` runs its own, separate anchor-leaf
+  // fan-out in `costing-adapter.ts` and never sees these rows — which is why
+  // this re-key moves no money, and why the adapter is deliberately untouched
+  // (its coercion is structurally different but arithmetically exact; see
+  // docs/validation/production-cost-ownership-trace.md S-1).
   const prodRows: SyntheticProductionRow[] = [];
   for (const r of newProdInputRows) {
     const api = r.assembly_production_inputs;
-    const anchorLeafId = anchorLeafByAssembly.get(api.assemblyId);
-    if (!anchorLeafId) continue;
     prodRows.push({
       production_inputs: {
         id: api.id,
-        quoteSkuId: anchorLeafId,
+        // The Item Group. Field name preserved for the consumer's prop shape;
+        // the semantic is assembly.id.
+        quoteSkuId: api.assemblyId,
         tierId: api.tierId,
         customerShipsRaws: api.customerShipsRaws,
         allocateServiceFeesToCost: api.allocateServiceFeesToCost,

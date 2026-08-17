@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { buildTreeRenderOrder, type SkuRow } from "@/lib/sku-tree";
+import { type SkuRow } from "@/lib/sku-tree";
 import {
   updateAssemblyProductionPolicy,
   upsertAssemblyProductionInputs,
@@ -172,32 +172,20 @@ export function ProductionDrilldown({
     }
   }
 
-  const leafSkus = skus.filter((s) => s.skuRole === "leaf");
-
-  // Allocation policy is stored per ASSEMBLY.
+  // BV-012 — the display rows are now keyed by ASSEMBLY, so `policyBySku` IS
+  // policy-by-assembly. The anchor-leaf indirection this used to walk (read an
+  // assembly's policy through whichever child happened to carry it) is gone
+  // with the re-key.
   //
-  // `assembly_production_inputs.allocate_service_fees_to_cost` is keyed by
-  // `assembly_id`; costing consumes it per assembly and so does the
-  // customer-view resolver. AUTHORING is quote-wide for V1 (business
-  // disposition 2026-08-17) but storage is not, so this map is what lets the
-  // section control write each assembly its own row — and what lets a
-  // pre-existing divergent quote be read honestly as `mixed` instead of being
-  // reported as whichever value the first leaf happens to carry.
-  //
-  // `policyBySku` is keyed by the ANCHOR LEAF (the adapter's per-assembly ->
-  // per-leaf coercion puts production data on the lowest-position child), so an
-  // assembly's own policy is read through its first child that has one.
+  // Allocation authoring is quote-wide for V1 (separate disposition,
+  // 2026-08-17); storage stays per-assembly, so a pre-existing divergent quote
+  // is still read honestly as `mixed` rather than reported as whichever value
+  // one component happened to hold.
+  const assemblies = skus.filter((s) => s.skuRole === "assembly");
   const policyByAssembly = new Map<string, SkuPolicy>();
-  for (const asm of skus) {
-    if (asm.skuRole !== "assembly") continue;
-    for (const child of skus) {
-      if (child.parentSkuId !== asm.id) continue;
-      const p = policyBySku.get(child.id);
-      if (p) {
-        policyByAssembly.set(asm.id, p);
-        break;
-      }
-    }
+  for (const asm of assemblies) {
+    const p = policyBySku.get(asm.id);
+    if (p) policyByAssembly.set(asm.id, p);
   }
 
   if (tiers.length === 0) {
@@ -217,18 +205,24 @@ export function ProductionDrilldown({
     );
   }
 
-  if (leafSkus.length === 0) {
+  if (assemblies.length === 0) {
+    // BV-012 §1.b — no Item Group, no Production economics. A quote of Direct
+    // Products has nothing to author here, and says so rather than showing an
+    // empty table it would silently refuse to save.
     return (
       <div className="r6-empty-drawer">
         <div className="glyph">∅</div>
-        <h4>No leaf SKUs yet</h4>
-        <p>Add at least one leaf SKU to the quote before entering production inputs.</p>
+        <h4>No item groups yet</h4>
+        <p>
+          Production economics belong to a finished-good item group. Direct
+          products carry packaging economics only.
+        </p>
       </div>
     );
   }
 
-  const firstLeaf = leafSkus[0];
-  const sectionPolicy = policyBySku.get(firstLeaf.id) ?? {
+  const firstAssembly = assemblies[0];
+  const sectionPolicy = policyBySku.get(firstAssembly.id) ?? {
     customerShipsRaws: false,
     allocateServiceFeesToCost: true,
     notes: null,
@@ -240,8 +234,10 @@ export function ProductionDrilldown({
   // in the read direction.
   const allocation = aggregateAllocation(policyByAssembly.values());
 
-  // Section-wide actuals — read first SKU's first tier
-  const firstSkuRows = rowsBySku.get(firstLeaf.id);
+  // Section-wide actuals — first ITEM GROUP's first tier. Re-pointed from the
+  // first leaf as a necessary consequence of the display re-key: the rows this
+  // reads are no longer keyed by leaf. Section-level semantics are unchanged.
+  const firstSkuRows = rowsBySku.get(firstAssembly.id);
   const firstTierRow = firstSkuRows?.values().next().value;
   const actualUnitsProduced = firstTierRow?.actualUnitsProduced ?? null;
   const yieldLocked = actualUnitsProduced !== null;
@@ -267,7 +263,7 @@ export function ProductionDrilldown({
         // Post-Slice-11.5 fix (2026-07-15) — pass ASSEMBLIES not
         // leaves. assembly_production_inputs is keyed by assembly_id
         // so the toggle action needs assembly IDs to find rows.
-        assemblies={skus.filter((s) => s.skuRole === "assembly")}
+        assemblies={assemblies}
         policy={sectionPolicy}
         policyByAssembly={policyByAssembly}
         allocation={allocation}
@@ -280,8 +276,11 @@ export function ProductionDrilldown({
       <div className="drawer-toolbar">
         <div className="lhs">
           <span>
-            <strong>{leafSkus.length}</strong> production block
-            {leafSkus.length === 1 ? "" : "s"}
+            {/* Item Groups, not leaves — one production block per finished
+                good is what the surface now renders, and what the storage has
+                always held. */}
+            <strong>{assemblies.length}</strong> production block
+            {assemblies.length === 1 ? "" : "s"}
           </span>
           <span>·</span>
           <span>
@@ -292,102 +291,65 @@ export function ProductionDrilldown({
         </div>
       </div>
 
-      {/* Per-leaf-SKU production block */}
-      {buildTreeRenderOrder(skus).map(({ sku, depth }) => {
-        const indentStyle = { marginLeft: `${depth * 24}px` };
-        const isAssembly = sku.skuRole === "assembly";
-
-        if (isAssembly) {
-          return (
-            <div key={sku.id} style={indentStyle}>
-            {/* Identity only.
-
-                Allocation is quote-wide operator authority for V1 (business
-                disposition, 2026-08-17), set from the Production section
-                header. There is deliberately no per-assembly authoring
-                affordance here: two controls sharing one label read as a
-                duplicate rather than as two scopes.
-
-                The write is still per assembly, so existing divergent values
-                persist and are still read honestly as `mixed by product`.
-                Normalising that persistence is deferred to the bounded
-                Production/OTC workstream. */}
-            {/* One row again, now that it holds only identity. The nested
-                wrapper existed to stack the control beneath the strip. */}
-            <div
+      {/* BV-012 — one Production authoring surface per ITEM GROUP.
+          
+          This used to iterate the whole tree and render a full Production
+          table for every non-assembly SKU. That produced N tables for one
+          assembly-owned row (an edit persisted correctly but reloaded onto
+          whichever leaf was the anchor, so the value looked like it moved),
+          and it rendered tables on Direct Products whose writes were dropped
+          by `if (!assemblyId) return` — a surface accepting values it could
+          never save.
+          
+          Member leaves and Direct Products own no Production economics, so
+          they get no Production surface. They keep their Packaging authoring
+          in the Packaging section, which is unchanged. */}
+      {assemblies.map((asm) => (
+        <div key={asm.id} style={{ marginBottom: "18px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "10px",
+              padding: "10px 14px",
+              background: "oklch(from var(--accent) l c h / 0.05)",
+              border: "1px solid oklch(from var(--accent) l c h / 0.30)",
+              borderRadius: "8px",
+              fontSize: "13px",
+            }}
+          >
+            <span className="r6-badge accent">Item group</span>
+            <span style={{ color: "var(--ink)", fontWeight: 500 }}>
+              {asm.skuLabel}
+            </span>
+            <span style={{ color: "var(--ink-3)" }}>· {asm.productName}</span>
+            <span
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                marginBottom: "12px",
-                padding: "10px 14px",
-                background: "oklch(from var(--accent) l c h / 0.05)",
-                border: "1px solid oklch(from var(--accent) l c h / 0.30)",
-                borderRadius: "8px",
-                fontSize: "13px",
+                marginLeft: "auto",
+                fontSize: "11px",
+                color: "var(--ink-3)",
               }}
             >
-              <span className="r6-badge accent">Assembly</span>
-              <span style={{ color: "var(--ink)", fontWeight: 500 }}>
-                {sku.skuLabel}
-              </span>
-              <span style={{ color: "var(--ink-3)" }}>
-                · {sku.productName}
-              </span>
-              <span
-                style={{
-                  marginLeft: "auto",
-                  fontSize: "11px",
-                  color: "var(--ink-3)",
-                }}
-              >
-                Production rolls up from leaf children.
-              </span>
-            </div>
-            </div>
-          );
-        }
-
-        const policy = policyBySku.get(sku.id) ?? sectionPolicy;
-        const rowsByTier = rowsBySku.get(sku.id) ?? new Map();
-
-        return (
-          <div key={sku.id} style={{ ...indentStyle, marginBottom: "14px" }}>
-            <SkuLabel sku={sku} />
-            <ProductionTable
-              sku={sku}
-              policy={policy}
-              tiers={tiers}
-              rowsByTier={rowsByTier}
-              visibleLines={visibleLines}
-              disabled={!editable}
-            />
+              Production belongs to the finished good.
+            </span>
           </div>
-        );
-      })}
+          <ProductionTable
+            sku={asm}
+            policy={policyByAssembly.get(asm.id) ?? sectionPolicy}
+            tiers={tiers}
+            rowsByTier={rowsBySku.get(asm.id) ?? new Map()}
+            visibleLines={visibleLines}
+            disabled={!editable}
+          />
+        </div>
+      ))}
 
       <PostProdReconcile
         actualUnitsProduced={actualUnitsProduced}
         yieldLocked={yieldLocked}
         firstTierQty={tiers[0]?.qty ?? null}
       />
-    </div>
-  );
-}
-
-function SkuLabel({ sku }: { sku: QuoteSku }) {
-  return (
-    <div
-      style={{
-        marginBottom: "6px",
-        fontFamily: "var(--mono)",
-        fontSize: "10px",
-        letterSpacing: "0.10em",
-        textTransform: "uppercase",
-        color: "var(--ink-4)",
-      }}
-    >
-      {sku.skuLabel} · <span style={{ textTransform: "none", letterSpacing: "0.04em", fontSize: "11px", color: "var(--ink-3)" }}>{sku.productName}</span>
     </div>
   );
 }
@@ -731,8 +693,15 @@ function ProductionTierCell({
     // the action's INSERT branch creates one. Previously the guard
     // silently discarded the PM's first-typed value for un-seeded
     // (assembly, tier) cells.
-    const assemblyId = sku.parentSkuId;
-    if (!assemblyId) return; // leaf without a parent — shouldn't happen for prod cells
+    // BV-012 — `sku` IS the Item Group now; the table is rendered once per
+    // assembly. This previously read `sku.parentSkuId`, because the table was
+    // rendered on member leaves and had to climb to the owner. An assembly's
+    // parent is null, so leaving that read in place would have made
+    // `if (!assemblyId) return` swallow EVERY production write — silently, in
+    // a fire-and-forget transition. The same shape as the Direct Product
+    // defect this slice removes, pointed at the whole surface.
+    const assemblyId = sku.skuRole === "assembly" ? sku.id : sku.parentSkuId;
+    if (!assemblyId) return;
     const fd = new FormData();
     fd.set("quoteSkuId", assemblyId);
     fd.set("tierId", tier.id);
