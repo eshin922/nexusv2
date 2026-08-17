@@ -37,6 +37,7 @@ import { usePricingStaging } from "./pricing-staging-context";
 import type { Cell } from "@/lib/pricing-classifier";
 import type { CellRef } from "@/lib/pricing-staging";
 import { formatMoney } from "@/lib/money-display";
+import { QuoteTargetMarginPopover } from "@/components/quote-target-margin-popover";
 
 // ── formatting ────────────────────────────────────────────────────────────
 //
@@ -139,6 +140,14 @@ export interface ComplianceGridProps {
   /** Firm thresholds, for the header caption ONLY. Never compared against. */
   targetPct: number;
   floorPct: number;
+  /**
+   * Draft-state, for the Margin Target control in the header caption.
+   *
+   * Threaded rather than derived: `updateQuoteTargetMargin` enforces the draft
+   * guard server-side regardless, so this governs the AFFORDANCE only — a sent
+   * quote shows its target and offers no way to change it.
+   */
+  editable: boolean;
   /** Tier labels and the ★ recommendation, by classifier tier id. */
   tierMeta: ReadonlyMap<number, { label: string; recommended: boolean }>;
   /**
@@ -204,6 +213,7 @@ function ManualPriceRemains({
 export function ComplianceGrid({
   targetPct,
   floorPct,
+  editable,
   tierMeta,
   resolveCell,
   selected,
@@ -223,7 +233,27 @@ export function ComplianceGrid({
         <div className="r11-slab">
           <span className="colhead">Compliance · margin by cell</span>
           <span className="s">
-            target {fmtPct(targetPct)} · floor {fmtPct(floorPct)}
+            {/*
+              The per-quote Margin Target is authored HERE, on the figure it
+              governs.
+
+              Its previous host, `VerdictBand`, was torn down with the legacy
+              reframe shell, and the popover went with it — `quotes.
+              target_margin_pct` had no operator write path at all (3 audit
+              rows ever, none since 2026-05-03) while the read chain
+              `quote.targetMarginPct ?? firm.targetMarginPct` stayed live
+              throughout the classifier. A column the engine reads and nothing
+              can set.
+
+              The grid header is where it belongs rather than merely where it
+              fits: this caption is the only place the effective target is
+              stated in every mode, and it is the number every band in the grid
+              below is measured against. Mounting it here also keeps P-UX-1
+              honoured — no card returns to the pre-grid path.
+            */}
+            target {fmtPct(targetPct)}
+            <QuoteTargetMarginPopover disabled={!editable} />{" "}
+            · floor {fmtPct(floorPct)}
           </span>
         </div>
         {state.tiers.map((t) => {

@@ -1275,6 +1275,9 @@ export function PricingSurfaceShell({
         <ComplianceGrid
           targetPct={state.policy.target_margin_pct}
           floorPct={state.policy.floor_margin_pct}
+          // Same flag the staged levers use: a sent quote shows the target and
+          // offers no way to change it.
+          editable={committable}
           tierMeta={tierMeta}
           resolveCell={resolveCell}
           selected={selectedCell}

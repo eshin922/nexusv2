@@ -1004,3 +1004,118 @@
 .r6-prod-toggle .tog.mixed::after {
   transform: translateX(4px);
 }
+
+/* ── Per-quote Margin Target popover ──────────────────────────────────────
+ *
+ * Nexus extension. The control's original host (`VerdictBand`) was torn down
+ * with the legacy reframe shell, leaving `quotes.target_margin_pct` with no
+ * operator write path — 3 audit rows ever, none since 2026-05-03. It is
+ * re-mounted on the compliance grid header, against the `target N%` figure it
+ * governs.
+ *
+ * These rules exist because the component shipped in hardcoded `gray-*` /
+ * `blue-*` Tailwind, which is light-mode only. Re-mounting it unconverted
+ * would have put the one un-themed card on a surface whose dark mode was just
+ * verified clean under B-17.
+ */
+.psr-target-trigger {
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink-3);
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.psr-target-trigger:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.psr-target-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.psr-target-pop {
+  z-index: 50;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 14px;
+  box-shadow: 0 8px 24px oklch(0% 0 0 / 0.18);
+}
+.psr-target-pop-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.psr-target-pop-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-2, var(--ink-3));
+  margin-bottom: 8px;
+}
+.psr-target-pop-row.edit { align-items: center; }
+.psr-target-pop-row .num { font-family: var(--mono); color: var(--ink); }
+.psr-target-pop-row .src { font-size: 10px; color: var(--ink-3); }
+.psr-target-pop-row.effective {
+  background: var(--paper-2);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-bottom: 12px;
+}
+.psr-target-pop-row .field { display: flex; align-items: center; gap: 6px; }
+.psr-target-pop-row .unit { font-size: 11px; color: var(--ink-3); }
+
+.psr-target-input {
+  width: 76px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+}
+.psr-target-input:focus { outline: none; border-color: var(--accent); }
+
+.psr-target-err {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--bad);
+}
+
+.psr-target-pop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.psr-target-btn {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink-2, var(--ink));
+  padding: 5px 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.psr-target-btn:hover:not(:disabled) { background: var(--paper-2); }
+.psr-target-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.psr-target-btn.revert { margin-right: auto; color: var(--ink-3); }
+.psr-target-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+.psr-target-btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
