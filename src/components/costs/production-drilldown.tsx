@@ -299,23 +299,26 @@ export function ProductionDrilldown({
         if (isAssembly) {
           return (
             <div key={sku.id} style={indentStyle}>
-            {/* The assembly's own block: an identity STRIP, and beneath it the
-                one policy that belongs to this assembly.
+            {/* The assembly's identity strip.
 
-                Stacked, not inline. The strip is a 13px `align-items: center`
-                row — a badge, a label, a caption — and the allocation control
-                is a full card with a label, a description and a consequence
-                line. Wedging the card into the strip is what made it read as
-                something bolted onto the right-hand edge rather than a policy
-                for this product.
+                It carried a per-assembly allocation control until 2026-08-17,
+                when the quote-level control was paired with Customer ships raws
+                at the section head and this one was removed as a duplicate of
+                the same label.
 
-                Association is by CONTAINMENT now: both sit inside the same
-                accent-bordered block, so the control plainly governs the
-                assembly named directly above it. Scope, action and state are
-                untouched — allocation stays assembly-scoped per the 2026-08-11
-                repair, and each assembly still expresses its own policy. */}
+                The column is still per-assembly and the section control still
+                writes it per assembly, so divergent values PERSIST and are
+                still read honestly (the section control reads `mixed`). What
+                went is the operator's ability to CREATE divergence — the reach
+                the 2026-08-11 repair had restored. Reinstating it means putting
+                a control back here, not changing scope anywhere. */}
+            {/* One row again, now that it holds only identity. The nested
+                wrapper existed to stack the control beneath the strip. */}
             <div
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
                 marginBottom: "12px",
                 padding: "10px 14px",
                 background: "oklch(from var(--accent) l c h / 0.05)",
@@ -324,35 +327,22 @@ export function ProductionDrilldown({
                 fontSize: "13px",
               }}
             >
-              <div
+              <span className="r6-badge accent">Assembly</span>
+              <span style={{ color: "var(--ink)", fontWeight: 500 }}>
+                {sku.skuLabel}
+              </span>
+              <span style={{ color: "var(--ink-3)" }}>
+                · {sku.productName}
+              </span>
+              <span
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
+                  marginLeft: "auto",
+                  fontSize: "11px",
+                  color: "var(--ink-3)",
                 }}
               >
-                <span className="r6-badge accent">Assembly</span>
-                <span style={{ color: "var(--ink)", fontWeight: 500 }}>
-                  {sku.skuLabel}
-                </span>
-                <span style={{ color: "var(--ink-3)" }}>
-                  · {sku.productName}
-                </span>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    fontSize: "11px",
-                    color: "var(--ink-3)",
-                  }}
-                >
-                  Production rolls up from leaf children.
-                </span>
-              </div>
-              <AssemblyAllocationToggle
-                assemblyId={sku.id}
-                policy={policyByAssembly.get(sku.id) ?? sectionPolicy}
-                disabled={!editable}
-              />
+                Production rolls up from leaf children.
+              </span>
             </div>
             </div>
           );
@@ -1058,7 +1048,7 @@ function SectionToggles({
           noAssemblies
             ? "No assemblies on this quote, so there is no allocation policy to set."
             : allocation === "mixed"
-              ? "Products differ. Setting from here applies one value to all of them."
+              ? "Products currently differ. Setting from here applies one value to all of them."
               : undefined
         }
       >
@@ -1074,7 +1064,7 @@ function SectionToggles({
             {noAssemblies
               ? "→ no assemblies on this quote"
               : allocation === "mixed"
-                ? "→ set per product below · applying here overwrites all"
+                ? "→ products currently differ · setting here applies to all"
                 : allocation === "on"
                   ? "→ NRE rolled into per-unit (smaller tiers carry more)"
                   : "→ NRE invoiced as a separate line on the order"}
@@ -1082,82 +1072,6 @@ function SectionToggles({
         </div>
       </button>
 
-      {writeError && (
-        <div className="r6-prod-toggle-error" role="alert">
-          Could not save: {writeError}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Allocation policy for ONE assembly.
- *
- * Owned by the assembly whose production inputs it governs. It writes exactly
- * one policy fan-out — its own — so A=ON / B=OFF is expressible, and it
- * survives reconcile because no other control writes this field.
- *
- * `customerShipsRaws` and `notes` are carried through from THIS assembly's
- * persisted policy, because the action rewrites the whole policy row. Sourcing
- * them from anywhere else would reintroduce the broadcast defect one field over.
- */
-function AssemblyAllocationToggle({
-  assemblyId,
-  policy,
-  disabled,
-}: {
-  assemblyId: string;
-  policy: SkuPolicy;
-  disabled: boolean;
-}) {
-  const [pending, startTransition] = useTransition();
-  const [writeError, setWriteError] = useState<string | null>(null);
-
-  function flip() {
-    if (disabled || pending) return;
-    setWriteError(null);
-    const newValue = !policy.allocateServiceFeesToCost;
-    startTransition(async () => {
-      const fd = new FormData();
-      // Action reads formData.get("quoteSkuId") as the assembly id (name
-      // preserved for backward compat; semantic is assembly.id post-11.5).
-      fd.set("quoteSkuId", assemblyId);
-      fd.set("customerShipsRaws", policy.customerShipsRaws.toString());
-      fd.set("allocateServiceFeesToCost", newValue.toString());
-      fd.set("notes", policy.notes ?? "");
-      try {
-        const res = await updateAssemblyProductionPolicy(fd);
-        if (!res.ok) setWriteError(res.error.message);
-      } catch (e) {
-        setWriteError(e instanceof Error ? e.message : "Policy update failed.");
-      }
-    });
-  }
-
-  return (
-    <div className="r6-prod-toggles r6-prod-toggles-asm">
-      <button
-        type="button"
-        className={`r6-prod-toggle ${policy.allocateServiceFeesToCost ? "on" : ""}`}
-        onClick={flip}
-        disabled={disabled || pending}
-      >
-        <span className="tog" />
-        <div className="body">
-          <div className="lab">Allocate service fees to unit cost</div>
-          <div className="desc">
-            Setup, tooling/artwork, R&amp;D, and other service fees allocate
-            across quoted units. If OFF, they invoice once as separate charges.
-            This choice belongs to this product.
-          </div>
-          <div className="consequence">
-            {policy.allocateServiceFeesToCost
-              ? "→ NRE rolled into per-unit (smaller tiers carry more)"
-              : "→ NRE invoiced as a separate line on the order"}
-          </div>
-        </div>
-      </button>
       {writeError && (
         <div className="r6-prod-toggle-error" role="alert">
           Could not save: {writeError}

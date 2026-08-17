@@ -1012,35 +1012,36 @@ test("same-group reorder is untouched by the cross-home move", async () => {
   assert.match(src, /handleLeafDragOver/);
 });
 
-test("§1 · the Production allocation control sits IN the assembly's control row", async () => {
-  // It had drifted to a sibling BELOW the banner, so each assembly occupied two
-  // stacked bands — an identity row, then a lone control floating under it —
-  // which doubled the section's vertical rhythm and detached each control from
-  // the thing it controls.
+test("§1 · the assembly row holds identity only; allocation moved to the section head", async () => {
+  // SUPERSEDED, deliberately, and rewritten rather than deleted.
   //
-  // Asserted as ORDERING inside the row, not as the presence of the component:
-  // presence was never in doubt, placement was.
+  // This test used to pin the per-assembly allocation control INSIDE the
+  // assembly's row — first because the control had been section-wide and
+  // broadcast (2026-08-11), then because it had drifted to a band below the
+  // identity strip. On 2026-08-17 the control was removed altogether by
+  // operator disposition: paired with Customer ships raws at the section head,
+  // two controls sharing one label read as a duplicate rather than two scopes.
+  //
+  // What that costs is stated in the sibling suite and not re-litigated here:
+  // creating divergence is no longer reachable from the UI.
+  //
+  // What this test now protects is the part that did NOT change — the write is
+  // still per assembly, so existing divergent values survive and still read as
+  // `mixed`. A future single-write "simplification" would make the column dead
+  // and the aggregate a lie, and would fail here.
   const src = await code("src/components/costs/production-drilldown.tsx");
-  const caption = src.indexOf("Production rolls up from leaf children.");
-  const toggle = src.indexOf("<AssemblyAllocationToggle");
-  assert.ok(caption > 0 && toggle > 0, "both the caption and the control must exist");
-  assert.ok(
-    toggle > caption,
-    "the control must follow the caption inside the row, not precede the row",
-  );
-  // The row's closing tag must come AFTER the control. This is the assertion
-  // that actually distinguishes "in the row" from "under it" — the ordering
-  // above holds in both arrangements.
-  const rowClose = src.indexOf("</div>", toggle);
-  const captionClose = src.indexOf("</span>", caption);
-  assert.ok(
-    captionClose < toggle && toggle < rowClose,
-    "the control must be enclosed by the row it belongs to",
-  );
 
-  // Scope is unchanged: allocation is ASSEMBLY-scoped per the 2026-08-11
-  // repair, and a layout move must not quietly re-broadcast it section-wide.
-  assert.match(src, /policyByAssembly\.get\(sku\.id\) \?\? sectionPolicy/);
+  assert.ok(
+    src.indexOf("Production rolls up from leaf children.") > 0,
+    "the assembly identity strip must survive",
+  );
+  assert.doesNotMatch(src, /AssemblyAllocationToggle/);
+
+  // Per-assembly write, from the section-head control.
+  assert.match(src, /for \(const asm of assemblies\)[\s\S]{0,600}?fd\.set\("quoteSkuId", asm\.id\)/);
+  assert.match(src, /aggregateAllocation\(policyByAssembly\.values\(\)\)/);
+
+  // Full contract: tests/unit/production-allocation-bulk-control.test.ts
 });
 
 test("B-11 · the library states its own truncation", async () => {

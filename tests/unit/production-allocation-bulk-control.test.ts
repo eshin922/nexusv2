@@ -177,15 +177,30 @@ test("the disabled state says why", async () => {
   assert.match(body, /noAssemblies[\s\S]{0,120}?No assemblies on this quote/);
 });
 
-test("the per-assembly control survives, so flattening stays reversible", async () => {
-  // The whole justification for allowing a broadcast: an operator who did not
-  // want it can restore divergence on the spot. If this ever goes, the bulk
-  // control stops being an affordance and becomes the 2026-08-11 defect again.
+test("there is exactly ONE control bearing this label", async () => {
+  // The per-assembly control was removed on 2026-08-17: two controls with the
+  // same label, one quote-level and one per-product, read as a duplicate rather
+  // than as two scopes. Operator disposition.
+  //
+  // What this costs is recorded rather than hidden: creating divergence is no
+  // longer reachable from the UI. The column stays per-assembly, the section
+  // control still writes it per assembly, and existing divergence still reads
+  // `mixed` — so `mixed` is a state the operator can leave but not enter.
   const src = await code();
-  assert.match(src, /function AssemblyAllocationToggle\(/);
-  assert.match(src, /<AssemblyAllocationToggle/);
-  const asm = fn(src, "AssemblyAllocationToggle");
-  assert.match(asm, /fd\.set\("quoteSkuId", assemblyId\)/);
+  assert.doesNotMatch(src, /AssemblyAllocationToggle/);
+  const labels = src.match(/Allocate service fees to unit cost/g) ?? [];
+  assert.equal(labels.length, 1, `${labels.length} controls carry the label`);
+});
+
+test("divergent data is still written per assembly, not collapsed", async () => {
+  // The reach went; the SCOPE did not. Each assembly still gets its own write,
+  // so a pre-existing divergent value is preserved by an unrelated raws toggle
+  // and is still visible as `mixed`. If this ever became a single write, the
+  // per-assembly column would be dead and the aggregate meaningless.
+  const body = fn(await code(), "SectionToggles");
+  const bulk = body.slice(body.indexOf("function bulkSetAllocation"));
+  assert.match(bulk, /for \(const asm of assemblies\)/);
+  assert.match(bulk, /fd\.set\("quoteSkuId", asm\.id\)/);
 });
 
 test("the section header states the aggregate, not the first leaf's row", async () => {
