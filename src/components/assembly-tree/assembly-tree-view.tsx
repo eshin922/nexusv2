@@ -27,6 +27,8 @@
 // (Q2 — single entry point).
 
 import type { AssemblyTree } from "@/lib/assembly-tree";
+import { indexClientTargets, type ClientTargetRow } from "@/lib/client-target";
+import type { TargetTier } from "./client-target";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
@@ -40,6 +42,8 @@ export function AssemblyTreeView({
   itemGroupCategories,
   leafTypes,
   permissions,
+  tiers,
+  clientTargets,
 }: {
   tree: AssemblyTree;
   editable: boolean;
@@ -52,6 +56,10 @@ export function AssemblyTreeView({
   // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
   // Page-level fetcher reads user.canCreateLeaves via ensureUser.
   permissions: { canCreateLeaves: boolean };
+  /** Tier list for the Client Target drawer, in display order. */
+  tiers: ReadonlyArray<TargetTier>;
+  /** Raw Client Target rows for the quote. Indexed here, resolved per row. */
+  clientTargets: ReadonlyArray<ClientTargetRow>;
 }) {
   // Rollup-state counters for the tree summary header (scenario ④).
   // good = all_complete, warn = partial or mixed_with_placeholders,
@@ -80,6 +88,10 @@ export function AssemblyTreeView({
     ) +
     tree.directProducts.filter((p) => p.specCompleteness?.kind === "complete")
       .length;
+
+  // Indexed ONCE for the whole tree. Every row then resolves from the same
+  // governed structure rather than filtering a flat list per row.
+  const targetsByUnit = indexClientTargets(clientTargets);
 
   const assemblyTargets = tree.assemblies.map((a) => ({
     id: a.id,
@@ -158,6 +170,8 @@ export function AssemblyTreeView({
         projectId={projectId}
         quoteId={quoteId}
         assemblies={assemblyTargets}
+        tiers={tiers}
+        targetsByUnit={targetsByUnit}
         fullLeafTypes={leafTypes}
         permissions={permissions}
       />

@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import type { UnitTargets } from "@/lib/client-target";
+import { ClientTargetCell, type TargetTier } from "./client-target";
 import type {
   AssemblyNode,
   AssemblyLeafNode,
@@ -48,12 +50,18 @@ export function AsyRow({
   onMemberDragOverGroup,
   onMemberDragOverGroupTail,
   onMemberDropOnGroup,
+  tiers,
+  targets,
 }: {
   asy: AssemblyNode;
   editable: boolean;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
+  /** Tier list for the Client Target drawer. */
+  tiers: ReadonlyArray<TargetTier>;
+  /** This Item Group's targets. The finished good is the sellable unit. */
+  targets: UnitTargets | undefined;
   projectId: string;
   quoteId: string;
   isDragging: boolean;
@@ -211,6 +219,16 @@ export function AsyRow({
         </div>
         <span className="leaf-count">{asy.children.length} products</span>
         <AsyRollupChip rollup={asy.rollup} />
+        {/* The Item Group FINISHED GOOD carries the target — never one of
+            its members. The members below get no affordance at all. */}
+        <ClientTargetCell
+          unitKind="assembly"
+          unitId={asy.id}
+          unitLabel={asy.name}
+          targets={targets}
+          tiers={tiers}
+          editable={editable}
+        />
         <AsyNotesTrigger
           assemblyId={asy.id}
           hasNote={

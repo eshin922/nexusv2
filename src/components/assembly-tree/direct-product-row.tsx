@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import type { UnitTargets } from "@/lib/client-target";
+import { ClientTargetCell, type TargetTier } from "./client-target";
 import type { DirectProductNode } from "@/lib/assembly-tree";
 import { CompletenessChip } from "./completeness-chip";
 import { detachQuoteProduct } from "@/app/actions/quote-products";
@@ -29,6 +31,8 @@ export function DirectProductRow({
   isMoving,
   onMoveStart,
   dropEdge,
+  tiers,
+  targets,
   pending: savingStructure,
   onRowDragOver,
   onRowDrop,
@@ -37,6 +41,10 @@ export function DirectProductRow({
   editable: boolean;
   quoteId: string;
   editSpecsHref: string;
+  /** Tier list for the Client Target drawer. */
+  tiers: ReadonlyArray<TargetTier>;
+  /** This unit's targets. A Direct Product IS a sellable unit, so it has some. */
+  targets: UnitTargets | undefined;
   /** Drag in flight for THIS product. */
   isMoving?: boolean;
   /** Begin a structural move. Absent when the surface is read-only. */
@@ -181,6 +189,16 @@ export function DirectProductRow({
             a single `…`; the inline pair arrived with §9.1 and was never
             measured against it. Handlers and semantics are unchanged — only
             where the operator reaches them. */}
+        {/* A Direct Product IS the sellable unit — the leaf itself is what
+            the customer buys — so it carries a client target directly. */}
+        <ClientTargetCell
+          unitKind="leaf"
+          unitId={product.quoteLeafId}
+          unitLabel={product.name}
+          targets={targets}
+          tiers={tiers}
+          editable={editable}
+        />
         <div className="direct-actions" ref={menuRef}>
           <CompletenessChip completeness={product.specCompleteness} />
           <button

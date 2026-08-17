@@ -2,7 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { projects, quotes, quoteTiers, users } from "@/db/schema";
+import {
+  projects,
+  quoteClientTargets,
+  quotes,
+  quoteTiers,
+  users,
+} from "@/db/schema";
 // canonical-scenario-create-flow Step 3 — legacy SKU table imports
 // removed: quoteSkus, packagingInputs, productionInputs (data
 // sources), buildTreeRenderOrder, getEligibleParents (helpers),
@@ -112,6 +118,14 @@ export default async function QuoteBuilderPage({
     .from(quoteTiers)
     .where(eq(quoteTiers.quoteId, quote.id))
     .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+
+  // Client Target rows for the whole quote — raw, and resolved where they are
+  // read. One query rather than one per sellable unit; the table carries
+  // `quote_id` so no join is needed to scope it.
+  const clientTargetRows = await db
+    .select()
+    .from(quoteClientTargets)
+    .where(eq(quoteClientTargets.quoteId, quote.id));
 
   const editable = quote.status === "draft";
 
@@ -264,6 +278,13 @@ export default async function QuoteBuilderPage({
         <AssemblyTreeView
           tree={assemblyTree}
           editable={editable}
+          tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
+          clientTargets={clientTargetRows.map((r) => ({
+            assemblyId: r.assemblyId,
+            quoteLeafId: r.quoteLeafId,
+            tierId: r.tierId,
+            clientTargetPricePerUnit: Number(r.clientTargetPricePerUnit),
+          }))}
           projectId={projectId}
           quoteId={quoteId}
           itemGroupCategories={productTypeOptions.itemGroupCategories}
