@@ -310,21 +310,19 @@ whenever dispositioned.
 
 ---
 
-## Genuinely unresolved business questions
+## Business questions — resolved 2026-08-17
 
-1. **What makes a Product Library entry a service?** (dimension 1)
-2. **May a service-classified entry ever be an Item Group member?** My reading
-   is no, and that constraint is what protects both boundaries — but it is a
-   business rule, not an inference.
-3. **Which Production inputs does each service expose?** The disposition says
-   library identity determines it. Is that a per-type field schema
-   (`product_types.field_schema` already exists and is unused for this), a
-   curated mapping, or operator choice?
-4. **Does allocation apply to a Direct Service?** (C1/C2 extension)
-5. **Is a Direct Service's NetSuite item the BV-011 destination itself, or a
-   library item that maps to one?** (F1)
-6. **Is engagement expansion a recorded link, a copy relationship, or an
-   operator-visible cross-reference only?** (dimension 10)
-7. **Do OTC lines join the Item Group's `composition_hash`?** (F4) — this one
-   changes group identity across quotes, so it is the highest-stakes of the
-   NetSuite set.
+All seven were dispositioned. Recorded here so the trace is not read as open.
+
+| # | Question | Disposition |
+|---|---|---|
+| 1 | What makes a library entry a service? | A governed **service classification on the library entry**. Not `product_types.scope` (placement), not the legacy `Service / labor` type, not HubSpot's field |
+| 2 | May a service entry be an Item Group member? | **No.** Enforced as an **attachment boundary**, not UI copy — BV-012 §5.c |
+| 3 | Which Production inputs does each service expose? | **Library/service identity determines the authoring surface.** A Filling service does not expose Formulation, Tooling or Pack-out |
+| 4 | Does allocation apply to a Direct Service? | **No.** Allocation is an Item Group/turnkey concept; a Direct Service is already the sellable unit — BV-012 §5.d |
+| 5 | Is a Direct Service's NetSuite item the BV-011 destination? | It **projects to** the corresponding BV-011 destination; library service identity + BV-011 mapping resolve the item |
+| 6 | Is engagement expansion a link, a copy, or a cross-reference? | **An explicit commercial action** preserving the original Direct Service history. Smallest safe operator path, not a fulfillment engine — BV-012 §5.e |
+| 7 | Do OTC lines join `composition_hash`? | **No.** Product structure governs Item Group identity; OTC association does not join it. OD-004 identity stability preserved |
+
+Implementation sequencing and the dependencies that remain are in
+[`direct-service-implementation-plan.md`](direct-service-implementation-plan.md).

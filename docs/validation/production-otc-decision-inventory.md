@@ -5,9 +5,52 @@
 (classification / destination) and
 [BV-012](../business-validation/BV-012-production-cost-ownership.md) (ownership).
 
+> **UPDATED 2026-08-17 — F1, F2 and F4 are now SETTLED, and C1/C2 are narrowed.**
+> See "Settled by the Direct Service disposition" below. The rest stands.
+
 **This document decides nothing.** It reports the business and accounting
 decisions that must be settled before any Production/OTC code is written, and
 marks which of them **move money** or **change NetSuite structure**.
+
+---
+
+## Settled by the Direct Service disposition (2026-08-17)
+
+Recorded here so the inventory does not read as open where it is not. Authority:
+[BV-012 §5](../business-validation/BV-012-production-cost-ownership.md) and
+[the Direct Service trace](direct-service-architecture-trace.md).
+
+**F1 — do OTC destinations become SO lines? → YES.** Two independent routes now
+require it:
+
+- a **Direct Service** projects as a standalone OTC/accounting line
+  (e.g. `OTC - Filling`), priced from service cost + `Production` markup, with
+  no artificial Item Group;
+- a **separately billed Item Group** OTC/service charge must reach the SO as an
+  explicit line **associated with the owning Item Group**.
+
+**F2 — where are allocation-OFF fees billed? → ON THE SO.** The current state,
+where the PDF can show a separately billed fee that `totalRevenue` and the SO
+omit, is **not preserved**. The Sales Order must represent the accepted
+commercial total. This is the direction, not the mechanism; the reconciliation
+is implementation-sequenced.
+
+**F4 — are OTC lines inside the Item Group's `composition_hash`? → NO.**
+`composition_hash` represents finished-good product structure. Packaging /
+product structural membership continues to govern Item Group identity. An OTC
+line may be *associated* with an Item Group for SO and accounting purposes
+without joining its identity — so Setup, Tooling, Testing or Freight changing
+between quotes does not manufacture a new Item Group. **OD-004 identity
+stability is preserved.**
+
+**C1 / C2 — allocation behaviour → NARROWED, not settled.** Allocation is now
+governed as an **Item Group / turnkey concept only** (BV-012 §5.d): a Direct
+Service does not expose it and does not route through it. What remains open is
+whether allocation stays uniform across Item Group OTC destinations, and whether
+an Inventory-Item OTC may be amortised into unit cost.
+
+**Unchanged and still open:** A1, A2, B1–B4, D1/D2 (settled separately by
+BV-013), E1–E3, F3.
 
 ---
 
