@@ -980,31 +980,45 @@
 .a1v2-leaf-row.structure-pending,
 .a1v2-asy-row.structure-pending { position: relative; }
 
-/* ── Production policy cards: one width, defined once ─────────────────────
+/* ── Production policy cards: one card width, defined once ────────────────
  *
- * `.r6-prod-toggles` is a two-up flex row with `flex: 1` children, written when
- * Customer ships raws and Allocate service fees sat side by side. Neither is
- * half of a pair any more — the allocation control moved onto the assembly it
- * governs, because it is per-assembly in the schema and one quote-level copy
- * broadcast across every assembly — so each now stretches whatever container it
- * lands in. Full content width for the quote-wide card; the full assembly block
- * for the per-assembly one, where it dominated the product it was supposed to
- * be a secondary policy on.
+ * `.r6-prod-toggles` is a two-up flex row with `flex: 1` children, and the
+ * section row holds two again: Customer ships raws beside the BULK allocation
+ * control. `--prod-policy-card-w` is the width of ONE card, so the section row
+ * is capped at two of them plus the divider, and the per-assembly card — a
+ * different control with a different scope — is capped at one.
  *
- * Both are capped, and by the SAME custom property rather than by two numbers
- * that happen to agree today. The requirement is that they read as the same
- * kind of thing at roughly the same size; two literals would satisfy that until
- * somebody tuned one of them.
+ * The property is shared rather than duplicated as two literals that happen to
+ * agree today: the requirement is that all three read as the same kind of
+ * object at the same size, which two numbers satisfy only until somebody tunes
+ * one of them.
  *
- * Width only. The two controls are not reunited and their scopes are unchanged:
- * Customer ships raws stays quote-wide, allocation stays assembly-scoped inside
- * the block whose product it governs.
+ * Width only. Scope is unchanged and is NOT a width concern: the section
+ * control writes every assembly, the per-assembly control writes one.
  */
 :root {
   --prod-policy-card-w: 560px;
 }
 
-.r6-prod-toggles-solo,
+.r6-prod-toggles-section {
+  max-width: calc(var(--prod-policy-card-w) * 2 + 1px);
+}
+
 .r6-prod-toggles-asm {
   max-width: var(--prod-policy-card-w);
+}
+
+/* Mixed: neither ON nor OFF, and it must not be able to pass for either.
+ * The knob sits mid-track with the accent tint at half strength, so a quote
+ * with divergent products cannot read as a uniform one at a glance. */
+.r6-prod-toggle.mixed {
+  background: oklch(from var(--accent) l c h / 0.03);
+  box-shadow: inset 3px 0 0 oklch(from var(--accent) l c h / 0.45);
+}
+.r6-prod-toggle .tog.mixed {
+  background: oklch(from var(--accent) l c h / 0.35);
+  border-color: oklch(from var(--accent) l c h / 0.55);
+}
+.r6-prod-toggle .tog.mixed::after {
+  transform: translateX(4px);
 }

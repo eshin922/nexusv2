@@ -13,6 +13,12 @@ import {
   selectUpdateProductionCell,
 } from "@/lib/costing-store";
 import { nodeKey, resolveNodes } from "@/lib/costing-nodes";
+import {
+  aggregateAllocation,
+  describeAllocation,
+  resolveBulkAllocation,
+  type AllocationAggregate,
+} from "@/lib/production-policy";
 
 // Step 8 — drilldown consumes the structural SkuRow shape from
 // sku-tree.ts (replaced typeof quoteSkus.$inferSelect dependency).
@@ -227,6 +233,12 @@ export function ProductionDrilldown({
     notes: null,
   };
 
+  // Allocation is per-assembly, so the quote-level view of it is an AGGREGATE,
+  // not `sectionPolicy` — which is the first leaf's row and says nothing about
+  // the other assemblies. Reading it as though it did is the broadcast defect
+  // in the read direction.
+  const allocation = aggregateAllocation(policyByAssembly.values());
+
   // Section-wide actuals — read first SKU's first tier
   const firstSkuRows = rowsBySku.get(firstLeaf.id);
   const firstTierRow = firstSkuRows?.values().next().value;
@@ -257,6 +269,7 @@ export function ProductionDrilldown({
         assemblies={skus.filter((s) => s.skuRole === "assembly")}
         policy={sectionPolicy}
         policyByAssembly={policyByAssembly}
+        allocation={allocation}
         disabled={!editable}
         rawsMode={rawsMode}
       />
@@ -271,12 +284,9 @@ export function ProductionDrilldown({
           </span>
           <span>·</span>
           <span>
-            Service fees:{" "}
-            <strong>
-              {sectionPolicy.allocateServiceFeesToCost
-                ? "amortized"
-                : "billed separately"}
-            </strong>
+            {/* The aggregate, not the first leaf's row — this header states a
+                fact about the whole quote and previously read one product's. */}
+            Service fees: <strong>{describeAllocation(allocation)}</strong>
           </span>
         </div>
       </div>
@@ -869,6 +879,7 @@ function SectionToggles({
   assemblies,
   policy,
   policyByAssembly,
+  allocation,
   disabled,
   rawsMode,
 }: {
@@ -883,17 +894,24 @@ function SectionToggles({
   /** Each assembly's OWN persisted policy. Used so the raws fan-out cannot
    *  overwrite a divergent per-assembly allocation value. */
   policyByAssembly: Map<string, SkuPolicy>;
+  /** Aggregate of every assembly's OWN allocation value — see `aggregateAllocation`. */
+  allocation: AllocationAggregate;
   disabled: boolean;
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
 }) {
-  const [pending, startTransition] = useTransition();
+  // Pattern 47(f): one transition per action. These two controls write the same
+  // table through the same action, but they are separate operator decisions —
+  // sharing a transition would make an in-flight raws write disable a control
+  // the operator has every right to use, with nothing on screen saying why.
+  const [rawsPending, startRaws] = useTransition();
+  const [allocPending, startAlloc] = useTransition();
   const [writeError, setWriteError] = useState<string | null>(null);
 
   function flipToggle(field: "customerShipsRaws") {
-    if (disabled || pending) return;
+    if (disabled || rawsPending) return;
     setWriteError(null);
     const newValue = !policy[field];
-    startTransition(async () => {
+    startRaws(async () => {
       for (const asm of assemblies) {
         const fd = new FormData();
         // Action reads formData.get("quoteSkuId") as the assembly id
@@ -945,24 +963,68 @@ function SectionToggles({
     });
   }
 
+  /**
+   * Bulk-set allocation across every assembly.
+   *
+   * This is a BROADCAST, and deliberately so — it is the quote-level affordance
+   * Edward asked for beside Customer ships raws. It differs from the pre-repair
+   * defect in the two ways that made that one a defect: the aggregate is read
+   * honestly (a divergent quote reads `mixed`, never a uniform value that is
+   * only true of the first leaf), and the per-assembly control it flattens is
+   * still on the assembly, so divergence is re-expressible immediately after.
+   *
+   * Each write still carries THAT assembly's own `customerShipsRaws` and
+   * `notes`, because the action rewrites the whole policy row. Sourcing them
+   * from the section would flatten a second field nobody asked to change.
+   */
+  function bulkSetAllocation() {
+    if (disabled || allocPending) return;
+    const next = resolveBulkAllocation(allocation);
+    if (next === null) return;
+    setWriteError(null);
+    startAlloc(async () => {
+      for (const asm of assemblies) {
+        const own = policyByAssembly.get(asm.id);
+        const fd = new FormData();
+        // `quoteSkuId` carries the ASSEMBLY id — the field name is preserved for
+        // backward compatibility; the semantic is assembly.id post-11.5.
+        fd.set("quoteSkuId", asm.id);
+        fd.set(
+          "customerShipsRaws",
+          (own?.customerShipsRaws ?? policy.customerShipsRaws).toString(),
+        );
+        fd.set("allocateServiceFeesToCost", next.toString());
+        fd.set("notes", own?.notes ?? policy.notes ?? "");
+        try {
+          const res = await updateAssemblyProductionPolicy(fd);
+          if (!res.ok) {
+            setWriteError(res.error.message);
+            break;
+          }
+        } catch (e) {
+          setWriteError(
+            e instanceof Error ? e.message : "Policy update failed.",
+          );
+          break;
+        }
+      }
+    });
+  }
+
   const customerShipsRawsEffective =
     rawsMode === "customer_supplies" || policy.customerShipsRaws;
+  const noAssemblies = allocation === "none";
 
   return (
-    // `-solo` because this row holds ONE control now, not two.
-    //
-    // The container is a two-up flex row with `flex: 1` children, built when
-    // Customer ships raws and Allocate service fees sat side by side. The
-    // allocation control moved onto the assembly it governs, and the survivor
-    // inherited the whole width — a lone full-width slab that reads as half a
-    // broken pair. The modifier stops it stretching; it does not put the two
-    // back together, which would mean broadcasting a per-product policy again.
-    <div className="r6-prod-toggles r6-prod-toggles-solo">
+    // Two-up again, which is what `.r6-prod-toggles` was written for: the two
+    // quote-level production policies side by side. The allocation control here
+    // is the BULK one; the per-assembly control stays on its assembly.
+    <div className="r6-prod-toggles r6-prod-toggles-section">
       <button
         type="button"
         className={`r6-prod-toggle ${customerShipsRawsEffective ? "on" : ""}`}
         onClick={() => flipToggle("customerShipsRaws")}
-        disabled={disabled || pending || rawsMode === "customer_supplies"}
+        disabled={disabled || rawsPending || rawsMode === "customer_supplies"}
         title={
           rawsMode === "customer_supplies"
             ? "Locked ON because Bulk Raw section is set to 'Customer supplies raws'."
@@ -984,10 +1046,42 @@ function SectionToggles({
         </div>
       </button>
 
-      {/* The allocation control lives on the ASSEMBLY it governs — see
-          `AssemblyAllocationToggle`. It used to sit here and broadcast to every
-          assembly, which made the per-assembly policy that the schema, costing
-          and the customer-view resolver all model unreachable for operators. */}
+      <button
+        type="button"
+        className={`r6-prod-toggle ${allocation === "on" ? "on" : ""} ${
+          allocation === "mixed" ? "mixed" : ""
+        }`}
+        onClick={bulkSetAllocation}
+        disabled={disabled || allocPending || noAssemblies}
+        // Every disabled operator control must say why (Pattern 47(f)).
+        title={
+          noAssemblies
+            ? "No assemblies on this quote, so there is no allocation policy to set."
+            : allocation === "mixed"
+              ? "Products differ. Setting from here applies one value to all of them."
+              : undefined
+        }
+      >
+        <span className={`tog ${allocation === "mixed" ? "mixed" : ""}`} />
+        <div className="body">
+          <div className="lab">Allocate service fees to unit cost</div>
+          <div className="desc">
+            Setup, tooling/artwork, R&amp;D, and other service fees allocate
+            across quoted units. If OFF, they invoice once as separate charges.
+            Sets every product on the quote.
+          </div>
+          <div className="consequence">
+            {noAssemblies
+              ? "→ no assemblies on this quote"
+              : allocation === "mixed"
+                ? "→ set per product below · applying here overwrites all"
+                : allocation === "on"
+                  ? "→ NRE rolled into per-unit (smaller tiers carry more)"
+                  : "→ NRE invoiced as a separate line on the order"}
+          </div>
+        </div>
+      </button>
+
       {writeError && (
         <div className="r6-prod-toggle-error" role="alert">
           Could not save: {writeError}
