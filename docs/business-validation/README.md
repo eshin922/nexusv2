@@ -33,6 +33,7 @@ the business contract.
 - [BV-005 — Below-Floor Margin Approval](BV-005-below-floor-margin-approval.md)
 - [BV-009 — Freight Treatment](BV-009-freight-treatment.md) — ⚠️ **RECONSTRUCTION, NOT RATIFIED**
 - [BV-010 — Blended Margin Definition](BV-010-blended-margin-definition.md)
+- [BV-011 — Production / OTC Accounting Map](BV-011-production-otc-accounting-map.md) — classification only; authorizes no implementation
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
 BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).

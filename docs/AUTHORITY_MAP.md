@@ -2,7 +2,7 @@
 
 **Status:** Governing. The answer to *"which document governs this, right
 now?"*
-**Last reconciled:** 2026-08-10
+**Last reconciled:** 2026-08-17
 
 Every document in this repository is one of four things. This map says which,
 so that authority can be determined **from the repository alone**.
@@ -56,6 +56,7 @@ Precedence between governing documents is
 | [`business-validation/BV-007`](business-validation/BV-007-product-setup-workflow.md) | Product Setup workflow | Approved |
 | [`business-validation/BV-008`](business-validation/BV-008-commercial-product-transition.md) | Commercial product transition | Approved |
 | [`business-validation/BV-009`](business-validation/BV-009-freight-treatment.md) | Freight treatment | ⚠️ **RECONSTRUCTION — NOT RATIFIED** — [OD-001](OPEN_DECISIONS.md) |
+| [`business-validation/BV-011`](business-validation/BV-011-production-otc-accounting-map.md) | Production / OTC accounting map — category → destination → item type | Approved 2026-08-17; **records classification only, authorizes no implementation** |
 | [`business-validation/PRODUCTION_READINESS_REGISTER.md`](business-validation/PRODUCTION_READINESS_REGISTER.md) | V1 business gates | Live |
 
 BV-002 is intentionally unassigned. Identifiers are stable and are not
