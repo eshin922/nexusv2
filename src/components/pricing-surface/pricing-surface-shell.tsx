@@ -69,6 +69,9 @@ import {
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { ComplianceGrid } from "./compliance-grid";
 import { setTierRecommended } from "@/app/actions/quotes";
+import { clientTargetFacts, describeGap } from "@/lib/client-target";
+import { selectCellTarget } from "@/lib/costing-store";
+import { useCostingStoreApi } from "@/components/costing-store-provider";
 import { CellDrawer, type DrawerTarget } from "./cell-drawer";
 import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
@@ -131,6 +134,7 @@ export function PricingSurfaceShell({
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
+  const storeApi = useCostingStoreApi();
   const { uuidToNumeric, numericToUuid } = idMap;
   const router = useRouter();
 
@@ -1109,6 +1113,44 @@ export function PricingSurfaceShell({
     priceBuildUnits,
   ]);
 
+  /**
+   * Client Target for the SELECTED unit at one tier, with the gap to that
+   * tier's Final quoted sell.
+   *
+   * Both halves are governed and neither is recomputed here. The target comes
+   * from the store's `cellTargets`, which the adapter already resolved
+   * `tier ?? common` and keyed on the sellable unit; the sell comes from the
+   * same per-unit map the Price Build renders from. The gap is a subtraction
+   * of two numbers this surface did not decide.
+   *
+   * Null target on Entire Quote, deliberately: a client names a price for a
+   * product, and summing targets across unrelated sellable units would invent
+   * a benchmark nobody gave.
+   */
+  const clientTargetFor = useCallback(
+    (numericTierId: number) => {
+      if (priceBuildUnitId === null) return { target: null, gap: null };
+      const tierUuid = numericToUuid.get(numericTierId);
+      if (tierUuid === undefined) return { target: null, gap: null };
+      const target = selectCellTarget(priceBuildUnitId, tierUuid)(
+        storeApi.getState(),
+      );
+      if (target === null) return { target: null, gap: null };
+      const sell = stackByTier.get(numericTierId)?.sell ?? null;
+      return {
+        target,
+        gap: describeGap(
+          clientTargetFacts({
+            target,
+            quotedSellPerUnit: sell,
+            costPerUnit: null,
+          })?.gapAbs ?? null,
+        ),
+      };
+    },
+    [priceBuildUnitId, numericToUuid, storeApi, stackByTier],
+  );
+
   const closeDrawer = useCallback(() => {
     setSelectedCell(null);
     setTraced(null);
@@ -1244,6 +1286,7 @@ export function PricingSurfaceShell({
           onPreviewGlobalAdjust forwards via DetailZone →
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
       <DetailZone
+        clientTargetFor={clientTargetFor}
         state={state}
         // The SELECTED unit's own price build — the same map the click
         // handler resolves against, by construction.

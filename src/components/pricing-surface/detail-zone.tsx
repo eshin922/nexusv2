@@ -411,6 +411,7 @@ function EntireQuoteBuild({
 }
 
 export function DetailZone({
+  clientTargetFor,
   state,
   blendedByTier,
   units,
@@ -435,6 +436,11 @@ export function DetailZone({
   renderStackDelta,
   renderStackMarginDelta,
 }: {
+  /** Forwarded to DetailCostStack; resolved by the shell. */
+  clientTargetFor?: (numericTierId: number) => {
+    target: number | null;
+    gap: string | null;
+  };
   state: QuoteState;
   /** Price-build values for the SELECTED unit of account, read from the
    *  canonical graph and keyed by the classifier's numeric tier id. Resolved
@@ -524,6 +530,7 @@ export function DetailZone({
           confirmation={pricingConfirmation}
         />
         <DetailCostStack
+          clientTargetFor={clientTargetFor}
           state={state}
           blendedByTier={blendedByTier}
           units={units}
@@ -1063,6 +1070,7 @@ function ReconStrip({ columns }: { columns: TierStackColumn[] }) {
 }
 
 export function DetailCostStack({
+  clientTargetFor,
   state,
   blendedByTier,
   units,
@@ -1079,6 +1087,16 @@ export function DetailCostStack({
   renderDelta,
   renderMarginDelta,
 }: {
+  /**
+   * The Client Target in force for the SELECTED unit at one tier, and the gap
+   * to that tier's Final quoted sell — both resolved by the shell, which owns
+   * the governed values. A component that resolved either would be a second
+   * authority over a precedence that already has one.
+   */
+  clientTargetFor?: (numericTierId: number) => {
+    target: number | null;
+    gap: string | null;
+  };
   state: QuoteState;
   /**
    * Price build per COMMERCIAL UNIT OF ACCOUNT, keyed by unit id then numeric
@@ -1253,6 +1271,48 @@ export function DetailCostStack({
       </div>
     </Fragment>
   );
+
+  /**
+   * The Client Target row, or nothing.
+   *
+   * RESOLVED PER TIER through the governed rule, and the gap is stated against
+   * each column's own Final quoted sell — so a tier carrying its own target and
+   * a tier carrying its own pricing override are measured correctly and
+   * independently. The two precedences do not interact: `tier ?? common`
+   * decides the benchmark, the pricing plan decides the price, and this row
+   * subtracts one from the other.
+   */
+  const clientTargetRow = (() => {
+    if (clientTargetFor === undefined) return null;
+    const anyTarget = columns.some(
+      (c) => clientTargetFor(c.numericId).target !== null,
+    );
+    if (!anyTarget) return null;
+    return row(
+      "client-target",
+      "r11-srow r11-ct-row",
+      <>
+        <span className="n">Client target</span>
+        <span className="s">what the client said · internal</span>
+      </>,
+      (c) => {
+        const { target, gap } = clientTargetFor(c.numericId);
+        if (target === null) {
+          return (
+            <div className="r11-scell flat" key={c.numericId}>
+              <span className="cost">—</span>
+            </div>
+          );
+        }
+        return (
+          <div className="r11-scell flat" key={c.numericId}>
+            <span className="sell">{fmtUsd4(target)}</span>
+            <span className="cost">{gap ?? ""}</span>
+          </div>
+        );
+      },
+    );
+  })();
 
   /** A LEVEL — a price at a point on the ladder. */
   const level = (
@@ -1583,6 +1643,17 @@ export function DetailCostStack({
           (c) => level(c, "sell"),
           "sell",
         )}
+
+        {/* CLIENT TARGET — a benchmark beside the result it is measured
+            against, and the third distinct line: Base sell (from Costs),
+            the pricing decisions, the Final quoted sell, and then what the
+            client said they need.
+
+            Absent when this unit has no target at this tier. Internal — it
+            never leaves this surface. Factual: the sub-caption states the gap
+            and stops, because being above the client's number may still be
+            the right quote and a verdict here would decide that. */}
+        {clientTargetRow}
 
         {row(
           "cost",

@@ -95,7 +95,53 @@ function listFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * SYMBOLS the customer-facing tree must not mention, whatever route they took.
+ *
+ * The import sweep above catches a whole surface being pulled in. It cannot
+ * catch a single FIELD arriving on the projected shape — and that is how an
+ * internal figure actually reaches a customer document: not by importing the
+ * Pricing surface, but by someone adding one more property to `CustomerView`
+ * because it was convenient at the composition seam.
+ *
+ * Client Target is the first entry. It is what the customer said they wanted
+ * to pay, recorded so the firm can decide what to quote. Printing it back to
+ * them would hand over the firm's read of their own negotiating position, and
+ * on a document nobody gets to apologise for afterwards (Pattern 45).
+ *
+ * Its absence today is a fact about the current code. This makes it a rule.
+ */
+const FORBIDDEN_SYMBOLS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern: /client[_-]?target/i,
+    reason:
+      "Client Target is internal — what the customer asked to pay, never quoted back",
+  },
+];
+
+/**
+ * The seam's OUTPUT, checked separately.
+ *
+ * Pattern 51: the boundary is enforced on the projected shape, not on the
+ * composition seam's imports — the resolver legitimately reads costing and
+ * schema in order to project. So the guarantee has to be asserted on the type
+ * the seam produces, which is where a forbidden field would have to appear
+ * before any renderer could read it.
+ */
+const PROJECTED_SHAPE_FILES: readonly string[] = [
+  join(ROOT, "src", "types", "quote.ts"),
+  join(ROOT, "src", "components", "pdf", "customer-pdf-types.ts"),
+];
+
 const violations: { file: string; importPath: string; reason: string }[] = [];
+const symbolViolations: { file: string; line: number; text: string; reason: string }[] = [];
+
+/** Comments stripped — this file explains the rule by naming what it forbids. */
+const NEWLINE_RE = new RegExp("\r?\n");
+
+function codeOnly(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ 	]*\/\/.*$/gm, "");
+}
 
 let files: string[];
 try {
@@ -129,6 +175,42 @@ for (const file of files) {
   }
 }
 
+// The symbol sweep: the render tree, plus the shape it renders from.
+for (const file of [
+  ...files,
+  ...PROJECTED_SHAPE_FILES.filter((f) => existsSync(f)),
+]) {
+  const lines = codeOnly(readFileSync(file, "utf-8")).split(NEWLINE_RE);
+  lines.forEach((text, i) => {
+    for (const { pattern, reason } of FORBIDDEN_SYMBOLS) {
+      if (pattern.test(text)) {
+        symbolViolations.push({
+          file: relative(ROOT, file),
+          line: i + 1,
+          text: text.trim().slice(0, 120),
+          reason,
+        });
+      }
+    }
+  });
+}
+
+if (symbolViolations.length > 0) {
+  console.error(
+    "[customer-view-boundary] BOUNDARY GUARD VIOLATION — an internal-only value reached the customer-facing tree.",
+  );
+  for (const v of symbolViolations) {
+    console.error(`  ${v.file}:${v.line}`);
+    console.error(`    ${v.text}`);
+    console.error(`    reason:  ${v.reason}`);
+    console.error();
+  }
+  console.error(
+    "Fix: keep the value on the internal side of the projection. If the customer document genuinely needs a related figure, project a DIFFERENT field that is safe to publish — do not forward this one.",
+  );
+  process.exit(1);
+}
+
 if (violations.length > 0) {
   console.error(
     "\n[customer-view-boundary] BOUNDARY GUARD VIOLATION — pdf/ subtree must not import from costing/schema/action surfaces.\n"
@@ -146,5 +228,8 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `[customer-view-boundary] OK — ${files.length} file(s) verified clean (src/components/pdf/ + ${EXTRA_RENDER_PATH_FILES.length} extra render-path files).`
+  `[customer-view-boundary] OK — ${files.length} file(s) verified clean ` +
+    `(src/components/pdf/ + ${EXTRA_RENDER_PATH_FILES.length} extra render-path files), ` +
+    `and ${FORBIDDEN_SYMBOLS.length} internal-only symbol(s) absent from the render tree ` +
+    `and the projected shape.`
 );
