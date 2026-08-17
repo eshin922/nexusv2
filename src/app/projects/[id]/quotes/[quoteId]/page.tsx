@@ -274,8 +274,8 @@ export default async function QuoteBuilderPage({
 
       {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
           Decision 5. Same card chrome + footer pill grammar as the
-          SKU table. 5-column layout: Label · ★ · Qty · Price adj % ·
-          ×. Tier preset picker lives in Step 6 (empty-state). */}
+          SKU table. Layout: Label · ★ · Qty · ×. Tier preset picker
+          lives in Step 6 (empty-state). */}
       {/* §6.b path-B migration commit 4 — Tier table → canonical
           r7b-card / r7b-tier-* structure (7bsetup.jsx TierRail
           lines 250-309 + 7bstyles.css .r7b-tier-* rules at line
@@ -302,12 +302,14 @@ export default async function QuoteBuilderPage({
           <TierPresetPicker quoteId={quote.id} disabled={!editable} />
         ) : (
           <>
-            {/* Canonical .r7b-tier-thead — 4 columns:
-                1fr · 100px · 90px · 28px (label · qty · adj · actions) */}
+            {/* THREE columns now: label · qty · actions.
+                The Price adj column went with its input — the per-tier
+                adjustment is authored on Pricing, staged and previewed there.
+                The header outlived the cell by one commit, which left the
+                actions column rendering in the adjustment's slot. */}
             <div className="r7b-tier-thead">
               <span>Tier</span>
               <span className="num">Qty</span>
-              <span className="num">Price adj</span>
               <span></span>
             </div>
             {tiers.map((t) => (

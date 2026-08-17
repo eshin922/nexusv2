@@ -530,3 +530,20 @@
 }
 
 /* §6.b path-B migration cleanup (May 2026) — Step 5 Tier table\n * + Step 7 Notes split CSS rules deleted. Both surfaces now use\n * canonical r7b-* classes per r7b-setup.css. Tier table:\n * .r7b-tier-row / .r7b-tier-thead / .r7b-tier-footer / .add-tier\n * (Tier-specific nexus overrides for input.lab, .rec-clickable,\n * .rec-set live above in the path-B overrides block).\n * Notes split: .r7b-notes / .r7b-note-zone / .r7b-note-zone-head /\n * .r7b-note-zone-body / .helper.\n *\n * Pattern 30: canonical r7b-setup.css is source-of-truth; this\n * file holds nexus-specific overrides only.\n */
+
+/* Tier table — three columns, not four.
+ *
+ * Canonical `r7b-setup.css` sets `1fr 100px 90px 28px` on both
+ * `.r7b-tier-thead` and `.r7b-tier-row`: label, qty, price adj, actions. The
+ * price-adjustment cell is gone — that lever is authored on Pricing, where it
+ * is staged, previewed and stale-guarded — so the 90px track holds nothing and
+ * the actions column sits one slot to the right of its header.
+ *
+ * Overridden here rather than edited upstream (Pattern 30): the canonical file
+ * stays a verbatim drop-in, and if a future round restores a fourth column
+ * this override is the one thing to remove.
+ */
+.r7b-tier-thead,
+.r7b-tier-row {
+  grid-template-columns: 1fr 100px 28px;
+}

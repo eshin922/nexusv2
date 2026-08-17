@@ -113,6 +113,27 @@ test("Setup is not among them", async () => {
   }
 });
 
+test("the Setup tier table has no column for the lever it no longer authors", async () => {
+  // The input went and the COLUMN stayed — header, label and 90px track. The
+  // table advertised an authority the page no longer had, and because the row
+  // had three cells against the header's four, the actions column rendered in
+  // the adjustment's slot.
+  //
+  // Same shape as TIER-PREV-1's second half: the thing was moved and the label
+  // explaining it was left behind, still describing the old arrangement.
+  const page = await code(
+    path.join(SRC, "app/projects/[id]/quotes/[quoteId]/page.tsx"),
+  );
+  assert.doesNotMatch(page, /Price adj/i, "the column header survives");
+  // And the grid is narrowed to match, in the overrides file rather than in
+  // the canonical bundle (Pattern 30).
+  const overrides = await readFile(path.join(SRC, "styles/r1-setup.css"), "utf8");
+  assert.match(
+    overrides,
+    /\.r7b-tier-thead,[\s\S]{0,40}?\.r7b-tier-row \{[\s\S]{0,60}?grid-template-columns: 1fr 100px 28px;/,
+  );
+});
+
 test("the Setup tier row authors label and quantity only", async () => {
   const src = await code(
     path.join(SRC, "app/projects/[id]/quotes/[quoteId]/tier-row.tsx"),
