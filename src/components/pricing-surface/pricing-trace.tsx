@@ -52,6 +52,7 @@ import {
   type CostingGraph,
   type CostingNode,
 } from "@/lib/costing-nodes";
+import { formatMoney } from "@/lib/money-display";
 
 // ── formatting ────────────────────────────────────────────────────────────
 
@@ -60,8 +61,9 @@ function fmtPct(v: number): string {
   return `${p.toFixed(Math.abs(p % 1) < 0.001 ? 0 : 1)}%`;
 }
 
-function fmtUsd(v: number, dp = 4): string {
-  return `$${v.toFixed(dp)}`;
+/** Governed money display — see `src/lib/money-display.ts`. */
+function fmtUsd(v: number, dp: 2 | 4 = 4): string {
+  return formatMoney(v, dp);
 }
 
 /** By the node's own declared unit. The component does not infer one. */

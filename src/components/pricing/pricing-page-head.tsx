@@ -29,11 +29,10 @@ import { usePricingClassifier } from "@/components/pricing-surface/pricing-class
 //                                                 label drives the
 //                                                 register
 //
-// Banner href:
-//   - sendable + accepted (terminal): no href, banner silent
+// Banner href (P-UX-1, 2026-08-17):
 //   - sendable: customer_view route (Preview PDF surface)
-//   - suggestion_led: in-page anchor #psr-suggestion-card
-//   - blocked: in-page anchor #psr-actions
+//   - everything else: NO href. The banner states the move; the card below
+//     performs it. See the note at `bannerHref`.
 // helpText:
 //   - blocked: "Below floor — admin override required before quote
 //     can be sent." (gated register; preserved from prior patch)
@@ -41,9 +40,6 @@ import { usePricingClassifier } from "@/components/pricing-surface/pricing-class
 // Pattern 22 catch #14 disposition: eliminate banner's parallel
 // derivation surface; classifier output is the only source of truth
 // for what action surfaces here.
-
-const PSR_SUGGESTION_ANCHOR = "psr-suggestion-card";
-const PSR_ACTION_ANCHOR = "psr-actions";
 
 export function PricingPageHead({
   projectId,
@@ -119,26 +115,30 @@ export function PricingPageHead({
             ""
           : SURFACE_META.costing.nextMove?.label ?? "";
 
-  // Banner href:
-  //   - suggestion_led: in-page anchor → SuggestionCard
-  //   - blocked: in-page anchor → action zone
-  //   - sendable / terminal: Quote umbrella, opening on Preview Quote
+  // Slice 12 Step 9 — CTA rewire: `?tab=preview` so the Send-lifecycle entry
+  // is explicit rather than relying on the umbrella's default tab. The Quote
+  // umbrella is the single entry point to the send lifecycle (Preview → Send
+  // → Review → Accepted → Sales Order); the explicit param survives any future
+  // change to that default.
   //
-  // Slice 12 Step 9 — CTA rewire: append `?tab=preview` so the Send-
-  // lifecycle entry is explicit rather than relying on the umbrella's
-  // default tab. The Quote umbrella becomes the single entry point
-  // to the send lifecycle (Preview → Send → Review → Accepted →
-  // Sales Order). Prior implementation routed to `/quote` bare and
-  // relied on parseSubTabParam defaulting to 'preview'; explicit
-  // param survives any future default change.
+  // P-UX-1 (2026-08-17) — the banner STATES the next move; it does not offer a
+  // second button for it.
+  //
+  // In suggestion_led and blocked the CTA was an in-page anchor to a card a
+  // few hundred pixels below, carrying that card's own action label. Two
+  // identically-labelled primary buttons, of which only the lower one applies
+  // anything — an operator cannot tell them apart, and the upper one reads as
+  // the authoritative Apply because it is first and it is in the banner.
+  //
+  // Suppressing the href drops the button and keeps the heading, which is the
+  // half that was doing the work. `SuggestionCard` (suggestion_led) and the
+  // ActionCard list (blocked) are the one authoritative action before the
+  // grid. Where the banner navigates to ANOTHER SURFACE it keeps its CTA: that
+  // is real navigation the page cannot otherwise offer.
   const bannerHref =
-    bannerState === "terminal"
-      ? "" // banner silent in terminal; href unused
-      : mode === "suggestion_led"
-        ? `#${PSR_SUGGESTION_ANCHOR}`
-        : mode === "blocked"
-          ? `#${PSR_ACTION_ANCHOR}`
-          : `${resolveSurfaceHref("customer_view", projectId, quoteId)}?tab=preview`;
+    bannerState === "terminal" || mode === "suggestion_led" || mode === "blocked"
+      ? undefined
+      : `${resolveSurfaceHref("customer_view", projectId, quoteId)}?tab=preview`;
 
   return (
     <>

@@ -55,19 +55,14 @@ import type { Cell } from "@/lib/pricing-classifier";
 import type { CellRef } from "@/lib/pricing-staging";
 import { usePricingStaging } from "./pricing-staging-context";
 import { useOriginFor } from "./pricing-provenance-context";
+import { unitPrice } from "@/lib/money-display";
 
 function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function fmtUsd(v: number): string {
-  return v.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+/** Governed money display — see `src/lib/money-display.ts`. */
+const fmtUsd = unitPrice;
 
 /**
  * Set a cell's price outright, staged like everything else.

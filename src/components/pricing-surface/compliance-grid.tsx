@@ -36,6 +36,7 @@ import { CellAction } from "./cell-action";
 import { usePricingStaging } from "./pricing-staging-context";
 import type { Cell } from "@/lib/pricing-classifier";
 import type { CellRef } from "@/lib/pricing-staging";
+import { formatMoney } from "@/lib/money-display";
 
 // ── formatting ────────────────────────────────────────────────────────────
 //
@@ -47,13 +48,9 @@ function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function fmtUsd(v: number, dp = 2): string {
-  return v.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  });
+/** Governed money display — see `src/lib/money-display.ts`. */
+function fmtUsd(v: number, dp: 2 | 4 = 2): string {
+  return formatMoney(v, dp);
 }
 
 /**

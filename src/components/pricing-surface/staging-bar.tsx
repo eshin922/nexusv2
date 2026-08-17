@@ -29,6 +29,7 @@
 
 import { usePricingStaging } from "./pricing-staging-context";
 import type { StagedChange } from "@/lib/pricing-staging";
+import { unitPrice } from "@/lib/money-display";
 
 /**
  * How a cell key reads to a person.
@@ -54,14 +55,8 @@ function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function fmtUsd(v: number): string {
-  return v.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+/** Governed money display — see `src/lib/money-display.ts`. */
+const fmtUsd = unitPrice;
 
 /**
  * One line per pending change, in the operator's words.
