@@ -13,6 +13,13 @@ Until then it governs only one thing: what the categories *are*.
 
 ---
 
+> **BV-011 answers *what item type*. It does not answer *whose economics*.**
+> Ownership is governed by
+> [BV-012 — Production Cost Ownership](BV-012-production-cost-ownership.md):
+> the Item Group is the finished-good economic envelope, and no Item Group
+> means no Production economics. A cost can be correctly classified here and
+> still be attached to the wrong business object. Do not conflate the two.
+
 ## 1. The map
 
 Every production / service input resolves to one of two classes.

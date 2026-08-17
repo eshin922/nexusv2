@@ -34,6 +34,7 @@ the business contract.
 - [BV-009 — Freight Treatment](BV-009-freight-treatment.md) — ⚠️ **RECONSTRUCTION, NOT RATIFIED**
 - [BV-010 — Blended Margin Definition](BV-010-blended-margin-definition.md)
 - [BV-011 — Production / OTC Accounting Map](BV-011-production-otc-accounting-map.md) — classification only; authorizes no implementation
+- [BV-012 — Production Cost Ownership](BV-012-production-cost-ownership.md) — where Production economics belong; distinct from BV-011's destinations
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
 BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).
