@@ -6,6 +6,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   assemblyProductionInputs,
   auditLog,
+  quoteTiers,
 } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -20,6 +21,7 @@ import {
   parseIntegerInput,
   parseMoneyTotal,
 } from "@/lib/numeric-input";
+import { DEFAULT_ASSEMBLY_POLICY } from "@/lib/production-policy";
 
 // ---------- Slice 11.5 — assembly_production_inputs write actions ----------
 //
@@ -375,11 +377,67 @@ export async function updateAssemblyProductionPolicy(
       .where(eq(assemblyProductionInputs.assemblyId, assemblyId))
       .limit(1);
     if (beforeRows.length === 0) {
-      // No production_inputs rows yet for this assembly — treat as
-      // no-op. Setup UI seeds policy rows lazily via the production
-      // drilldown; if no row exists, the policy is the default
-      // (customerShipsRaws=false, allocateServiceFeesToCost=true).
-      // The UI re-fires the action when the user touches the cell.
+      // No policy row for this assembly yet — CREATE the rows the policy needs
+      // to live on.
+      //
+      // This used to return a no-op that reported the caller's own requested
+      // values back with `ok: true`, so the UI believed the write had landed
+      // while nothing was persisted and no audit row was written. Its comment
+      // said "the UI re-fires the action when the user touches the cell",
+      // which made authoring allocation depend on first entering a production
+      // COST — a dependency BV-012's authoring correction removed and that the
+      // operator has no way to discover.
+      //
+      // The column lives on `(assembly, tier)` rows, so persisting a
+      // per-assembly policy means materialising one row per tier. Costs stay
+      // null: this creates the place the policy lives, not any economics.
+      const quoteTierRows = await db
+        .select({ id: quoteTiers.id })
+        .from(quoteTiers)
+        .where(eq(quoteTiers.quoteId, quote.id));
+
+      if (quoteTierRows.length === 0) {
+        // Nothing to hang the policy on. Refuse loudly rather than repeat the
+        // silent success this branch replaces.
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "Add at least one tier before setting production policy.",
+        );
+      }
+
+      await db.insert(assemblyProductionInputs).values(
+        quoteTierRows.map((t) => ({
+          assemblyId,
+          tierId: t.id,
+          customerShipsRaws: newCustomerShipsRaws,
+          allocateServiceFeesToCost: newAllocate,
+          notes: newNotes,
+        })),
+      );
+
+      await logAudit({
+        userId: user.id,
+        entityType: "assembly",
+        entityId: assemblyId,
+        action: "assembly_production_policy_updated",
+        diffJson: {
+          customer_ships_raws: {
+            from: DEFAULT_ASSEMBLY_POLICY.customerShipsRaws,
+            to: newCustomerShipsRaws,
+          },
+          allocate_service_fees_to_cost: {
+            from: DEFAULT_ASSEMBLY_POLICY.allocateServiceFeesToCost,
+            to: newAllocate,
+          },
+          notes: { from: null, to: newNotes },
+          // Honest as a from/to rather than cast past the Diff type: there
+          // were zero rows for this assembly, and there are now one per tier.
+          row_count: { from: 0, to: quoteTierRows.length },
+        },
+      });
+
+      revalidateQuoteTree(quote.projectId, quote.id);
+
       return {
         quoteSkuId: assemblyId,
         customerShipsRaws: newCustomerShipsRaws,

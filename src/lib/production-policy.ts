@@ -26,6 +26,23 @@
  * module gets simpler, which is a fine way for it to end.
  */
 
+/**
+ * The governed policy for an Item Group with NO persisted row yet.
+ *
+ * Defined once because the READ and the WRITE must agree: the aggregate shown
+ * to the operator has to be the value a first write would persist, or the
+ * control reports one thing and saves another.
+ *
+ * Unanimous across the three places that already answer this — the schema
+ * defaults (`customer_ships_raws` false, `allocate_service_fees_to_cost`
+ * true), the policy action's own no-op comment, and the per-cell INSERT
+ * branch's fallback when an assembly has no sibling row to inherit from.
+ */
+export const DEFAULT_ASSEMBLY_POLICY = {
+  customerShipsRaws: false,
+  allocateServiceFeesToCost: true,
+} as const;
+
 export type AllocationAggregate = "on" | "off" | "mixed" | "none";
 
 /**

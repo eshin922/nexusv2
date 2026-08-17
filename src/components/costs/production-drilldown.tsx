@@ -15,6 +15,7 @@ import {
 import { nodeKey, resolveNodes } from "@/lib/costing-nodes";
 import {
   aggregateAllocation,
+  DEFAULT_ASSEMBLY_POLICY,
   describeAllocation,
   resolveBulkAllocation,
   type AllocationAggregate,
@@ -182,10 +183,26 @@ export function ProductionDrilldown({
   // is still read honestly as `mixed` rather than reported as whichever value
   // one component happened to hold.
   const assemblies = skus.filter((s) => s.skuRole === "assembly");
+
+  // EVERY Item Group contributes, persisted or not.
+  //
+  // This used to add an entry only when a row existed, so a quote whose
+  // assemblies had no `assembly_production_inputs` rows yet produced an EMPTY
+  // map — and `aggregateAllocation` reads empty as `none`, which the control
+  // renders as "no assemblies on this quote" and disables. A quote's structure
+  // comes from its Item Groups; a policy row is optional persisted state and
+  // must not decide whether an Item Group exists.
+  //
+  // An unpersisted assembly contributes the governed default, which is
+  // precisely the value a first write will persist — so the aggregate the
+  // operator reads is the state they are actually in, and `none` now means
+  // what it says: zero Item Groups.
   const policyByAssembly = new Map<string, SkuPolicy>();
   for (const asm of assemblies) {
-    const p = policyBySku.get(asm.id);
-    if (p) policyByAssembly.set(asm.id, p);
+    policyByAssembly.set(
+      asm.id,
+      policyBySku.get(asm.id) ?? { ...DEFAULT_ASSEMBLY_POLICY, notes: null },
+    );
   }
 
   if (tiers.length === 0) {
