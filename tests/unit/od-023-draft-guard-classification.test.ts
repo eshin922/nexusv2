@@ -77,6 +77,10 @@ const DRAFT_LOADERS = [
 /** Module-local loaders that reach a DRAFT_LOADER. */
 const LOCAL_LOADERS: Record<string, readonly string[]> = {
   "freight-worksheet.ts": ["draftSubcategory"],
+  // `resolveUnit` resolves the sellable unit through `quoteForAssembly` or
+  // `quoteForQuoteLeaf` — both DRAFT_LOADERS — and refuses a member leaf on the
+  // way. Verified below, not assumed.
+  "client-targets.ts": ["resolveUnit"],
 };
 
 /** Slice one exported function's body out of a module. */
@@ -128,6 +132,20 @@ test("0 · every named loader really does assert draft", () => {
   }
 });
 
+test("0 · client-targets' resolveUnit reaches a draft loader on BOTH branches", () => {
+  // Two branches, two loaders. Checking only one would leave whichever kind of
+  // sellable unit it missed writable on a sent quote.
+  const src = read(A + "client-targets.ts");
+  const start = src.indexOf("async function resolveUnit(");
+  assert.notEqual(start, -1);
+  const body = src.slice(start, src.indexOf("function unitWhere("));
+  assert.match(body, /quoteForAssembly\(/, "the Item Group branch");
+  assert.match(body, /quoteForQuoteLeaf\(/, "the Direct Product branch");
+  // And the member-leaf refusal, which is the other half of what this resolver
+  // is for: a target on a component is not a target on anything sellable.
+  assert.match(body, /quoteLeaf\.assemblyId !== null/);
+});
+
 test("0 · the module-local loader reaches a draft loader", () => {
   const src = read(A + "freight-worksheet.ts");
   const start = src.indexOf("async function draftSubcategory(");
@@ -158,7 +176,12 @@ const PROTECTED: Array<[string, string, string]> = [
   ["costing.ts", "updateQuoteTargetMargin", "margin policy for this quote"],
   ["costing.ts", "applySuggestedGlobalAdj", "applies a price adjustment"],
   ["costing.ts", "updateAssemblyLeafOverride", "per-cell quoted sell price"],
-  ["costing.ts", "updateAssemblyLeafTarget", "per-cell client target"],
+  // `updateAssemblyLeafTarget` removed 2026-08-17 — the per-(leaf, tier)
+  // client-target writer, superseded by client-targets.ts, whose three writers
+  // are listed below. Its draft guard was never the problem; its identity was.
+  ["client-targets.ts", "setClientTarget", "the client's target price"],
+  ["client-targets.ts", "clearClientTarget", "removes a client target"],
+  ["client-targets.ts", "clearAllClientTargets", "removes every client target"],
   ["costing.ts", "applyClientTargetSolveTierAdj", "writes a tier adjustment"],
 
   ["pricing-lifts.ts", "applyPricingAdjustments", "persists surgical lifts and prices"],
@@ -209,7 +232,7 @@ test("the protected set covers every commercial writer the classification named"
   // not grow by itself, and this is what says so.
   // 40 → 39 on 2026-08-16, when `updateTierPriceAdj` was removed. The tripwire
   // fired exactly as designed: the list does not shrink by itself either.
-  assert.equal(PROTECTED.length, 39);
+  assert.equal(PROTECTED.length, 41);
 });
 
 // ---------------------------------------------------------------------------

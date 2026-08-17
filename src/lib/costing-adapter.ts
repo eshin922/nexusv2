@@ -73,6 +73,10 @@
 //    Both require math-layer changes (Pattern 22 §3 commitment)
 //    so they belong in a later slice, not Slice 11.5.
 
+import {
+  indexClientTargets,
+  resolveClientTarget,
+} from "./client-target";
 import type {
   CostingCellOverride,
   CostingCellTarget,
@@ -185,9 +189,12 @@ export type AdapterAssemblyLeafOverrideRow = {
 };
 
 // Minimum columns from `assembly_leaf_targets`. Sparse mirror.
-export type AdapterAssemblyLeafTargetRow = {
-  quoteLeafId: string;
-  tierId: string;
+/** One `quote_client_targets` row. Exactly one id column is set; `tierId`
+ *  NULL is the common target for every tier. */
+export type AdapterClientTargetRow = {
+  assemblyId: string | null;
+  quoteLeafId: string | null;
+  tierId: string | null;
   clientTargetPricePerUnit: string;
 };
 
@@ -230,7 +237,7 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
   assemblyLeafInputs: AdapterAssemblyLeafInputRow[];
   assemblyProductionInputs: AdapterAssemblyProductionInputRow[];
   assemblyLeafOverrides: AdapterAssemblyLeafOverrideRow[];
-  assemblyLeafTargets: AdapterAssemblyLeafTargetRow[];
+  clientTargets: AdapterClientTargetRow[];
   /**
    * Applied surgical lifts already in effect on the quote.
    *
@@ -391,14 +398,41 @@ export function buildQuoteCostingInputFromNewModel(
     }),
   );
 
-  // ---- cellTargets[] : assembly_leaf_targets direct passthrough ----
-  const cellTargets: CostingCellTarget[] = args.assemblyLeafTargets.map(
-    (alt) => ({
-      quoteSkuId: alt.quoteLeafId,
-      tierId: alt.tierId,
-      clientTargetPricePerUnit: num(alt.clientTargetPricePerUnit),
-    }),
+  // ---- cellTargets[] : RESOLVED per sellable unit × tier ----
+  //
+  // Not a passthrough, and deliberately not one. The rows are sparse in two
+  // dimensions — a unit may carry a common target, per-tier targets, or both —
+  // so the effective target for a given tier is `tier ?? common`, and that
+  // resolution happens ONCE, here, through the shared rule.
+  //
+  // The identity lines up without translation: the engine keys `cellTargets`
+  // by `quoteSkuId`, which for a top-level unit is `assemblies.id` for an Item
+  // Group and `quote_leaves.id` for a Direct Product — the same two ids the
+  // target rows carry. Nothing is mapped onto a member leaf, because nothing
+  // should be: the client named a price for the finished product.
+  //
+  // A unit with no target at any tier emits no rows at all, so "no target"
+  // stays absent rather than becoming zero.
+  const targetsByUnit = indexClientTargets(
+    args.clientTargets.map((r) => ({
+      assemblyId: r.assemblyId,
+      quoteLeafId: r.quoteLeafId,
+      tierId: r.tierId,
+      clientTargetPricePerUnit: num(r.clientTargetPricePerUnit) ?? 0,
+    })),
   );
+  const cellTargets: CostingCellTarget[] = [];
+  for (const [unitId, unitTargets] of targetsByUnit) {
+    for (const tier of args.tiers) {
+      const { value } = resolveClientTarget(unitTargets, tier.id);
+      if (value === null) continue;
+      cellTargets.push({
+        quoteSkuId: unitId,
+        tierId: tier.id,
+        clientTargetPricePerUnit: value,
+      });
+    }
+  }
 
   // ---- lifts[] : quote_leaf_lifts direct passthrough ----
   //

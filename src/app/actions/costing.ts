@@ -7,7 +7,7 @@ import {
   assemblies,
   assemblyLeafInputs,
   assemblyLeafOverrides,
-  assemblyLeafTargets,
+  quoteClientTargets,
   assemblyLeaves,
   assemblyProductionInputs,
   auditLog,
@@ -588,7 +588,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     typeof assemblyProductionInputs.$inferSelect
   >;
   assemblyLeafOverrideRows: Array<typeof assemblyLeafOverrides.$inferSelect>;
-  assemblyLeafTargetRows: Array<typeof assemblyLeafTargets.$inferSelect>;
+  clientTargetRows: Array<typeof quoteClientTargets.$inferSelect>;
   quoteLeafLiftRows: Array<typeof quoteLeafLifts.$inferSelect>;
 }> {
   const [
@@ -597,7 +597,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyLeafInputJoinRows,
     assemblyProductionInputRows,
     assemblyLeafOverrideJoinRows,
-    assemblyLeafTargetJoinRows,
+    clientTargetJoinRows,
     quoteLeafLiftRows,
   ] = await Promise.all([
     timed("nm.assemblies", quoteId, db
@@ -669,14 +669,18 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
         eq(quoteLeaves.id, assemblyLeafOverrides.quoteLeafId),
       )
       .where(eq(quoteLeaves.quoteId, quoteId))),
-    timed("nm.assembly_leaf_targets", quoteId, db
-      .select({ assembly_leaf_targets: assemblyLeafTargets })
-      .from(assemblyLeafTargets)
-      .innerJoin(
-        quoteLeaves,
-        eq(quoteLeaves.id, assemblyLeafTargets.quoteLeafId),
-      )
-      .where(eq(quoteLeaves.quoteId, quoteId))),
+    // Client Target, keyed to the top-level sellable unit. Scoped by
+    // `quote_id` directly — the row names its own quote, so no join is needed
+    // to establish which one it belongs to.
+    //
+    // This replaced a load of `assembly_leaf_targets`, whose key
+    // `(quote_leaf_id, tier_id)` is the right identity for a Direct Product
+    // and the wrong one for an Item Group. See
+    // docs/validation/client-target-identity-trace.md.
+    timed("nm.quote_client_targets", quoteId, db
+      .select({ quote_client_targets: quoteClientTargets })
+      .from(quoteClientTargets)
+      .where(eq(quoteClientTargets.quoteId, quoteId))),
     // Phase 3 · Package 1 — applied surgical lifts, scoped through the
     // CANONICAL attachment. As of OD-017 every leaf-level cost loader above
     // does the same; this one simply got there first.
@@ -708,9 +712,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyLeafOverrideRows: assemblyLeafOverrideJoinRows.map(
       (r) => r.assembly_leaf_overrides,
     ),
-    assemblyLeafTargetRows: assemblyLeafTargetJoinRows.map(
-      (r) => r.assembly_leaf_targets,
-    ),
+    clientTargetRows: clientTargetJoinRows.map((r) => r.quote_client_targets),
     quoteLeafLiftRows,
   };
 }
@@ -838,7 +840,12 @@ export async function getQuoteCosting(
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
-      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+      // Raw rows, not a resolved value. Resolution is `tier ?? common` PER
+      // TIER and belongs to one shared function; a bundle field holding an
+      // already-collapsed number is what the previous model shipped, and the
+      // collapse is the defect.
+      clientTargets: newModelData.clientTargetRows.map((r) => ({
+        assemblyId: r.assemblyId,
         quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
@@ -1240,175 +1247,23 @@ export async function updateAssemblyLeafOverride(
   });
 }
 
-// ---------- mutation: updateAssemblyLeafTarget (Slice 11.5) ----------
+// ---------- REMOVED: updateAssemblyLeafTarget (Slice 9.4b → removed 2026-08-17) ----------
 //
-// Per-cell client target benchmark on the (assembly_leaf, tier) cell.
-// NEW-model successor to OLD `updateClientTarget` per brief §4.
-// Single action handles set + change + clear via the value-or-null
-// parameter; one audit row per state change with `action:
-// "assembly_leaf_client_target_updated"`; the from/to encodes the
-// transition.
+// The per-(leaf, tier) client-target writer, superseded by
+// `src/app/actions/client-targets.ts`.
 //
-// DB shape: `assembly_leaf_targets` is a sparse sister table to
-// `assembly_leaf_overrides`. Different concern (customer-stated
-// benchmark vs PM-authored override) but identical shape. Lazy rows;
-// NOT NULL on `client_target_price_per_unit` enforces "row exists
-// ⟹ benchmark is set" at the schema level.
-//   - value === null  → DELETE the row
-//   - value > 0       → INSERT ON CONFLICT (PK) DO UPDATE
-//   - value <= 0      → reject (action layer guard).
+// Its identity was wrong for two of the three cases. `assembly_leaf_targets`
+// keys `(quote_leaf_id, tier_id)`: correct for a Direct Product, where the leaf
+// IS the sellable unit; wrong for an Item Group, where a leaf is an internal
+// component nobody named a price for; and with no key at all for an Item Group
+// finished good. A target written against a member was accepted here and then
+// silently ignored by the math layer, which sets `competitiveStatus: null` on
+// assemblies. It also could not express "one target across all tiers", because
+// `tier_id` is NOT NULL and in its primary key.
 //
-// Leaf-only invariant inherent in schema (FK to assembly_leaves;
-// assemblies cannot carry targets — they roll up children).
-//
-// Audit source: no `source` flag. Per CLAUDE.md "Audit source
-// convention" — set/change/clear on the same column = same semantic,
-// share `action`, distinguish via from/to.
-export async function updateAssemblyLeafTarget(
-  formData: FormData,
-): Promise<
-  ActionResult<{
-    quoteLeafId: string;
-    quoteSkuId: string;
-    tierId: string;
-    clientTargetPricePerUnit: string | null;
-  }>
-> {
-  return runAction(async () => {
-    // OD-017 · canonical `quote_leaf_id` (see updateAssemblyLeafOverride).
-    const quoteLeafId = String(formData.get("quoteSkuId") ?? "").trim();
-    const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!quoteLeafId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
-    if (!tierId)
-      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
-
-    const user = await ensureUser();
-    const { quote, attachment } = await quoteForQuoteLeaf(quoteLeafId);
-
-    // Verify tier belongs to the same quote.
-    const tierRows = await db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.id, tierId))
-      .limit(1);
-    if (tierRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
-    if (tierRows[0].quoteId !== quote.id) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Tier does not belong to this quote.",
-      );
-    }
-
-    const rawValue = String(
-      formData.get("clientTargetPricePerUnit") ?? "",
-    ).trim();
-    let parsedValue: number | null;
-    if (rawValue === "") {
-      parsedValue = null;
-    } else {
-      const n = Number(rawValue);
-      if (!Number.isFinite(n)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Client target must be a number.",
-        );
-      }
-      if (n <= 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Client target must be greater than zero. To remove a benchmark, clear the field.",
-        );
-      }
-      parsedValue = n;
-    }
-
-    const existingRows = await db
-      .select()
-      .from(assemblyLeafTargets)
-      .where(
-        and(
-          eq(assemblyLeafTargets.quoteLeafId, quoteLeafId),
-          eq(assemblyLeafTargets.tierId, tierId),
-        ),
-      )
-      .limit(1);
-    const previousValue =
-      existingRows.length > 0
-        ? existingRows[0].clientTargetPricePerUnit
-        : null;
-
-    if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
-      return {
-        quoteLeafId: attachment.quoteLeafId,
-        quoteSkuId: quoteLeafId,
-        tierId,
-        clientTargetPricePerUnit: previousValue,
-      };
-    }
-
-    let storedValue: string | null;
-    if (parsedValue === null) {
-      await db
-        .delete(assemblyLeafTargets)
-        .where(
-          and(
-            eq(assemblyLeafTargets.quoteLeafId, quoteLeafId),
-            eq(assemblyLeafTargets.tierId, tierId),
-          ),
-        );
-      storedValue = null;
-    } else {
-      const stored = parsedValue.toString();
-      await db
-        .insert(assemblyLeafTargets)
-        .values({
-          quoteLeafId,
-          // Legacy compatibility only — NULL for a Direct Component; read by nothing.
-          assemblyLeafId: attachment.assemblyLeafId,
-          tierId,
-          clientTargetPricePerUnit: stored,
-        })
-        .onConflictDoUpdate({
-          target: [
-            assemblyLeafTargets.quoteLeafId,
-            assemblyLeafTargets.tierId,
-          ],
-          set: {
-            clientTargetPricePerUnit: stored,
-            updatedAt: new Date(),
-          },
-        });
-      storedValue = stored;
-    }
-
-    await logAudit({
-      userId: user.id,
-      entityType: "assembly_leaf_target",
-      entityId: `${quoteLeafId}:${tierId}`,
-      action: "assembly_leaf_client_target_updated",
-      diffJson: {
-        quote_leaf_id: attachment.quoteLeafId,
-        assembly_leaf_id: attachment.assemblyLeafId,
-        tier_id: tierId,
-        client_target_price_per_unit: {
-          from: previousValue,
-          to: storedValue,
-        },
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return {
-      quoteLeafId: attachment.quoteLeafId,
-      quoteSkuId: quoteLeafId,
-      tierId,
-      clientTargetPricePerUnit: storedValue,
-    };
-  });
-}
+// It had no production caller and the table held zero rows, so nothing was
+// migrated and no operator expectation changed. Full trace:
+// docs/validation/client-target-identity-trace.md
 
 // ---------- mutation: applyClientTargetSolveTierAdj (Slice 9.4b) ----------
 
@@ -1565,7 +1420,8 @@ export async function applyClientTargetSolveTierAdj(
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
-      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+      clientTargets: newModelData.clientTargetRows.map((r) => ({
+        assemblyId: r.assemblyId,
         quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
@@ -1885,7 +1741,8 @@ export async function getCostingBundle(
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
-      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+      clientTargets: newModelData.clientTargetRows.map((r) => ({
+        assemblyId: r.assemblyId,
         quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,

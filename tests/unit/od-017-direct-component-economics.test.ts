@@ -93,7 +93,7 @@ function args(
     assemblyLeafInputs: [],
     assemblyProductionInputs: [],
     assemblyLeafOverrides: [],
-    assemblyLeafTargets: [],
+    clientTargets: [],
     lifts: [],
     freightLegGroups: [],
     freightLegs: [],
@@ -734,7 +734,12 @@ test("11 · no leaf-level cost loader reaches the quote through `assemblies`", (
   for (const [file, table] of [
     ["src/app/actions/costing.ts", "assemblyLeafInputs"],
     ["src/app/actions/costing.ts", "assemblyLeafOverrides"],
-    ["src/app/actions/costing.ts", "assemblyLeafTargets"],
+    // `assemblyLeafTargets` was here. Its loader is gone: Client Target moved
+    // to `quote_client_targets`, keyed to the top-level sellable unit, which
+    // carries `quote_id` directly and so needs no join at all to say which
+    // quote a row belongs to. The OD-017 property this asserted — that a
+    // Direct Component is never excluded by scoping through `assemblies` — is
+    // satisfied more strongly by a table that does not scope through anything.
   ] as const) {
     const src = read(file);
     const loader = new RegExp(

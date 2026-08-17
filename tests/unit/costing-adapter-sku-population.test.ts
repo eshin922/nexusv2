@@ -111,7 +111,7 @@ function args(
     assemblyLeafInputs: [],
     assemblyProductionInputs: [],
     assemblyLeafOverrides: [],
-    assemblyLeafTargets: [],
+    clientTargets: [],
     // No lift on this fixture — the population question is about which
     // attachments become SKUs, not what is priced onto them.
     //

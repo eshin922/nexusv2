@@ -27,7 +27,7 @@ import {
   assemblies,
   assemblyLeafInputs,
   assemblyLeafOverrides,
-  assemblyLeafTargets,
+  quoteClientTargets,
   assemblyLeaves,
   assemblyProductionInputs,
   belowFloorAuthorizations,
@@ -3603,27 +3603,45 @@ export async function cloneQuoteGraph(
       );
     }
 
-    // 3. assembly_leaf_targets — per-cell client benchmarks
-    const sourceTargets = await tx
+    // 3. quote_client_targets — the client's target price per sellable unit
+    //
+    // Keyed to the top-level sellable unit, so BOTH id columns need remapping
+    // and exactly one of them is set on any row. A copied quote keeps the
+    // commercial brief it was copied from; losing the client's stated price
+    // would leave the new scenario looking like nobody had ever asked.
+    //
+    // `tier_id` NULL is the COMMON target and stays NULL — it is a fact
+    // ("every tier"), not an unmapped reference, so it must not go through the
+    // tier map and must not trip the unmapped-ref guard below.
+    const sourceClientTargets = await tx
       .select()
-      .from(assemblyLeafTargets)
-      .where(inArray(assemblyLeafTargets.quoteLeafId, sourceLeafIds));
-    if (sourceTargets.length > 0) {
-      await tx.insert(assemblyLeafTargets).values(
-        sourceTargets.map((r) => {
-          const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
-          const newLegacyId = r.assemblyLeafId
-            ? assemblyLeafIdMap.get(r.assemblyLeafId) ?? null
+      .from(quoteClientTargets)
+      .where(eq(quoteClientTargets.quoteId, args.sourceQuoteId));
+    if (sourceClientTargets.length > 0) {
+      await tx.insert(quoteClientTargets).values(
+        sourceClientTargets.map((r) => {
+          const newAssemblyId = r.assemblyId
+            ? assemblyIdMap.get(r.assemblyId) ?? null
             : null;
-          const newTierId = tierIdMap.get(r.tierId);
-          if (!newLeafId || !newTierId) {
+          const newLeafId = r.quoteLeafId
+            ? quoteLeafIdMap.get(r.quoteLeafId) ?? null
+            : null;
+          const newTierId = r.tierId ? tierIdMap.get(r.tierId) ?? null : null;
+          // Fail loudly rather than dropping the row. A silently missing
+          // client target reads as "the client never gave us one".
+          if ((r.assemblyId && !newAssemblyId) || (r.quoteLeafId && !newLeafId))
             throw new Error(
-              `clone: assembly_leaf_targets unmapped ref (leaf=${r.quoteLeafId}, tier=${r.tierId})`,
+              `clone: quote_client_targets unmapped sellable unit ` +
+                `(assembly=${r.assemblyId}, leaf=${r.quoteLeafId})`,
             );
-          }
+          if (r.tierId && !newTierId)
+            throw new Error(
+              `clone: quote_client_targets unmapped tier (${r.tierId})`,
+            );
           return {
+            quoteId: newQuoteId,
+            assemblyId: newAssemblyId,
             quoteLeafId: newLeafId,
-            assemblyLeafId: newLegacyId,
             tierId: newTierId,
             clientTargetPricePerUnit: r.clientTargetPricePerUnit,
           };

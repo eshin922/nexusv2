@@ -263,18 +263,42 @@ export function ComplianceGrid({
               */}
               {sku.code != null && <span className="m">{sku.code}</span>}
               {/*
-                Client target is stated ONCE per SKU row, not per cell — it
-                does not vary by tier, so a column would assert something
-                untrue. It is a benchmark and never a verdict: it has its own
-                channel, never colours a cell, and never reaches the banner.
-                Firm floor and target are policy; this is what the customer
-                said they wanted.
+                Client target on the row, and IT CAN VARY BY TIER.
+                
+                This said the opposite — "it does not vary by tier, so a column
+                would assert something untrue" — and named one value for the
+                whole row. That was true of the persistence it was written
+                against, which could only hold one target per SKU, and the read
+                path collapsed even that to the first non-null it found while
+                iterating tiers. A client who named different prices at
+                different volumes had three of their four numbers discarded.
+
+                So the row states the target only when every tier resolves to
+                the SAME one, which is the common case and the legible one.
+                When they differ it says so instead of picking one; the value
+                in force is on each cell, where the headroom that uses it is.
+
+                Still a benchmark and never a verdict: its own channel, never
+                colours a cell, never reaches the banner. Firm floor and target
+                are policy; this is what the customer said they wanted.
               */}
-              {sku.client_target_unit != null && (
-                <span className="r12-benchmark">
-                  client target {fmtUsd(sku.client_target_unit)}
-                </span>
-              )}
+              {(() => {
+                const targets = state.tiers.map(
+                  (t) => byCell.get(`${sku.id}:${t.id}`)?.client_target_unit ?? null,
+                );
+                const present = targets.filter((v): v is number => v !== null);
+                if (present.length === 0) return null;
+                const uniform =
+                  present.length === targets.length &&
+                  present.every((v) => v === present[0]);
+                return (
+                  <span className="r12-benchmark">
+                    {uniform
+                      ? `client target ${fmtUsd(present[0])}`
+                      : "client target varies by tier"}
+                  </span>
+                );
+              })()}
             </span>
           </div>
 

@@ -54,7 +54,6 @@ function quote(
       {
         id: "sku-1",
         name: "Glass bottle 30ml amber",
-        client_target_unit: null,
         cells: Object.fromEntries(
           cells.map((c, i) => [
             i + 1,

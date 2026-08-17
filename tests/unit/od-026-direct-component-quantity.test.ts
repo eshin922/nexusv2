@@ -81,7 +81,7 @@ test("6 · Direct Component packaging acquires NO multiplicity scaling", () => {
           pricingVendorHubspotCompanyId: null, pricingVendorNameSnapshot: null,
           unitCost: "10", qtyPerSellableUnit: "1", category: "Primary", markupPct: null,
         }],
-        assemblyProductionInputs: [], assemblyLeafOverrides: [], assemblyLeafTargets: [],
+        assemblyProductionInputs: [], assemblyLeafOverrides: [], clientTargets: [],
         lifts: [], freightLegGroups: [], freightLegs: [], freightLegTiers: [],
         freightComponentTierCosts: [],
       } as never),
