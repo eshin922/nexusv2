@@ -41,13 +41,16 @@ test("the grid never compares a margin against the floor or the target", () => {
   // one for as long as nobody changed either.
   for (const token of ["floorPct", "targetPct"]) {
     const uses = CODE.match(new RegExp(token, "g")) ?? [];
-    // Destructure, prop type, and the caption. `floorPct` has one more: it is
-    // handed to `CellAction`, which needs the floor for its copy and likewise
-    // never compares against it. A pass-through is not a use — but the ceiling
-    // stays, because the point is that any NEW appearance has to be justified
-    // here before it can land.
+    // Destructure, prop type, and the caption — three each.
+    //
+    // `floorPct` used to have a fourth: the grid handed it to `CellAction`,
+    // which spliced in below the pressed row. That panel is the cell drawer
+    // now, mounted by the shell, so the shell supplies the floor and the grid
+    // no longer touches it at all. The ceiling comes down accordingly — a
+    // ceiling left slack after the use it allowed for went away is a ceiling
+    // that permits the next unexplained appearance for free.
     assert.ok(
-      uses.length <= (token === "floorPct" ? 5 : 4),
+      uses.length <= 4,
       `${token} appears ${uses.length} times — more than the caption needs`,
     );
   }
@@ -55,10 +58,12 @@ test("the grid never compares a margin against the floor or the target", () => {
     !/[<>]=?\s*(floorPct|targetPct)|(floorPct|targetPct)\s*[<>]=?/.test(CODE),
     "a threshold comparison has appeared in the component",
   );
-  // The fifth `floorPct`, named rather than merely tolerated by the ceiling.
+  // And the grid does not forward it either. The drawer needs the floor for
+  // CellAction's copy; it gets it from the shell, so there is no route by
+  // which policy re-enters this component.
   assert.ok(
-    /floorPct=\{floorPct\}/.test(CODE),
-    "floorPct's extra use should be the CellAction pass-through",
+    !/floorPct=\{floorPct\}/.test(CODE),
+    "the floor is no longer the grid's to pass on",
   );
 });
 

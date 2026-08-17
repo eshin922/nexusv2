@@ -14,6 +14,7 @@ import {
   projects,
   quoteLeaves,
   quotes,
+  quoteClientTargets,
   quoteTiers,
 } from "@/db/schema";
 import { Suspense } from "react";
@@ -34,6 +35,7 @@ import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { CostStackHeader } from "@/components/costs/cost-stack-header";
 import { CostBuildAccordion } from "@/components/costs/costs-accordion";
 import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
+import { ClientTargetContext } from "@/components/costs/client-target-context";
 import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown";
 import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
@@ -168,6 +170,7 @@ export default async function CostBuildPage({
     categories,
     bulkRawMeta,
     freightWorkbook,
+    clientTargetRows,
   ] = await Promise.all([
     db
       .select()
@@ -241,6 +244,14 @@ export default async function CostBuildPage({
       .where(eq(bulkRawSectionMeta.quoteId, quote.id))
       .limit(1),
     loadFreightWorkbook(quote.id),
+    // Client Target rows, read-only context for the strip below the stack.
+    // A sibling of the existing batch rather than a nested fan-out: peak
+    // demand stays max(N), which is the discipline `getCostingBundle`'s
+    // header records.
+    db
+      .select()
+      .from(quoteClientTargets)
+      .where(eq(quoteClientTargets.quoteId, quote.id)),
   ]);
 
   // Slice 11.5 Step 3 — NEW-model → OLD-wrapper-shape reshape.
@@ -633,6 +644,21 @@ export default async function CostBuildPage({
         <section className="mb-6">
           <CostStackHeader tiers={tierBrief} rawsMode={rawsMode} />
         </section>
+
+        {/* Client Target — read-only context, beneath the stack rather than
+            inside it. The stack's column is a whole-quote figure; a target
+            belongs to one sellable unit, and comparing the two would read as
+            though they measured the same thing. Renders nothing when no unit
+            on the quote carries a target. */}
+        <ClientTargetContext
+          clientTargets={clientTargetRows.map((r) => ({
+            assemblyId: r.assemblyId,
+            quoteLeafId: r.quoteLeafId,
+            tierId: r.tierId,
+            clientTargetPricePerUnit: Number(r.clientTargetPricePerUnit),
+          }))}
+          tiers={tiers.map((t) => ({ id: t.id, label: t.label }))}
+        />
 
         {/* Sections — accordion-style summary-with-drill-down. Open
             state is client-managed via <CostBuildAccordion> context

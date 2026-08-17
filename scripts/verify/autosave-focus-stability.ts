@@ -57,13 +57,76 @@ function* walkTsx(dir: string): Generator<string> {
   }
 }
 
+/**
+ * Blank every comment, in place.
+ *
+ * WHY THE VERIFIER READS PAST COMMENTS
+ *
+ * A component that follows rule (e) tends to explain WHY beside the input, and
+ * the clearest explanation names the thing it is not doing — "never
+ * `disabled={pending}` on an input". Sat between `<input` and its `>`, that
+ * prose is inside the matched region, so the check fired on a file that was
+ * obeying it, and the fix would have been to stop writing the sentence.
+ *
+ * A check that cannot tell code from a description of code is the same
+ * instrument error as a grep that could not match a numeric difference: it
+ * reports on the wrong text. Blanking is the fix, not rewording — this is the
+ * fifth time this shape has come up in this codebase.
+ *
+ * Characters are replaced with spaces rather than removed so every offset, and
+ * therefore every reported line number, is unchanged.
+ *
+ * String and template literals are tracked so a `//` inside one — a URL in a
+ * placeholder, say — is not mistaken for a comment and blanked, which could
+ * hide a real violation written after it on the same line.
+ */
+const NEWLINE = String.fromCharCode(10);
+
+function blankComments(src: string): string {
+  const out = src.split("");
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      i++;
+      while (i < n) {
+        if (src[i] === "\\") { i += 2; continue; }
+        if (src[i] === quote) { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      while (i < n && src[i] !== NEWLINE) { out[i] = " "; i++; }
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      out[i] = " "; out[i + 1] = " "; i += 2;
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) {
+        if (src[i] !== NEWLINE) out[i] = " ";
+        i++;
+      }
+      if (i < n) { out[i] = " "; out[i + 1] = " "; i += 2; }
+      continue;
+    }
+    i++;
+  }
+  return out.join("");
+}
+
 function findViolations(file: string): Violation[] {
-  const content = readFileSync(file, "utf8");
+  const raw = readFileSync(file, "utf8");
+  const content = blankComments(raw);
   const found: Violation[] = [];
   for (const match of content.matchAll(VIOLATION_RE)) {
     const idx = match.index ?? 0;
     const line = content.slice(0, idx).split("\n").length;
-    const fragment = match[0].replace(/\s+/g, " ").trim();
+    // Reported from the RAW source: the operator of this check needs to see
+    // what is actually in the file, not the blanked version it matched on.
+    const fragment = raw.slice(idx, idx + match[0].length).replace(/\s+/g, " ").trim();
     found.push({
       file: relative(ROOT, file),
       line,

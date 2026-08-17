@@ -175,11 +175,42 @@ test("adding products into a group lives on that group's row, not the quote head
   // a quote with no groups the question had no answer.
   assert.doesNotMatch(view, /mode="group"/);
 
+  // §1 presentation closeout — the action MOVED from a button on the group's
+  // control band into that group's context menu. Same row, same pre-chosen
+  // destination; one fewer repeated button per group.
+  //
+  // Asserted across the row's components rather than against `asy-row.tsx`
+  // alone. What B-1 protects is that the route exists ON THE GROUP'S ROW, not
+  // which file renders it — and pinning the file is what made a presentation
+  // move look like a regression.
   const row = await code("src/components/assembly-tree/asy-row.tsx");
-  assert.match(row, /mode="group"/);
-  // The destination is the row the operator acted on — already chosen, so the
-  // picker has nothing left to ask.
-  assert.match(row, /initialTargetAssemblyId=\{asy\.id\}/);
+  const menu = await code("src/components/assembly-tree/asy-context-menu.tsx");
+  const rowScope = row + menu;
+  assert.match(rowScope, /mode="group"/);
+  // The destination is the group the operator acted on — already chosen, so
+  // the picker has nothing left to ask.
+  assert.match(rowScope, /initialTargetAssemblyId=\{(asy\.id|assemblyId)\}/);
+
+  // And the route is genuinely reachable from the row: the menu is rendered by
+  // the row, so "in the menu" is not somewhere else on the surface.
+  assert.match(row, /<AsyContextMenu/);
+});
+
+test("the group route survives because the surface-level one cannot replace it", async () => {
+  // The reason "+ Add products" was moved rather than deleted, kept as an
+  // assertion because the deletion looked safe and was not.
+  //
+  // The surface-level trigger is direct-only and its modal has NO destination
+  // picker in that mode — so with the group route gone there would have been
+  // no way to add a product into an Item Group at all, silently reopening B-1.
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  assert.match(view, /mode="direct"/);
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  assert.match(
+    modal,
+    /mode === "direct" \? \(/,
+    "precondition: direct mode takes a branch that renders no target picker",
+  );
 });
 
 test("an explicit destination survives the modal's auto-select", async () => {
@@ -833,10 +864,40 @@ test("B-10 · the generic Product label is replaced by the quote-owned type", as
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.doesNotMatch(src, /leaf-count">Product</);
   // Same register as member rows — one product grammar, not two.
-  assert.match(src, /type-tag leaf-type\$\{product\.productType \? "" : " untyped"\}/);
+  assert.match(src, /className="type-tag leaf-type"/);
   // Absent stays absent: the Library's HubSpot classification is a different
   // taxonomy and is never substituted to silence the warning.
   assert.doesNotMatch(src, /hubspotProductType/);
+});
+
+test("§1 · the untyped state is stated ONCE, by the readiness chip", async () => {
+  // B-10 removed this duplication from the meta line and left it in the type
+  // slot, which still printed the literal "untyped" beside a chip already
+  // saying "⚠ No type set". One fact in two of the row's coloured places, and
+  // in two registers — a warning chip next to what reads as a stated value.
+  //
+  // Asserted on BOTH row kinds, because the member row carried it too and
+  // fixing one would have re-split a grammar B-10 had just unified.
+  for (const file of [
+    "src/components/assembly-tree/direct-product-row.tsx",
+    "src/components/assembly-tree/asy-row.tsx",
+  ]) {
+    const src = await code(file);
+    assert.doesNotMatch(src, /"untyped"/, `${file} still states the type slot's absent case`);
+    // Not em-dashed either. An em dash is a value meaning "none"; the chip is
+    // already saying "not yet", and two answers to one question is the defect.
+    assert.doesNotMatch(
+      src,
+      /productType[^\n]*\?\?\s*"—"/,
+      `${file} substituted an em dash for the removed label`,
+    );
+  }
+
+  // And the chip that carries it still exists, or the fact is now stated ZERO
+  // times — which would be worse than twice.
+  const chip = await code("src/components/assembly-tree/completeness-chip.tsx");
+  assert.match(chip, /no_type/);
+  assert.match(chip, /No type set/);
 });
 
 // ------------------------------------- Step 4 · Product Type authority cutover
@@ -949,4 +1010,86 @@ test("same-group reorder is untouched by the cross-home move", async () => {
   const src = await code("src/components/assembly-tree/asy-row.tsx");
   assert.match(src, /reorderAssemblyLeaves/);
   assert.match(src, /handleLeafDragOver/);
+});
+
+test("§1 · the Production allocation control sits IN the assembly's control row", async () => {
+  // It had drifted to a sibling BELOW the banner, so each assembly occupied two
+  // stacked bands — an identity row, then a lone control floating under it —
+  // which doubled the section's vertical rhythm and detached each control from
+  // the thing it controls.
+  //
+  // Asserted as ORDERING inside the row, not as the presence of the component:
+  // presence was never in doubt, placement was.
+  const src = await code("src/components/costs/production-drilldown.tsx");
+  const caption = src.indexOf("Production rolls up from leaf children.");
+  const toggle = src.indexOf("<AssemblyAllocationToggle");
+  assert.ok(caption > 0 && toggle > 0, "both the caption and the control must exist");
+  assert.ok(
+    toggle > caption,
+    "the control must follow the caption inside the row, not precede the row",
+  );
+  // The row's closing tag must come AFTER the control. This is the assertion
+  // that actually distinguishes "in the row" from "under it" — the ordering
+  // above holds in both arrangements.
+  const rowClose = src.indexOf("</div>", toggle);
+  const captionClose = src.indexOf("</span>", caption);
+  assert.ok(
+    captionClose < toggle && toggle < rowClose,
+    "the control must be enclosed by the row it belongs to",
+  );
+
+  // Scope is unchanged: allocation is ASSEMBLY-scoped per the 2026-08-11
+  // repair, and a layout move must not quietly re-broadcast it section-wide.
+  assert.match(src, /policyByAssembly\.get\(sku\.id\) \?\? sectionPolicy/);
+});
+
+test("B-11 · the library states its own truncation", async () => {
+  // The defect was silence, not the cap. The list showed at most 50 rows of a
+  // 1,082-product library, `total` sat in state unrendered, and the loader
+  // computed a "more available" probe and threw it away with `slice` — so a
+  // truncated view was indistinguishable from a complete one.
+  const loader = await code("src/lib/library-browse-loader.ts");
+
+  // The probe is READ, not discarded.
+  assert.match(loader, /const hasMore = baseRows\.length > limit;/);
+  assert.doesNotMatch(
+    loader,
+    /const total = filteredBase\.length/,
+    "the match count must not be the length of the fetched page",
+  );
+  // And counted in SQL over the same predicates the rows come from.
+  assert.match(loader, /count\(\)\s*\}\)\.from\(leaves\)\.where\(and\(\.\.\.conds\)\)/);
+
+  // Paging needs a TOTAL order. Name alone lets two products sharing a name
+  // swap between pages — one seen twice, the other never.
+  assert.match(loader, /orderBy\(asc\(leaves\.name\), asc\(leaves\.id\)\)/);
+
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  assert.match(modal, /lib-pager/);
+  assert.match(modal, /setOffset/);
+});
+
+test("B-11 · scope filtering is a SQL predicate, not a filter over one page", async () => {
+  // The one that returned WRONG ANSWERS rather than partial ones. Scope ran in
+  // JS over the fetched `limit + 1` rows, so "attached to another quote" was
+  // answered from the first 51 products alphabetically — a product attached
+  // elsewhere but sorting 200th was reported as no match at all.
+  const loader = await code("src/lib/library-browse-loader.ts");
+  assert.doesNotMatch(
+    loader,
+    /baseRows\.filter\(/,
+    "scope must not be applied to the already-limited page",
+  );
+  assert.match(loader, /scopeFilter === "this"\) conds\.push/);
+  assert.match(loader, /scopeFilter === "other"\) conds\.push/);
+});
+
+test("B-11 · a filter change returns to the first page", async () => {
+  // Holding the offset across a filter change lands past the end of the new
+  // result set, which renders empty and reads as "no matches".
+  const modal = await code("src/components/library/library-browse-modal.tsx");
+  assert.match(
+    modal,
+    /setOffset\(0\);\s*\}, \[search, sourceTypeFilter, scopeFilter, quoteId\]\)/,
+  );
 });

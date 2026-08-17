@@ -92,19 +92,21 @@ export async function previewGlobalAdj(
 ): Promise<ActionResult<GlobalPricingPreview>> {
   return runAction(async () => {
     const quoteId = String(formData.get("quoteId") ?? "").trim();
-    const applyDeltaRaw = String(formData.get("applyDelta") ?? "").trim();
+    const proposedRaw = String(formData.get("proposedGlobalAdj") ?? "").trim();
     if (!quoteId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-    if (!applyDeltaRaw)
-      throw new ActionGuardError(ERR.VALIDATION, "applyDelta required");
-    const applyDelta = validateApplyDelta(applyDeltaRaw);
+    if (!proposedRaw)
+      throw new ActionGuardError(ERR.VALIDATION, "proposedGlobalAdj required");
+    // The rate to SET quote-wide, not a delta to compound. Same validator —
+    // the bound it enforces is on the resulting rate either way.
+    const proposedGlobalAdj = validateApplyDelta(proposedRaw);
     await ensureUser();
     await quoteByIdDraft(quoteId);
     const bundle = await getCostingBundle(quoteId);
     if (!bundle.ok) {
       throw new ActionGuardError(bundle.error.code, bundle.error.message);
     }
-    const preview = buildGlobalPricingPreview(bundle.data, applyDelta);
+    const preview = buildGlobalPricingPreview(bundle.data, proposedGlobalAdj);
     for (const tier of preview.tiers) {
       assertNewAdjFitsBound(String(tier.resultingAdjustment), tier.label);
     }

@@ -17,6 +17,7 @@
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const SHELL = await readFile(
@@ -41,8 +42,14 @@ test("BOTH recommendation kinds stage; neither writes", () => {
   // carry different persistence semantics — that outcome is worse than either
   // behaviour chosen consistently, because nothing on screen distinguishes
   // them.
-  const stages = [...onApply.matchAll(/stageTierAdj\(/g)];
-  assert.ok(stages.length >= 2, "both kinds must reach the staging model");
+  // Counted `stageTierAdj(` twice until a global recommendation stopped
+  // fanning out into per-tier rows — that fan-out was a second pricing
+  // authority, and when its composition changed nothing it wrote explicit
+  // 0.0000 tier rows that suppressed the global outright. The PROPERTY this
+  // test exists for is unchanged: both kinds reach the staging model and
+  // neither persists. Only which stager each kind reaches has changed.
+  assert.match(onApply, /stageTierAdj\(/, "surgical must stage a tier");
+  assert.match(onApply, /stageGlobalAdj\(/, "global must stage the global lever");
 
   for (const writer of ["applySurgicalAdj", "applyGlobalAdj", "applyPricingAdjustments"]) {
     assert.doesNotMatch(
@@ -59,16 +66,32 @@ test("the click-time surgical writer is gone, not merely unused", () => {
   assert.doesNotMatch(SHELL, /applySurgicalAdj/);
 });
 
-test("bulk lift keeps its own committed-write contract", () => {
-  // `applyGlobalAdj` survives, and the caller audit is the reason: the
-  // bulk-lift workflow is separately governed — read-only preview (PB-004),
-  // an apply carrying `expectedPreview` so a stale commit is refused, and a
-  // receipt-based exact Undo. VAL-208 walks all three. The boundary P3-016
-  // draws is the CALLER, not the action.
-  assert.match(SHELL, /applyGlobalAdj/);
-  const bulk = SHELL.slice(SHELL.indexOf("async function onApplyGlobalPreview"));
-  assert.match(bulk, /expectedPreview/);
-  assert.match(bulk, /applyGlobalAdj\(fd\)/);
+test("accepting a bulk-lift preview stages it — ONE writer, and a trade-off", () => {
+  // SUPERSEDED, and the supersession is not free — it is flagged for
+  // disposition rather than settled here.
+  //
+  // This asserted that accepting a preview called `applyGlobalAdj`, which is
+  // separately governed: read-only preview, an apply carrying
+  // `expectedPreview` so a stale commit is refused, and a receipt-based exact
+  // Undo (VAL-208 walks all three).
+  //
+  // GPA-PREV-1 made that call impossible rather than merely undesirable. The
+  // preview no longer produces a DELTA — it produces the RATE Apply would
+  // persist — and `applyGlobalAdj` compounds a delta into one tier row per
+  // tier, which is both the wrong arithmetic for the new contract and the
+  // fan-out the pricing-authority disposition removed. Handing it the rate
+  // would compound the rate.
+  //
+  // So accepting a preview now stages it and the one page-level Apply commits.
+  // WHAT THAT COSTS: the `expectedPreview` staleness refusal and the
+  // receipt-based Undo are no longer exercised on this path. Reinstating them
+  // means teaching `applyGlobalAdj` set-semantics, which is a write-path change
+  // with its own Undo tests — out of the current closeout's scope and recorded
+  // as an open decision.
+  const bulk = SHELL.slice(SHELL.indexOf("function onApplyGlobalPreview"));
+  const body = bulk.slice(0, bulk.indexOf("\n  }"));
+  assert.match(body, /stageGlobalAdj\(globalPreview\.proposedGlobalAdj\)/);
+  assert.doesNotMatch(body, /applyGlobalAdj/);
 });
 
 test("a repeat press composes from COMMITTED, so it cannot compound", () => {
@@ -99,7 +122,14 @@ test("no arithmetic is invented for a recommendation", () => {
   // carries uses the surface's one composition rule, which the bulk-lift
   // preview uses too — a second formula here would be a second pricing
   // authority in the least examined part of the page.
-  assert.match(onApply, /composePricingAdjustment\(/);
+  // The composition moved into `pricing-recommendation-stage`, which is where
+  // the no-op guard had to live too — a guard in the component could not be
+  // proven without mounting it. The handler must therefore DELEGATE, and the
+  // module must still use the surface's one composition rule rather than a
+  // second formula.
+  assert.match(onApply, /planSurgicalRecommendation\(|planGlobalRecommendation\(/);
+  const planner = readFileSync("src/lib/pricing-recommendation-stage.ts", "utf8");
+  assert.match(planner, /composePricingAdjustment\(/);
   const code = onApply.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(code, /1\s*\+|\*\s*\(|Math\./, "arithmetic in the recommendation handler");
 });

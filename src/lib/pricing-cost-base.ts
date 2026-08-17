@@ -123,12 +123,18 @@ export function costBaseFingerprint(input: QuoteCostingInput): string {
   }
 
   // Client targets are a benchmark, never a price — but they DO decide the
-  // competitive verdict a PM may have staged against, so a move is material.
-  for (const t of [...input.cellTargets].sort((a, b) =>
-    `${a.quoteSkuId}${a.tierId}`.localeCompare(`${b.quoteSkuId}${b.tierId}`),
-  )) {
-    parts.push(`tgt:${t.quoteSkuId}:${t.tierId}:${q(t.clientTargetPricePerUnit)}`);
-  }
+  // CLIENT TARGETS ARE DELIBERATELY ABSENT (2026-08-15 disposition).
+  //
+  // They were here on the reasoning that a target move changes the competitive
+  // verdict a PM may have staged against. True, but not sufficient: a client
+  // target is an EXTERNAL BENCHMARK and does not participate in quoted-sell
+  // arithmetic at all. Nothing about the price the operator staged changes when
+  // one moves, so refusing their Apply for it is a false stale — the class of
+  // refusal that teaches people to ignore the real ones.
+  //
+  // It also put a benchmark inside the cost base, which is a category error:
+  // Client Target, Margin Target and Final Quoted Sell are three separate
+  // concepts and this file is about the third one's inputs.
 
   // DELIBERATELY ABSENT: `cellOverrides`, `lifts`, `globalPriceAdjPct` and
   // per-tier adjustments. Those are the levers. Including one would move the

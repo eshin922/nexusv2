@@ -46,10 +46,43 @@ import { fmtPct, fmtPct0, fmtQty, fmtUsd } from "./format";
 // summary_card is null when mode !== "sendable"; defensive null-check
 // matches CD prototype.
 
-export function SendableSummary({ state }: { state: QuoteState }) {
+export function SendableSummary({
+  state,
+  tiers,
+  onSetRecommended,
+  recommendedPending = false,
+  recommendedError = null,
+}: {
+  state: QuoteState;
+  /**
+   * Every tier, in order, with the UUID the write needs. Supplied rather than
+   * read here: the classifier speaks numeric tier ids and the action speaks
+   * UUIDs, and a component translating between two identity spaces is a
+   * component that can translate wrongly.
+   */
+  tiers?: ReadonlyArray<{ numericId: number; uuid: string; label: string }>;
+  /** Null clears the recommendation. Undefined means read-only. */
+  onSetRecommended?: (tierUuid: string | null) => void;
+  recommendedPending?: boolean;
+  recommendedError?: string | null;
+}) {
   const sc = state.summary_card;
   if (!sc) return null;
   const recTier = state.tiers.find((t) => t.id === sc.recommended_tier);
+  // P-Summary-1 · no recommended tier is a STATE, not missing data.
+  //
+  // Measured on 52bd0077: all four tiers carry `recommended = false`, so there
+  // is nothing to resolve — the null is correct. What was wrong is how the card
+  // rendered it: "T · —", "—", "—%", which reads as a surface that failed to
+  // load rather than a quote nobody has chosen a tier for.
+  //
+  // Order value and blended margin are BOTH projected from the recommended
+  // tier, and deliberately so — tiers are mutually exclusive quantity breaks,
+  // a customer buys at one, so a cross-tier aggregate prices a transaction that
+  // cannot occur (D-1). With no tier chosen there is no order value and no
+  // margin to state, and inventing one by defaulting to Tier 1 would put a
+  // number on this card that no one decided.
+  const noRecommendedTier = sc.recommended_tier == null;
   return (
     <div className="psr-summary-card">
       <h3>What you&apos;re sending</h3>
@@ -62,19 +95,88 @@ export function SendableSummary({ state }: { state: QuoteState }) {
           </span>
           <span className="sub">{sc.tier_count} tiers</span>
         </div>
+        {/*
+          THE RECOMMENDATION IS SET HERE, on the surface that reads it.
+          
+          It used to be a star on the Setup tier row, two surfaces away from
+          the only three figures that depend on it — order value, blended
+          margin, and the sentence the customer PDF prints. This cell already
+          said "set one to price the order" and sent the operator nowhere.
+
+          NOT staged, and that is a distinction rather than an omission. The
+          staged set holds the four levers that move a PRICE, and Apply is what
+          commits a price change. A recommendation moves no number in the
+          build: it selects which tier the quote is read and ordered at. There
+          is nothing to preview, because nothing computes differently — the
+          figures beside it simply become answerable.
+        */}
         <div className="psr-summary-cell">
           <span className="lab">Recommended tier</span>
-          <span className="val numeric">
-            T{sc.recommended_tier} · {fmtQty(recTier?.qty ?? null)}
-          </span>
-          <span className="sub">order value at this tier</span>
+          {onSetRecommended && tiers && tiers.length > 0 ? (
+            <>
+              <select
+                className="psr-rec-select"
+                value={
+                  tiers.find((t) => t.numericId === sc.recommended_tier)?.uuid ?? ""
+                }
+                // Pattern 47(f): scoped to THIS action's own pending state, and
+                // the caption below says why it is disabled rather than leaving
+                // a dead control on screen.
+                disabled={recommendedPending}
+                onChange={(e) =>
+                  onSetRecommended(e.target.value === "" ? null : e.target.value)
+                }
+                aria-label="Recommended tier"
+              >
+                <option value="">None chosen</option>
+                {tiers.map((t) => (
+                  <option key={t.uuid} value={t.uuid}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <span className="sub">
+                {recommendedError
+                  ? recommendedError
+                  : recommendedPending
+                    ? "saving…"
+                    : noRecommendedTier
+                      ? "set one to price the order"
+                      : `order value at ${fmtQty(recTier?.qty ?? null)}`}
+              </span>
+            </>
+          ) : noRecommendedTier ? (
+            <>
+              <span className="val muted">None chosen</span>
+              <span className="sub">set one to price the order</span>
+            </>
+          ) : (
+            <>
+              <span className="val numeric">
+                T{sc.recommended_tier} · {fmtQty(recTier?.qty ?? null)}
+              </span>
+              <span className="sub">order value at this tier</span>
+            </>
+          )}
         </div>
         <div className="psr-summary-cell">
-          <span className="lab">Order value · T{sc.recommended_tier}</span>
-          <span className="val numeric">
-            {fmtUsd(sc.recommended_tier_value)}
+          <span className="lab">
+            Order value
+            {!noRecommendedTier && ` · T${sc.recommended_tier}`}
           </span>
-          <span className="sub">across all SKUs</span>
+          {noRecommendedTier ? (
+            <>
+              <span className="val muted">Needs a recommended tier</span>
+              <span className="sub">no tier selected</span>
+            </>
+          ) : (
+            <>
+              <span className="val numeric">
+                {fmtUsd(sc.recommended_tier_value)}
+              </span>
+              <span className="sub">across all SKUs</span>
+            </>
+          )}
         </div>
         <div className="psr-summary-cell">
           {/*
@@ -88,12 +190,22 @@ export function SendableSummary({ state }: { state: QuoteState }) {
             Blended margin
             {sc.recommended_tier != null && ` · T${sc.recommended_tier}`}
           </span>
-          <span className="val numeric">
-            {fmtPct(sc.blended_margin_pct)}%
-          </span>
+          {noRecommendedTier ? (
+            <span className="val muted">Needs a recommended tier</span>
+          ) : (
+            <span className="val numeric">
+              {fmtPct(sc.blended_margin_pct)}%
+            </span>
+          )}
           <span className="sub">
-            target {fmtPct0(state.policy.target_margin_pct)}% · floor{" "}
-            {fmtPct0(state.policy.floor_margin_pct)}%
+            {noRecommendedTier ? (
+              "no tier selected"
+            ) : (
+              <>
+                target {fmtPct0(state.policy.target_margin_pct)}% · floor{" "}
+                {fmtPct0(state.policy.floor_margin_pct)}%
+              </>
+            )}
           </span>
         </div>
       </div>

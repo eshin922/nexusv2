@@ -89,6 +89,23 @@ export interface QuoteTierInput {
 export interface QuoteCellInput {
   margin_pct?: number | null;
   sell_unit?: number | null;
+  /**
+   * The client target IN FORCE FOR THIS TIER — already resolved
+   * `tier ?? common` by the adapter, and supplied per cell rather than per row.
+   *
+   * The headroom below is computed against this and the engine's competitive
+   * verdict is computed against the same resolved value, so the two cannot
+   * disagree. They could, and did, while one was per-cell and the other was a
+   * row-level collapse.
+   */
+  client_target_unit?: number | null;
+  /**
+   * The graph key of the node that answers for `sell_unit`, as the ENGINE
+   * chose it. Forwarded, never constructed — which node is the cell root
+   * depends on whether an override or a lift is in force, and a consumer
+   * reconstructing that would be a second copy of the engine's precedence.
+   */
+  sell_node_key?: string | null;
   cost_unit?: number | null;
   cost_stack?: CostStackBuckets | null;
   override_applied?: boolean;
@@ -128,7 +145,11 @@ export interface QuoteSkuInput {
    * decides a price reads it.
    */
   code?: string | null;
-  client_target_unit?: number | null;
+  // No row-level `client_target_unit`. It used to live here, collapsed from
+  // per-(unit, tier) persistence to "the first non-null found while iterating
+  // tiers" — so a quote whose client named different prices at different tiers
+  // had every cell's headroom measured against whichever tier happened to come
+  // first. The target is per CELL now; see `QuoteCellInput.client_target_unit`.
   cells: Record<number, QuoteCellInput>;
 }
 
@@ -307,6 +328,8 @@ export interface Cell {
   tier_qty: number;
   margin_pct: number | null;
   sell_unit: number | null;
+  /** See `QuoteCellInput.sell_node_key`. Null when nothing answers for it. */
+  sell_node_key: string | null;
   cost_unit: number | null;
   cost_stack: CostStackBuckets | null;
   client_target_unit: number | null;
@@ -553,7 +576,7 @@ export function classify(
         status === "below_floor"
           ? liftToClear(sellUnit, costUnit, policy.floor_margin_pct)
           : null;
-      const clientTarget = sku.client_target_unit ?? null;
+      const clientTarget = cellRaw.client_target_unit ?? null;
       const clientTargetDelta =
         clientTarget != null && sellUnit != null
           ? sellUnit - clientTarget
@@ -565,6 +588,7 @@ export function classify(
         tier_qty: tier.qty,
         margin_pct: margin,
         sell_unit: sellUnit,
+        sell_node_key: cellRaw.sell_node_key ?? null,
         cost_unit: cellRaw.cost_unit ?? null,
         cost_stack: cellRaw.cost_stack ?? null,
         client_target_unit: clientTarget,

@@ -193,10 +193,19 @@ test("a freight amount moving is a moved base — the case §7 names", () => {
   );
 });
 
-test("a client target moving is a moved base", () => {
-  // Never a price, but it decides the competitive verdict a PM may have staged
-  // against, so a move is material to the decision.
-  assert.notEqual(
+test("a CLIENT TARGET move is not a moved base", () => {
+  // REVERSED by disposition, 2026-08-15. This asserted the opposite, on the
+  // reasoning that a target decides the competitive verdict a PM may have
+  // staged against. True, and not sufficient: a client target is an EXTERNAL
+  // BENCHMARK that does not participate in quoted-sell arithmetic. Nothing
+  // about the staged price changes when one moves, so refusing the Apply is a
+  // false stale — and false stales are what teach operators to click through
+  // the real ones.
+  //
+  // It also put a benchmark inside the cost base, which is a category error:
+  // Client Target, Margin Target and Final Quoted Sell are three concepts and
+  // this fingerprint is about the third one's inputs.
+  assert.equal(
     costBaseFingerprint(base()),
     costBaseFingerprint(
       base({
@@ -223,7 +232,12 @@ test("the guard is checked on apply and skipped on baseline", async () => {
   // Return to baseline removes every lever, so it is safe against ANY base —
   // there is no staged figure to commit against the wrong numbers, and
   // refusing it would strand an operator with adjustments they chose to drop.
-  assert.match(src, /Costs changed while these adjustments were staged/);
+  // The literal sentence moved into `staleMessage` when the client and server
+  // refusals were aligned — they compare different reads on purpose, so an
+  // operator can meet either, and two different sentences for one condition
+  // read as two problems. The property here is that the client REFUSES, not
+  // which words it uses; the wording itself is asserted where it now lives.
+  assert.match(src, /setCommitError\(staleMessage\(\{ stale: true, kind: "economic_basis" \}\)\)/);
   // Captured when staging begins, released when it ends.
   assert.match(src, /if \(changes\.length === 0\) stagedAgainst\.current = null;/);
 });

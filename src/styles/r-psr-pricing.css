@@ -805,3 +805,18 @@
   font-family: var(--mono); font-size: 11px; color: var(--ink-4);
   letter-spacing: 0.06em; text-transform: uppercase;
 }
+
+/* P-Summary-1 · a value that legitimately does not exist yet.
+ *
+ * The card projects order value and blended margin from the RECOMMENDED TIER,
+ * and on a quote where no tier has been chosen there is nothing to project. It
+ * rendered "T · —" and "—%" in the numeric register, which reads as a surface
+ * that failed to load rather than a decision nobody has made.
+ *
+ * Muted, and NOT tabular-numeric — the register is what says "this is a state,
+ * not a figure". Defaulting to Tier 1 to fill the card would have put economics
+ * on screen that no operator decided. */
+.psr-summary-cell .val.muted {
+  color: var(--ink-4);
+  font-weight: 400;
+}

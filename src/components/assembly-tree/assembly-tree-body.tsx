@@ -1,6 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useMemo, useState, useTransition } from "react";
+import type { UnitTargets } from "@/lib/client-target";
+import type { TargetTier } from "./client-target";
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
@@ -46,6 +48,8 @@ export function AssemblyTreeBody({
   assemblies,
   fullLeafTypes,
   permissions,
+  tiers,
+  targetsByUnit,
 }: {
   tree: AssemblyTree;
   editable: boolean;
@@ -54,6 +58,9 @@ export function AssemblyTreeBody({
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
+  tiers: ReadonlyArray<TargetTier>;
+  /** Resolved-ready targets, indexed by sellable-unit id at the tree root. */
+  targetsByUnit: ReadonlyMap<string, UnitTargets>;
 }) {
   const serverOrder = useMemo(
     () => tree.assemblies.map((a) => a.id),
@@ -469,6 +476,8 @@ export function AssemblyTreeBody({
               product={product}
               editable={editable}
               quoteId={quoteId}
+              tiers={tiers}
+              targets={targetsByUnit.get(product.quoteLeafId)}
               isMoving={movingLeafId === product.quoteLeafId}
               pending={optimistic?.quoteLeafId === product.quoteLeafId}
               onMoveStart={(e) =>
@@ -502,6 +511,8 @@ export function AssemblyTreeBody({
               editable={editable}
               projectId={projectId}
               quoteId={quoteId}
+              tiers={tiers}
+              targets={targetsByUnit.get(asy.id)}
               isDragging={dragId === asy.id}
               onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}

@@ -526,6 +526,13 @@
       "when": 1786320013000,
       "tag": "0076_od_023_snapshot_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1786320014000,
+      "tag": "0077_client_target_authority",
+      "breakpoints": true
     }
   ]
 }

@@ -210,12 +210,26 @@ export function liftToClear(
   if (sellUnit <= 0) return null;
   if (threshold <= 0 || threshold >= 1) return null;
   const requiredSell = costUnit / (1 - threshold);
-  const lift = requiredSell / sellUnit - 1;
+  const raw = requiredSell / sellUnit - 1;
   // A cell already clear of the threshold needs no lift. Returning the
   // negative number the algebra produces would be arithmetically honest and
   // operationally wrong — it reads as an instruction to cut the price.
-  if (lift <= 0) return null;
-  return lift;
+  if (raw <= 0) return null;
+  // P-Lift-1 · CEIL AT STORAGE PRECISION, and this is not a cosmetic rounding
+  // choice.
+  //
+  // `quote_leaf_lifts.lift_pct` is `numeric(6,4)`, and the apply path rounds to
+  // nearest. A lift solved to REACH a threshold that is then rounded DOWN
+  // cannot reach it: the exact solve for the reported cell was 0.04883644…,
+  // stored as 0.0488, and the cell landed at 24.9975% against a 25% floor —
+  // still red, after an action that said it would clear it.
+  //
+  // Ceiling at the precision the column can hold makes the offered number both
+  // representable and sufficient, so the value the operator is shown is the
+  // value that gets stored and the value that clears. Same convention, and the
+  // same reasoning, as the suggested-GPA ceil.
+  const lift = Math.ceil(raw * 1e4) / 1e4;
+  return lift > 0 ? lift : null;
 }
 
 // Apply a multiplicative revenue lift to a tier and return the new

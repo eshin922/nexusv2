@@ -161,7 +161,6 @@ export interface CellActionProps {
   floorPct: number;
   /** "GLW-50 · T2" — display identity, built by the caller. */
   label: string;
-  onClose: () => void;
 }
 
 /**
@@ -199,7 +198,6 @@ export function CellAction({
   cellRef,
   floorPct,
   label,
-  onClose,
 }: CellActionProps) {
   const { stageLift, stageOverride, changes } = usePricingStaging();
 
@@ -424,19 +422,15 @@ export function CellAction({
     }
   }
 
-  return (
-    <div className="r11-cellaction">
-      <div className="head">
-        <span className="who">{label}</span>
-        <span className="meta">
-          {cell.sku_name} · {cell.tier_qty.toLocaleString()} units · margin{" "}
-          {cell.margin_pct === null ? "—" : fmtPct(cell.margin_pct)}
-        </span>
-        <button className="btn ghost sm" type="button" onClick={onClose}>
-          ✕
-        </button>
-      </div>
-      {body()}
-    </div>
-  );
+  // THE HEAD IS GONE, AND SO IS `onClose`.
+  //
+  // This used to be a full-width block spliced into the grid, so it needed its
+  // own identity line and its own dismiss. It now renders inside the cell
+  // drawer, which states identity once at the top and owns the close — a
+  // second copy of both would be two things that can disagree about which cell
+  // is open.
+  //
+  // What is left is what this component was always for: the ACTIONS, and the
+  // policy sentence that says which ones apply.
+  return <div className="r11-cellaction in-drawer">{body()}</div>;
 }

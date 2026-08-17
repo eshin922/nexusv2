@@ -19,7 +19,17 @@ test("sent costing consumes immutable worksheet context instead of live freight 
   assert.match(costing, /quoteSnapshotFreightWorkbooks/);
   assert.match(costing, /projectSnapshotWorkbook/);
   assert.match(costing, /workbook\.costingContext\.tierUnitsByTier/);
-  assert.match(costing, /workbook\.costingContext\.ownerSkuByAssembly/);
+  // V1 freight distribution policy · a SENT version distributes across the
+  // membership frozen in its own workbook, not across an anchor resolved from
+  // the assembly. The snapshot already carried `memberships`; it is now what
+  // the sent path reads, so a historical re-read spreads the freight over
+  // exactly the products that shipment contained at send.
+  assert.match(costing, /workbook\.memberships/);
+  assert.doesNotMatch(
+    costing,
+    /costingContext\.ownerSkuByAssembly/,
+    "the sent path must not resolve a single owner from the assembly either",
+  );
 });
 
 test("workbook snapshot is transactionally inseparable from the Quote snapshot", async () => {

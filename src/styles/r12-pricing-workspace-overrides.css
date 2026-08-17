@@ -231,3 +231,484 @@
   top: 0;
   z-index: 30;
 }
+
+/* ── B-16 · the grid locates the compliance condition ──────────────────────
+ *
+ * Next Move correctly said a quote was below target or below floor; the grid
+ * did not say WHERE. The operator read a verdict and then scanned individual
+ * percentages to find the cells it referred to — the surface stated the
+ * conclusion without locating the evidence.
+ *
+ * The bundle already colours the PERCENTAGE (`.cgm.below_target` etc). That is
+ * a read, not a scan: at 27 cells the eye still has to visit each one. These
+ * carry the same governed state to the CELL, which is what makes a grid
+ * scannable at a glance.
+ *
+ * The class is `cg-{status}` and the status is the classifier's own per-cell
+ * verdict, forwarded. No margin policy is expressed here — this file cannot
+ * know what a target is, and that is deliberate: a stylesheet that could
+ * decide compliance is a second authority waiting to disagree with the first.
+ *
+ * PATTERN 50 — WHICH BASIS THIS READS, STATED
+ *
+ * Per-CELL. `cell.status` is the classifier's cell verdict (this SKU × this
+ * tier), NOT the suggestion engine's revenue-weighted per-tier blend. The two
+ * can legitimately disagree — `suggestion_manual_only` exists to name that
+ * intersection — so a tinted cell may sit in a tier whose blend is compliant.
+ * That is correct and is the point of the finding: the operator is being shown
+ * where the cell-level breach is. The banner continues to speak from whichever
+ * basis it always did; neither is being made to agree with the other.
+ *
+ * Restraint is deliberate: a soft background from the existing warn/bad
+ * vocabulary, no borders, no accents, no weight change. The percentage keeps
+ * its colour — this adds a scan layer, it does not replace the read.
+ */
+.r11-bcell.r11-cg.cg-below_target { background: var(--warn-soft); }
+.r11-bcell.r11-cg.cg-below_floor  { background: var(--bad-soft); }
+
+/* Hover must not erase the state it is hovering over. The bundle's
+ * `.r11-bcell:hover { background: var(--paper-3) }` would do exactly that. */
+.r11-bcell.r11-cg.cg-below_target:hover { background: var(--warn-soft); }
+.r11-bcell.r11-cg.cg-below_floor:hover  { background: var(--bad-soft); }
+
+/* SELECTION COEXISTS WITH COMPLIANCE — the constraint most likely to be got
+ * wrong quietly.
+ *
+ * The bundle's `.sel` sets an accent background AND an accent ring. On a red
+ * cell the background would win and the breach would vanish at the exact
+ * moment the operator clicked it to act on it. So selection keeps its RING —
+ * which is what actually communicates "this one is open" — and yields the
+ * background to the compliance state.
+ *
+ * Non-compliant cells are untouched here and keep the bundle's `.sel`
+ * treatment in full. */
+.r11-bcell.r11-cg.sel.cg-below_target { background: var(--warn-soft); }
+.r11-bcell.r11-cg.sel.cg-below_floor  { background: var(--bad-soft); }
+
+/* ── P-Lift-2 · the breach a lift cannot reach ────────────────────────────
+ *
+ * A tier whose only remaining below-floor cells carry direct prices has no
+ * bulk correction available, because a direct price is terminal. It used to
+ * render an em-dash there, which reads as "nothing to do" — the opposite of
+ * true — and before that an actionable button that silently did nothing.
+ *
+ * Deliberately NOT a `.btn`. It is not a correction; it is a statement about
+ * why no correction is offered, that happens to be navigable. Giving it button
+ * chrome next to "Lift all N to floor" would present two equal-looking actions
+ * where only one acts.
+ *
+ * Warn rather than bad: the cell is already tinted `--bad-soft` by B-16, and
+ * a second red here would double-signal one condition. This says "your bulk
+ * action stops short", which is a caution about the tool, not the breach. */
+.r11-manual-remains {
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  border-left: 2px solid var(--warn);
+}
+
+.r11-manual-remains:hover { background: var(--warn-soft); color: var(--ink); }
+
+.r11-manual-remains:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* When a lift IS available and still cannot finish, this sits under the
+ * button and must read as its footnote rather than a competing control. */
+.btn + .r11-manual-remains { margin-top: 4px; }
+
+/* ── Price build · unit-of-account selection ──────────────────────────────
+ *
+ * Dollar economics belong to ONE sellable product. On a quote holding more
+ * than one, the section asks which before it shows any, rather than picking
+ * one and letting an operator read a single product's build as the quote's. */
+.r11-unit-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0 4px;
+}
+
+.r11-unit-picker-prompt {
+  font-size: 12px;
+  color: var(--ink-2);
+  padding-bottom: 2px;
+}
+
+.r11-unit-option {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink);
+}
+
+.r11-unit-option:hover { background: var(--paper-3); border-color: var(--rule-2); }
+.r11-unit-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.r11-unit-option .n { font-size: 13px; }
+.r11-unit-option .s {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-left: auto;
+}
+
+/* Once chosen, switching is a control in the head rather than a return trip
+ * to the list — the operator is comparing products, not re-answering. */
+.r11-unit-switch {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--paper-2);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+/* P-PriceBuild-2 · the stack follows staged economics, so it says so.
+ * Warn register, not bad: nothing is wrong, but the figures are not yet the
+ * quote's. A previewed number and a committed one are otherwise identical on
+ * screen, and the operator acts on the difference. */
+.r11-pb-preview {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  white-space: nowrap;
+}
+
+/* ── Item 3 · three-band Price Build hierarchy ────────────────────────────
+ *
+ * The table read as one flat list, so a Costs-derived figure and a Pricing
+ * decision sat in the same visual register and nothing said which half the
+ * operator owns. The bands name the authority and the direction of travel:
+ * base from Costs, decisions here, result. */
+.r11-band {
+  background: var(--paper-3);
+  border-top: 1px solid var(--rule-2);
+}
+
+.r11-band .r11-slab { display: flex; align-items: baseline; gap: 8px; }
+
+.r11-band-t {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* The authority tag is the load-bearing half — "from Costs · read-only here"
+ * is what stops a locked row reading as a disabled one. */
+.r11-band-a {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+/* A band's closing total carries slightly more weight than its rows without
+ * competing with the final quoted sell. */
+.r11-band-total .r11-slab .n { font-weight: 500; }
+
+/* ── unpriced / nothing-priced states ─────────────────────────────────────
+ *
+ * PB-UNIT-UX1. A unit with no costs entered used to render a full $0.0000
+ * build with a green reconciliation footer. Absence gets its own treatment so
+ * it cannot be read as a completed price of zero. */
+.r11-unpriced {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px 16px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 8px;
+  background: var(--paper-2);
+}
+
+.r11-unpriced-t { font-size: 13px; color: var(--ink); }
+.r11-unpriced-s { font-size: 12px; color: var(--ink-2); max-width: 60ch; line-height: 1.45; }
+
+/* ── Item 4 · tier adjustment, with its authority stated ──────────────────
+ *
+ * A tier either follows the quote-wide rate or carries one of its own, and the
+ * difference decides what an Apply does. A cell showing only the resulting
+ * percentage cannot tell an operator which situation they are in — which is
+ * how a legacy Setup-origin tier rate silently made a 300% global inert. */
+.r11-tieradj { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+
+.r11-tieradj-v {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+/* A tier carrying its OWN rate reads as a decision; one following the
+ * quote-wide rate reads as inherited. That contrast is the whole point. */
+.r11-tieradj-v.own { color: var(--ink); font-weight: 500; border-color: var(--rule); }
+.r11-tieradj-v:hover:not(:disabled) { background: var(--paper-3); border-color: var(--rule); }
+.r11-tieradj-v:disabled { cursor: default; opacity: 0.6; }
+
+.r11-tieradj-in {
+  width: 72px;
+  text-align: right;
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.r11-tieradj-a {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: right;
+  line-height: 1.3;
+}
+
+/* Revert is the only non-global way to clear an override, so it is a real
+ * control rather than a hint — but a quiet one, since the common case is
+ * leaving the override in place. */
+.r11-tieradj-revert {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.r11-tieradj-revert:disabled { color: var(--ink-3); cursor: default; text-decoration: none; }
+
+/* ── The cell drawer ──────────────────────────────────────────────────────
+ *
+ * Replaces the full-width panel the grid used to grow when a cell was
+ * pressed. The panel was honest but expensive: selecting a cell pushed every
+ * row below it down by the height of the panel, so the act of asking about
+ * one number rearranged the table the number lives in.
+ *
+ * A drawer is the same content at the side. The grid does not move, the
+ * pressed cell stays where the operator left it, and comparing it with its
+ * neighbours — the next thing anyone does — is still possible.
+ *
+ * No scrim by design; see drawer.tsx. The catcher is transparent and only
+ * gives click-outside somewhere to land.
+ */
+.psr-drawer-catch {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: transparent;
+}
+
+.psr-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  width: min(460px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-left: 1px solid var(--rule);
+  /* The one place a shadow is load-bearing: with no scrim behind it, the
+   * drawer needs its own separation from a live, un-dimmed grid. The token,
+   * not a literal — it carries a dark-mode value, and a black alpha that
+   * separates two light surfaces separates nothing between two dark ones. */
+  box-shadow: var(--shadow-lg);
+}
+
+/* Full width on narrow viewports — a 460px panel beside a grid that has no
+ * room left is two unreadable things instead of one readable one. */
+@media (max-width: 820px) {
+  .psr-drawer {
+    width: 100vw;
+    border-left: none;
+  }
+}
+
+.psr-drawer-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+
+.psr-drawer-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.psr-drawer-title .who {
+  font-size: 15px;
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+.psr-drawer-title .where {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.psr-drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 0 24px;
+}
+
+.psr-drawer-sect {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.psr-drawer-sect:last-child {
+  border-bottom: none;
+}
+
+.psr-drawer-sect-k {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The three figures. A row each, label left and value right, so they read as
+ * a statement of the cell rather than as a table wanting to be scanned. */
+.psr-drawer-figs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.psr-drawer-fig {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.psr-drawer-fig .k {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.psr-drawer-fig .v {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.psr-drawer-fig .v.lead {
+  font-size: 17px;
+}
+
+.psr-drawer-fig .v.good { color: var(--good, var(--ink)); }
+.psr-drawer-fig .v.warn { color: var(--warn, var(--ink)); }
+.psr-drawer-fig .v.bad { color: var(--bad, var(--ink)); }
+.psr-drawer-fig .v.none { color: var(--ink-3); }
+
+/* The trace, inside the drawer rather than inside the grid. `.r11-tracewrap`
+ * already strips the standalone panel's outer border and releases its sticky
+ * anchor, which is exactly what an embedded trace needs — so it is reused
+ * rather than restyled, and only the horizontal padding is reclaimed. */
+.psr-drawer-sect .r11-tracewrap {
+  border-top: none;
+  margin: 0 -18px -14px;
+}
+
+.psr-drawer-empty {
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+/* ── The recommended-tier control ─────────────────────────────────────────
+ *
+ * The summary card's Recommended tier cell became the place the
+ * recommendation is SET, not only reported — it already said "set one to
+ * price the order" and sent the operator two surfaces away to a star on a
+ * Setup row.
+ *
+ * Styled to sit in the `.val` slot it replaces rather than as a form control
+ * dropped into a summary: same size and weight as the figure beside it, with
+ * only enough border to say it can be pressed.
+ */
+.psr-summary-cell .psr-rec-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  margin: 1px 0 2px;
+  padding: 3px 22px 3px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background-color: var(--paper);
+  /* The caret, inline so no asset is fetched for 7px of chrome. `%23` is a
+   * url-encoded `#`, not a literal colour token dodge — currentColor cannot
+   * be used inside a data URI, so the stroke follows --ink-3's light value and
+   * is deliberately faint enough that dark mode reads it as chrome either. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path d='M1 1l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.2'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.psr-summary-cell .psr-rec-select:hover:not(:disabled) {
+  border-color: var(--ink-3);
+}
+
+.psr-summary-cell .psr-rec-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.psr-summary-cell .psr-rec-select:disabled {
+  cursor: default;
+  color: var(--ink-3);
+}

@@ -57,10 +57,10 @@ const pkg = (id: string, unitCost: string) => ({
   markupPct: null,
 });
 
-/** A fixed governed shipment. Only `ownerSkuId` ever varies. */
-const ship = (ownerSkuId: string) => ({
+/** A fixed governed shipment. Only `memberSkuId` ever varies. */
+const ship = (memberSkuId: string) => ({
   freightSubcategoryId: "sub-1",
-  ownerSkuId,
+  memberSkuId,
   tierId: T,
   treatment: "bundled" as const,
   tierUnits: TIER_UNITS,
@@ -91,7 +91,7 @@ function costed(opts: {
       assemblyLeafInputs: opts.packaging ?? [],
       assemblyProductionInputs: [],
       assemblyLeafOverrides: [],
-      assemblyLeafTargets: [],
+      clientTargets: [],
       lifts: [],
       freightLegGroups: [],
       freightLegs: [],
@@ -263,7 +263,7 @@ test("11 · leg-model parity — freightComponentTierCosts fixed identically", (
         assemblyLeafInputs: [pkg("ql-a", "10")],
         assemblyProductionInputs: [],
         assemblyLeafOverrides: [],
-        assemblyLeafTargets: [],
+        clientTargets: [],
         lifts: [],
         freightLegGroups: [{ id: "g1", quoteId: Q, mode: "ocean", label: "L", sortOrder: 0 }],
         freightLegs: [{

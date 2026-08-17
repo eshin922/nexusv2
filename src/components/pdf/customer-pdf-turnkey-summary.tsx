@@ -18,6 +18,7 @@ import { Text, View } from "@react-pdf/renderer";
 
 import { money, qtyK, serviceFeesTotal, tierGrand, unit } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
+import { unpricedLinePhrase } from "./customer-pdf-unpriced";
 import type {
   CpdfPdfLayout,
   CpdfServiceFee,
@@ -39,7 +40,7 @@ export function TurnkeySummary({
 }: {
   skuSet: ReadonlyArray<CpdfSku>;
   tiers: ReadonlyArray<CpdfTier>;
-  recommendedTierIdx: number;
+  recommendedTierIdx: number | null;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   layout: CpdfPdfLayout;
   foldFees: boolean;
@@ -102,8 +103,8 @@ export function TurnkeySummary({
           <Text style={[styles.tkIncl, styles.tkInclOut]}>
             <Text style={styles.tkInclOutTick}>×</Text>
             {"  "}
-            CAP-60 · Tier 1 — quote on request; the total finalizes once that
-            line is priced.
+            {unpricedLinePhrase(skuSet, tiers) ?? "One or more lines"} — quote
+            on request; the total finalizes once those lines are priced.
           </Text>
         )}
       </View>
@@ -111,14 +112,17 @@ export function TurnkeySummary({
   );
 
   if (isSingle) {
+    // Display basis for the single-tier layout; see the note in
+    // customer-pdf-pricing-table. Not a recommendation.
+    const soloIdx = recommendedTierIdx ?? 0;
     const { total, hasUnpriced, perUnit } = tierGrand(
       skuSet,
       tiers,
-      recommendedTierIdx,
+      soloIdx,
       foldFees,
       serviceFees
     );
-    const t = tiers[recommendedTierIdx];
+    const t = tiers[soloIdx];
     return (
       // Slice 11 Step 3 Fix 2 (CA 2026-06-30): single-tier turnkey
       // hero block is atomic — eyebrow + headline + hero figure +

@@ -5,6 +5,7 @@ import { computeShipmentContribution } from "../../src/lib/costing.ts";
 
 test("a freight subcategory contributes freight, duty, and tariff exactly once", () => {
   const shipment = {
+    memberCount: 1,
     tierUnits: 25_000,
     freightAmount: 6_000,
     freightMarkupPct: 0.2,
@@ -25,8 +26,23 @@ test("a freight subcategory contributes freight, duty, and tariff exactly once",
   assert.equal(oneMember.totalBillablePerUnit, 0.384);
 });
 
-test("shipment contribution has no membership or allocation operand", () => {
+test("the only allocation operand is the member COUNT — never a weight", () => {
+  // This asserted that the contribution had no allocation operand at all. The
+  // V1 freight distribution policy (2026-08-15) gives it exactly one: a
+  // shipment's freight is borne equally by the products in it, so the member
+  // count divides.
+  //
+  // What must still be absent is a WEIGHTED allocator. Equal split was chosen
+  // because no governed member-level weight exists — `freight_subcategory_items`
+  // carries none, and the only `cbm` column is the whole shipment's at a tier.
+  // A cbm/weight/cost-share term appearing here would mean an allocator had
+  // been introduced from data that is not governed or not complete, which is
+  // the specific thing the policy defers until it is.
   const source = computeShipmentContribution.toString();
-
-  assert.doesNotMatch(source, /member|allocation|share|weight|cbm/i);
+  assert.match(source, /memberCount/, "the equal split must be visible here");
+  assert.doesNotMatch(
+    source,
+    /cbm|weight|costShare|valueShare/i,
+    "no weighted allocator until the underlying data is governed and complete",
+  );
 });

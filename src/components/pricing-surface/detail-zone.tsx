@@ -100,9 +100,327 @@ function writeSessionOpen(quoteId: string, open: boolean): void {
   }
 }
 
+
+
+/**
+ * The view switch. Entire Quote first, then every sellable unit — including
+ * unpriced ones, labelled.
+ *
+ * Unpriced units stay LISTED rather than hidden: they are real products on the
+ * quote, and an operator who cannot see one cannot discover that its costs are
+ * missing. What changes is that the list says so before they select it.
+ */
+function UnitSwitch({
+  units,
+  selected,
+  onSelect,
+}: {
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean; priced: boolean }>;
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <select
+      className="r11-unit-switch"
+      value={selected}
+      onChange={(e) => onSelect(e.target.value)}
+      aria-label="Which price build to show"
+    >
+      <option value={ENTIRE_QUOTE}>Entire quote</option>
+      {units.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.label}
+          {u.priced ? "" : " · not priced"}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** No sellable unit has resolved economics. There is no price to build. */
+function NothingPriced() {
+  return (
+    <div className="r11-unpriced">
+      <span className="r11-unpriced-t">Nothing on this quote is priced yet.</span>
+      <span className="r11-unpriced-s">
+        No product carries a unit cost, so there is no price to build. Enter
+        costs on Costs, then come back.
+      </span>
+    </div>
+  );
+}
+
+
+/**
+ * TIER ADJUSTMENT — the Pricing-owned replacement for Setup's Price Adj.
+ *
+ * AUTHORITY, stated on the cell rather than inferred. A tier either follows the
+ * quote-wide rate or carries one of its own, and the difference decides what an
+ * Apply does: precedence is `tier ?? global`, so an override REPLACES the
+ * quote-wide rate for that tier rather than compounding with it. A surface that
+ * shows only the resulting percentage cannot tell an operator which of those
+ * two situations they are in — which is exactly how a legacy Setup-origin tier
+ * rate silently made a 300% global inert.
+ *
+ * An explicit 0% is a real override: it suppresses the quote-wide rate for that
+ * tier. So it is offered, and it is never confused with "no override".
+ *
+ * Stages like every other lever. Nothing is written until the one page-level
+ * Apply, and a tier change is covered by the same stale guards.
+ */
+function TierAdjustCell({
+  tierUuid,
+  label,
+}: {
+  tierUuid: string | undefined;
+  label: string;
+}) {
+  const { working, plannedTierAdj, stageTierAdj, committable } = usePricingStaging();
+  const [draft, setDraft] = useState<string | null>(null);
+
+  if (tierUuid === undefined) {
+    return <div className="r11-scell flat"><span className="cost">—</span></div>;
+  }
+  // TIER-PREV-1 · the PLANNED rate, which is what the figures beside it use.
+  //
+  // Reading `working.tierAdj` here read the operator's intent while the sell
+  // above read the planned result, so staging a new quote-wide rate labelled
+  // Tier 2 "10% TIER OVERRIDE" next to a sell computed at 30%. The label
+  // contradicted the number it was there to explain.
+  const override = plannedTierAdj[tierUuid];
+  const hasOverride = override !== undefined;
+  const globalPct = working.globalAdj * 100;
+  const shownPct = (hasOverride ? override : working.globalAdj) * 100;
+
+  const commit = (raw: string) => {
+    setDraft(null);
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return;
+    // Only stage a real change. Re-entering the rate already in force must not
+    // create an override out of nothing — the same no-op discipline the
+    // recommendation path uses.
+    if (hasOverride && Math.abs(v / 100 - override) < 5e-7) return;
+    if (!hasOverride && Math.abs(v / 100 - working.globalAdj) < 5e-7) return;
+    stageTierAdj(tierUuid, v / 100);
+  };
+
+  return (
+    <div className="r11-scell flat r11-tieradj">
+      {draft !== null ? (
+        <input
+          className="r11-tieradj-in"
+          autoFocus
+          value={draft}
+          disabled={!committable}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") setDraft(null);
+          }}
+          aria-label={`${label} adjustment, percent`}
+        />
+      ) : (
+        <button
+          type="button"
+          className={"r11-tieradj-v" + (hasOverride ? " own" : "")}
+          onClick={() => setDraft(String(Number(shownPct.toFixed(4))))}
+          disabled={!committable}
+          title={
+            hasOverride
+              ? `Tier override — replaces the quote-wide ${fmtPct(working.globalAdj)}%`
+              : "Following the quote-wide rate. Click to set an override for this tier."
+          }
+        >
+          {fmtPct(shownPct / 100)}%
+        </button>
+      )}
+      <span className="r11-tieradj-a">
+        {hasOverride ? (
+          <>
+            Tier override · replaces quote-wide {fmtPct(globalPct / 100)}%
+            {" "}
+            <button
+              type="button"
+              className="r11-tieradj-revert"
+              onClick={() => stageTierAdj(tierUuid, null)}
+              disabled={!committable}
+            >
+              Revert to quote-wide
+            </button>
+          </>
+        ) : (
+          <>Quote-wide</>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** The sentinel for the aggregate view. Not a unit id; no unit can collide. */
+export const ENTIRE_QUOTE = "__entire_quote__";
+
+/**
+ * The default Pricing view: everything being quoted, at each tier.
+ *
+ * Reads `quote/{tier}/per-unit/*` — the same governed family the Costs Price
+ * build header renders — so the two surfaces reconcile by construction. Not
+ * derived by averaging leaves, and not by summing the displayed per-unit rows
+ * of the drill-downs.
+ */
+function EntireQuoteBuild({
+  columns,
+  byTier,
+  tierUuidByNumeric,
+  traced,
+  onTrace,
+}: {
+  columns: ReadonlyArray<{ numericId: number; label: string; qty: number | null; recommended: boolean }>;
+  byTier: ReadonlyMap<number, EntireQuoteTier>;
+  tierUuidByNumeric: ReadonlyMap<number, string>;
+  traced?: TracedStackCell | null;
+  onTrace?: (nodeKey: string, title: string) => void;
+}) {
+
+  const cell = (
+    c: { numericId: number; label: string },
+    field: keyof EntireQuoteTier["keys"],
+    fmt: (n: number) => string,
+    valueClass = "sell",
+  ) => {
+    const t = byTier.get(c.numericId);
+    if (!t) return <div className="r11-scell flat" key={c.numericId}><span className="cost">—</span></div>;
+    const v = t[field] as number | null;
+    return (
+      <StackCell
+        key={c.numericId}
+        text={v === null ? "—" : fmt(v)}
+        nodeKey={v === null ? null : t.keys[field]}
+        title={`${c.label} · ${field}`}
+        traced={traced}
+        onTrace={onTrace}
+        valueClass={valueClass}
+      />
+    );
+  };
+
+  const row = (
+    key: string,
+    className: string,
+    slab: React.ReactNode,
+    field: keyof EntireQuoteTier["keys"],
+    fmt: (n: number) => string,
+    valueClass?: string,
+  ) => (
+    <Fragment key={key}>
+      <div className={className}>
+        <div className="r11-slab">{slab}</div>
+        {columns.map((c) => cell(c, field, fmt, valueClass))}
+      </div>
+    </Fragment>
+  );
+
+  const band = (key: string, title: string, authority: string) => (
+    <div className="r11-srow r11-band" key={key}>
+      <div className="r11-slab">
+        <span className="r11-band-t">{title}</span>
+        <span className="r11-band-a">{authority}</span>
+      </div>
+      {columns.map((c) => <div className="r11-scell flat" key={c.numericId} />)}
+    </div>
+  );
+
+  const anyCharges = columns.some((c) => (byTier.get(c.numericId)?.oneTimeCharges ?? 0) !== 0);
+
+  return (
+    <div className="r11-stack">
+      <div className="r11-srow head">
+        <div className="r11-slab"><span className="colhead">Entire quote · per unit</span></div>
+        {columns.map((c) => (
+          <div className="r11-scell flat" key={c.numericId}>
+            <span className="sell" style={{ fontSize: 11, letterSpacing: "0.06em" }}>
+              {c.label}{c.recommended && <span style={{ color: "oklch(0.56 0.13 72)" }}> ★</span>}
+            </span>
+            <span className="cost">{c.qty == null ? "—" : c.qty.toLocaleString()} units</span>
+          </div>
+        ))}
+      </div>
+
+      {band("eq-base", "Base price", "from Costs · read-only here")}
+      {row("eq-pkg", "r11-srow", <><span className="n">Packaging</span><span className="s">sell per unit</span></>, "pkg", (n) => fmtUsd4(n))}
+      {row("eq-prod", "r11-srow", <><span className="n">Production</span><span className="s">sell per unit</span></>, "prod", (n) => fmtUsd4(n))}
+      {row("eq-raw", "r11-srow", <><span className="n">Bulk raw</span><span className="s">sell per unit</span></>, "raw", (n) => fmtUsd4(n))}
+      {row("eq-frt", "r11-srow", <><span className="n">Freight</span><span className="s">sell per unit</span></>, "frt", (n) => fmtUsd4(n))}
+      {row("eq-dt", "r11-srow", <><span className="n">Duty + tariff</span><span className="s">sell per unit</span></>, "dt", (n) => fmtUsd4(n))}
+      {row("eq-base-sell", "r11-srow rule r11-band-total",
+        <><span className="n">Base sell</span><span className="s">per unit, before any pricing decision</span></>,
+        "baseSell", (n) => fmtUsd4(n))}
+
+      {band("eq-pricing", "Pricing decisions", "editable here")}
+      {/*
+        Tier authority is TIER-scoped, not unit-scoped, so it belongs on the
+        aggregate view as much as on a drill-down. Rendering it only on the unit
+        views would make a quote-level decision reachable solely by first
+        choosing a product it does not belong to.
+      */}
+      <div className="r11-srow" key="eq-tier-adj">
+        <div className="r11-slab">
+          <span className="n">Tier adjustment</span>
+          <span className="s">replaces the quote-wide rate for that tier</span>
+        </div>
+        {columns.map((c) => (
+          <TierAdjustCell key={c.numericId} tierUuid={tierUuidByNumeric.get(c.numericId)} label={c.label} />
+        ))}
+      </div>
+      {row("eq-decision", "r11-srow",
+        <><span className="n">Pricing decision</span><span className="s">quoted less base, all levers combined</span></>,
+        "decision", (n) => (n >= 0 ? "+" : "") + fmtUsd4(n), "delta")}
+
+      {band("eq-result", "Final quoted sell", "result")}
+      {row("eq-quoted", "r11-srow total rule r11-band-total",
+        <><span className="n">Final quoted sell</span><span className="s">per unit · everything quoted</span></>,
+        "quoted", (n) => fmtUsd4(n))}
+      {row("eq-cost", "r11-srow", <><span className="n">Unit cost</span><span className="s">from Costs</span></>, "unitCost", (n) => fmtUsd4(n))}
+      {row("eq-margin", "r11-srow", <span className="n">Margin</span>, "margin", (n) => fmtPct(n) + "%", "mg")}
+
+      {/*
+        ONE-TIME CHARGES sit OUTSIDE the per-unit build, because they are not
+        per-unit. Folding a fixed fee into a unit price makes the price depend
+        on the tier quantity in a way the customer document does not, and the
+        two would stop reconciling. The Production/OTC accounting semantics are
+        a separate body of work; this only keeps the distinction visible.
+      */}
+      {anyCharges && (
+        <>
+          {band("eq-otc", "One-time charges", "billed separately · not per unit")}
+          <div className="r11-srow">
+            <div className="r11-slab">
+              <span className="n">Project &amp; SKU fees</span>
+              <span className="s">tier total, excluded from the per-unit figure above</span>
+            </div>
+            {columns.map((c) => (
+              <div className="r11-scell flat" key={c.numericId}>
+                <span className="sell">{fmtUsd2(byTier.get(c.numericId)?.oneTimeCharges ?? 0)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function DetailZone({
+  clientTargetFor,
   state,
   blendedByTier,
+  units,
+  entireQuoteByTier,
+  previewing,
+  adjScopeByTier,
+  tierUuidByNumeric,
+  selectedUnitId,
+  onSelectUnit,
   tierMeta,
   leversByTier,
   onPreviewGlobalAdjust,
@@ -115,14 +433,30 @@ export function DetailZone({
   pricingConfirmation,
   onTraceStackCell,
   tracedStackCell,
-  renderStackTrace,
   renderStackDelta,
   renderStackMarginDelta,
 }: {
+  /** Forwarded to DetailCostStack; resolved by the shell. */
+  clientTargetFor?: (numericTierId: number) => {
+    target: number | null;
+    gap: string | null;
+  };
   state: QuoteState;
-  /** Blended per-unit values read from the canonical graph, keyed by the
-   *  classifier's numeric tier id. Resolved once at the composition point. */
+  /** Price-build values for the SELECTED unit of account, read from the
+   *  canonical graph and keyed by the classifier's numeric tier id. Resolved
+   *  once at the composition point. */
   blendedByTier: Map<number, BlendedTierComponents>;
+  /** Top-level sellable units — Item Groups, and Direct Components alone. */
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean; priced: boolean }>;
+  entireQuoteByTier: ReadonlyMap<number, EntireQuoteTier>;
+  /** True while the stack is showing STAGED economics rather than committed. */
+  previewing: boolean;
+  /** Which authority set each tier's adjustment, by numeric tier id. */
+  adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
+  /** Numeric tier id -> tier UUID. Staging keys on the real identity. */
+  tierUuidByNumeric: ReadonlyMap<number, string>;
+  selectedUnitId: string | null;
+  onSelectUnit: (id: string) => void;
   /** Tier label + ★ by numeric id, forwarded to the stack's header row. */
   tierMeta?: Map<number, { label: string; recommended: boolean }>;
   /** Which tiers carry a lever, from the governed working set. See B-2. */
@@ -152,7 +486,6 @@ export function DetailZone({
   // fixtures) mount the zone without them.
   onTraceStackCell?: (nodeKey: string, title: string) => void;
   tracedStackCell?: TracedStackCell | null;
-  renderStackTrace?: () => React.ReactNode;
   renderStackDelta?: (nodeKey: string) => React.ReactNode;
   renderStackMarginDelta?: (nodeKey: string) => React.ReactNode;
 }) {
@@ -197,13 +530,20 @@ export function DetailZone({
           confirmation={pricingConfirmation}
         />
         <DetailCostStack
+          clientTargetFor={clientTargetFor}
           state={state}
           blendedByTier={blendedByTier}
+          units={units}
+          entireQuoteByTier={entireQuoteByTier}
+          previewing={previewing}
+          adjScopeByTier={adjScopeByTier}
+          tierUuidByNumeric={tierUuidByNumeric}
+          selectedUnitId={selectedUnitId}
+          onSelectUnit={onSelectUnit}
           tierMeta={tierMeta}
           leversByTier={leversByTier}
           onTrace={onTraceStackCell}
           traced={tracedStackCell}
-          renderTrace={renderStackTrace}
           renderDelta={renderStackDelta}
           renderMarginDelta={renderStackMarginDelta}
         />
@@ -368,8 +708,16 @@ export function DetailGlobalAdjust({
           <p><strong>Preview only.</strong> No changes have been committed.</p>
           <table className="psr-tier-table">
             <thead><tr>
+              {/*
+                "Change" in POINTS, not "Delta". The column carried the entered
+                figure and rendered "+30%" beside a current of 20% and a
+                resulting of 56% — three numbers that cohere only under
+                compounding, which is not what Apply does. Under set-semantics
+                20% to 30% is a change of +10 points, and the header has to say
+                which of the two it means.
+              */}
               <th>Tier</th><th>Current adjustment</th><th>Current price</th>
-              <th>Delta</th><th>Resulting adjustment</th><th>Resulting price</th>
+              <th>Change (pts)</th><th>Proposed adjustment</th><th>Proposed price</th>
             </tr></thead>
             <tbody>
               {preview.tiers.map((tier) => (
@@ -377,7 +725,7 @@ export function DetailGlobalAdjust({
                   <td>{tier.label}</td>
                   <td>{fmtPct(tier.currentAdjustment)}%</td>
                   <td>{fmtUsd2(tier.currentCustomerPrice)}</td>
-                  <td>{tier.adjustmentDelta >= 0 ? "+" : ""}{fmtPct(tier.adjustmentDelta)}%</td>
+                  <td>{tier.adjustmentDeltaPoints >= 0 ? "+" : ""}{fmtPct(tier.adjustmentDeltaPoints)}</td>
                   <td>{fmtPct(tier.resultingAdjustment)}%</td>
                   <td>{fmtUsd2(tier.resultingCustomerPrice)}</td>
                 </tr>
@@ -455,6 +803,40 @@ interface CostStackBucketDisplay {
  * the mechanism that enforces that for everything else in the file. Resolution
  * happens once, at the composition point.
  */
+/**
+ * ENTIRE QUOTE — one tier's aggregate economics.
+ *
+ * A DIFFERENT SHAPE from `BlendedTierComponents`, deliberately. The unit ladder
+ * has rungs the quote scope does not publish — sell-after-adjustment,
+ * per-cell lifts, per-cell overrides — and reusing that type would have meant
+ * filling them with zeros. A fabricated zero in a pricing ladder is the exact
+ * defect this workstream keeps removing, so the aggregate gets the rows it can
+ * actually answer for and no others.
+ *
+ * The aggregate pricing movement is `departure`: quoted price less the
+ * component build-up. It is one governed number rather than a decomposition,
+ * because at quote scope the individual levers do not aggregate — a global, a
+ * tier rate and a cell override are not summable into "the decision".
+ */
+export type EntireQuoteTier = {
+  pkg: number;
+  prod: number;
+  raw: number;
+  frt: number;
+  dt: number;
+  baseSell: number;
+  decision: number;
+  quoted: number;
+  unitCost: number;
+  margin: number | null;
+  /** Tier TOTAL, not per unit. Billed as fixed charges; never folded in. */
+  oneTimeCharges: number;
+  keys: Record<
+    "pkg" | "prod" | "raw" | "frt" | "dt" | "baseSell" | "decision" | "quoted" | "unitCost" | "margin",
+    string
+  >;
+};
+
 export type BlendedTierComponents = {
   pkg: number;
   prod: number;
@@ -566,21 +948,25 @@ export interface TracedStackCell {
 }
 
 /** What each traceable column is called when it titles a trace panel. */
+// "blended" is gone from every DOLLAR title. These are one sellable unit's own
+// economics now, not a mean across the quote's leaves, and the old word made a
+// scoped figure read as an average. Margin keeps it, because the tier's blended
+// margin genuinely is the revenue-weighted blend and its authority is unchanged.
 const COLUMN_TITLE = {
-  pkg: "Packaging · blended per unit",
-  prod: "Production · blended per unit",
-  raw: "Raw materials · blended per unit",
-  frt: "Freight · blended per unit",
-  dt: "Duty + tariff · blended per unit",
-  sellBefore: "Sell before adjustment · blended per unit",
-  sell: "Quoted sell · blended per unit",
-  cost: "Unit cost · blended per unit",
+  pkg: "Packaging · per unit",
+  prod: "Production · per unit",
+  raw: "Raw materials · per unit",
+  frt: "Freight · per unit",
+  dt: "Duty + tariff · per unit",
+  sellBefore: "Base sell · per unit",
+  sell: "Final quoted sell · per unit",
+  cost: "Unit cost · per unit",
   margin: "Blended margin · this tier",
-  adjDelta: "Price adjustment contribution · blended per unit",
-  sellAfterAdj: "Sell after adjustment · blended per unit",
-  liftDelta: "Surgical lift contribution · blended per unit",
-  sellAfterLift: "Sell after lifts · blended per unit",
-  overrideDelta: "PM override contribution · blended per unit",
+  adjDelta: "Price adjustment contribution · per unit",
+  sellAfterAdj: "Sell after adjustment · per unit",
+  liftDelta: "Surgical lift contribution · per unit",
+  sellAfterLift: "Sell after lifts · per unit",
+  overrideDelta: "PM override contribution · per unit",
 } as const;
 
 /**
@@ -684,18 +1070,51 @@ function ReconStrip({ columns }: { columns: TierStackColumn[] }) {
 }
 
 export function DetailCostStack({
+  clientTargetFor,
   state,
   blendedByTier,
+  units,
+  entireQuoteByTier,
+  previewing,
+  adjScopeByTier,
+  tierUuidByNumeric,
+  selectedUnitId,
+  onSelectUnit,
   tierMeta,
   leversByTier,
   onTrace,
   traced,
-  renderTrace,
   renderDelta,
   renderMarginDelta,
 }: {
+  /**
+   * The Client Target in force for the SELECTED unit at one tier, and the gap
+   * to that tier's Final quoted sell — both resolved by the shell, which owns
+   * the governed values. A component that resolved either would be a second
+   * authority over a precedence that already has one.
+   */
+  clientTargetFor?: (numericTierId: number) => {
+    target: number | null;
+    gap: string | null;
+  };
   state: QuoteState;
+  /**
+   * Price build per COMMERCIAL UNIT OF ACCOUNT, keyed by unit id then numeric
+   * tier. Not a quote-wide blend: on a mixed quote that averaged across
+   * unrelated sellable products and divided an Item Group's economics by the
+   * whole quote's leaf count.
+   */
   blendedByTier: Map<number, BlendedTierComponents>;
+  /** Top-level sellable units — Item Groups, and Direct Components standing alone. */
+  units: ReadonlyArray<{ id: string; label: string; isFinishedGood: boolean; priced: boolean }>;
+  entireQuoteByTier: ReadonlyMap<number, EntireQuoteTier>;
+  previewing: boolean;
+  adjScopeByTier: ReadonlyMap<number, "tier" | "quote-wide">;
+  /** Numeric tier id -> tier UUID. Staging keys on the real identity. */
+  tierUuidByNumeric: ReadonlyMap<number, string>;
+  /** Null until the operator chooses. Never auto-selected on a mixed quote. */
+  selectedUnitId: string | null;
+  onSelectUnit: (id: string) => void;
   /**
    * Tier label + ★, keyed by the classifier's numeric id.
    *
@@ -720,7 +1139,6 @@ export function DetailCostStack({
   onTrace?: (nodeKey: string, title: string) => void;
   traced?: TracedStackCell | null;
   /** The panel itself, supplied by the composition point that holds the graph. */
-  renderTrace?: () => React.ReactNode;
   /**
    * The staged movement on one node, supplied as a render prop.
    *
@@ -801,46 +1219,42 @@ export function DetailCostStack({
   const anyOverrides = columns.some((c) => c.overrideSkus.length > 0);
 
   /**
-   * WHICH ROW the open trace belongs to, resolved by matching the traced node
-   * key against the keys each row rendered.
+   * A row of cells, one per tier.
    *
-   * Matched rather than parsed. The key grammar is `quote/{tierUuid}/{name}`
-   * and reading the row out of that string would be identity derivation in the
-   * layout layer — it would break silently the first time the grammar gained a
-   * segment. These are the same key objects the cells were built from.
+   * The trace used to render INLINE beneath whichever row owned the open node —
+   * an accepted Nexus extension over the Design Authority, which puts it after
+   * the whole stack (`pricing-page.jsx:978`). The reason held: transposed, this
+   * stack is thirteen rows tall, so a panel at its foot sits ~1200px from the
+   * cell that opened it and reads as an unrelated block.
+   *
+   * Both placements have the same cost, and it is the one the disposition
+   * names: a full-width block appears INSIDE the table because a cell was
+   * pressed, and every row below it moves. The trace is now in the cell drawer,
+   * beside the grid rather than within it, so nothing moves and the neighbours
+   * an operator wants to compare stay where they were. The row renders cells
+   * and raises the press; it renders nothing for the open state but the
+   * pressed cell's own `open` styling.
    */
-  let tracedField: string | null = null;
-  if (traced) {
-    outer: for (const c of columns) {
-      if (!c.blend) continue;
-      for (const [field, key] of Object.entries(c.blend.keys)) {
-        if (key === traced.nodeKey) {
-          tracedField = field;
-          break outer;
-        }
-      }
-    }
-  }
-
   /**
-   * A row of cells, one per tier — and the trace INLINE beneath it when the
-   * open node is one of that row's own cells.
+   * A band header. Three of them, and they are the substance of Item 3.
    *
-   * The Design Authority renders the stack trace after the whole stack
-   * (`pricing-page.jsx:978`), and the restoration followed it. Edward's
-   * operator-acceptance review dispositioned inline instead: transposed, the
-   * stack is thirteen rows tall, so a panel at its foot can sit ~1200px from
-   * the cell that opened it and reads as an unrelated block rather than as that
-   * row expanding.
-   *
-   * **Accepted Nexus extension (Pattern 39), not a fidelity gap.** Documented
-   * here and in `phase-3-operator-acceptance.md` R-1 so a later audit finds the
-   * reason rather than re-raising the divergence. The panel keeps the canonical
-   * `.r11-tracewrap` register — an accent top-rule butted flush against what it
-   * expands — which is the vocabulary that makes an inline expansion legible,
-   * and which the prototype already uses inline for the per-SKU breakdown
-   * (`SkuTrace`).
+   * The table read as one flat list, so a Costs-derived figure and a Pricing
+   * decision sat in the same visual register and nothing said which half the
+   * operator owns. The bands name the authority and the direction of travel:
+   * base from Costs, decisions here, result.
    */
+  const band = (key: string, title: string, authority: string) => (
+    <div className="r11-srow r11-band" key={key}>
+      <div className="r11-slab">
+        <span className="r11-band-t">{title}</span>
+        <span className="r11-band-a">{authority}</span>
+      </div>
+      {columns.map((c) => (
+        <div className="r11-scell flat" key={c.numericId} />
+      ))}
+    </div>
+  );
+
   const row = (
     key: string,
     className: string,
@@ -855,9 +1269,50 @@ export function DetailCostStack({
           <Fragment key={c.numericId}>{cell(c)}</Fragment>
         ))}
       </div>
-      {field != null && field === tracedField && renderTrace && renderTrace()}
     </Fragment>
   );
+
+  /**
+   * The Client Target row, or nothing.
+   *
+   * RESOLVED PER TIER through the governed rule, and the gap is stated against
+   * each column's own Final quoted sell — so a tier carrying its own target and
+   * a tier carrying its own pricing override are measured correctly and
+   * independently. The two precedences do not interact: `tier ?? common`
+   * decides the benchmark, the pricing plan decides the price, and this row
+   * subtracts one from the other.
+   */
+  const clientTargetRow = (() => {
+    if (clientTargetFor === undefined) return null;
+    const anyTarget = columns.some(
+      (c) => clientTargetFor(c.numericId).target !== null,
+    );
+    if (!anyTarget) return null;
+    return row(
+      "client-target",
+      "r11-srow r11-ct-row",
+      <>
+        <span className="n">Client target</span>
+        <span className="s">what the client said · internal</span>
+      </>,
+      (c) => {
+        const { target, gap } = clientTargetFor(c.numericId);
+        if (target === null) {
+          return (
+            <div className="r11-scell flat" key={c.numericId}>
+              <span className="cost">—</span>
+            </div>
+          );
+        }
+        return (
+          <div className="r11-scell flat" key={c.numericId}>
+            <span className="sell">{fmtUsd4(target)}</span>
+            <span className="cost">{gap ?? ""}</span>
+          </div>
+        );
+      },
+    );
+  })();
 
   /** A LEVEL — a price at a point on the ladder. */
   const level = (
@@ -902,20 +1357,126 @@ export function DetailCostStack({
     );
   };
 
+  const scopes = new Set(
+    columns.map((c) => adjScopeByTier.get(c.numericId) ?? "quote-wide"),
+  );
+  const adjScopeLabel =
+    scopes.size > 1 ? "per-tier and quote-wide" : scopes.has("tier") ? "Tier" : "Quote-wide";
+
+  const selectedUnit = units.find((u) => u.id === selectedUnitId) ?? null;
+  const unitLabel = selectedUnit?.label ?? null;
+  const selectedIsFinishedGood = selectedUnit?.isFinishedGood ?? true;
+
+  // NO AUTO-SELECTION on a mixed quote. Picking one for the operator would put
+  // a single product's economics under a heading they will read as the quote's,
+  // which is the same category error the leaf blend made one level up. A single
+  // sellable unit is not a choice, so it resolves itself.
+  // ── WHICH VIEW ────────────────────────────────────────────────────────
+  //
+  // Entire Quote is the default and answers "what are the economics of
+  // everything we are quoting at this tier". A unit view answers "what drives
+  // them for this one sellable unit". Different questions, so different tables.
+  if (selectedUnitId === ENTIRE_QUOTE || selectedUnitId === null) {
+    return (
+      <div className="psr-detail-section psr-detail-section--cost-stack">
+        <div className="section-head">
+          <h4>Price build · Entire quote</h4>
+          <span className="meta">
+            Per-tier · everything being quoted · one-time charges shown
+            separately
+          </span>
+          {previewing && (
+            <span className="r11-pb-preview">previewing staged changes</span>
+          )}
+          <UnitSwitch units={units} selected={ENTIRE_QUOTE} onSelect={onSelectUnit} />
+        </div>
+        {entireQuoteByTier.size === 0 ? (
+          <NothingPriced />
+        ) : (
+          <EntireQuoteBuild
+            columns={columns}
+            byTier={entireQuoteByTier}
+            tierUuidByNumeric={tierUuidByNumeric}
+            traced={traced}
+            onTrace={onTrace}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // AN UNPRICED UNIT IS NOT A $0.0000 PRICE BUILD.
+  //
+  // PB-UNIT-UX1: a unit whose costs were never entered rendered every row at
+  // zero with a green reconciliation footer. The zeros were real sums of
+  // nothing; the defect was presenting "no data" in the vocabulary reserved
+  // for "data, and it balances".
+  if (selectedUnit != null && !selectedUnit.priced) {
+    return (
+      <div className="psr-detail-section psr-detail-section--cost-stack">
+        <div className="section-head">
+          <h4>Price build · {selectedUnit.label}</h4>
+          <span className="meta">Not priced · costs incomplete</span>
+          <UnitSwitch units={units} selected={selectedUnit.id} onSelect={onSelectUnit} />
+        </div>
+        <div className="r11-unpriced">
+          <span className="r11-unpriced-t">
+            {selectedUnit.label} has no costs entered yet.
+          </span>
+          <span className="r11-unpriced-s">
+            {selectedUnit.isFinishedGood
+              ? "Its products are on the quote, but none carries a unit cost — so there is no price to build."
+              : "It is on the quote, but carries no unit cost — so there is no price to build."}{" "}
+            Enter costs on Costs, then come back.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Past both early returns: a unit is selected and it is priced.
+  if (selectedUnit == null) return null;
+
   return (
     <div className="psr-detail-section psr-detail-section--cost-stack">
       <div className="section-head">
-        <h4>Cost stack</h4>
+        <h4>Price build{unitLabel === null ? "" : ` · ${unitLabel}`}</h4>
         <span className="meta">
-          Per-tier · sell-side contributions per unit, blended across SKUs ·
-          D+T is internal layer
+          Per-tier · sell-side contributions per finished unit · D+T is internal
+          layer
         </span>
+        {/*
+          P-PriceBuild-2. The stack now follows staged economics, so it must say
+          when it is doing that. A previewed figure and a committed one look
+          identical, and the operator acts on the difference.
+        */}
+        {previewing && (
+          <span className="r11-pb-preview" title="These figures include changes you have not applied yet">
+            previewing staged changes
+          </span>
+        )}
+        {/*
+          The SHARED switch, and it is shared for a reason. This branch kept an
+          inline select of its own that listed units only — so from a unit view
+          there was no route back to Entire Quote, and unpriced units appeared
+          unlabelled. Two switches for one navigation is how half of it goes
+          stale; caught in the browser walk, not by a test.
+
+          Rendered unconditionally, unlike the old one: even with a single unit
+          there are two views, and hiding the control strands the operator on
+          whichever they landed on.
+        */}
+        <UnitSwitch units={units} selected={selectedUnit.id} onSelect={onSelectUnit} />
       </div>
 
       <div className="r11-stack">
         <div className="r11-srow head">
           <div className="r11-slab">
-            <span className="colhead">Cost stack · blended per unit</span>
+            <span className="colhead">
+              {selectedIsFinishedGood
+                ? "Price build · per finished unit"
+                : "Price build · per unit"}
+            </span>
           </div>
           {columns.map((c) => (
             <div className="r11-scell flat" key={c.numericId}>
@@ -935,6 +1496,8 @@ export function DetailCostStack({
           ))}
         </div>
 
+        {band("band-base", "Base price", "from Costs · read-only here")}
+
         {SECTIONS.map((s) =>
           row(
             s.key,
@@ -950,18 +1513,51 @@ export function DetailCostStack({
 
         {row(
           "sell-before",
-          "r11-srow rule",
-          <span className="n">Sell before adjustment</span>,
+          "r11-srow rule r11-band-total",
+          <>
+            <span className="n">Base sell</span>
+            <span className="s">per unit, before any pricing decision</span>
+          </>,
           (c) => level(c, "sellBefore"),
           "sellBefore",
         )}
+
+        {band("band-pricing", "Pricing decisions", "editable here")}
+
+        {/*
+          TIER AUTHORITY, above the dollar it produces. The rate decides the
+          amount, so reading them in the other order asks the operator to infer
+          the cause from the effect.
+        */}
+        <div className="r11-srow" key="tier-adj">
+          <div className="r11-slab">
+            <span className="n">Tier adjustment</span>
+            <span className="s">replaces the quote-wide rate for that tier</span>
+          </div>
+          {columns.map((c) => (
+            <TierAdjustCell
+              key={c.numericId}
+              tierUuid={tierUuidByNumeric.get(c.numericId)}
+              label={c.label}
+            />
+          ))}
+        </div>
 
         {row(
           "adj",
           "r11-srow",
           <>
             <span className="n">Price adjustment</span>
-            <span className="s">tier ?? global — replaces</span>
+            {/*
+              This used to render the nullish-coalescing expression itself —
+              source notation shown to an operator. The precedence it gestured
+              at is real: a tier's own rate REPLACES the quote-wide one rather
+              than compounding with it. Which one applies is knowable per tier,
+              so the row states the resolved scope instead of printing the
+              expression that resolves it. Mixed scopes across tiers are named
+              as mixed rather than collapsed to either.
+            */}
+            <span className="s">{adjScopeLabel} rate — replaces, not compounds</span>
           </>,
           (c) => contribution(c, "adjDelta", null),
           "adjDelta",
@@ -1033,21 +1629,39 @@ export function DetailCostStack({
             "overrideDelta",
           )}
 
+        {band("band-result", "Final quoted sell", "result")}
+
         {row(
           "quoted",
-          "r11-srow total rule",
+          "r11-srow total rule r11-band-total",
           <>
-            <span className="n">Quoted sell</span>
-            <span className="s">per unit, blended</span>
+            <span className="n">Final quoted sell</span>
+            <span className="s">
+              per unit{selectedIsFinishedGood ? " · finished good" : " · product"}
+            </span>
           </>,
           (c) => level(c, "sell"),
           "sell",
         )}
 
+        {/* CLIENT TARGET — a benchmark beside the result it is measured
+            against, and the third distinct line: Base sell (from Costs),
+            the pricing decisions, the Final quoted sell, and then what the
+            client said they need.
+
+            Absent when this unit has no target at this tier. Internal — it
+            never leaves this surface. Factual: the sub-caption states the gap
+            and stops, because being above the client's number may still be
+            the right quote and a verdict here would decide that. */}
+        {clientTargetRow}
+
         {row(
           "cost",
           "r11-srow",
-          <span className="n">Unit cost</span>,
+          <>
+            <span className="n">Unit cost</span>
+            <span className="s">from Costs</span>
+          </>,
           (c) => level(c, "cost"),
           "cost",
         )}

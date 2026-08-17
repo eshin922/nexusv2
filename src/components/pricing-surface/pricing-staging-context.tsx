@@ -49,6 +49,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -57,6 +58,14 @@ import {
 } from "react";
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import { costBaseFingerprint } from "@/lib/pricing-cost-base";
+import { planApply } from "@/lib/pricing-apply-plan";
+import {
+  clearStagedSnapshot,
+  readStagedSnapshot,
+  resolveInitialSets,
+  writeStagedSnapshot,
+} from "@/lib/pricing-staged-persistence";
+import { pricingAuthorityBaseline, staleMessage } from "@/lib/pricing-stale-guard";
 import {
   computeQuoteCosting,
   type CostingLift,
@@ -151,6 +160,16 @@ export interface PricingStagingValue {
    * a consumer to be correct.
    */
   stagedAgainstCostBase: string | null;
+
+  /**
+   * The tier adjustments this staged set would PRODUCE, keyed by tier id.
+   *
+   * Not `working.tierAdj`. A global Apply clears standing tier overrides, so the
+   * intent and the result differ exactly when the rule does something — which is
+   * when an operator most needs the screen to be honest. Every surface that
+   * renders a tier's effective rate reads this.
+   */
+  plannedTierAdj: Readonly<Record<string, number>>;
 
   /**
    * The engine's result for the WORKING set, labelled `preview`.
@@ -257,10 +276,51 @@ export function PricingStagingProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialGlobalAdj, storeApi]);
 
-  const [committed, setCommitted] = useState<PricingSet>(initial);
-  const [working, setWorking] = useState<PricingSet>(initial);
+  /**
+   * Both sets, resolved once — from a staged snapshot this tab left behind if
+   * there is one, otherwise from the store.
+   *
+   * A REMOUNT is the only way staged intent could disappear from this surface:
+   * nothing reconciles these sets from the server, so no incoming update can
+   * overwrite them, but a second `useState(seed)` against a store that has
+   * meanwhile reconciled brings both back equal and empties the chip list with
+   * nothing written and nothing said. That happened once in a two-operator
+   * walk and did not reproduce on a second run — see the module header for the
+   * mount-seeded draft that evidences it, and for why the repair targets the
+   * invariant rather than the trigger.
+   *
+   * Restoring BOTH halves is what keeps the stale guard working: the baseline
+   * is this tab's belief at staging time, so Apply is refused exactly as it
+   * would have been had the remount never happened.
+   */
+  const seeded = useMemo(() => {
+    return resolveInitialSets({
+      storeSeed: initial,
+      snapshot: readStagedSnapshot(quoteId),
+      hasStagedWork: (c, w) => diffSets(c, w).length > 0,
+    });
+    // Mount-time only, with `initial`. Re-running would re-adopt a snapshot the
+    // operator has since discarded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, quoteId]);
+
+  const [committed, setCommitted] = useState<PricingSet>(seeded.committed);
+  const [working, setWorking] = useState<PricingSet>(seeded.working);
 
   const changes = useMemo(() => diffSets(committed, working), [committed, working]);
+
+  /**
+   * Keep the snapshot in step with what is on screen.
+   *
+   * Written whenever something is staged, removed the moment nothing is —
+   * which covers Apply, Reset and Return to baseline without any of them
+   * needing to know this exists. An empty snapshot would be worse than none:
+   * it would pin a baseline the store has moved past.
+   */
+  useEffect(() => {
+    if (changes.length === 0) clearStagedSnapshot(quoteId);
+    else writeStagedSnapshot(quoteId, { committed, working });
+  }, [changes.length, committed, working, quoteId]);
 
   /**
    * R12 load-bearing 22 — the cost base the staged decision was evaluated
@@ -373,11 +433,12 @@ export function PricingStagingProvider({
       if (intent === "apply" && stagedAgainst.current !== null) {
         const now = costBaseFingerprint(buildCostingInput(storeApi.getState()));
         if (now !== stagedAgainst.current) {
-          setCommitError(
-            "Costs changed while these adjustments were staged, so the figures " +
-              "you reviewed are no longer the ones that would be committed. " +
-              "Reset and re-stage against the current costs.",
-          );
+          // Same wording as the server's COSTS_STALE refusal. The two guards
+          // compare different reads on purpose — the client sees what has
+          // reconciled into this tab, the server reads fresh — so an operator
+          // can meet either. Meeting the same sentence twice reads as one
+          // condition; meeting two different sentences reads as two problems.
+          setCommitError(staleMessage({ stale: true, kind: "economic_basis" }));
           return;
         }
       }
@@ -404,6 +465,27 @@ export function PricingStagingProvider({
             adjPct,
           })),
           globalAdjPct: next.globalAdj,
+          // STALENESS. What the client believed was COMMITTED when it staged —
+          // the server refuses if a lever moved since. `committed` is exactly
+          // that belief, kept in step with the server by the same repair that
+          // stopped it drifting after a clearing Apply.
+          authorityBaseline: pricingAuthorityBaseline({
+            globalAdj: String(committed.globalAdj),
+            tierAdj: new Map(
+              Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
+            ),
+            lifts: new Map(
+              Object.entries(committed.lifts).map(([k, v]) => [k, String(v)]),
+            ),
+            overrides: new Map(
+              Object.entries(committed.overrides).map(([k, v]) => [k, String(v)]),
+            ),
+          }),
+          // The economic basis this decision was STAGED against — the same
+          // fingerprint the client-side guard above compares, now sent so the
+          // server can enforce it too. The client can only see costs that have
+          // reconciled into this tab; the server reads them fresh.
+          economicFingerprint: stagedAgainst.current,
           intent,
         });
         if (!result.ok) {
@@ -412,11 +494,43 @@ export function PricingStagingProvider({
           setCommitError(result.error.message);
           return;
         }
-        setCommitted(next);
-        setWorking(next);
+        // ADOPT THE SERVER'S RESULTING STATE, do not assume the request was it.
+        //
+        // This set both to `next` — what the client SENT. Fine while every write
+        // was something the client asked for; wrong the moment a global Apply
+        // began clearing tier overrides the client never mentioned. The client
+        // kept believing those rows existed, resent them next Apply against an
+        // empty quote, the server wrote them back as `null -> 0.0000`, and the
+        // sweep cleared them again — a strict alternation where every second
+        // Apply suppressed the global with explicit zeros.
+        //
+        // The entered percentage was never involved. 11% and 101% landed on the
+        // failing phase and 12% and 50% on the passing one, which is what made
+        // it read as a value problem.
+        const serverTierAdj: Record<string, number> = {};
+        for (const t of result.data.tierAdjustments) serverTierAdj[t.tierId] = t.adjPct;
+        const reconciled: PricingSet = {
+          ...next,
+          tierAdj: serverTierAdj,
+          globalAdj: result.data.globalAdjPct,
+        };
+        setCommitted(reconciled);
+        setWorking(reconciled);
       });
     },
-    [committable, quoteId, storeApi],
+    // `committed` IS a dependency, and leaving it out was a live defect.
+    //
+    // Before the stale guard, this callback read only `next`, `quoteId` and the
+    // store, so the list was complete. Adding the authority baseline made it
+    // read `committed` too — and the memo kept handing the server the value
+    // from whichever render created the callback. After a successful apply the
+    // component's `committed` advanced while the closure's did not, so the next
+    // Apply sent a baseline that was two states old and the server refused a
+    // mismatch that existed nowhere but in the closure.
+    //
+    // A guard that falsely refuses is worse than no guard: it teaches operators
+    // to distrust the one refusal that matters.
+    [committable, committed, quoteId, storeApi],
   );
 
   const apply = useCallback(
@@ -439,6 +553,39 @@ export function PricingStagingProvider({
    * committed state is not a preview, and returning one would let a consumer
    * read preview authority on every render without noticing.
    */
+  /**
+   * TIER-PREV-1 · THE TIER STATE THIS STAGED SET WOULD PRODUCE.
+   *
+   * Not the operator's intent — the RESULT of running their intent through the
+   * planner Apply uses. A global Apply CLEARS standing tier overrides, and that
+   * rule lives in `planApply`, so anything rendering `working.tierAdj` directly
+   * shows overrides outliving a global that is about to remove them.
+   *
+   * Exposed rather than computed twice: the figures and the labels that explain
+   * them have to come from one place, or they disagree the moment the rule does
+   * anything interesting. Clearing semantics are NOT reproduced here.
+   */
+  const plannedTierAdj = useMemo<Record<string, number>>(() => {
+    const plan = planApply({
+      intendedLifts: new Map(),
+      intendedOverrides: new Map(),
+      persistedLifts: new Map(),
+      persistedOverrides: new Map(),
+      intendedTierAdj: new Map(
+        Object.entries(working.tierAdj).map(([k, v]) => [k, String(v)]),
+      ),
+      persistedTierAdj: new Map(
+        Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
+      ),
+      globalAdjFrom: String(committed.globalAdj),
+      globalAdjTo: String(working.globalAdj),
+    });
+    const out: Record<string, number> = { ...committed.tierAdj };
+    for (const removed of plan.tierAdjRemoved) delete out[removed.key];
+    for (const set of plan.tierAdjSet) out[set.key] = Number(set.to);
+    return out;
+  }, [committed, working]);
+
   const previewResult = useMemo<QuoteCostingResult | null>(() => {
     if (changes.length === 0) return null;
     const base = buildCostingInput(storeApi.getState());
@@ -484,15 +631,12 @@ export function PricingStagingProvider({
     const preview: QuoteCostingInput = {
       ...base,
       quote: { ...base.quote, globalPriceAdjPct: working.globalAdj },
-      // The fourth lever, resolved the same way as the others: the working set
-      // is the COMPLETE intended state, so a tier absent from it has no
-      // adjustment of its own and falls back to the quote-wide one. Rebuilding
-      // from the committed rows and layering staged values over them would
-      // make a staged REMOVAL invisible in the preview — the chip would say
-      // the adjustment was gone while the figures still carried it.
+      // The PLANNED tier state — what the quote looks like after this Apply,
+      // which is the only thing a preview is for. A staged REMOVAL is still
+      // visible, because the plan carries removals too.
       tiers: base.tiers.map((t) => ({
         ...t,
-        tierPriceAdjPct: working.tierAdj[t.id] ?? null,
+        tierPriceAdjPct: t.id in plannedTierAdj ? plannedTierAdj[t.id]! : null,
       })),
       // A new array with new objects for the touched cells only; the committed
       // input's own objects are never written to. A permanent test asserts it.
@@ -565,6 +709,7 @@ export function PricingStagingProvider({
     commitError,
     committable,
     stagedAgainstCostBase: stagedAgainst.current,
+    plannedTierAdj,
     previewResult,
   };
 

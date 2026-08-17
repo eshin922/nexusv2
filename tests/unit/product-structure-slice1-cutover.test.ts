@@ -8,6 +8,12 @@ const read = (file: string) => readFile(path.join(root, file), "utf8");
 
 const classifiedIdentityFiles = new Set([
   "src/app/actions/assemblies.ts", "src/app/actions/assembly-leaf-inputs.ts",
+  // Client Target authority. Uses BOTH source identities on purpose and keeps
+  // them apart: `assemblies.id` addresses an Item Group finished good and a
+  // direct `quote_leaves.id` addresses a Direct Product, which are the two
+  // top-level sellable units. A member leaf is refused, so the legacy junction
+  // never enters — there is nothing here for it to address.
+  "src/app/actions/client-targets.ts",
   "src/app/actions/costing.ts", "src/app/actions/freight-worksheet.ts",
   // CLASSIFIED — transitional. actions/freight.ts writes component-tier costs
   // keyed on canonical quoteLeafId, with the fail-closed identity guards
@@ -43,7 +49,12 @@ const classifiedIdentityFiles = new Set([
   "src/components/library/library-browse-modal.tsx",
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
   "src/db/schema.ts", "src/lib/addendum-loader.ts",
-  "src/lib/assembly-tree.ts", "src/lib/costing-adapter.ts",
+  "src/lib/assembly-tree.ts",
+  // Client Target resolution. Pure, and identity-aware without being
+  // identity-resolving: it groups rows by whichever of the two sellable-unit
+  // columns is set and never translates between them.
+  "src/lib/client-target.ts",
+  "src/lib/costing-adapter.ts",
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
   "src/lib/costing.ts",
@@ -308,6 +319,12 @@ const classifiedIdentityFiles = new Set([
   // fewer groups. Holding both is what makes that a comparison rather than an
   // assertion; the junction appears only inside a `count(*)` taken to be beaten.
   "scripts/verify/od-023-snapshot-completeness.ts",
+  // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
+  // what the V1 freight distribution policy moved across the S-7 basket before
+  // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment
+  // membership key the policy distributes across. It writes nothing and
+  // resolves no legacy junction.
+  "scripts/gate-1b/pre-refresh-isolation.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

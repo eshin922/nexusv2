@@ -61,6 +61,15 @@ import {
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { writeAuditEntries, writeAuditEntryReturningId } from "@/lib/audit";
 import { revalidateQuoteTree } from "@/lib/revalidate";
+import { getCostingBundle } from "@/app/actions/costing";
+import {
+  detectStale,
+  pricingAuthorityBaseline,
+  staleMessage,
+  type PricingAuthorityBaseline,
+} from "@/lib/pricing-stale-guard";
+import { costBaseFingerprint } from "@/lib/pricing-cost-base";
+import { costingInputFromSnapshot } from "@/lib/costing-store";
 
 // ── the wire shape ────────────────────────────────────────────────────────
 
@@ -108,6 +117,16 @@ export type ApplyPricingAdjustmentsInput = {
    */
   tierAdjustments: AppliedTierAdjInput[];
   globalAdjPct: number;
+  /**
+   * What the client believed was COMMITTED when it staged, and the economic
+   * fingerprint the Preview computed against.
+   *
+   * Both optional: this is a contract addition, and refusing every caller that
+   * predates it would break more than it protects. A caller that sends neither
+   * is simply unguarded — which is where every caller was until now.
+   */
+  authorityBaseline?: PricingAuthorityBaseline | null;
+  economicFingerprint?: string | null;
   /**
    * Which operator act this is.
    *
@@ -403,6 +422,39 @@ export async function applyPricingAdjustments(
     // The decision itself is pure and lives in `pricing-apply-plan`, so it can
     // be exercised without a database. Everything above this line loads state;
     // everything below writes it.
+    // ── STALENESS ─────────────────────────────────────────────────────────
+    //
+    // A staged commercial decision was made against a state the operator could
+    // see. If that state moved, committing anyway is last-write-wins on a price
+    // and the quote silently becomes something nobody reviewed.
+    //
+    // Checked HERE: after every read that establishes current state, before the
+    // plan is built and long before anything is written.
+    const persistedAuthority = pricingAuthorityBaseline({
+      globalAdj: String(quote.globalPriceAdjPct),
+      tierAdj: persistedTierAdj,
+      lifts: persistedLifts,
+      overrides: new Map(
+        Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
+      ),
+    });
+    const freshBundle = await getCostingBundle(quote.id);
+    if (!freshBundle.ok) {
+      throw new ActionGuardError(freshBundle.error.code, freshBundle.error.message);
+    }
+    const verdict = detectStale({
+      baseline: input.authorityBaseline ?? null,
+      persisted: persistedAuthority,
+      previewFingerprint: input.economicFingerprint ?? null,
+      currentFingerprint: costBaseFingerprint(costingInputFromSnapshot(freshBundle.data)),
+    });
+    if (verdict.stale) {
+      throw new ActionGuardError(
+        verdict.kind === "economic_basis" ? ERR.COSTS_STALE : ERR.PRICING_STALE,
+        staleMessage(verdict),
+      );
+    }
+
     const globalAdjFrom = String(quote.globalPriceAdjPct);
     const plan: ApplyPlan = planApply({
       intendedLifts: new Map(
@@ -431,6 +483,30 @@ export async function applyPricingAdjustments(
     } = plan;
     const globalAdjMoved = plan.globalAdj !== null;
 
+    /**
+     * THE RESULTING TIER STATE, not the requested one.
+     *
+     * This action returned `input.tierAdjustments` — an echo of what the client
+     * SENT — and the client set its committed state from it. That was survivable
+     * while every write was something the client had asked for. It stopped being
+     * survivable when a global Apply began clearing tier overrides the client
+     * never mentioned: the client kept believing four zero rows existed, resent
+     * them next Apply against a now-empty quote, the server wrote them back as
+     * `null -> 0.0000`, and the sweep cleared them again. A strict alternation,
+     * every second Apply silently suppressing the global with explicit zeros.
+     *
+     * The value the operator entered was never involved, which is why 11% and
+     * 101% "failed" while 12% and 50% "worked" — they landed on opposite phases.
+     *
+     * So the server states what IS, and the client adopts it.
+     */
+    const resultingTierAdj = new Map(persistedTierAdj);
+    for (const r of tierAdjRemoved) resultingTierAdj.delete(r.key);
+    for (const c of tierAdjSet) resultingTierAdj.set(c.key, c.to);
+    const resultingTierAdjustments: AppliedTierAdjInput[] = [...resultingTierAdj].map(
+      ([tierId, adjPct]) => ({ tierId, adjPct: Number(adjPct) }),
+    );
+
     if (changeCount === 0) {
       // Nothing to write and nothing to record. An audit row saying an operator
       // committed no change is noise in the one log that has to stay readable.
@@ -438,7 +514,7 @@ export async function applyPricingAdjustments(
         quoteId: quote.id,
         lifts: input.lifts,
         overrides: input.overrides,
-        tierAdjustments: input.tierAdjustments,
+        tierAdjustments: resultingTierAdjustments,
         globalAdjPct: Number(storedGlobalAdj),
         changeCount: 0,
       };
@@ -665,7 +741,7 @@ export async function applyPricingAdjustments(
       quoteId: quote.id,
       lifts: input.lifts,
       overrides: input.overrides,
-      tierAdjustments: input.tierAdjustments,
+      tierAdjustments: resultingTierAdjustments,
       globalAdjPct: Number(storedGlobalAdj),
       changeCount,
     };

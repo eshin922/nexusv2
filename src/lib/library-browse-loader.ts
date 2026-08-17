@@ -1,6 +1,6 @@
 import "server-only";
 import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
-import { and, asc, count, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, exists, ilike, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -65,6 +65,8 @@ export type LibraryBrowseFilters = {
   scopeFilter?: "all" | "this" | "other";
   targetQuoteId: string;
   limit?: number;
+  /** B-11 · rows to skip. Page N is `offset = (N - 1) * limit`. */
+  offset?: number;
 };
 
 export type LibraryBrowseRow = {
@@ -130,7 +132,19 @@ const DEFAULT_LIMIT = 50;
 
 export type LibraryBrowseResult = {
   rows: LibraryBrowseRow[];
+  /**
+   * How many products match the CURRENT filters, across the whole library.
+   *
+   * B-11 · this used to be `filteredBase.length` — the count of matches inside
+   * the first `limit + 1` rows alphabetically. On a 1,082-product library that
+   * made the denominator top out at 51 and read as the whole answer.
+   */
   total: number;
+  /** B-11 · more matches exist beyond this page. */
+  hasMore: boolean;
+  /** B-11 · the window these rows came from, echoed so a caller can page. */
+  offset: number;
+  limit: number;
   libraryTotal: number;
   // slice-library-modal-polish Step 8 hotfix BUG-LMP-2-A —
   // separate the result-count denominator (libraryTotal, all
@@ -186,6 +200,47 @@ export async function loadLibraryBrowse(
     );
   }
 
+  // B-11 · SCOPE IS A SQL PREDICATE, not a post-filter on the fetched page.
+  //
+  // It used to run in JS over whatever `limit + 1` rows came back, so on a
+  // 1,082-product library "attached to another quote" was answered from the
+  // first 51 products alphabetically. A product attached elsewhere but sorting
+  // 200th was invisible, and the surface reported no matches rather than a
+  // truncated view — the filter looked like it worked and returned the wrong
+  // answer.
+  //
+  // The loader's own note anticipated this ("cheap because v1 has <100 leaves
+  // total ... if the library grows past a few hundred, push this into a CTE").
+  // The library is 1,082. The premise expired; this is the push.
+  const attachedToTarget = (leafId: typeof leaves.id) =>
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(quoteLeaves)
+        .where(
+          and(
+            eq(quoteLeaves.leafId, leafId),
+            eq(quoteLeaves.quoteId, filters.targetQuoteId),
+          ),
+        ),
+    );
+  const attachedElsewhere = (leafId: typeof leaves.id) =>
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(quoteLeaves)
+        .where(
+          and(
+            eq(quoteLeaves.leafId, leafId),
+            ne(quoteLeaves.quoteId, filters.targetQuoteId),
+          ),
+        ),
+    );
+  if (filters.scopeFilter === "this") conds.push(attachedToTarget(leaves.id));
+  if (filters.scopeFilter === "other") conds.push(attachedElsewhere(leaves.id));
+
+  const offset = Math.max(0, filters.offset ?? 0);
+
   // Wave 1: filtered base rows + unfiltered library count + quote
   // context (scenario label + client name) in parallel. 3 queries;
   // well under pool capacity. The libraryTotal + quote context are
@@ -197,6 +252,7 @@ export async function loadLibraryBrowse(
   // (slice-library-modal-polish Step 2 Catch #2 disposition).
   const [
     baseRows,
+    matchCountRow,
     libraryTotalRow,
     libraryTotalActiveRow,
     quoteContextRow,
@@ -208,13 +264,22 @@ export async function loadLibraryBrowse(
       .select()
       .from(leaves)
       .where(and(...conds))
-      .orderBy(asc(leaves.name))
+      .orderBy(asc(leaves.name), asc(leaves.id))
+      // `id` breaks name ties so paging is a total order. Without it two
+      // products sharing a name can swap between pages and one is seen twice
+      // while the other is never seen at all.
+      .offset(offset)
       .limit(limit + 1), // +1 to detect "more available"
     // slice-library-modal-polish Step 8 hotfix — libraryTotal counts
     // ALL leaves (active + archived) so the result-count denominator
     // matches the rendered row scope. Prevents the "32 OF 30"
     // inversion observed during CB LMP smoke when CB restored an
     // archived leaf and saw the row count exceed the denominator.
+    // B-11 · the TRUE match count for the current filters, counted in SQL over
+    // the same predicates the rows come from. Previously `total` was the length
+    // of the fetched page, so the denominator could never exceed `limit + 1`
+    // and "50 of 51" was reported for a 1,082-product library.
+    db.select({ n: count() }).from(leaves).where(and(...conds)),
     db.select({ n: count() }).from(leaves),
     // BUG-LMP-2-A hotfix — libraryTotalActive counts archived=false
     // only so the modal's library-empty (⊹) shape triggers when
@@ -243,7 +308,13 @@ export async function loadLibraryBrowse(
   if (baseIds.length === 0) {
     return {
       rows: [],
-      total: 0,
+      // The window is empty; the match count is not necessarily zero — an
+      // offset past the end has matches, just none here. Reporting 0 would
+      // make "page 30 of a 1,082-product library" look like an empty library.
+      total: Number(matchCountRow[0]?.n ?? 0),
+      hasMore: false,
+      offset,
+      limit,
       libraryTotal,
       libraryTotalActive,
       scenarioLabel,
@@ -280,20 +351,18 @@ export async function loadLibraryBrowse(
     attachmentsByLeaf.set(a.leafId, list);
   }
 
-  // Scope filter at row level.
-  const filteredBase = baseRows.filter((r) => {
-    const at = attachmentsByLeaf.get(r.id) ?? [];
-    if (filters.scopeFilter === "this") {
-      return at.some((a) => a.quoteId === filters.targetQuoteId);
-    }
-    if (filters.scopeFilter === "other") {
-      return at.some((a) => a.quoteId !== filters.targetQuoteId);
-    }
-    return true; // "all" or undefined
-  });
-
-  const total = filteredBase.length;
-  const trimmed = filteredBase.slice(0, limit);
+  // B-11 · scope was applied HERE, in JS, over the fetched page. It is now a
+  // SQL predicate above, so `baseRows` is already the correct match set for
+  // every filter and this step is gone rather than moved.
+  //
+  // The `+1` probe is finally READ. It was being computed and then thrown away
+  // by `slice`, so a 50-row page out of 1,082 matches rendered with no signal
+  // that anything followed — the exact silent-truncation shape the platform
+  // rules forbid ("silent truncation reads as 'covered everything' when it
+  // didn't").
+  const total = matchCountRow[0]?.n ?? 0;
+  const hasMore = baseRows.length > limit;
+  const trimmed = baseRows.slice(0, limit);
 
   const rows: LibraryBrowseRow[] = trimmed.map((r) => {
     const at = attachmentsByLeaf.get(r.id) ?? [];
@@ -333,6 +402,9 @@ export async function loadLibraryBrowse(
   return {
     rows,
     total,
+    hasMore,
+    offset,
+    limit,
     libraryTotal,
     libraryTotalActive,
     scenarioLabel,

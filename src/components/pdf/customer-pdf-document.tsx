@@ -213,7 +213,11 @@ export function CustomerPdfDocument({
   // demonstrate. If a future state genuinely projects freight lines, the copy
   // returns on its own — gated on the evidence, not on a sibling charge.
   const hasSeparateFreight = freightLines.length > 0;
-  const recommendedTier = tiers[recommendedTierIdx];
+  // Null index means no recommendation exists. `tiers[null]` would be
+  // undefined anyway, but stating it keeps the intent legible: the document
+  // makes no recommendation rather than quietly landing on one.
+  const recommendedTier =
+    recommendedTierIdx === null ? null : (tiers[recommendedTierIdx] ?? null);
 
   // Turnkey lede — composes from same flag axes. Base sentence
   // varies with hasCharges (turnkey-with-fees folds them into the
@@ -272,7 +276,11 @@ export function CustomerPdfDocument({
                   hasSeparateFreight={hasSeparateFreight}
                   hasUnpriced={hasUnpriced}
                   fullLabelIfSingle={
-                    isSingle && recommendedTier ? recommendedTier.full : null
+                    // A single-tier quote names its one tier whether or not it
+                    // is recommended — the two are unrelated facts, and tying
+                    // them cost the heading on any single-tier quote with no
+                    // recommendation.
+                    isSingle ? (tiers[0]?.full ?? null) : null
                   }
                   recommendedTierFullLabel={
                     recommendedTier ? recommendedTier.full : null
@@ -295,7 +303,15 @@ export function CustomerPdfDocument({
                   freightAtCost={hasSeparateFreight}
                   allInUnit={!hasCharges}
                 />
-                <PricingFoot partial={hasUnpriced} />
+                <PricingFoot
+                  partial={hasUnpriced}
+                  // Same governed source as the lede above. Two sentences on
+                  // one page naming the recommended tier must not be able to
+                  // disagree, and the way to guarantee that is one input.
+                  recommendedTierFullLabel={
+                    recommendedTier ? recommendedTier.full : null
+                  }
+                />
               </View>
               {hasCharges && (
                 <View style={styles.section}>

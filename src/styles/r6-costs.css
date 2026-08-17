@@ -1105,3 +1105,115 @@
 }
 .r6-yield-block-cell .delta.neg { color: var(--bad); }
 .r6-yield-block-cell .delta.pos { color: var(--good); }
+
+/* Price build subtitle — states the unit of account beside the heading, so
+ * "per finished unit" is read with the number rather than inferred from it. */
+.r6-stack-head h2 .r6-stack-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+/* ── Client Target context (read-only) ────────────────────────────────────
+ *
+ * Its own strip beneath the cost stack, not a row inside it. The stack's tier
+ * column is a WHOLE-QUOTE figure; a client target belongs to one sellable
+ * unit, and setting the two side by side would read as though they measured
+ * the same thing.
+ *
+ * Quieter than the stack on purpose: this is context for a question the
+ * operator is already asking ("are these costs going to work?"), not a verdict
+ * competing with the margin read above it.
+ */
+.ct-costs {
+  margin: -8px 0 24px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper-2);
+}
+
+.ct-costs-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ct-costs-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.ct-costs-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.ct-costs-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+
+.ct-costs-row + .ct-costs-row {
+  border-top: 1px solid var(--rule);
+}
+
+.ct-costs-name {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-costs-figs {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  white-space: nowrap;
+}
+
+.ct-costs-fig {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ct-costs-fig .k {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.ct-costs-fig .v {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* Factual and directional. Deliberately NOT colour-coded: above the client's
+ * number may still be the correct quote, and a red/green treatment would make
+ * a verdict out of a measurement. */
+.ct-costs-gap {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  min-width: 190px;
+  text-align: right;
+}

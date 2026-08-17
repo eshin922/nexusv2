@@ -3164,6 +3164,109 @@ export const assemblyLeafTargets = pgTable(
   ],
 );
 
+// ---------- quote_client_targets (Client Target · 2026-08-17) ----------
+//
+// What the client said they need to pay, per TOP-LEVEL SELLABLE UNIT, with an
+// optional per-tier override.
+//
+// ── WHY NOT `assembly_leaf_targets` ───────────────────────────────────────
+//
+// That table keys `(quote_leaf_id, tier_id)`, which is the right identity for
+// a Direct Product — where the leaf IS the sellable unit — and the wrong one
+// for an Item Group, where a leaf is an internal member nobody named a price
+// for. There is no key on it that addresses an Item Group finished good at
+// all, so storing one meant picking an arbitrary member, and the math layer
+// then refused to use it (`competitiveStatus: null` on assemblies). It also
+// cannot express "one target across all tiers", because `tier_id` is NOT NULL
+// and in its primary key.
+//
+// It held ZERO rows, so correcting the identity cost no migration and broke no
+// operator expectation. Full trace:
+// `docs/validation/client-target-identity-trace.md`.
+//
+// ── THE KEY IS THE UNIT OF ACCOUNT ────────────────────────────────────────
+//
+// Exactly one of `assembly_id` / `quote_leaf_id` is set:
+//
+//   assembly_id   → an Item Group finished good
+//   quote_leaf_id → a Direct Product (`quote_leaves.assembly_id IS NULL`)
+//
+// A target against an INTERNAL MEMBER leaf is refused at the write boundary. A
+// CHECK cannot see another table, so that invariant is the action layer's —
+// same posture as one-recommended-tier-per-quote.
+//
+// ── tier_id NULL IS A FACT, NOT AN ABSENCE ────────────────────────────────
+//
+// NULL means "the common target, applying to every tier". A set tier REPLACES
+// it for that tier and does not stack — the same precedence as
+// `tier_price_adj_pct` over `global_price_adj_pct`, deliberately, because
+// operators have just learned that rule elsewhere on this quote.
+//
+// Resolution is `tier target ?? common target`, per tier. Nothing collapses it
+// to one value per row.
+//
+// ── WHAT THIS IS NOT ──────────────────────────────────────────────────────
+//
+// A BENCHMARK. It enters no price, no margin and no total: authoring one
+// creates or modifies no GPA, tier adjustment, lift, direct price or Final
+// Quoted Sell. It is internal — never reaching the customer view, the PDF or
+// NetSuite — and the customer-view boundary verifier names it explicitly so
+// that absence is enforced rather than merely current.
+export const quoteClientTargets = pgTable(
+  "quote_client_targets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id").references(() => assemblies.id, {
+      onDelete: "cascade",
+    }),
+    quoteLeafId: uuid("quote_leaf_id").references(
+      (): AnyPgColumn => quoteLeaves.id,
+      { onDelete: "cascade" },
+    ),
+    // NULL = the common target for every tier.
+    tierId: uuid("tier_id").references(() => quoteTiers.id, {
+      onDelete: "cascade",
+    }),
+    clientTargetPricePerUnit: numeric("client_target_price_per_unit", {
+      precision: 10,
+      scale: 4,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("quote_client_targets_quote_idx").on(t.quoteId),
+    // The business invariant is uniqueness of one COMMON target per sellable
+    // unit and one EXPLICIT target per sellable unit per tier. Four partial
+    // indexes because a plain unique index treats NULL tiers as distinct and
+    // would admit several "common" rows for one unit.
+    uniqueIndex("quote_client_targets_asy_common_uq")
+      .on(t.assemblyId)
+      .where(sql`assembly_id IS NOT NULL AND tier_id IS NULL`),
+    uniqueIndex("quote_client_targets_asy_tier_uq")
+      .on(t.assemblyId, t.tierId)
+      .where(sql`assembly_id IS NOT NULL AND tier_id IS NOT NULL`),
+    uniqueIndex("quote_client_targets_leaf_common_uq")
+      .on(t.quoteLeafId)
+      .where(sql`quote_leaf_id IS NOT NULL AND tier_id IS NULL`),
+    uniqueIndex("quote_client_targets_leaf_tier_uq")
+      .on(t.quoteLeafId, t.tierId)
+      .where(sql`quote_leaf_id IS NOT NULL AND tier_id IS NOT NULL`),
+    check(
+      "quote_client_targets_one_unit",
+      sql`(assembly_id IS NOT NULL AND quote_leaf_id IS NULL)
+          OR (assembly_id IS NULL AND quote_leaf_id IS NOT NULL)`,
+    ),
+  ],
+);
+
 // ---------- quote_leaf_lifts (Phase 3 · Package 1) ----------
 //
 // Sparse applied surgical lifts per (canonical quote leaf, tier).

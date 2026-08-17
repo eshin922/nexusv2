@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteAssembly } from "@/app/actions/assemblies";
+import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import type { AssemblyTarget } from "@/components/library/library-browse-modal";
+import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 
 // Phase A.1 v2 impl-2 Step 6 — ASY context menu (scenario ③)
 //
@@ -32,10 +35,22 @@ export function AsyContextMenu({
   assemblyId,
   assemblySku,
   disabled,
+  quoteId,
+  projectId,
+  assemblies,
+  fullLeafTypes,
+  permissions,
 }: {
   assemblyId: string;
   assemblySku: string;
   disabled: boolean;
+  // §1 presentation closeout — the props "Add products" needs, threaded here
+  // rather than to a button on the row. See the menu item below.
+  quoteId: string;
+  projectId: string;
+  assemblies: AssemblyTarget[];
+  fullLeafTypes: LeafSpecEntryProductType[];
+  permissions: { canCreateLeaves: boolean };
 }) {
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -107,6 +122,34 @@ export function AsyContextMenu({
           aria-label="Item group actions"
         >
           <div className="header">Item group actions</div>
+          {/* §1 presentation closeout · "+ Add products" MOVED here from the
+              group's control band.
+
+              It was a button on every Item Group row. One affordance repeated N
+              times reads as a dense band of controls, and it made the
+              surface-level entry stop looking like THE way to add a product.
+
+              MOVED, NOT REMOVED — and the distinction is load-bearing. B-1 is a
+              sign-off blocker whose repair is precisely that adding into a
+              group lives on that group's row; the surface-level trigger is
+              `mode="direct"` and its modal renders no destination picker in
+              that mode, so deleting this would have left NO route into a group
+              at all. The row keeps the route; the row no longer keeps a button.
+
+              The destination is still pre-chosen — the operator named it by
+              opening THIS group's menu — so the picker has nothing to ask. */}
+          <LibraryBrowseTrigger
+            mode="group"
+            quoteId={quoteId}
+            projectId={projectId}
+            editable={!disabled}
+            assemblies={assemblies}
+            initialTargetAssemblyId={assemblyId}
+            label="Add products…"
+            className="item"
+            fullLeafTypes={fullLeafTypes}
+            permissions={permissions}
+          />
           <button
             type="button"
             className="item"

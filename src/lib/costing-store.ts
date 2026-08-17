@@ -300,8 +300,6 @@ export type CostingStoreState = {
     fields: FreightCustomerArrangesMetaFields,
   ) => void;
   updateGlobalAdj: (value: number) => void;
-  // Slice 9.2 — per-tier price-adj override (NULL = inherit global).
-  updateTierPriceAdj: (tierId: string, value: number | null) => void;
   // Slice 9.2 — per-quote target-margin override (NULL = inherit firm).
   updateTargetMargin: (value: number | null) => void;
   // Slice 9.3 — per-cell sell-price override. value === null clears
@@ -527,6 +525,42 @@ function recompute(
  * previews would be a parallel derivation of the engine's own input — the same
  * failure this gate removes, one layer earlier.
  */
+/**
+ * A `QuoteCostingInput` from a bundle SNAPSHOT rather than from store state.
+ *
+ * `buildCostingInput` takes the live store, which server code does not have.
+ * Both the global preview and the Apply staleness guard need the same shape
+ * from the same snapshot, and each had hand-assembled it — which is how the
+ * preview came to omit worksheet freight and lifts while looking correct.
+ * One definition, so an omission is impossible to make in one place only.
+ */
+export function costingInputFromSnapshot(
+  s: HydrateSnapshot,
+): Required<QuoteCostingInput> {
+  return {
+    quote: {
+      id: s.quoteId,
+      globalPriceAdjPct: s.globalPriceAdjPct,
+      targetMarginPct: s.targetMarginPct,
+      freightMarkupPct: 0,
+    },
+    firmSettings: s.firmSettings,
+    markupDefaults: s.markupDefaults,
+    skus: s.skus,
+    tiers: s.tiers,
+    packaging: s.packaging,
+    production: s.production,
+    freightLegGroups: s.freightLegGroups,
+    freightLegs: s.freightLegs,
+    freightLegTiers: s.freightLegTiers,
+    freightComponentTierCosts: s.freightComponentTierCosts,
+    freightShipmentBreaks: s.freightShipmentBreaks,
+    cellOverrides: s.cellOverrides,
+    cellTargets: s.cellTargets,
+    lifts: s.lifts,
+  };
+}
+
 export function buildCostingInput(
   s: Parameters<typeof recompute>[0],
 ): Required<QuoteCostingInput> {
@@ -890,20 +924,12 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         lastUserEditAt: Date.now(),
       })),
 
-    // Slice 9.2 — per-tier price-adj override. value === null clears
-    // back to "inherit global"; otherwise the tier's revenue uses the
-    // override (REPLACES global, does not stack — see costing.ts).
-    updateTierPriceAdj: (tierId, value) =>
-      set((s) => {
-        const tiers = s.tiers.map((t) =>
-          t.id === tierId ? { ...t, tierPriceAdjPct: value } : t,
-        );
-        return {
-          tiers,
-          ...recompute({ ...s, tiers }),
-          lastUserEditAt: Date.now(),
-        };
-      }),
+    // The optimistic per-tier price-adj setter went with Setup's writer
+    // (2026-08-16). It existed to make that surface's immediate write feel
+    // instant; Pricing does not need it, because a staged adjustment is
+    // rendered from the preview evaluation and nothing is optimistic about a
+    // value that has not been committed. Tier adjustments still reach this
+    // store — through reconcile, as server truth.
 
     // Slice 9.2 — per-quote target-margin override. value === null
     // reverts to firm-level target. Drives verdict bands + suggestion
@@ -1116,8 +1142,6 @@ export const selectFreightCustomerArrangesMeta = (s: CostingStoreState) =>
   s.freightCustomerArrangesMeta;
 export const selectUpdateGlobalAdj = (s: CostingStoreState) =>
   s.updateGlobalAdj;
-export const selectUpdateTierPriceAdj = (s: CostingStoreState) =>
-  s.updateTierPriceAdj;
 export const selectUpdateTargetMargin = (s: CostingStoreState) =>
   s.updateTargetMargin;
 

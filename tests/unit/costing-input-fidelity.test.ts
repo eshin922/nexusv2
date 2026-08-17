@@ -57,9 +57,10 @@ const SHIPMENT_BREAK: CostingFreightShipmentBreak = {
   freightSubcategoryId: "sub-1",
   // Worksheet freight is assembly-owned; the adapter resolves one deterministic
   // math-leaf carrier so the leaf-based stack receives the contribution once.
-  ownerSkuId: LEAF,
+  memberSkuId: LEAF,
   tierId: TIER,
   treatment: "bundled",
+  memberCount: 1,
   tierUnits: 10_000,
   freightAmount: 7250,
   freightMarkupPct: 0.2,

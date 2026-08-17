@@ -530,3 +530,178 @@
 }
 
 /* §6.b path-B migration cleanup (May 2026) — Step 5 Tier table\n * + Step 7 Notes split CSS rules deleted. Both surfaces now use\n * canonical r7b-* classes per r7b-setup.css. Tier table:\n * .r7b-tier-row / .r7b-tier-thead / .r7b-tier-footer / .add-tier\n * (Tier-specific nexus overrides for input.lab, .rec-clickable,\n * .rec-set live above in the path-B overrides block).\n * Notes split: .r7b-notes / .r7b-note-zone / .r7b-note-zone-head /\n * .r7b-note-zone-body / .helper.\n *\n * Pattern 30: canonical r7b-setup.css is source-of-truth; this\n * file holds nexus-specific overrides only.\n */
+
+/* Tier table — three columns, not four.
+ *
+ * Canonical `r7b-setup.css` sets `1fr 100px 90px 28px` on both
+ * `.r7b-tier-thead` and `.r7b-tier-row`: label, qty, price adj, actions. The
+ * price-adjustment cell is gone — that lever is authored on Pricing, where it
+ * is staged, previewed and stale-guarded — so the 90px track holds nothing and
+ * the actions column sits one slot to the right of its header.
+ *
+ * Overridden here rather than edited upstream (Pattern 30): the canonical file
+ * stays a verbatim drop-in, and if a future round restores a fourth column
+ * this override is the one thing to remove.
+ */
+.r7b-tier-thead,
+.r7b-tier-row {
+  grid-template-columns: 1fr 100px 28px;
+}
+
+/* ── Client Target on the sellable-unit row ───────────────────────────────
+ *
+ * On the row because the row IS the unit of account — an Item Group finished
+ * good or a Direct Product. Member rows carry no affordance, so there is
+ * nothing here scoped to them.
+ *
+ * Sized to sit in the row's right-hand cluster beside the completeness chip
+ * and the Notes trigger, not to compete with the product name.
+ */
+.ct-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ct-cell .ct-k {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.ct-read,
+.ct-input {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 5px;
+  text-align: right;
+  min-width: 62px;
+}
+
+.ct-read:hover:not(:disabled) {
+  border-color: var(--rule);
+  background: var(--paper);
+}
+
+.ct-read:disabled {
+  cursor: default;
+}
+
+/* Unset is an em-dash, never $0.00 — zero is a target somebody chose. */
+.ct-read .ct-unset {
+  color: var(--ink-3);
+}
+
+.ct-input {
+  border-color: var(--accent);
+  background: var(--paper);
+}
+
+.ct-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* The summary doubles as the way into tier detail. Underlined on hover only,
+ * so a row with nothing set does not read as a link demanding attention. */
+.ct-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.ct-sub:hover {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+
+/* ── inside the drawer ─────────────────────────────────────────────────── */
+
+.ct-drawer-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+}
+
+.ct-drawer-row + .ct-drawer-row {
+  border-top: 1px solid var(--rule);
+}
+
+.ct-drawer-lab {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.ct-drawer-qty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.ct-drawer-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.ct-drawer-src {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ct-drawer-src .ct-own {
+  color: var(--accent);
+}
+
+.ct-revert {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-3);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ct-revert:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.ct-error {
+  font-size: 12px;
+  color: var(--bad, var(--ink));
+  margin: 0;
+}
+
+/* An inherited target: in force here, but not this row's own. Muted rather
+ * than absent — a tier inheriting $5.00 and a tier with no target at all are
+ * different states, and an em-dash for both makes the number column
+ * contradict the caption beneath it. */
+.ct-read .ct-inherited {
+  color: var(--ink-3);
+}

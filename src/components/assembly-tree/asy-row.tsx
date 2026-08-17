@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import type { UnitTargets } from "@/lib/client-target";
+import { ClientTargetCell, type TargetTier } from "./client-target";
 import type {
   AssemblyNode,
   AssemblyLeafNode,
@@ -9,7 +11,6 @@ import type {
 import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
-import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
 import { assemblyDisplaySku } from "@/lib/product-structure/assembly-display-sku";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
@@ -49,12 +50,18 @@ export function AsyRow({
   onMemberDragOverGroup,
   onMemberDragOverGroupTail,
   onMemberDropOnGroup,
+  tiers,
+  targets,
 }: {
   asy: AssemblyNode;
   editable: boolean;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
+  /** Tier list for the Client Target drawer. */
+  tiers: ReadonlyArray<TargetTier>;
+  /** This Item Group's targets. The finished good is the sellable unit. */
+  targets: UnitTargets | undefined;
   projectId: string;
   quoteId: string;
   isDragging: boolean;
@@ -212,6 +219,16 @@ export function AsyRow({
         </div>
         <span className="leaf-count">{asy.children.length} products</span>
         <AsyRollupChip rollup={asy.rollup} />
+        {/* The Item Group FINISHED GOOD carries the target — never one of
+            its members. The members below get no affordance at all. */}
+        <ClientTargetCell
+          unitKind="assembly"
+          unitId={asy.id}
+          unitLabel={asy.name}
+          targets={targets}
+          tiers={tiers}
+          editable={editable}
+        />
         <AsyNotesTrigger
           assemblyId={asy.id}
           hasNote={
@@ -220,25 +237,24 @@ export function AsyRow({
           open={notesOpen}
           onToggle={() => setNotesOpen((v) => !v)}
         />
-        {/* Adding products belongs to THIS group. Launching the Library from
-            the row means the destination is already chosen — the operator named
-            it by acting on this row — so the picker has nothing left to ask. */}
-        <LibraryBrowseTrigger
-          mode="group"
-          quoteId={quoteId}
-          projectId={projectId}
-          editable={editable}
-          assemblies={assemblies}
-          initialTargetAssemblyId={asy.id}
-          label="+ Add products"
-          className="a1v2-btn ghost xs"
-          fullLeafTypes={fullLeafTypes}
-          permissions={permissions}
-        />
+        {/* §1 presentation closeout · the "+ Add products" BUTTON is gone from
+            this control band; the ACTION moved into the menu below, where the
+            destination is still this group. One affordance repeated on every
+            group read as a dense band and made the surface-level entry stop
+            looking like the way to add a product.
+
+            The route itself is preserved deliberately: B-1's repair is that
+            adding into a group lives on that group's row, and the
+            surface-level trigger is direct-only. */}
         <AsyContextMenu
           assemblyId={asy.id}
           assemblySku={displaySku ?? asy.name}
           disabled={!editable}
+          quoteId={quoteId}
+          projectId={projectId}
+          assemblies={assemblies}
+          fullLeafTypes={fullLeafTypes}
+          permissions={permissions}
         />
       </div>
       {notesOpen ? (
@@ -368,11 +384,27 @@ function LeafRow({
           qty {qtyDisplay} · {costDisplay}
         </div>
       </div>
-      <span
-        className={`type-tag leaf-type${leaf.productType ? "" : " untyped"}`}
-      >
-        {leaf.productType?.label ?? "untyped"}
-      </span>
+      {/* §1 presentation closeout · the redundant UNTYPED state is gone.
+
+          The row already carries this fact in its readiness chip — "⚠ No type
+          set" — which is the slot that exists to say what a product still
+          needs. Printing "untyped" in the type slot as well put one fact in two
+          of the row's coloured places, and the two disagreed in register: a
+          warning chip beside what looks like a stated value.
+
+          B-10 removed the same duplication from the meta line and left this
+          one, because at the time the type slot's absent-case had not been
+          separated from its present-case. It has now: valid type metadata still
+          renders exactly as before, and absence renders as absence.
+
+          Absence is NOT em-dashed either. An em dash is a value meaning "none";
+          the chip is already saying "not yet", and two answers to one question
+          is what this removes. */}
+      {leaf.productType ? (
+        <span className="type-tag leaf-type">{leaf.productType.label}</span>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       <div
         style={{
           position: "relative",

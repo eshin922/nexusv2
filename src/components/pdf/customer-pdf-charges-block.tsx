@@ -30,11 +30,16 @@ export function ChargesBlock({
   freightLines,
 }: {
   tiers: ReadonlyArray<CpdfTier>;
-  recommendedTierIdx: number;
+  recommendedTierIdx: number | null;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
 }) {
-  const recTier = tiers[recommendedTierIdx];
+  // The per-unit freight basis. Named in the sentence below, so it must be a
+  // tier that exists — but it is NOT a recommendation. With no recommended
+  // tier the block states which tier the amounts are shown for and claims
+  // nothing about which one to buy.
+  const basisIdx = recommendedTierIdx ?? 0;
+  const basisTier = tiers[basisIdx];
   return (
     <View style={styles.charges} wrap={false}>
       <Text style={styles.eyebrow}>{"Additional charges".toUpperCase()}</Text>
@@ -50,8 +55,8 @@ export function ChargesBlock({
       </Text>
       {freightLines.length > 0 && (
         <Text style={styles.chargeSub}>
-          Freight amounts shown landed per unit for {recTier.full} (
-          {qtyK(recTier.quantity)} units). Per-tier amounts available on request.
+          Freight amounts shown landed per unit for {basisTier.full} (
+          {qtyK(basisTier.quantity)} units). Per-tier amounts available on request.
         </Text>
       )}
       {/* Slice 11 matrix Fix 1c (2026-07-27) — only render the fee
@@ -89,7 +94,7 @@ export function ChargesBlock({
           </View>
           <Text style={styles.cQty}>{fl.qty_label}</Text>
           <Text style={styles.cAmt}>
-            {unit(fl.tier_amounts[recommendedTierIdx])}
+            {unit(fl.tier_amounts[basisIdx])}
             <Text style={styles.cAmtPer}>/unit</Text>
           </Text>
         </View>

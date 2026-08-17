@@ -902,6 +902,14 @@ export type NodeAddress =
       tierId: string;
       /** `["sell-before"]`, `["per-unit", "pkg", "cost"]`, … */
       path: readonly string[];
+    }
+  | {
+      /** One top-level sellable unit at one tier — the Price Build scope. */
+      scope: "price-build";
+      sellableUnitId: string;
+      tierId: string;
+      /** `["sell"]`, `["sell", "pkg"]`, `["services"]`, … */
+      path: readonly string[];
     };
 
 /**
@@ -921,6 +929,20 @@ export function parseNodeKey(key: string): NodeAddress | null {
     // `quote/{tier}` alone is a real key — the sell blend's own node.
     if (parts.length < 2 || parts[1] === "") return null;
     return { scope: "quote", tierId: parts[1], path: parts.slice(2) };
+  }
+  if (parts[0] === PRICE_BUILD_PREFIX) {
+    // MUST be matched before the cell fallback. `unit/{sku}/{tier}/sell` has
+    // the same arity as a cell key, so without this branch it parses as a CELL
+    // rooted at a sku literally named "unit" — which is how the first version
+    // of these nodes made the completeness rules count them as cell sections
+    // and fail eight ways at once.
+    if (parts.length < 3 || parts[1] === "" || parts[2] === "") return null;
+    return {
+      scope: "price-build",
+      sellableUnitId: parts[1],
+      tierId: parts[2],
+      path: parts.slice(3),
+    };
   }
   // A cell needs at least `{sku}/{tier}/{something}`; there is no bare
   // `{sku}/{tier}` node, and treating one as an address would invent a scope.
@@ -1072,4 +1094,30 @@ export function quoteWideKey(name: string, authority?: string): string {
 
 export function quoteScopeKey(tierId: string, name: string): string {
   return nodeKey(QUOTE_SCOPE_PREFIX, tierId, name);
+}
+
+/**
+ * The PRICE BUILD scope — one top-level sellable unit, one tier.
+ *
+ * A third scope, and it exists because the other two answer questions this one
+ * must not borrow. `quoteScopeKey(tier, "pkg")` is a units-weighted MEAN across
+ * every governed leaf in the quote; `quote/{tier}/per-unit/pkg` allocates the
+ * quote's tier total over the tier quantity. Both are quote-wide, and on a
+ * quote holding more than one sellable unit both mix unrelated products.
+ *
+ * This one is scoped to a single commercial unit of account — an Item Group, or
+ * a Direct Component standing alone — so its components ADD to that unit's own
+ * finished-good sell and depend on nothing outside it. Adding a product to the
+ * quote, or removing a zero-value one, cannot move it.
+ */
+export const PRICE_BUILD_PREFIX = "unit";
+
+export function priceBuildKey(
+  sellableUnitId: string,
+  tierId: string,
+  name?: string,
+): string {
+  return name === undefined
+    ? nodeKey(PRICE_BUILD_PREFIX, sellableUnitId, tierId)
+    : nodeKey(PRICE_BUILD_PREFIX, sellableUnitId, tierId, name);
 }

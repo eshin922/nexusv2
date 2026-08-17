@@ -54,7 +54,6 @@ function quote(
       {
         id: "sku-1",
         name: "Glass bottle 30ml amber",
-        client_target_unit: null,
         cells: Object.fromEntries(
           cells.map((c, i) => [
             i + 1,
@@ -155,7 +154,19 @@ test("the offer is parameterised, so Phase 4 reuses it rather than forking it", 
   assert.ok(toTarget > toFloor, "a higher threshold needs a bigger lift");
   for (const [t, lift] of [[0.25, toFloor], [0.35, toTarget]] as const) {
     const lifted = 10 * (1 + lift);
-    assert.ok(Math.abs((lifted - 9) / lifted - t) < 1e-9);
+    const reached = (lifted - 9) / lifted;
+    // P-Lift-1 · CLEARS the threshold, not lands exactly on it. The offer is
+    // ceiled to the 4dp the lift column stores, because an exact solve that
+    // rounds DOWN on the way to the database cannot reach the threshold it was
+    // calculated to reach — which is how "Lift to floor" left a cell at 24.9975%
+    // against a 25% floor and still red.
+    assert.ok(reached >= t, `lift must reach ${t}, reached ${reached}`);
+    // And it must not overshoot by more than that one storage tick, or the
+    // "smallest lift that clears" contract has quietly become "some lift".
+    assert.ok(
+      reached - t < 1e-4,
+      `lift overshot ${t} by ${reached - t} — more than one 4dp tick`,
+    );
   }
 });
 

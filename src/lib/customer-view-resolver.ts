@@ -277,14 +277,22 @@ export async function resolveCustomerView(args: {
       : [];
   const recommendedTierId =
     tierRecommendedRows.find((t) => t.recommended)?.id ?? null;
-  const recommendedTierIdx =
-    tiers.length === 0
-      ? null
-      : recommendedTierId
-        ? (tiers.findIndex((t) => t.id === recommendedTierId) ?? -1) !== -1
-          ? tiers.findIndex((t) => t.id === recommendedTierId)
-          : Math.floor(tiers.length / 2)
-        : Math.floor(tiers.length / 2);
+  // NO RECOMMENDATION IS A REAL ANSWER, AND THE ONLY HONEST ONE HERE.
+  //
+  // This fell back to `Math.floor(tiers.length / 2)` — the middle tier — when
+  // no tier carried the flag. On a four-tier quote with every
+  // `quote_tiers.recommended` false, the customer document highlighted Tier 3
+  // and told the customer "Tier 3 is recommended for first-PO production runs."
+  // The firm had made no such recommendation. Pricing said "None chosen" the
+  // whole time; the disagreement was not two surfaces reading differently, it
+  // was this one inventing an answer.
+  //
+  // A recommendation is a commercial claim. It comes from the flag or it does
+  // not exist, and it is never inferred from tier order.
+  const idx = recommendedTierId
+    ? tiers.findIndex((t) => t.id === recommendedTierId)
+    : -1;
+  const recommendedTierIdx = idx === -1 ? null : idx;
 
   // Service-fee projection (Step 5.1). #78 eligibility carve —
   // COGS columns explicitly excluded.

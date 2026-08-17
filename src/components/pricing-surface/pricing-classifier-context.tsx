@@ -498,6 +498,8 @@ function buildClassifierInputs({
       const cells: Record<number, {
         margin_pct: number | null;
         sell_unit: number | null;
+        sell_node_key: string | null;
+        client_target_unit: number | null;
         cost_unit: number | null;
         lift_applied_pct: number | null;
         override_applied: boolean;
@@ -510,7 +512,6 @@ function buildClassifierInputs({
           dt: number;
         } | null;
       }> = {};
-      let clientTargetUnit: number | null = null;
       for (const pt of sr.perTier) {
         const numericTierId = uuidToNumeric.get(pt.tierId);
         if (numericTierId == null) continue;
@@ -541,6 +542,13 @@ function buildClassifierInputs({
                 ? "unpriced"
                 : null,
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
+          // The engine's own answer for which node this price came from. A
+          // missing cell has no price, so it has no node either.
+          sell_node_key: isMissing ? null : pt.sellNodeKey,
+          // PER TIER. The store's `cellTargets` are already resolved
+          // `tier ?? common` by the adapter, so this reads one cell's own
+          // target — it does not stand in for the row's.
+          client_target_unit: cellTargetLookup(sr.skuId, pt.tierId),
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
           override_applied: pt.sellSource === "cell_override",
           // The APPLIED lift, read from the graph.
@@ -578,10 +586,6 @@ function buildClassifierInputs({
                 dt: pt.freightDutyTariffMarkupSumPerUnit,
               },
         };
-        if (clientTargetUnit == null) {
-          const tgt = cellTargetLookup(sr.skuId, pt.tierId);
-          if (tgt != null) clientTargetUnit = tgt;
-        }
       }
       return {
         id: sr.skuId,
@@ -590,7 +594,6 @@ function buildClassifierInputs({
         // the model yet (Slice 11 deferral), so the sub-label renders the code
         // alone and completes itself the day pack lands.
         code: sr.skuLabel,
-        client_target_unit: clientTargetUnit,
         cells,
       };
     });

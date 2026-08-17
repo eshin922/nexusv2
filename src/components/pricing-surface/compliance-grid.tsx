@@ -158,6 +158,50 @@ export interface ComplianceGridProps {
    * stage rather than addressing a guess.
    */
   resolveCell?: (skuId: string, tierId: number) => CellRef | null;
+  /**
+   * The pressed cell, as `"{skuId}:{tierId}"`, owned by the SHELL.
+   *
+   * It was local state here, which was right while the detail rendered inside
+   * this grid. It now renders in the cell drawer, and the Price Build can open
+   * that same drawer — two components each holding their own idea of what is
+   * selected would put two panels on screen, or leave one showing a cell the
+   * other had already replaced.
+   */
+  selected: string | null;
+  onSelect: (key: string | null) => void;
+}
+
+/**
+ * P-Lift-2 · the tier's breach that no lift can reach.
+ *
+ * A direct price is terminal, so a below-floor cell carrying one is not a
+ * failure of the bulk action — it is outside its authority. The operator needs
+ * three things and this says all three: that something is still below floor,
+ * that a percentage lift is not the instrument, and which cell it is.
+ *
+ * Navigable rather than descriptive. Pressing it opens the same `CellAction`
+ * panel the grid opens anywhere else, so "adjust directly" is a step the
+ * operator can take from here instead of a hunt through the grid for a red
+ * cell they have already been told about.
+ */
+function ManualPriceRemains({
+  cells,
+  onSelect,
+}: {
+  cells: ReadonlyArray<Cell>;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="r11-manual-remains"
+      title={cells.map((c) => c.sku_name).join(" · ")}
+      onClick={() => onSelect(`${cells[0].sku_id}:${cells[0].tier_id}`)}
+    >
+      {cells.length} manual price{cells.length === 1 ? "" : "s"} remain
+      {cells.length === 1 ? "s" : ""} below floor · adjust directly
+    </button>
+  );
 }
 
 export function ComplianceGrid({
@@ -165,10 +209,11 @@ export function ComplianceGrid({
   floorPct,
   tierMeta,
   resolveCell,
+  selected,
+  onSelect,
 }: ComplianceGridProps) {
   const { state } = usePricingClassifier();
   const { stageLift } = usePricingStaging();
-  const [selected, setSelected] = useState<string | null>(null);
 
   // One lookup over the one evaluation. Not a second pass, not a re-partition
   // — an index into `state.cells` so a row can find its cell in constant time.
@@ -218,18 +263,42 @@ export function ComplianceGrid({
               */}
               {sku.code != null && <span className="m">{sku.code}</span>}
               {/*
-                Client target is stated ONCE per SKU row, not per cell — it
-                does not vary by tier, so a column would assert something
-                untrue. It is a benchmark and never a verdict: it has its own
-                channel, never colours a cell, and never reaches the banner.
-                Firm floor and target are policy; this is what the customer
-                said they wanted.
+                Client target on the row, and IT CAN VARY BY TIER.
+                
+                This said the opposite — "it does not vary by tier, so a column
+                would assert something untrue" — and named one value for the
+                whole row. That was true of the persistence it was written
+                against, which could only hold one target per SKU, and the read
+                path collapsed even that to the first non-null it found while
+                iterating tiers. A client who named different prices at
+                different volumes had three of their four numbers discarded.
+
+                So the row states the target only when every tier resolves to
+                the SAME one, which is the common case and the legible one.
+                When they differ it says so instead of picking one; the value
+                in force is on each cell, where the headroom that uses it is.
+
+                Still a benchmark and never a verdict: its own channel, never
+                colours a cell, never reaches the banner. Firm floor and target
+                are policy; this is what the customer said they wanted.
               */}
-              {sku.client_target_unit != null && (
-                <span className="r12-benchmark">
-                  client target {fmtUsd(sku.client_target_unit)}
-                </span>
-              )}
+              {(() => {
+                const targets = state.tiers.map(
+                  (t) => byCell.get(`${sku.id}:${t.id}`)?.client_target_unit ?? null,
+                );
+                const present = targets.filter((v): v is number => v !== null);
+                if (present.length === 0) return null;
+                const uniform =
+                  present.length === targets.length &&
+                  present.every((v) => v === present[0]);
+                return (
+                  <span className="r12-benchmark">
+                    {uniform
+                      ? `client target ${fmtUsd(present[0])}`
+                      : "client target varies by tier"}
+                  </span>
+                );
+              })()}
             </span>
           </div>
 
@@ -253,13 +322,26 @@ export function ComplianceGrid({
                   // Pressability follows `selectable`, remediation follows
                   // `actionable`. They were one flag, and a compliant quote
                   // rendered 27 cells nobody could open.
-                  "r11-bcell r11-cg" +
+                  // B-16 · the compliance state belongs to the CELL, not to
+                  // the percentage inside it.
+                  //
+                  // Next Move already told the operator a cell was below
+                  // target or floor; the grid did not say WHICH, so they read
+                  // the verdict and then scanned percentages to find it. A
+                  // tinted digit is still a read. A tinted cell is a scan.
+                  //
+                  // The status is FORWARDED, never recomputed:
+                  // `cell.status` is the classifier's own per-cell verdict,
+                  // the same authority Next Move speaks from. Nothing here
+                  // knows what a target or a floor is, which is what keeps
+                  // the grid and the banner from disagreeing.
+                  "r11-bcell r11-cg cg-" + cell.status +
                   (cell.selectable ? " act" : " inert") +
                   (isSel ? " sel" : "")
                 }
                 onClick={
                   cell.selectable
-                    ? () => setSelected(isSel ? null : key)
+                    ? () => onSelect(isSel ? null : key)
                     : undefined
                 }
               >
@@ -305,30 +387,11 @@ export function ComplianceGrid({
           })}
         </div>
 
-        {/*
-          The panel opens beneath the SKU row whose cell was pressed — the same
-          shape as the cost stack's inline trace, and for the same reason: an
-          action names a cell, and the cell should still be visible while it is
-          being acted on.
-        */}
-        {selected?.startsWith(`${sku.id}:`) &&
-          (() => {
-            const cell = byCell.get(selected);
-            if (!cell) return null;
-            const meta = tierMeta.get(cell.tier_id);
-            return (
-              <CellAction
-                cell={cell}
-                cellRef={resolveCell?.(cell.sku_id, cell.tier_id) ?? null}
-                floorPct={floorPct}
-                // Display identity, built here from what the caller supplied.
-                // Falls back to the numeric tier id rather than inventing a
-                // label — an ugly heading beats a wrong one.
-                label={`${cell.sku_name} · ${meta?.label ?? `T${cell.tier_id}`}`}
-                onClose={() => setSelected(null)}
-              />
-            );
-          })()}
+        {/* The detail of a pressed cell used to be spliced in here, full
+            width, pushing every row below it down. It is in the cell drawer
+            now — same content, at the side, with the grid still legible
+            beside it. This grid raises the selection and renders nothing for
+            it. */}
         </Fragment>
       ))}
 
@@ -385,7 +448,7 @@ export function ComplianceGrid({
         Nothing is written. These land in the working set with everything else
         and wait for the one Apply that governs the page.
       */}
-      {state.cells.some((c) => c.outstanding && c.lift_offer_pct !== null) && (
+      {state.cells.some((c) => c.outstanding && c.lift_offer_pct !== null && !c.lift_blocked) && (
         <div className="r11-brow">
           <div className="r11-slab">
             <span className="n" style={{ fontSize: 12, color: "var(--ink-3)" }}>
@@ -396,29 +459,56 @@ export function ComplianceGrid({
             // Only cells the solver actually offered a lift for. An outstanding
             // cell with no offer is one the solver declined — bulk-staging a
             // number it refused to name would be inventing the correction.
-            const need = state.cells.filter(
-              (c) =>
-                c.tier_id === t.id &&
-                c.outstanding &&
-                c.lift_offer_pct !== null &&
-                resolveCell?.(c.sku_id, c.tier_id) != null,
+            //
+            // P-Lift-2 · AND ONLY CELLS A LIFT CAN REACH. `lift_offer_pct` is
+            // computed for ANY below-floor cell, deliberately, so a cell can
+            // show what WOULD clear it. Counting on that alone put direct-priced
+            // cells in the batch: the button promised "Lift all 2 to floor",
+            // staged both, and the engine refused the one whose price a person
+            // had set. A direct price is terminal, so the correction was never
+            // available — the count was the thing that was wrong.
+            //
+            // The exclusion is here, on the set the button both COUNTS and
+            // MUTATES, so the promise and the act cannot drift apart.
+            const outstanding = state.cells.filter(
+              (c) => c.tier_id === t.id && c.outstanding && resolveCell?.(c.sku_id, c.tier_id) != null,
             );
+            const need = outstanding.filter((c) => c.lift_offer_pct !== null && !c.lift_blocked);
+            const blocked = outstanding.filter((c) => c.lift_blocked);
             return (
               <div className="r11-scell flat" key={t.id}>
                 {need.length > 0 ? (
-                  <button
-                    type="button"
-                    className="btn sm"
-                    style={{ width: "100%" }}
-                    onClick={() => {
-                      for (const c of need) {
-                        const ref = resolveCell?.(c.sku_id, c.tier_id);
-                        if (ref) stageLift(ref, c.lift_offer_pct as number);
-                      }
-                    }}
-                  >
-                    Lift all {need.length} to floor
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn sm"
+                      style={{ width: "100%" }}
+                      onClick={() => {
+                        for (const c of need) {
+                          const ref = resolveCell?.(c.sku_id, c.tier_id);
+                          if (ref) stageLift(ref, c.lift_offer_pct as number);
+                        }
+                      }}
+                    >
+                      Lift all {need.length} to floor
+                    </button>
+                    {/*
+                      The lift is available AND cannot finish the job. Saying
+                      only "Lift all 3" would let an operator press it, watch
+                      the tier stay red, and have nothing on screen account for
+                      the difference.
+                    */}
+                    {blocked.length > 0 && (
+                      <ManualPriceRemains cells={blocked} onSelect={onSelect} />
+                    )}
+                  </>
+                ) : blocked.length > 0 ? (
+                  // Nothing is liftable and something is still breaching. An
+                  // em-dash here reads as "nothing to do", which is the exact
+                  // opposite of true, and the previous CTA was worse: it was
+                  // actionable and did nothing. State the real condition and
+                  // point at the cell that owns it.
+                  <ManualPriceRemains cells={blocked} onSelect={onSelect} />
                 ) : (
                   <span className="cost">—</span>
                 )}

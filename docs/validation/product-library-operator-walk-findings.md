@@ -1257,3 +1257,267 @@ authorized it — a separate read is a separate moment.
 No further mutable demos or validation. All writes go to explicit
 `ZZ-VALIDATION-*` fixtures. This is the third time this quote has moved the
 gate; the boundary is only worth anything if the next movement is diagnostic.
+
+## P-UX-1 · Excessive status redundancy above the Pricing grid (2026-08-15)
+
+**Status:** LOGGED for the §1 presentation closeout. **Non-blocking.** Not to be
+implemented during the current blocker repair.
+
+The upper Pricing surface states substantially the same compliance fact six
+times before the operator reaches the grid: page header (*4 tiers below
+target*), Next Move, the REVIEW strip (*4 tiers below target*), an individual
+Tier warning card, What You're Sending, and then the grid itself.
+
+The cost is vertical distance to the grid — which **B-16 has just made the most
+precise source of truth on the surface**, because it now locates the affected
+cells rather than restating the conclusion. Repeating the verdict five times
+above the one place that answers "where" inverts the surface's own hierarchy.
+
+### Proposed hierarchy
+
+```
+Next Move  →  [Applied adjustments, when any]  →  What You're Sending
+           →  Pricing grid  →  adjustment controls
+```
+
+**Keep:** Next Move (action guidance) · What You're Sending (quote-level
+summary) · the grid (detailed compliance) · Applied adjustments **only when
+adjustments exist**, because that card communicates PROVENANCE, not compliance —
+a different question, and the only one of the six that is not a restatement.
+
+**Remove or collapse:** the standalone `REVIEW · N tiers below target` strip and
+the large per-Tier warning card above What You're Sending.
+
+If tier-level status still needs explicit presentation, integrate it compactly
+into the grid or the blended-margin treatment rather than keeping another
+full-width card.
+
+### Removal-safety verification — DONE 2026-08-15, before implementation
+
+The instruction was to verify that neither proposed removal carries an action or
+governed state unavailable elsewhere. Checked, because "it only restates
+something" is exactly the belief under which a governance affordance gets
+deleted:
+
+| Component | Actions? | Governed state? | Verdict |
+|---|---|---|---|
+| `StateLine` (the REVIEW strip) | **none** — no `<button>`, no `onClick`, no `action` reference in `state-zone.tsx` | presentational only | safe to collapse |
+| `StateCard` (blocked-mode tier card) | **none** — same sweep, no action of any kind | presentational only | safe to collapse |
+
+**Below-floor governance is NOT in either.** The approval path is
+`ApprovalStateCard` + `RequestOverrideModal`, rendered separately by
+`pricing-surface-shell.tsx` (≈874/878), below `DetailZone` and outside both
+proposed removals. Neither removal touches request, approval, or authorization
+state.
+
+**One caveat for the implementer:** this verification is a source-level sweep of
+the two named components. It establishes they contain no action — it does not
+establish that no OTHER surface depends on their presence for layout or focus
+order. Check that at implementation time.
+
+---
+
+## P-Lift-2 — "Lift all to floor" offered a correction precedence had ruled out
+
+**Reported:** Pricing re-walk, 2026-08-15. **Status:** repaired, pending re-walk.
+
+**Observed.** A tier sits below floor, one of its cells has a directly-set
+price, the bulk CTA remains available, and invoking it produces no visible
+correction.
+
+### Characterization, before any arithmetic changed
+
+The semantics were already decided and are unchanged: a direct price is
+terminal. The engine refuses a lift over one (`LiftRejection` "overridden") and
+the classifier already computes `lift_blocked`.
+
+| question | answer |
+|---|---|
+| below-floor cells in the tier | both cells of the fixture |
+| direct-priced | one (`sellSource: "cell_override"`) |
+| lift-eligible | one |
+| **cells the bulk action actually attempted to mutate** | **both** |
+
+That last row is the defect. `lift_offer_pct` is populated for ANY below-floor
+cell — deliberately, so a cell can show what WOULD clear it. The CTA filtered on
+that field alone, so it counted the blocked cell, promised "Lift all 2 to
+floor", staged both, and the engine refused the one a person had priced. The
+count was the thing that was wrong, not the refusal.
+
+**Eligible cells were NOT affected** — measured rather than assumed, since the
+instruction was to stop and trace if they were. In the same batch the eligible
+cell moves 10.50 → 15.75 and clears the floor while its blocked sibling is
+refused. The refusal is per-cell; the batch is not poisoned. No second
+functional defect on that axis.
+
+### Repair
+
+- `need` — the set the button both COUNTS and MUTATES — excludes
+  `lift_blocked`, so the promise and the act cannot drift apart.
+- The section's visibility gate uses the same predicate, so a tier whose only
+  breaches are direct-priced renders no actionable CTA.
+- Where a lift is available but cannot finish, the excluded cells are stated
+  beneath it as a footnote.
+- Where nothing is liftable, the em-dash — which reads as "nothing to do", the
+  opposite of true — is replaced by
+  **`1 manual price remains below floor · adjust directly`**, which opens the
+  affected cell's action panel.
+
+Pricing precedence is untouched. No lift layers over a terminal direct price.
+
+## P-Lift-3 — a REFUSED lift zeroed the cell's computed sell
+
+**Found:** while characterizing P-Lift-2. **Status:** repaired. **Distinct
+defect**, more serious than the one that surfaced it.
+
+`costing.ts` read `const computedSellPerUnit = (liftedNode ?? adjustmentNode).value`.
+When a lift is refused, `liftedNode` is the `flagged-out` node, whose value is 0
+**by definition** — that is what flagged-out means, and the node is correct.
+Taking it as the computed sell made a refusal zero the cell's computed price.
+
+Invisible on an overridden cell's own margin, because the override is terminal
+and margin reads through it. **Not invisible downstream:** the assembly rollup
+sums children's `computedSellPerUnit`, and the tier-adjust derivation divides by
+it — so a refused lift silently under-reported a parent's computed sell and
+could hand the solver a base of zero.
+
+The discriminator used by the repair is the one the very next statement already
+applies (`liftedNode.kind === "adjustment"`). Only an APPLIED lift is the chain;
+a refused one leaves the computed chain standing and hangs the reason off it.
+
+Reach is wider than the override case: the same zeroing occurred for any
+`liftRejection`, including `attachment_ambiguous` on a cell with no override at
+all, where margin WOULD have been affected.
+
+1358/1358 with the fix; no test moved that was not about this.
+
+## Governance note — 2f29af72 moved again, during the re-walk
+
+The pre-refresh isolation went from CLEAN to flagging `2f29af72` mid-session.
+Established rather than assumed: the movement is identical with all working-tree
+changes stashed, so it is data, not code. Audit shows three `source:
+"pricing_apply"` writes at 19:34:50, 19:35:03 and 19:36:16 — direct prices set
+to 4.0000 then 3.0000, then adjustments cleared and GPA reset 0.05 → 0. The
+clean run preceded all three.
+
+This is the operator walking the Pricing surface — the same session that
+produced P-Lift-2 — so it is expected activity, not a harness incident. But it
+is the fourth time this quote has moved the gate, and it was already retired
+from mutation as S-7 evidence. **A quote cannot be both frozen evidence and the
+live walk subject.** While the re-walk continues, S-7 differences on 2f29af72
+are a moving target, which is a further reason not to refresh the baseline
+against it.
+
+---
+
+## PB-UNIT-UX1 — a zero-economics Item Group renders as a complete Price Build
+
+**Reported:** Price Build review, 2026-08-15. **Status:** characterized; design
+folded into Item 3 (Price Build hierarchy). No arithmetic change.
+
+**Observed.** Selecting "Umbrella Group" renders a full, well-formed Price
+Build: every component `$0.0000`, base sell `$0.0000`, final sell `$0.0000`,
+unit cost `$0.0000`, margin unavailable — and a green reconciliation footer.
+Mathematically true and commercially meaningless.
+
+### What Umbrella Group actually is
+
+Category (a): **a legitimate sellable unit with unresolved economics.** Not an
+empty structural group, and not a deliberate zero.
+
+| unit | leaves | cost rows | rows carrying a `unit_cost` |
+|---|---|---|---|
+| TEST ASY | 3 | 9 | 9 |
+| Umbrella Group | 3 | 9 | **0** |
+
+Its three members are real, named, SKU'd products (`BA146800`,
+`DPS-BOTTLE-0001`, `10064-GNX-Box`). The cost grid materialized all nine rows
+(3 leaves x 3 tiers); every `unit_cost` is NULL. Products were added; costs were
+never entered.
+
+**The distinguishing signal already exists and is already governed.**
+`loadUnresolvedQuoteCosts` flags precisely this predicate —
+`isNull(assemblyLeafInputs.unitCost)` — which is why Client Send would refuse
+this quote today. The Price Build does not consult it: it coerces NULL to
+`$0.0000`, sums zeros, and reports that they reconcile. Nothing is lying; the
+zeros are real sums of nothing. The defect is presenting "no data" in the
+vocabulary reserved for "data, and it balances".
+
+Item 3 therefore needs no new concept. It needs the Price Build to read the
+completeness signal Client Send already reads, and NULL must stop rendering as
+`$0.0000`.
+
+### Presentation rules for Item 3
+
+| population | behaviour |
+|---|---|
+| exactly one PRICED unit | auto-select it; no selector |
+| more than one priced unit | selector required |
+| unpriced / structural unit | never a wall of `$0.0000` presented as a valid build |
+| unpriced unit still selectable | label the state explicitly — "Not priced · costs incomplete" — and name what is missing |
+| no priced units at all | empty state directing the operator to Costs |
+
+Selector rows carry their state, so an operator choosing between units sees
+which are priced before selecting. "Priced" is defined by the existing
+completeness predicate, not by a non-zero total — a genuine zero and an absent
+cost are different facts and must not be collapsed, which is the same
+distinction PB-UNIT-UX1 is about.
+
+The reconciliation footer must not claim a green result for a unit with no
+resolved economics; there is nothing to reconcile, and saying so is not the
+same as saying it balances.
+
+**Unit-of-account isolation is unaffected.** No blending, no summing across
+unrelated Item Groups, no arithmetic change of any kind.
+
+---
+
+## ROUND-1 · customer-display rounding is two instruments, not one rule
+
+**Logged 2026-08-16, Item 4 walk. Not an Item 4 blocker — extended economics
+are unchanged. For disposition at Quote-surface closeout.**
+
+**Observation.** 75ml Aluminum Wax Stick · Tier 3, quoted sell **2.8350**
+exactly:
+
+| surface | displays | formatter |
+|---|---|---|
+| Pricing compliance grid | **$2.84** | `fmtUsd` → `toLocaleString("en-US", {style:"currency", …})` |
+| Customer PDF | **$2.83** | `unit()` → `"$" + n.toFixed(2)` |
+
+**Why they disagree.** Not two rounding *policies* — two different
+instruments measuring different things.
+
+`Intl.NumberFormat` rounds the decimal value, so a half goes up: 2.84.
+`toFixed` rounds the IEEE-754 double, and 2.8350 is stored as
+`2.8349999999999999645`, which is below the half: 2.83.
+
+They agree on every value whose 3rd decimal is not an exact 5, and on exact
+halves that happen to sit above their binary neighbour. That is why this
+surfaced on one cell out of eight rather than reading as an obvious systematic
+offset — and it is the reason a per-cell patch would be the wrong repair.
+
+**A second, independent divergence in the same pair.** `money()` in
+`customer-pdf-helpers.ts` switches to **0 dp** at `Math.abs(n) >= 100`, while
+Pricing holds 2 dp at every magnitude. So extended and turnkey figures round on
+a different rule again, by design, and that design is not written down
+anywhere as a governed rule.
+
+**Not affected.** Extended amounts are exact: 2.8350 × 10,000 = $28,350 on the
+PDF, and the tier turnkey reconciles ($58,125 + $28,350 + $4,000 = $90,475).
+The disagreement is display-only and does not reach quoted sell, margin, or any
+persisted value.
+
+**Disposition asked for.** One governed customer-display rounding rule, applied
+at Quote-surface closeout across Pricing, the customer PDF and the SO
+projection — covering both the half-case instrument AND the dp-by-magnitude
+rule. Do not patch the one literal cell: the next value with an exact-half 3rd
+decimal reopens it somewhere else.
+
+**Candidate shape when it is taken up:** a single shared formatter that rounds
+half-away-from-zero on a decimal-corrected value (e.g. round at a scaled
+integer) so the instrument is the same everywhere, with dp policy passed in
+rather than inferred from magnitude inside the formatter.
+
+**Files:** `src/components/pricing-surface/compliance-grid.tsx` (`fmtUsd`),
+`src/components/pdf/customer-pdf-helpers.ts` (`unit`, `money`).

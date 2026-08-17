@@ -93,7 +93,7 @@ function args(
     assemblyLeafInputs: [],
     assemblyProductionInputs: [],
     assemblyLeafOverrides: [],
-    assemblyLeafTargets: [],
+    clientTargets: [],
     lifts: [],
     freightLegGroups: [],
     freightLegs: [],
@@ -200,7 +200,7 @@ test("4 · a Direct Component participates in Freight and customs", () => {
   // freight OUTPUT was Direct-ready before this slice. What it lacked was any
   // authoring path that could put a Direct Component into a shipment. The
   // component cost below is addressed by canonical id and lands on the leaf.
-  // The shipment break carries `ownerSkuId` — the costing anchor the freight
+  // The shipment break carries `memberSkuId` — the costing anchor the freight
   // workbook derives. That anchor used to come from `assembly_leaves`, which a
   // Direct Component has no row in; it now comes from `quote_leaves`, so a
   // Direct Component can BE the owner of a shipment's cost.
@@ -209,7 +209,8 @@ test("4 · a Direct Component participates in Freight and customs", () => {
     freightShipmentBreaks: [
       {
         freightSubcategoryId: "sub-1",
-        ownerSkuId: "ql-direct", // canonical identity, no assembly involved
+        memberCount: 1,
+        memberSkuId: "ql-direct", // canonical identity, no assembly involved
         tierId: TIER_A,
         treatment: "bundled",
         tierUnits: 1000,
@@ -329,7 +330,8 @@ const directOnly = (over: Partial<BuildQuoteCostingInputFromNewModelArgs> = {}) 
 
 const directOnlyShipment = {
   freightSubcategoryId: "sub-direct",
-  ownerSkuId: "ql-direct",
+  memberCount: 1,
+  memberSkuId: "ql-direct",
   tierId: TIER_A,
   treatment: "bundled" as const,
   tierUnits: 1000,
@@ -455,9 +457,9 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
   // there the shipment's governed freight sell vanished into the operator's
   // stated price; anchored on a sibling it survived — Tier 2 revenue 107,225
   // against 113,105 for the same costs. Case (b) is that quote in miniature.
-  const shipment = (ownerSkuId: string) => ({
+  const shipment = (memberSkuId: string) => ({
     freightSubcategoryId: "sub-1",
-    ownerSkuId,
+    memberSkuId,
     tierId: TIER_A,
     treatment: "bundled" as const,
     tierUnits: 1000,
@@ -478,7 +480,7 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
   // effective sell ratios differ in every case below before any per-cell lever
   // is added: 10 at Primary 0.40 against 20 at Secondary 1.50.
   const runUniform = (
-    ownerSkuId: string,
+    memberSkuId: string,
     extra: Partial<BuildQuoteCostingInputFromNewModelArgs> = {},
   ) =>
     computeQuoteCosting(
@@ -490,7 +492,7 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
             line("ql-direct", TIER_A, "10"),
             { ...line("ql-member", TIER_A, "20"), category: "Secondary" },
           ],
-          freightShipmentBreaks: [shipment(ownerSkuId)],
+          freightShipmentBreaks: [shipment(memberSkuId)],
           ...extra,
         } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
       ),
@@ -502,9 +504,23 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
     r.skuRollups.find((s) => s.skuId === skuId)!.perTier.find((t) => t.tierId === TIER_A)!
       .totalContainerFreightBeforeMarkup;
 
+  /**
+   * `expect: "invariant"` — moving the anchor moves nothing commercial.
+   *
+   * `expect: "absorbed"` — the anchor DOES move quote revenue, by exactly the
+   * freight sell and no more. That happens when the anchor lands on a cell
+   * whose price an operator has SET DIRECTLY: a stated price is terminal, so
+   * the freight riding on that cell is inside the operator's number rather than
+   * added to it (P-Direct-1).
+   *
+   * The exception is asserted with a MAGNITUDE rather than skipped. "Revenue
+   * may differ here" would license any difference; "it differs by exactly the
+   * freight" fails the moment something else starts moving too.
+   */
   function invariant(
     label: string,
     extra: Partial<BuildQuoteCostingInputFromNewModelArgs> = {},
+    expect: "invariant" | { movesBy: number } = "invariant",
   ) {
     const onDirect = runUniform("ql-direct", extra);
     const onMember = runUniform("ql-member", extra);
@@ -532,16 +548,34 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
       tierOf(onMember).totalCost,
       `${label}: landed cost`,
     );
-    assert.equal(
-      tierOf(onDirect).totalRevenue,
-      tierOf(onMember).totalRevenue,
-      `${label}: quoted sell`,
-    );
-    assert.equal(
-      tierOf(onDirect).blendedMarginPct,
-      tierOf(onMember).blendedMarginPct,
-      `${label}: margin`,
-    );
+    if (expect === "invariant") {
+      assert.equal(
+        tierOf(onDirect).totalRevenue,
+        tierOf(onMember).totalRevenue,
+        `${label}: quoted sell`,
+      );
+      assert.equal(
+        tierOf(onDirect).blendedMarginPct,
+        tierOf(onMember).blendedMarginPct,
+        `${label}: margin`,
+      );
+    } else {
+      const moved = Math.abs(
+        tierOf(onDirect).totalRevenue - tierOf(onMember).totalRevenue,
+      );
+      assert.ok(
+        Math.abs(moved - expect.movesBy) < 1e-9,
+        `${label}: revenue moved ${moved}, expected exactly ${expect.movesBy} — ` +
+          `the exception is bounded to what the operator's lever did to the freight`,
+      );
+      // Cost is NOT absorbed. The freight still reaches contribution, so margin
+      // reports the truth about what the operator's price gave away.
+      assert.equal(
+        tierOf(onDirect).totalCost,
+        tierOf(onMember).totalCost,
+        `${label}: landed cost must stay invariant even when sell is absorbed`,
+      );
+    }
 
     // And the anchor DID do something — otherwise these assertions would pass
     // on a build where attribution was silently dropped altogether.
@@ -579,27 +613,49 @@ test("PATTERN 58 · the anchor moves attribution, never the arithmetic", () => {
 
   // (b) One anchor is priced by operator override — a TERMINAL value that
   //     replaces the computed chain. This is the production case.
-  invariant("cell override", {
-    assemblyLeafOverrides: [
-      { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "5" },
-    ],
-  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+  invariant(
+    "cell override",
+    {
+      assemblyLeafOverrides: [
+        { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "5" },
+      ],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>,
+    // P-Direct-1 · a stated price absorbs the whole freight riding on its cell,
+    // so moving the anchor onto or off that cell moves revenue by all of it.
+    //   F x Q  where F = (500 + 100 + 50) x 1.1 / 1000 per unit, Q = 1000
+    { movesBy: (500 + 100 + 50) * 1.1 },
+  );
 
   // (c) One anchor carries a surgical lift — a per-cell multiplier the other
-  //     anchor does not have. Same shape as (b): a lever belonging to the SKU,
-  //     not to the shipment.
-  invariant("surgical lift", {
-    lifts: [{ quoteLeafId: "ql-direct", tierId: TIER_A, liftPct: "0.2" }],
-  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+  //     anchor does not have.
+  //
+  //     P-Lift-1 · a lift multiplies the cell the operator sees, freight
+  //     included, because that is the number the "lift to floor" solver
+  //     predicts against. So the anchor moves revenue by what the LIFT did to
+  //     the freight — F x lift — not by all of F.
+  invariant(
+    "surgical lift",
+    {
+      lifts: [{ quoteLeafId: "ql-direct", tierId: TIER_A, liftPct: "0.2" }],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>,
+    { movesBy: (500 + 100 + 50) * 1.1 * 0.2 },
+  );
 
   // (d) Both levers at once, on opposite anchors — the arrangement in which a
   //     partial repair still reads as a pass.
-  invariant("override and lift on opposite anchors", {
-    assemblyLeafOverrides: [
-      { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "5" },
-    ],
-    lifts: [{ quoteLeafId: "ql-member", tierId: TIER_A, liftPct: "0.2" }],
-  } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
+  invariant(
+    "override and lift on opposite anchors",
+    {
+      assemblyLeafOverrides: [
+        { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "5" },
+      ],
+      lifts: [{ quoteLeafId: "ql-member", tierId: TIER_A, liftPct: "0.2" }],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>,
+    // Anchored on the overridden cell the freight is absorbed entirely;
+    // anchored on the lifted cell it arrives multiplied. So the move is the
+    // whole lifted freight: F x (1 + lift).
+    { movesBy: (500 + 100 + 50) * 1.1 * 1.2 },
+  );
 });
 
 test("PATTERN 58 (was the OD-025 tripwire) · anchor invariance, now permanent", () => {
@@ -614,9 +670,9 @@ test("PATTERN 58 (was the OD-025 tripwire) · anchor invariance, now permanent",
   // again by that leaf's BOM multiplicity.
   //
   // Full falsification set: tests/unit/od-025-attribution-arithmetic.test.ts.
-  const shipment = (ownerSkuId: string) => ({
+  const shipment = (memberSkuId: string) => ({
     freightSubcategoryId: "sub-1",
-    ownerSkuId,
+    memberSkuId,
     tierId: TIER_A,
     treatment: "bundled" as const,
     tierUnits: 1000,
@@ -628,13 +684,13 @@ test("PATTERN 58 (was the OD-025 tripwire) · anchor invariance, now permanent",
     tariffMarkupPct: 0,
   });
   // The fixture's own quantities are deliberately unequal (2 and 3).
-  const run = (ownerSkuId: string) =>
+  const run = (memberSkuId: string) =>
     costed({
       assemblyLeafInputs: [
         line("ql-direct", TIER_A, "10"),
         line("ql-member", TIER_A, "20"),
       ],
-      freightShipmentBreaks: [shipment(ownerSkuId)],
+      freightShipmentBreaks: [shipment(memberSkuId)],
     } as Partial<BuildQuoteCostingInputFromNewModelArgs>);
   const freightOf = (r: ReturnType<typeof run>) =>
     r.quoteRollup.find((t) => t.tierId === TIER_A)!.costBreakdown.freight;
@@ -678,7 +734,12 @@ test("11 · no leaf-level cost loader reaches the quote through `assemblies`", (
   for (const [file, table] of [
     ["src/app/actions/costing.ts", "assemblyLeafInputs"],
     ["src/app/actions/costing.ts", "assemblyLeafOverrides"],
-    ["src/app/actions/costing.ts", "assemblyLeafTargets"],
+    // `assemblyLeafTargets` was here. Its loader is gone: Client Target moved
+    // to `quote_client_targets`, keyed to the top-level sellable unit, which
+    // carries `quote_id` directly and so needs no join at all to say which
+    // quote a row belongs to. The OD-017 property this asserted — that a
+    // Direct Component is never excluded by scoping through `assemblies` — is
+    // satisfied more strongly by a table that does not scope through anything.
   ] as const) {
     const src = read(file);
     const loader = new RegExp(
@@ -788,4 +849,84 @@ test("13 · the legacy column is retained, nullable, and read by nothing", () =>
       `${table}.assembly_leaf_id must be nullable — a Direct Component has none`,
     );
   }
+});
+
+test("P-Direct-1 · a price the operator typed is the price", () => {
+  // Reported from the Pricing grid: 50ml Plastic Stick, Tier 3. Computed sell
+  // was ~3.96, the operator set 4.00 directly, and Nexus displayed 5.06 — then
+  // told them the product "is set directly to $5.06".
+  //
+  // Measured cause: the cell root had become a SUM of the operator's price and
+  // the cell's freight. But the 3.96 they overrode ALREADY CONTAINED that
+  // freight, so the sum counted it twice against a number they chose while
+  // looking at the first count.
+  //
+  // Fixture mirrors the shape: freight rides the same cell the price is set on.
+  const shipment = {
+    freightSubcategoryId: "sub-1",
+    memberCount: 1,
+    memberSkuId: "ql-direct",
+    tierId: TIER_A,
+    treatment: "bundled" as const,
+    tierUnits: 1000,
+    freightAmount: 500,
+    freightMarkupPct: 0,
+    dutyAmount: 0,
+    dutyMarkupPct: 0,
+    tariffAmount: 0,
+    tariffMarkupPct: 0,
+  };
+  const run = (over: Partial<BuildQuoteCostingInputFromNewModelArgs>) =>
+    computeQuoteCosting(
+      buildQuoteCostingInputFromNewModel(
+        args({
+          quoteLeafAttachments: attachments().map((a) => ({ ...a, quantity: "1" })),
+          assemblyLeafInputs: [line("ql-direct", TIER_A, "10")],
+          freightShipmentBreaks: [shipment],
+          ...over,
+        } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
+      ),
+    );
+
+  const cell = (r: ReturnType<typeof run>) =>
+    r.skuRollups.find((s) => s.skuId === "ql-direct")!.perTier.find((t) => t.tierId === TIER_A)!;
+
+  // Precondition: freight really is on this cell, so the test is exercising the
+  // reported configuration and not a cell with nothing to double-count.
+  const computed = cell(run({}));
+  assert.ok(
+    computed.totalLandedFreightWithMarkup > 0,
+    "the fixture must put freight on the cell being priced",
+  );
+  // And the computed price the operator would have been shown INCLUDES it.
+  assert.ok(
+    computed.requiredSellPerUnit > computed.totalLandedFreightWithMarkup,
+    "the computed price must contain the freight the override will absorb",
+  );
+
+  const overridden = cell(
+    run({
+      assemblyLeafOverrides: [
+        { quoteLeafId: "ql-direct", tierId: TIER_A, sellPriceOverride: "4" },
+      ],
+    } as Partial<BuildQuoteCostingInputFromNewModelArgs>),
+  );
+
+  assert.equal(overridden.requiredSellPerUnit, 4, "the typed price IS the price");
+  assert.equal(overridden.sellSource, "cell_override");
+  assert.equal(overridden.revenue, 4 * 1000, "and it is what the tier collects");
+
+  // The freight COST is untouched — absorbed into the sell, still counted
+  // against it, so margin reports what the decision gave away rather than
+  // hiding it.
+  assert.equal(
+    overridden.totalLandedFreightBeforeMarkup,
+    computed.totalLandedFreightBeforeMarkup,
+  );
+  assert.equal(overridden.contributionCostPerUnit, computed.contributionCostPerUnit);
+
+  // The chain the price replaced stays reachable, so "what would this have
+  // been" still has an answer.
+  const root = overridden;
+  assert.ok(root.computedSellPerUnit > 0);
 });

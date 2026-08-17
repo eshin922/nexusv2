@@ -30,14 +30,22 @@
 // from `idMap.numericToUuid.values()` rather than re-invoking the
 // engine. One classify, one engine call per render.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { Mode } from "@/lib/pricing-classifier";
-import {
-  applyGlobalAdj,
-  previewGlobalAdj,
-  undoGlobalAdj,
-} from "@/app/actions/pricing-apply";
+// `applyGlobalAdj` is deliberately NOT imported. It is still exported, and
+// still guarded, but this surface stopped calling it when accepting a preview
+// became a staging act — see `onApplyGlobalPreview`. An unused import of a
+// writer whose own docstring says calling it re-creates a removed defect is
+// one keystroke from re-creating it.
+import { previewGlobalAdj, undoGlobalAdj } from "@/app/actions/pricing-apply";
 import { requestBelowFloorApproval } from "@/app/actions/below-floor-approval-request";
 import {
   mayRequestApproval,
@@ -55,21 +63,41 @@ import { StateCallout, StateCard, StateLine } from "./state-zone";
 import {
   DetailZone,
   type BlendedTierComponents,
+  type EntireQuoteTier,
   type TracedStackCell,
 } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { ComplianceGrid } from "./compliance-grid";
-import { PricingTrace } from "./pricing-trace";
+import { setTierRecommended } from "@/app/actions/quotes";
+import { clientTargetFacts, describeGap } from "@/lib/client-target";
+import { selectCellTarget } from "@/lib/costing-store";
+import { useCostingStoreApi } from "@/components/costing-store-provider";
+import { CellDrawer, type DrawerTarget } from "./cell-drawer";
 import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
 import { RequestOverrideModal } from "./request-override-modal";
 import { ApprovalStateCard } from "./approval-state-card";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
+import {
+  planGlobalRecommendation,
+  planSurgicalRecommendation,
+} from "@/lib/pricing-recommendation-stage";
 import { parseCellKey, type CellRef } from "@/lib/pricing-staging";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectGraph, selectSkuRollups } from "@/lib/costing-store";
-import { readNodeValue, quoteScopeKey } from "@/lib/costing-nodes";
+import { readNodeValue, quoteScopeKey, priceBuildKey } from "@/lib/costing-nodes";
+import { selectQuoteRollup, selectPackaging } from "@/lib/costing-store";
+import type { GraphEvaluation } from "@/lib/costing-nodes";
+
+/**
+ * A stable empty map for "no unit selected yet".
+ *
+ * A fresh `new Map()` per render is a new identity, which would re-run the
+ * click handler's memo and the self-closing effect on every render for no
+ * change at all.
+ */
+const EMPTY_STACK: Map<number, BlendedTierComponents> = new Map();
 
 // 30s persistent "↻ just updated" hint after a mode transition. CD
 // §4.6 / §9.2 pushback 2. Restart on each subsequent transition.
@@ -106,6 +134,7 @@ export function PricingSurfaceShell({
   // Single source of truth — `state` is the classifier output,
   // identical to what `<PricingPageHead>` consumes.
   const { state, idMap } = usePricingClassifier();
+  const storeApi = useCostingStoreApi();
   const { uuidToNumeric, numericToUuid } = idMap;
   const router = useRouter();
 
@@ -154,7 +183,15 @@ export function PricingSurfaceShell({
   // Read here rather than further down because the recommendation handlers
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
-  const { stageTierAdj, committed, working, previewResult } = usePricingStaging();
+  const {
+    stageTierAdj,
+    stageGlobalAdj,
+    committed,
+    working,
+    plannedTierAdj,
+    previewResult,
+    committable,
+  } = usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -221,10 +258,15 @@ export function PricingSurfaceShell({
         setApplyError("Surgical lift target tier not found");
         return;
       }
-      stageTierAdj(
+      // Surgical is the one recommendation that legitimately creates a tier
+      // exception — it is explicitly about one tier. Still refuses to write a
+      // row for a composition that changes nothing.
+      const surgical = planSurgicalRecommendation(
         targetTierUuid,
-        composePricingAdjustment(effectiveAdj(targetTierUuid), sugg.surgical.lift_pct),
+        effectiveAdj(targetTierUuid),
+        sugg.surgical.lift_pct,
       );
+      if (surgical.kind === "tier") stageTierAdj(surgical.tierId, surgical.adjPct);
       return;
     }
 
@@ -234,17 +276,19 @@ export function PricingSurfaceShell({
       );
       return;
     }
-    // `buildGlobal` always returns `applyTo: rollup.map(t => t.tierId)` — all
-    // tiers in the rollup. Derived from the idMap to avoid re-invoking the
-    // suggestion engine. Each tier composes against its OWN current value, so
-    // a tier already carrying an adjustment is lifted from where it stands
-    // rather than being flattened to a shared figure.
-    for (const tierUuid of idMap.numericToUuid.values()) {
-      stageTierAdj(
-        tierUuid,
-        composePricingAdjustment(effectiveAdj(tierUuid), sugg.global.lift_pct),
-      );
-    }
+    // A GLOBAL RECOMMENDATION MOVES THE GLOBAL LEVER.
+    //
+    // This fanned out into one `tier_price_adj_pct` per tier. That is the
+    // two-competing-authorities problem the governing disposition removed —
+    // and worse, when the composition changed nothing it wrote four explicit
+    // `0.0000` rows, which then suppressed the global entirely because
+    // precedence is `tier ?? global` and zero is not null. The operator set
+    // 300% and saw an adjustment of $0.
+    //
+    // Quote-wide authority is `quotes.global_price_adj_pct`. Tier rows exist
+    // only for an explicitly tier-scoped decision, which this is not.
+    const global = planGlobalRecommendation(committed.globalAdj, sugg.global.lift_pct);
+    if (global.kind === "global") stageGlobalAdj(global.adjPct);
   }
 
   function onActivate(
@@ -295,36 +339,34 @@ export function PricingSurfaceShell({
     setBulkPending(true);
     const fd = new FormData();
     fd.set("quoteId", quoteId);
-    fd.set("applyDelta", String(liftPct / 100));
+    // The entered figure is the PROPOSED quote-wide rate, not a delta to
+    // compound onto the current one. Apply sets it; preview must project the
+    // same thing or the two describe different quotes.
+    fd.set("proposedGlobalAdj", String(liftPct / 100));
     const r = await previewGlobalAdj(fd);
     setBulkPending(false);
     if (!r.ok) setApplyError(r.error.message);
     else setGlobalPreview(r.data);
   }
 
-  async function onApplyGlobalPreview() {
+  /**
+   * Accepting a preview STAGES it. It does not commit a second time.
+   *
+   * This called `applyGlobalAdj`, which persists one `tier_price_adj_pct` per
+   * tier from the preview's own compounded figures — a third commit path,
+   * writing per-tier rows for a quote-wide decision, and re-creating exactly
+   * the competing-authority defect the pricing-authority disposition removed.
+   *
+   * The preview now projects what the governed Apply would persist, so
+   * accepting it means putting that rate in the working set and letting the
+   * one page-level Apply commit it. Preview cannot promise one outcome and a
+   * button beside it deliver another, because there is only one writer.
+   */
+  function onApplyGlobalPreview() {
     if (!globalPreview) return;
     setApplyError(null);
-    setBulkPending(true);
-    const fd = new FormData();
-    fd.set("quoteId", quoteId);
-    fd.set("applyTo", globalPreview.tiers.map((tier) => tier.tierId).join(","));
-    fd.set("applyDelta", String(globalPreview.applyDelta));
-    fd.set("optionRecommended", "false");
-    fd.set("expectedPreview", JSON.stringify(globalPreview.tiers.map((tier) => ({
-      tierId: tier.tierId,
-      priorPersistedAdjustment: tier.priorPersistedAdjustment,
-      resultingAdjustment: tier.resultingAdjustment,
-    }))));
-    const r = await applyGlobalAdj(fd);
-    setBulkPending(false);
-    if (!r.ok) {
-      setApplyError(r.error.message);
-      return;
-    }
-    setBulkAuditId(r.data.auditId);
+    stageGlobalAdj(globalPreview.proposedGlobalAdj);
     setGlobalPreview(null);
-    setPricingConfirmation("Pricing updated.");
   }
 
   async function onUndoGlobalAdjust() {
@@ -361,73 +403,14 @@ export function PricingSurfaceShell({
   // entirely rather than partially filled. Half a stack read from the graph and
   // half invented is the exact failure this increment exists to remove.
   const graph = useCostingStore(selectGraph);
-  const blendedByTier = useMemo(() => {
-    const byNumeric = new Map<number, BlendedTierComponents>();
-    for (const [tierUuid, numeric] of uuidToNumeric) {
-      // `readNodeValue` also fails closed on a flagged-out node, which
-      // `node ? node.value : null` did not. No blend key carries one today, so
-      // this changes no rendered value — it removes the trap where adding one
-      // later would surface a commercial zero here instead of a dash.
-      const read = (name: string): number | null =>
-        readNodeValue(graph, quoteScopeKey(tierUuid, name));
-      const pkg = read("pkg");
-      const prod = read("prod");
-      const raw = read("raw");
-      const frt = read("frt");
-      const dt = read("dt");
-      const sellBefore = read("sell-before");
-      const sell = read("sell");
-      const cost = read("cost");
-      // P3-017 — the levers BETWEEN the first level and the last. The blend
-      // used to publish only its ends, so the ladder the Cost Stack renders was
-      // unstateable at this scope and the reconciliation could not be asserted
-      // against anything. These five are read, never derived: a delta obtained
-      // by subtracting two published levels telescopes through the aggregation
-      // and yields an identity true for any four numbers.
-      const adjDelta = read("adj-delta");
-      const sellAfterAdj = read("sell-after-adj");
-      const liftDelta = read("lift-delta");
-      const sellAfterLift = read("sell-after-lift");
-      const overrideDelta = read("override-delta");
-      if (
-        pkg === null || prod === null || raw === null || frt === null ||
-        dt === null || sellBefore === null || sell === null || cost === null ||
-        adjDelta === null || sellAfterAdj === null || liftDelta === null ||
-        sellAfterLift === null || overrideDelta === null
-      ) {
-        continue;
-      }
-      // OPTIONAL, unlike the six above: the ratio is undefined at zero blended
-      // sell, the engine flags that node out rather than publishing 0%, and
-      // `readNodeValue` refuses it. Requiring it would blank a complete cost
-      // stack to withhold a seventh value that does not exist.
-      const margin = readNodeValue(graph, quoteScopeKey(tierUuid, "margin"));
-      byNumeric.set(numeric, {
-        pkg, prod, raw, frt, dt, sellBefore, sell, cost, margin,
-        adjDelta, sellAfterAdj, liftDelta, sellAfterLift, overrideDelta,
-        // The same keys the values were just read from, carried down so the
-        // trace opens at the node the operator pressed rather than at one
-        // reconstructed from a numeric id the graph has never heard of.
-        keys: {
-          pkg: quoteScopeKey(tierUuid, "pkg"),
-          prod: quoteScopeKey(tierUuid, "prod"),
-          raw: quoteScopeKey(tierUuid, "raw"),
-          frt: quoteScopeKey(tierUuid, "frt"),
-          dt: quoteScopeKey(tierUuid, "dt"),
-          sellBefore: quoteScopeKey(tierUuid, "sell-before"),
-          sell: quoteScopeKey(tierUuid, "sell"),
-          cost: quoteScopeKey(tierUuid, "cost"),
-          margin: quoteScopeKey(tierUuid, "margin"),
-          adjDelta: quoteScopeKey(tierUuid, "adj-delta"),
-          sellAfterAdj: quoteScopeKey(tierUuid, "sell-after-adj"),
-          liftDelta: quoteScopeKey(tierUuid, "lift-delta"),
-          sellAfterLift: quoteScopeKey(tierUuid, "sell-after-lift"),
-          overrideDelta: quoteScopeKey(tierUuid, "override-delta"),
-        },
-      });
-    }
-    return byNumeric;
-  }, [graph, uuidToNumeric]);
+  // The quote-wide leaf BLEND was resolved here and rendered as the Cost
+  // Stack's dollars. It is gone as a PRESENTATION source: on a mixed quote its
+  // denominator spans unrelated sellable products, and it rendered an Item
+  // Group's $7.51 finished-good sell as $1.0729. The blend NODES remain in the
+  // graph — the margin is built from them and they are a valid analytical
+  // primitive — but nothing here reads them for dollars any more. Price Build
+  // reads a per-commercial-unit scope instead; see below.
+
 
   // ── display metadata ────────────────────────────────────────────
   //
@@ -448,6 +431,57 @@ export function PricingSurfaceShell({
     }
     return byNumeric;
   }, [tiers, uuidToNumeric]);
+
+  /**
+   * The tier list the recommendation control writes against.
+   *
+   * Carries BOTH identities because the two ends speak different ones: the
+   * classifier's summary card reports a numeric tier id, and
+   * `setTierRecommended` takes the UUID. Resolved here, where `idMap` already
+   * owns the correspondence, rather than in the card — a component translating
+   * between two identity spaces is one that can translate wrongly, and the cost
+   * of being wrong is a recommendation printed against the wrong tier.
+   */
+  const recommendableTiers = useMemo(
+    () =>
+      tiers
+        .map((t) => {
+          const numeric = uuidToNumeric.get(t.id);
+          return numeric === undefined
+            ? null
+            : { numericId: numeric, uuid: t.id, label: t.label };
+        })
+        .filter((t): t is { numericId: number; uuid: string; label: string } => t !== null),
+    [tiers, uuidToNumeric],
+  );
+
+  // Its own transition and its own error (Pattern 47f). A recommendation in
+  // flight must not disable an unrelated control, and a refusal has to be
+  // legible where the act was made rather than in a console.
+  const [recPending, startRecommend] = useTransition();
+  const [recError, setRecError] = useState<string | null>(null);
+
+  const onSetRecommended = useCallback(
+    (tierUuid: string | null) => {
+      setRecError(null);
+      startRecommend(async () => {
+        // Clearing means turning OFF whichever tier currently carries it —
+        // the action is per-tier, and `recommended: false` on the live one is
+        // what "none" means to the schema. Selecting a tier sets that one; the
+        // action clears the siblings itself, which is where the one-per-quote
+        // invariant belongs and where it already was.
+        const target =
+          tierUuid ?? tiers.find((t) => t.recommended)?.id ?? null;
+        if (target === null) return;
+        const fd = new FormData();
+        fd.set("tierId", target);
+        fd.set("recommended", String(tierUuid !== null));
+        const r = await setTierRecommended(fd);
+        if (!r.ok) setRecError(r.error.message);
+      });
+    },
+    [tiers],
+  );
 
   /**
    * The tier a request would authorize.
@@ -509,6 +543,15 @@ export function PricingSurfaceShell({
   // this on the classifier id matches nothing, and every chip would fall back
   // to two raw UUIDs in the one place the operator looks before committing.
   const skuRollups = useCostingStore(selectSkuRollups);
+  // Item 3 · Entire Quote reads the governed per-tier rollup for one thing the
+  // node family does not carry — the one-time service fees, which are kept
+  // beside the per-unit build rather than folded into it.
+  const quoteRollupRows = useCostingStore(selectQuoteRollup);
+  const packagingRows = useCostingStore(selectPackaging);
+  const rollupByTierUuid = useMemo(
+    () => new Map(quoteRollupRows.map((t) => [t.tierId, t])),
+    [quoteRollupRows],
+  );
   const cellLabel = useMemo(() => {
     const nameByQuoteLeafId = new Map<string, string>();
     for (const sr of skuRollups) {
@@ -530,6 +573,277 @@ export function PricingSurfaceShell({
       return `${name} · ${tierLabel}`;
     };
   }, [skuRollups, tiers]);
+
+  // ── PRICE BUILD · per commercial unit of account ─────────────────
+  //
+  // The map above is a units-weighted MEAN across every governed leaf in the
+  // quote. It answers an analytical question and it still does, but it is not
+  // the dollar construction of anything anyone sells: on a mixed quote its
+  // denominator spans unrelated products, and a live quote rendered an Item
+  // Group's $7.51 finished-good sell as $1.0729 — divided by 7, the leaf count
+  // of the whole quote.
+  //
+  // These read the SAME shape from a scope the engine publishes per top-level
+  // sellable unit, so the stack renderer below is unchanged and simply points
+  // at a different address.
+  const priceBuildUnits = useMemo(
+    () =>
+      skuRollups
+        .filter((r) => r.parentSkuId === null)
+        .map((r) => ({
+          id: r.skuId,
+          label: r.productName ?? r.skuLabel,
+          isFinishedGood: r.skuRole === "assembly",
+        })),
+    [skuRollups],
+  );
+
+
+  /**
+   * P-PriceBuild-2 · Price Build follows the STAGED economics.
+   *
+   * It read the committed store graph, so an adjustment the operator had
+   * entered and previewed changed the margin banner and left the Price Build
+   * showing pre-adjustment figures — with nothing on screen saying which of the
+   * two it was looking at.
+   *
+   * No new projection was needed: the staging context already computes a full
+   * governed `computeQuoteCosting(preview)`, graph included. This reads it. It
+   * is null exactly when nothing is staged, so committed state is unchanged.
+   */
+  const previewing = previewResult !== null;
+  const priceBuildGraph = previewResult?.graph ?? graph;
+  /**
+   * The evaluation this read EXPECTS — stated, not inferred from the graph.
+   *
+   * PB-STAGED-1. `readNodeValue` refuses a graph whose `evaluation` is not the
+   * one the caller expects, and it defaults to "committed". Switching the
+   * Price Build to the preview graph without saying so made every read return
+   * null: the whole table rendered as em-dashes with "0 tiers could not be
+   * read", exactly when the operator staged something and most needed it.
+   *
+   * Derived from the SAME condition that chose the graph, not read off the
+   * graph itself. `graph.evaluation` would always match and the guard would
+   * stop asserting anything; this way a future change that swaps the graph
+   * without swapping the expectation still fails closed.
+   */
+  const priceBuildEvaluation: GraphEvaluation = previewing ? "preview" : "committed";
+
+  /**
+   * Which authority set each tier's adjustment — resolved, not described.
+   *
+   * The row read `tier ?? global — replaces`, which is JS operator notation
+   * rendered to an operator. The precedence it was gesturing at is real: a
+   * tier's own rate REPLACES the quote-wide one rather than compounding with
+   * it. So the answer per tier is knowable, and stating it beats printing the
+   * expression that computes it.
+   */
+  const adjScopeByTier = useMemo(() => {
+    const out = new Map<number, "tier" | "quote-wide">();
+    for (const [tierUuid, numeric] of uuidToNumeric) {
+      // TIER-PREV-1 · the PLANNED state, for the same reason the figures use it:
+      // a staged quote-wide rate clears standing tier overrides, so intent and
+      // result diverge exactly here, and this row's whole job is naming which
+      // authority is in force.
+      out.set(numeric, plannedTierAdj[tierUuid] != null ? "tier" : "quote-wide");
+    }
+    return out;
+  }, [plannedTierAdj, uuidToNumeric]);
+
+  const priceBuildByUnit = useMemo(() => {
+    const out = new Map<string, Map<number, BlendedTierComponents>>();
+    for (const unit of priceBuildUnits) {
+      const byNumeric = new Map<number, BlendedTierComponents>();
+      for (const [tierUuid, numeric] of uuidToNumeric) {
+        const k = (name: string) => priceBuildKey(unit.id, tierUuid, name);
+        const read = (name: string): number | null =>
+          readNodeValue(priceBuildGraph, k(name), priceBuildEvaluation);
+        const pkg = read("pkg");
+        const prod = read("prod");
+        const raw = read("raw");
+        const frt = read("frt");
+        const dt = read("dt");
+        const sellBefore = read("sell-before");
+        const sell = read("sell");
+        const cost = read("cost");
+        const adjDelta = read("adj-delta");
+        const sellAfterAdj = read("sell-after-adj");
+        const liftDelta = read("lift-delta");
+        const sellAfterLift = read("sell-after-lift");
+        const overrideDelta = read("override-delta");
+        if (
+          pkg === null || prod === null || raw === null || frt === null ||
+          dt === null || sellBefore === null || sell === null || cost === null ||
+          adjDelta === null || sellAfterAdj === null || liftDelta === null ||
+          sellAfterLift === null || overrideDelta === null
+        ) {
+          continue;
+        }
+        byNumeric.set(numeric, {
+          pkg, prod, raw, frt, dt, sellBefore, sell, cost,
+          margin: read("margin"),
+          adjDelta, sellAfterAdj, liftDelta, sellAfterLift, overrideDelta,
+          keys: {
+            pkg: k("pkg"), prod: k("prod"), raw: k("raw"), frt: k("frt"),
+            dt: k("dt"), sellBefore: k("sell-before"), sell: k("sell"),
+            cost: k("cost"), margin: k("margin"), adjDelta: k("adj-delta"),
+            sellAfterAdj: k("sell-after-adj"), liftDelta: k("lift-delta"),
+            sellAfterLift: k("sell-after-lift"), overrideDelta: k("override-delta"),
+          },
+        });
+      }
+      if (byNumeric.size > 0) out.set(unit.id, byNumeric);
+    }
+    return out;
+  }, [priceBuildGraph, priceBuildEvaluation, priceBuildUnits, uuidToNumeric]);
+
+  // No auto-selection. On a quote with more than one sellable unit, choosing
+  // one for the operator would present a single product's economics as though
+  // it were the quote's — the same category error one level up.
+  /**
+   * ENTIRE QUOTE — the default view, and a different question from the others.
+   *
+   *   Entire Quote     what are the economics of everything we are quoting?
+   *   Item Group / SKU what drives them for this one sellable unit?
+   *
+   * Backed by the governed `quote/{tier}/per-unit` family — the SAME nodes the
+   * Costs Price build header renders, so the two surfaces reconcile by
+   * construction rather than by agreement. Not derived by averaging leaves and
+   * not by summing displayed per-unit rows.
+   */
+  const ENTIRE_QUOTE = "__entire_quote__";
+
+  const entireQuoteByTier = useMemo(() => {
+    const byNumeric = new Map<number, EntireQuoteTier>();
+    for (const [tierUuid, numeric] of uuidToNumeric) {
+      const read = (name: string) =>
+        readNodeValue(priceBuildGraph, quoteScopeKey(tierUuid, name), priceBuildEvaluation);
+      const pkg = read("per-unit/pkg");
+      const prod = read("per-unit/prod");
+      const raw = read("per-unit/raw");
+      const frt = read("per-unit/frt");
+      const dt = read("per-unit/dt");
+      const baseSell = read("per-unit");
+      const quoted = read("per-unit/revenue");
+      const unitCost = read("per-unit/cost-total");
+      const decision = read("per-unit/departure");
+      if (
+        pkg === null || prod === null || raw === null || frt === null ||
+        dt === null || baseSell === null || quoted === null ||
+        unitCost === null || decision === null
+      ) {
+        continue;
+      }
+      byNumeric.set(numeric, {
+        pkg, prod, raw, frt, dt, baseSell, quoted, unitCost, decision,
+        margin: readNodeValue(priceBuildGraph, quoteScopeKey(tierUuid, "margin"), priceBuildEvaluation),
+        // ONE-TIME CHARGES, kept apart. They bill as fixed amounts and are not
+        // part of any per-unit figure, so they are stated as a tier total
+        // beside the build rather than folded into it. The Production/OTC
+        // accounting semantics are a separate body of work; this only
+        // preserves the distinction.
+        oneTimeCharges:
+          rollupByTierUuid.get(tierUuid)?.costBreakdown.serviceFees ?? 0,
+        keys: {
+          pkg: quoteScopeKey(tierUuid, "per-unit/pkg"),
+          prod: quoteScopeKey(tierUuid, "per-unit/prod"),
+          raw: quoteScopeKey(tierUuid, "per-unit/raw"),
+          frt: quoteScopeKey(tierUuid, "per-unit/frt"),
+          dt: quoteScopeKey(tierUuid, "per-unit/dt"),
+          baseSell: quoteScopeKey(tierUuid, "per-unit"),
+          quoted: quoteScopeKey(tierUuid, "per-unit/revenue"),
+          unitCost: quoteScopeKey(tierUuid, "per-unit/cost-total"),
+          decision: quoteScopeKey(tierUuid, "per-unit/departure"),
+          margin: quoteScopeKey(tierUuid, "margin"),
+        },
+      });
+    }
+    return byNumeric;
+  }, [priceBuildGraph, priceBuildEvaluation, uuidToNumeric, rollupByTierUuid]);
+
+  /**
+   * Which units have resolved economics.
+   *
+   * PB-UNIT-UX1: a unit whose costs were never entered rendered a full
+   * $0.0000 Price Build with a green reconciliation footer — "no data" in the
+   * vocabulary reserved for "data, and it balances". A genuine zero and an
+   * absent cost are different facts, so this reads the same signal the Send
+   * gate reads (an unentered `unitCost`) rather than testing for a zero total.
+   */
+  const pricedUnits = useMemo(() => {
+    const membersOf = (unitId: string) => {
+      const kids = skuRollups.filter((r) => r.parentSkuId === unitId).map((r) => r.skuId);
+      return kids.length > 0 ? kids : [unitId];
+    };
+    const out = new Set<string>();
+    for (const unit of priceBuildUnits) {
+      const ids = new Set(membersOf(unit.id));
+      const rows = packagingRows.filter((r) => ids.has(r.quoteSkuId));
+      if (rows.some((r) => r.unitCost !== null)) out.add(unit.id);
+    }
+    return out;
+  }, [priceBuildUnits, skuRollups, packagingRows]);
+
+  /** The same list, each unit carrying whether its costs resolve. */
+  const priceBuildUnitsWithState = useMemo(
+    () => priceBuildUnits.map((u) => ({ ...u, priced: pricedUnits.has(u.id) })),
+    [priceBuildUnits, pricedUnits],
+  );
+
+  const [priceBuildUnitId, setPriceBuildUnitId] = useState<string | null>(null);
+  // Entire Quote is the default. A quote with one priced unit still opens here
+  // — the aggregate and the unit agree in that case, and defaulting to the
+  // same place every time is worth more than skipping one click.
+  const selectedUnit = priceBuildUnitId ?? ENTIRE_QUOTE;
+
+  /**
+   * THE ONE MAP THE STACK RENDERS FROM — and therefore the one a click
+   * resolves against.
+   *
+   * P-PriceBuild-UX1: these were two. The cells were switched to the per-unit
+   * price build while `onTraceStackCell` still searched the quote-wide blend
+   * for the clicked key. `unit/{id}/{tier}/pkg` is not in a map of
+   * `quote/{tier}/…` keys, so the lookup missed, the handler returned early,
+   * and every contribution cell rendered as a button that did nothing.
+   *
+   * Naming it once removes the class of defect rather than the instance: a
+   * future change to what the stack shows cannot leave the click behind,
+   * because there is no second map to leave it in.
+   */
+  const stackByTier = useMemo(
+    () =>
+      (priceBuildUnitId === null
+        ? undefined
+        : priceBuildByUnit.get(priceBuildUnitId)) ?? EMPTY_STACK,
+    [priceBuildByUnit, priceBuildUnitId],
+  );
+
+  /**
+   * THE KEYS THE VISIBLE TABLE ACTUALLY RENDERED, per tier row.
+   *
+   * The note above says a click resolves against the one map the stack renders
+   * from, and that naming it once removes the class of defect. It named the
+   * per-unit map — and then Entire Quote arrived as a NEW DEFAULT view with its
+   * own keys, `stackByTier` fell through to `EMPTY_STACK` for it, and the
+   * lookup missed on every cell of the view an operator sees first. The
+   * invariant was right; a second map was added underneath it.
+   *
+   * So the resolution source is derived from the SELECTED VIEW rather than from
+   * one of the tables, and both tables feed it. A third view cannot repeat this
+   * unless it also fails to appear here, which is a visible omission rather
+   * than a silent miss.
+   */
+  const traceKeysByTier = useMemo(() => {
+    const source: ReadonlyMap<number, { keys: Record<string, string> }> =
+      priceBuildUnitId === null
+        ? entireQuoteByTier
+        : (priceBuildByUnit.get(priceBuildUnitId) ?? EMPTY_STACK);
+    const out = new Map<number, Set<string>>();
+    for (const [numeric, row] of source) {
+      out.set(numeric, new Set(Object.values(row.keys)));
+    }
+    return out;
+  }, [entireQuoteByTier, priceBuildByUnit, priceBuildUnitId]);
 
   /**
    * The same fail-closed contract as `cellLabel`, for the tier a per-tier
@@ -673,6 +987,21 @@ export function PricingSurfaceShell({
     (TracedStackCell & { title: string }) | null
   >(null);
 
+  /**
+   * The pressed compliance cell, as `"{skuId}:{tierId}"`.
+   *
+   * Lifted out of ComplianceGrid when the detail moved into the drawer. The
+   * grid and the Price Build can each open that drawer, and exactly one thing
+   * can be in it — so exactly one place holds what that is, and opening from
+   * either side closes the other.
+   */
+  const [selectedCell, setSelectedCell] = useState<string | null>(null);
+
+  const selectCell = useCallback((key: string | null) => {
+    setSelectedCell(key);
+    if (key !== null) setTraced(null);
+  }, []);
+
   const tracedTierId = traced?.tierId ?? null;
   const onTraceStackCell = useCallback(
     (nodeKey: string, title: string) => {
@@ -680,27 +1009,38 @@ export function PricingSurfaceShell({
       // list, matched on the key the cell was built from — not parsed out of
       // the key string.
       let tierId: number | null = null;
-      for (const [numeric, blend] of blendedByTier) {
-        if (Object.values(blend.keys).includes(nodeKey)) {
+      for (const [numeric, keys] of traceKeysByTier) {
+        if (keys.has(nodeKey)) {
           tierId = numeric;
           break;
         }
       }
-      if (tierId === null) return;
+      // An unresolvable key means the cell that was pressed is not in the table
+      // this handler knows about — which is a wiring fault, not an operator
+      // one, and returning silently is how it stayed invisible. Nothing else
+      // can be done here, so it is at least said out loud.
+      if (tierId === null) {
+        console.warn(
+          `[pricing] trace: no tier row owns node "${nodeKey}" — the visible ` +
+            "table and the click resolver disagree about what is on screen.",
+        );
+        return;
+      }
+      setSelectedCell(null);
       setTraced((prev) =>
         prev?.nodeKey === nodeKey ? null : { tierId, nodeKey, title },
       );
     },
-    [blendedByTier],
+    [traceKeysByTier],
   );
 
   // A traced node whose tier has dropped out of the graph closes itself rather
   // than leaving a panel pinned beneath a row that no longer renders.
   useEffect(() => {
-    if (tracedTierId !== null && !blendedByTier.has(tracedTierId)) {
+    if (tracedTierId !== null && !traceKeysByTier.has(tracedTierId)) {
       setTraced(null);
     }
-  }, [blendedByTier, tracedTierId]);
+  }, [traceKeysByTier, tracedTierId]);
 
   // A-2 · the trace reads the graph with attribution merged in. The merge is
   // per-node and returns the same object where nothing resolved, so an
@@ -711,25 +1051,111 @@ export function PricingSurfaceShell({
     [graph, provenantNodes],
   );
 
-  const renderStackTrace = useCallback(() => {
-    if (!traced) return null;
-    // `.r11-tracewrap` is the canonical vocabulary for "the trace as an
-    // expansion inside a section", and carries the three R11 overrides of the
-    // standalone R10 panel — no outer border, the depth badge dropped because
-    // depth 0 is whatever was pressed, and the anchor bar released from
-    // `position: sticky`. That last one is why the PRESSED ROW can pin: two
-    // elements both sticking to top: 0 would overlay each other.
-    return (
-      <div className="r11-tracewrap">
-        <PricingTrace
-          graph={provenantGraph}
-          nodeKey={traced.nodeKey}
-          title={traced.title}
-          onClose={() => setTraced(null)}
-        />
-      </div>
-    );
-  }, [provenantGraph, traced]);
+  /**
+   * WHAT THE ONE DRAWER IS OPEN ON.
+   *
+   * Derived, not stored. Two things can open it — a compliance cell and a
+   * Price Build contribution — and each already has authoritative state
+   * (`selectedCell`, `traced`). A third piece of state saying which is showing
+   * would be a copy that can disagree with both; here the derivation IS the
+   * answer, and the two setters clear each other so at most one is ever live.
+   */
+  const drawerTarget = useMemo<DrawerTarget | null>(() => {
+    if (selectedCell !== null) {
+      const cell = state.cells.find(
+        (c) => `${c.sku_id}:${c.tier_id}` === selectedCell,
+      );
+      if (cell) {
+        const ref = resolveCell(cell.sku_id, cell.tier_id);
+        const tierLabel = tierMeta.get(cell.tier_id)?.label ?? `T${cell.tier_id}`;
+        return {
+          kind: "compliance",
+          cell,
+          cellRef: ref,
+          label: `${cell.sku_name} · ${tierLabel}`,
+          tierLabel,
+          // THE ENGINE'S OWN ANSWER, forwarded — not a key built here.
+          //
+          // Built here first, as `{sku}/{tier}/quoted`, and it was wrong: that
+          // node exists only when the cell carries an override. Without one the
+          // root is the computed chain, whose key depends on whether a lift
+          // applied. The trace refused rather than showing a chain that might
+          // belong to a different figure, which is the guard working — and is
+          // also the second time on this surface that a display layer
+          // reconstructing identity resolved nothing while looking like it had.
+          quotedNodeKey: cell.sell_node_key,
+        };
+      }
+    }
+    if (traced !== null) {
+      const tierLabel =
+        tierMeta.get(traced.tierId)?.label ?? `T${traced.tierId}`;
+      return {
+        kind: "contribution",
+        rowLabel: traced.title,
+        tierLabel,
+        scopeLabel:
+          priceBuildUnitId === null
+            ? "Entire quote"
+            : (priceBuildUnits.find((u) => u.id === priceBuildUnitId)?.label ??
+              "This unit"),
+        nodeKey: traced.nodeKey,
+      };
+    }
+    return null;
+  }, [
+    selectedCell,
+    traced,
+    state.cells,
+    resolveCell,
+    tierMeta,
+    priceBuildUnitId,
+    priceBuildUnits,
+  ]);
+
+  /**
+   * Client Target for the SELECTED unit at one tier, with the gap to that
+   * tier's Final quoted sell.
+   *
+   * Both halves are governed and neither is recomputed here. The target comes
+   * from the store's `cellTargets`, which the adapter already resolved
+   * `tier ?? common` and keyed on the sellable unit; the sell comes from the
+   * same per-unit map the Price Build renders from. The gap is a subtraction
+   * of two numbers this surface did not decide.
+   *
+   * Null target on Entire Quote, deliberately: a client names a price for a
+   * product, and summing targets across unrelated sellable units would invent
+   * a benchmark nobody gave.
+   */
+  const clientTargetFor = useCallback(
+    (numericTierId: number) => {
+      if (priceBuildUnitId === null) return { target: null, gap: null };
+      const tierUuid = numericToUuid.get(numericTierId);
+      if (tierUuid === undefined) return { target: null, gap: null };
+      const target = selectCellTarget(priceBuildUnitId, tierUuid)(
+        storeApi.getState(),
+      );
+      if (target === null) return { target: null, gap: null };
+      const sell = stackByTier.get(numericTierId)?.sell ?? null;
+      return {
+        target,
+        gap: describeGap(
+          clientTargetFacts({
+            target,
+            quotedSellPerUnit: sell,
+            costPerUnit: null,
+          })?.gapAbs ?? null,
+        ),
+      };
+    },
+    [priceBuildUnitId, numericToUuid, storeApi, stackByTier],
+  );
+
+  const closeDrawer = useCallback(() => {
+    setSelectedCell(null);
+    setTraced(null);
+  }, []);
+
 
   return (
     <section className="psr-section">
@@ -769,7 +1195,15 @@ export function PricingSurfaceShell({
         recommended tier and order value. It renders after the verdict and
         before the corrective actions, as the prototype does.
       */}
-      <SendableSummary state={state} />
+      <SendableSummary
+        state={state}
+        tiers={recommendableTiers}
+        // Draft-only, from the same flag the staged levers use. A sent
+        // quote shows the recommendation and offers no way to change it.
+        onSetRecommended={committable ? onSetRecommended : undefined}
+        recommendedPending={recPending}
+        recommendedError={recError}
+      />
 
       {/* ACTION — ranked actions per mode.
           CB Patch round 3 BUG-C disposition: in suggestion_led mode
@@ -843,6 +1277,8 @@ export function PricingSurfaceShell({
           floorPct={state.policy.floor_margin_pct}
           tierMeta={tierMeta}
           resolveCell={resolveCell}
+          selected={selectedCell}
+          onSelect={selectCell}
         />
       </div>
 
@@ -850,8 +1286,18 @@ export function PricingSurfaceShell({
           onPreviewGlobalAdjust forwards via DetailZone →
           DetailGlobalAdjust (CB Patch round 3 BUG-B wire). */}
       <DetailZone
+        clientTargetFor={clientTargetFor}
         state={state}
-        blendedByTier={blendedByTier}
+        // The SELECTED unit's own price build — the same map the click
+        // handler resolves against, by construction.
+        blendedByTier={stackByTier}
+        units={priceBuildUnitsWithState}
+        entireQuoteByTier={entireQuoteByTier}
+        previewing={previewing}
+        adjScopeByTier={adjScopeByTier}
+        tierUuidByNumeric={idMap.numericToUuid}
+        selectedUnitId={priceBuildUnitId}
+        onSelectUnit={setPriceBuildUnitId}
         tierMeta={tierMeta}
         leversByTier={leversByTier}
         onPreviewGlobalAdjust={onPreviewGlobalAdjust}
@@ -864,7 +1310,6 @@ export function PricingSurfaceShell({
         pricingConfirmation={pricingConfirmation}
         onTraceStackCell={onTraceStackCell}
         tracedStackCell={traced}
-        renderStackTrace={renderStackTrace}
         renderStackDelta={renderStackDelta}
         renderStackMarginDelta={renderStackMarginDelta}
       />
@@ -873,6 +1318,16 @@ export function PricingSurfaceShell({
       {requestTier && approvalState.kind !== "none" && (
         <ApprovalStateCard state={approvalState} tierLabel={requestTier.label} />
       )}
+
+      {/* THE ONE CELL DRAWER. Portalled, so where it sits in this tree is a
+          statement about ownership rather than about layout: the shell holds
+          both selections, so the shell mounts the surface that shows them. */}
+      <CellDrawer
+        target={drawerTarget}
+        graph={provenantGraph}
+        floorPct={state.policy.floor_margin_pct}
+        onClose={closeDrawer}
+      />
 
       {requestTier && (
         <RequestOverrideModal

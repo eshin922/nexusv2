@@ -7,7 +7,7 @@ import {
   assemblies,
   assemblyLeafInputs,
   assemblyLeafOverrides,
-  assemblyLeafTargets,
+  quoteClientTargets,
   assemblyLeaves,
   assemblyProductionInputs,
   auditLog,
@@ -21,6 +21,7 @@ import {
   freightLegs,
   freightLegTiers,
   freightSubcategories,
+  freightSubcategoryItems,
   leaves,
   quotes,
   quoteLeafLifts,
@@ -55,6 +56,7 @@ import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
+import { resolveLegacyFreightAttribution } from "@/lib/freight-legacy-attribution";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import {
   parseMarginPercent,
@@ -373,10 +375,15 @@ async function loadWorksheetFreightForQuote(
   // OD-023 · current-version read, as above. Historical customer output is
   // addressed by `readQuoteVersion`, not inferred from this predicate.
   if (quote.status !== "draft" && quote.snapshotId) {
-    const [snapshot] = await db.select({ workbook: quoteSnapshotFreightWorkbooks.workbook })
+    const [snapshot] = await db.select({
+      workbook: quoteSnapshotFreightWorkbooks.workbook,
+      // The legacy-attribution discriminator. Capture time, not quote age:
+      // what matters is which contract the record was FROZEN under.
+      frozenAt: quoteSnapshotFreightWorkbooks.createdAt,
+    })
       .from(quoteSnapshotFreightWorkbooks)
       .where(eq(quoteSnapshotFreightWorkbooks.quoteSnapshotId, quote.snapshotId)).limit(1);
-    if (snapshot) return projectSnapshotWorkbook(snapshot.workbook as FreightWorkbook);
+    if (snapshot) return projectSnapshotWorkbook(snapshot.workbook as FreightWorkbook, snapshot.frozenAt);
   }
   if (quote.status !== "draft") return [];
   const rows = await db
@@ -401,31 +408,32 @@ async function loadWorksheetFreightForQuote(
     .innerJoin(quoteTiers, eq(quoteTiers.id, freightDestinationBreaks.tierId))
     .where(eq(freightSubcategories.quoteId, quoteId));
   if (rows.length === 0) return [];
-  // OD-017 · anchors are CANONICAL. This path previously emitted
-  // `assembly_leaves.id`, which the math layer keyed on before the re-key; it no
-  // longer does, so an uncorrected anchor here would name a SKU that does not
-  // exist and worksheet freight would silently vanish from every draft quote.
+  // V1 FREIGHT DISTRIBUTION POLICY · membership, not an owner.
   //
-  // Nulls are filtered before `inArray`: a Direct-only shipment has no assembly,
-  // and its anchor comes from membership below.
-  const assemblyIds = [...new Set(rows.map((row) => row.assemblyId).filter((id): id is string => id !== null))];
-  const anchors = assemblyIds.length
-    ? await db.select({ id: quoteLeaves.id, assemblyId: quoteLeaves.assemblyId, position: quoteLeaves.position })
-        .from(quoteLeaves).where(inArray(quoteLeaves.assemblyId, assemblyIds)).orderBy(asc(quoteLeaves.position))
-    : [];
-  const anchorByAssembly = new Map<string, string>();
-  for (const anchor of anchors) {
-    if (anchor.assemblyId && !anchorByAssembly.has(anchor.assemblyId)) {
-      anchorByAssembly.set(anchor.assemblyId, anchor.id);
-    }
+  // This resolved ONE anchor leaf per shipment — the lowest-position leaf of
+  // the shipment's ASSEMBLY. That set is not the shipment. On `2f29af72` a
+  // two-product shipment's freight was attributed to a third product that was
+  // not in it, and because the positions tie, the pick moved between a quote
+  // and its copy: 107,225 against 113,105 on identical inputs.
+  //
+  // `freight_subcategory_items` is the operator's own record of what is being
+  // shipped. It excludes products that are not in the shipment, it is identical
+  // in a copy, and it depends on no row order, timestamp or id.
+  const memberRows = await db
+    .select({
+      subcategoryId: freightSubcategoryItems.freightSubcategoryId,
+      quoteLeafId: freightSubcategoryItems.quoteLeafId,
+    })
+    .from(freightSubcategoryItems)
+    .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightSubcategoryItems.freightSubcategoryId))
+    .where(eq(freightSubcategories.quoteId, quoteId));
+  const membersBySubcategory = new Map<string, string[]>();
+  for (const row of memberRows) {
+    const list = membersBySubcategory.get(row.subcategoryId) ?? [];
+    list.push(row.quoteLeafId);
+    membersBySubcategory.set(row.subcategoryId, list);
   }
-  // Anchor for shipments with no assembly. DERIVED IN THE FREIGHT LIB, not
-  // here: the costing path consumes anchors, it does not compute them. See
-  // `loadShipmentMemberAnchors` for why this narrows — but does not break — the
-  // "membership is descriptive only" invariant.
-  const anchorBySubcategory = await loadShipmentMemberAnchors(
-    [...new Set(rows.map((row) => row.subcategoryId))],
-  );
+
   const customs = await db.select({
     subcategoryId: freightCustomsEntries.freightSubcategoryId,
     tierId: freightCustomsBreaks.tierId,
@@ -438,22 +446,34 @@ async function loadWorksheetFreightForQuote(
     .where(eq(freightSubcategories.quoteId, quoteId));
   const charge = (subcategoryId: string, tierId: string, type: "duty" | "tariff") =>
     customs.find((row) => row.subcategoryId === subcategoryId && row.tierId === tierId && row.chargeType === type);
-  return rows.map((row) => {
+  return rows.flatMap((row) => {
     const duty = charge(row.subcategoryId, row.tierId, "duty");
     const tariff = charge(row.subcategoryId, row.tierId, "tariff");
-    const ownerSkuId = row.assemblyId
-      ? anchorByAssembly.get(row.assemblyId)
-      : anchorBySubcategory.get(row.subcategoryId);
-    if (!ownerSkuId)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        row.assemblyId
-          ? "Freight-owning commercial product has no costing item"
-          : "This shipment has no components, so its freight has nothing to cost against",
-      );
-    return {
+    const members = membersBySubcategory.get(row.subcategoryId) ?? [];
+    // A PRICED SHIPMENT WITH NO RECORDED MEMBERS CONTRIBUTES NOTHING, AND DOES
+    // NOT THROW.
+    //
+    // This threw, and it took a whole quote down with it: `9af5fe52` has a
+    // $500 ocean shipment whose membership was never recorded, and under the
+    // previous rule it was absorbed by a leaf picked from the assembly. That
+    // substitution is exactly what the distribution policy removes, so there is
+    // now no recipient — every fallback (assembly's first leaf, createdAt, id,
+    // cost share, quantity) is explicitly excluded.
+    //
+    // Nothing here is smart enough to invent one, so it declines to. The
+    // condition is a MISSING OPERATOR INPUT, not a fault, and it is surfaced
+    // where the other missing freight inputs are: `loadUnresolvedQuoteCosts`
+    // refuses the send until the operator says what is in the shipment. Costing
+    // stays loadable meanwhile — a quote that cannot be sent is still a quote
+    // someone is working on.
+    if (members.length === 0) return [];
+    // ONE BREAK PER MEMBER. The amounts stay whole; `memberCount` carries the
+    // split so the engine can state it and the trace can show the operator's
+    // entered figure rather than a divided one.
+    return members.map((memberSkuId) => ({
       freightSubcategoryId: row.subcategoryId,
-      ownerSkuId,
+      memberSkuId,
+      memberCount: members.length,
       tierId: row.tierId,
       tierUnits: row.tierUnits ?? 0,
       treatment: row.treatment,
@@ -463,12 +483,13 @@ async function loadWorksheetFreightForQuote(
       dutyMarkupPct: num(duty?.markupPct ?? null, 0),
       tariffAmount: numOrNull(tariff?.amount ?? null),
       tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
-    };
+    }));
   });
 }
 
 function projectSnapshotWorkbook(
   workbook: FreightWorkbook,
+  frozenAt: Date,
 ): NonNullable<QuoteCostingInput["freightShipmentBreaks"]> {
   const selectedDestinationIds = new Set(
     workbook.subcategories.map((row) => row.selectedDestinationId).filter((id): id is string => id !== null),
@@ -479,34 +500,53 @@ function projectSnapshotWorkbook(
     const entryId = customsBySubcategory.get(subcategoryId);
     return workbook.customsBreaks.find((row) => row.freightCustomsEntryId === entryId && row.tierId === tierId && row.chargeType === chargeType);
   };
-  return selectedBreaks.map((row) => {
+  return selectedBreaks.flatMap((row) => {
     const destination = workbook.destinations.find((candidate) => candidate.id === row.freightDestinationId);
     const subcategory = workbook.subcategories.find((candidate) => candidate.id === destination?.freightSubcategoryId);
     if (!subcategory) throw new ActionGuardError(ERR.VALIDATION, "Freight snapshot contains a drifting destination mapping");
-    // OD-017 · a shipment with no assembly anchors on its own membership. This
-    // is not an assembly requirement reintroduced by another name: a Direct-only
-    // shipment resolves entirely through its recorded membership.
+    // V1 FREIGHT DISTRIBUTION POLICY, applied to a SENT version too.
     //
-    // Assembly-owned shipments deliberately keep the assembly anchor. Their
-    // anchor is the product's lowest-position leaf, which need not be a member
-    // of this particular shipment, so re-deriving it from membership would move
-    // WHICH leaf bears freight on live quotes — a commercial change, not a
-    // structural one, and out of scope here.
-    const ownerSkuId = subcategory.assemblyId
-      ? workbook.costingContext.ownerSkuByAssembly[subcategory.assemblyId]
-      : workbook.costingContext.ownerSkuBySubcategory[subcategory.id];
-    if (!ownerSkuId)
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        subcategory.assemblyId
-          ? "Freight snapshot has no commercial-product costing anchor"
-          : "This shipment has no components, so its freight has nothing to cost against",
-      );
+    // The snapshot carries its own `memberships`, frozen at send, so a
+    // historical read distributes across exactly the products that shipment
+    // contained at the time — not across whatever the live tables say now.
+    // That is the same governed boundary the draft path uses, read from the
+    // frozen copy.
+    const recorded = workbook.memberships
+      .filter((m) => m.freightSubcategoryId === subcategory.id)
+      .map((m) => m.quoteLeafId);
+    // LEGACY COMPATIBILITY — historical preservation, not current policy.
+    //
+    // A sent version is a record of what was sent. DPS-1050 was sent, accepted
+    // and pushed before membership existed as a requirement, and reading it
+    // under the equal-split rule finds no recipient and silently drops $650 of
+    // real cost from a completed customer-facing quote.
+    //
+    // The snapshot already holds the answer: `costingContext` froze the
+    // attribution AT SEND. This reads it. It does not reconstruct one, and if
+    // the record does not carry one it declines — see the resolver, which has
+    // no fallback by design.
+    //
+    // Unreachable from the draft path, which is the real guarantee that a
+    // malformed CURRENT quote cannot be exempted: it is not gated away from
+    // this branch, it cannot arrive at it.
+    const legacy =
+      recorded.length === 0
+        ? resolveLegacyFreightAttribution({
+            frozenAt,
+            subcategoryId: subcategory.id,
+            assemblyId: subcategory.assemblyId ?? null,
+            frozenMemberCount: 0,
+            costingContext: workbook.costingContext,
+          })
+        : null;
+    const members = legacy?.eligible ? [legacy.memberSkuId] : recorded;
+    if (members.length === 0) return [];
     const duty = customsCharge(subcategory.id, row.tierId, "duty");
     const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
-    return {
+    return members.map((memberSkuId) => ({
       freightSubcategoryId: subcategory.id,
-      ownerSkuId,
+      memberSkuId,
+      memberCount: members.length,
       tierId: row.tierId,
       tierUnits: workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0,
       treatment: subcategory.treatment,
@@ -516,7 +556,7 @@ function projectSnapshotWorkbook(
       dutyMarkupPct: num(duty?.markupPct ?? null, 0),
       tariffAmount: numOrNull(tariff?.amount ?? null),
       tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
-    };
+    }));
   });
 }
 
@@ -548,7 +588,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     typeof assemblyProductionInputs.$inferSelect
   >;
   assemblyLeafOverrideRows: Array<typeof assemblyLeafOverrides.$inferSelect>;
-  assemblyLeafTargetRows: Array<typeof assemblyLeafTargets.$inferSelect>;
+  clientTargetRows: Array<typeof quoteClientTargets.$inferSelect>;
   quoteLeafLiftRows: Array<typeof quoteLeafLifts.$inferSelect>;
 }> {
   const [
@@ -557,7 +597,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyLeafInputJoinRows,
     assemblyProductionInputRows,
     assemblyLeafOverrideJoinRows,
-    assemblyLeafTargetJoinRows,
+    clientTargetJoinRows,
     quoteLeafLiftRows,
   ] = await Promise.all([
     timed("nm.assemblies", quoteId, db
@@ -629,14 +669,18 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
         eq(quoteLeaves.id, assemblyLeafOverrides.quoteLeafId),
       )
       .where(eq(quoteLeaves.quoteId, quoteId))),
-    timed("nm.assembly_leaf_targets", quoteId, db
-      .select({ assembly_leaf_targets: assemblyLeafTargets })
-      .from(assemblyLeafTargets)
-      .innerJoin(
-        quoteLeaves,
-        eq(quoteLeaves.id, assemblyLeafTargets.quoteLeafId),
-      )
-      .where(eq(quoteLeaves.quoteId, quoteId))),
+    // Client Target, keyed to the top-level sellable unit. Scoped by
+    // `quote_id` directly — the row names its own quote, so no join is needed
+    // to establish which one it belongs to.
+    //
+    // This replaced a load of `assembly_leaf_targets`, whose key
+    // `(quote_leaf_id, tier_id)` is the right identity for a Direct Product
+    // and the wrong one for an Item Group. See
+    // docs/validation/client-target-identity-trace.md.
+    timed("nm.quote_client_targets", quoteId, db
+      .select({ quote_client_targets: quoteClientTargets })
+      .from(quoteClientTargets)
+      .where(eq(quoteClientTargets.quoteId, quoteId))),
     // Phase 3 · Package 1 — applied surgical lifts, scoped through the
     // CANONICAL attachment. As of OD-017 every leaf-level cost loader above
     // does the same; this one simply got there first.
@@ -668,9 +712,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyLeafOverrideRows: assemblyLeafOverrideJoinRows.map(
       (r) => r.assembly_leaf_overrides,
     ),
-    assemblyLeafTargetRows: assemblyLeafTargetJoinRows.map(
-      (r) => r.assembly_leaf_targets,
-    ),
+    clientTargetRows: clientTargetJoinRows.map((r) => r.quote_client_targets),
     quoteLeafLiftRows,
   };
 }
@@ -798,7 +840,12 @@ export async function getQuoteCosting(
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
-      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+      // Raw rows, not a resolved value. Resolution is `tier ?? common` PER
+      // TIER and belongs to one shared function; a bundle field holding an
+      // already-collapsed number is what the previous model shipped, and the
+      // collapse is the defect.
+      clientTargets: newModelData.clientTargetRows.map((r) => ({
+        assemblyId: r.assemblyId,
         quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
@@ -888,73 +935,24 @@ export async function updateQuoteGlobalPriceAdj(
   });
 }
 
-// ---------- mutation: updateTierPriceAdj (Slice 9.2) ----------
-
-// Per-tier price-adjustment override. NULL = inherit GPA; value =
-// REPLACE GPA for this tier (does not stack — see CLAUDE.md "Slice 9
-// pricing-control columns").
+// ---------- REMOVED: updateTierPriceAdj (Slice 9.2 → removed 2026-08-16) ----------
 //
-// Form contract: tierId, tierPriceAdjPct (percent display string, or
-// empty string to clear → NULL). Audit `tier_price_adj_updated`
-// records from/to including the explicit null-string for clarity.
-export async function updateTierPriceAdj(
-  formData: FormData,
-): Promise<
-  ActionResult<{ tierId: string; tierPriceAdjPct: string | null }>
-> {
-  return runAction(async () => {
-    const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!tierId)
-      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
-
-    const user = await ensureUser();
-    const tierRows = await db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.id, tierId))
-      .limit(1);
-    if (tierRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
-    const tier = tierRows[0];
-
-    // Re-uses the central draft guard via the quote.
-    const quote = await quoteByIdDraft(tier.quoteId);
-
-    const newAdj = parsePercentDisplay(formData.get("tierPriceAdjPct"), {
-      field: "tierPriceAdjPct",
-      label: "Tier price adjustment",
-      nullable: true,
-      minPercent: -99.99,
-      maxPercent: 999,
-    });
-
-    if (numericEquals(tier.tierPriceAdjPct, newAdj)) {
-      return { tierId, tierPriceAdjPct: tier.tierPriceAdjPct };
-    }
-
-    await db
-      .update(quoteTiers)
-      .set({ tierPriceAdjPct: newAdj, updatedAt: new Date() })
-      .where(eq(quoteTiers.id, tierId));
-
-    await logAudit({
-      userId: user.id,
-      entityType: "quote_tier",
-      entityId: tierId,
-      action: "tier_price_adj_updated",
-      diffJson: {
-        tier_price_adj_pct: {
-          from: tier.tierPriceAdjPct,
-          to: newAdj,
-        },
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return { tierId, tierPriceAdjPct: newAdj };
-  });
-}
+// The per-tier price adjustment had TWO writers over one column. Setup's tier
+// row wrote `quote_tiers.tier_price_adj_pct` through this action on a
+// debounce, immediately — no staging, no preview, no Discard — while Pricing
+// staged the same column through `planApply`.
+//
+// Same column, same audit action, same meaning; no distinct semantics on
+// either side. What differed was governance, entirely in Setup's disfavour:
+// this path never participated in the rule that clears tier overrides when the
+// quote-wide rate moves, and it sat outside both staleness guards. An operator
+// could change a committed price from Setup and see no chip for it, and a
+// concurrent write from here could move a lever a Pricing operator had already
+// staged against, with the guard's refusal being the only sign.
+//
+// Pricing is the authority. `applyPricingAdjustments` is the only writer, and
+// the column, its audit action `tier_price_adj_updated`, and every persisted
+// value are unchanged — this removes a door, not a capability.
 
 // ---------- mutation: updateQuoteTargetMargin (Slice 9.2) ----------
 
@@ -1249,175 +1247,23 @@ export async function updateAssemblyLeafOverride(
   });
 }
 
-// ---------- mutation: updateAssemblyLeafTarget (Slice 11.5) ----------
+// ---------- REMOVED: updateAssemblyLeafTarget (Slice 9.4b → removed 2026-08-17) ----------
 //
-// Per-cell client target benchmark on the (assembly_leaf, tier) cell.
-// NEW-model successor to OLD `updateClientTarget` per brief §4.
-// Single action handles set + change + clear via the value-or-null
-// parameter; one audit row per state change with `action:
-// "assembly_leaf_client_target_updated"`; the from/to encodes the
-// transition.
+// The per-(leaf, tier) client-target writer, superseded by
+// `src/app/actions/client-targets.ts`.
 //
-// DB shape: `assembly_leaf_targets` is a sparse sister table to
-// `assembly_leaf_overrides`. Different concern (customer-stated
-// benchmark vs PM-authored override) but identical shape. Lazy rows;
-// NOT NULL on `client_target_price_per_unit` enforces "row exists
-// ⟹ benchmark is set" at the schema level.
-//   - value === null  → DELETE the row
-//   - value > 0       → INSERT ON CONFLICT (PK) DO UPDATE
-//   - value <= 0      → reject (action layer guard).
+// Its identity was wrong for two of the three cases. `assembly_leaf_targets`
+// keys `(quote_leaf_id, tier_id)`: correct for a Direct Product, where the leaf
+// IS the sellable unit; wrong for an Item Group, where a leaf is an internal
+// component nobody named a price for; and with no key at all for an Item Group
+// finished good. A target written against a member was accepted here and then
+// silently ignored by the math layer, which sets `competitiveStatus: null` on
+// assemblies. It also could not express "one target across all tiers", because
+// `tier_id` is NOT NULL and in its primary key.
 //
-// Leaf-only invariant inherent in schema (FK to assembly_leaves;
-// assemblies cannot carry targets — they roll up children).
-//
-// Audit source: no `source` flag. Per CLAUDE.md "Audit source
-// convention" — set/change/clear on the same column = same semantic,
-// share `action`, distinguish via from/to.
-export async function updateAssemblyLeafTarget(
-  formData: FormData,
-): Promise<
-  ActionResult<{
-    quoteLeafId: string;
-    quoteSkuId: string;
-    tierId: string;
-    clientTargetPricePerUnit: string | null;
-  }>
-> {
-  return runAction(async () => {
-    // OD-017 · canonical `quote_leaf_id` (see updateAssemblyLeafOverride).
-    const quoteLeafId = String(formData.get("quoteSkuId") ?? "").trim();
-    const tierId = String(formData.get("tierId") ?? "").trim();
-    if (!quoteLeafId)
-      throw new ActionGuardError(ERR.VALIDATION, "quoteSkuId required");
-    if (!tierId)
-      throw new ActionGuardError(ERR.VALIDATION, "tierId required");
-
-    const user = await ensureUser();
-    const { quote, attachment } = await quoteForQuoteLeaf(quoteLeafId);
-
-    // Verify tier belongs to the same quote.
-    const tierRows = await db
-      .select()
-      .from(quoteTiers)
-      .where(eq(quoteTiers.id, tierId))
-      .limit(1);
-    if (tierRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found");
-    if (tierRows[0].quoteId !== quote.id) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "Tier does not belong to this quote.",
-      );
-    }
-
-    const rawValue = String(
-      formData.get("clientTargetPricePerUnit") ?? "",
-    ).trim();
-    let parsedValue: number | null;
-    if (rawValue === "") {
-      parsedValue = null;
-    } else {
-      const n = Number(rawValue);
-      if (!Number.isFinite(n)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Client target must be a number.",
-        );
-      }
-      if (n <= 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "Client target must be greater than zero. To remove a benchmark, clear the field.",
-        );
-      }
-      parsedValue = n;
-    }
-
-    const existingRows = await db
-      .select()
-      .from(assemblyLeafTargets)
-      .where(
-        and(
-          eq(assemblyLeafTargets.quoteLeafId, quoteLeafId),
-          eq(assemblyLeafTargets.tierId, tierId),
-        ),
-      )
-      .limit(1);
-    const previousValue =
-      existingRows.length > 0
-        ? existingRows[0].clientTargetPricePerUnit
-        : null;
-
-    if (numericEquals(previousValue, parsedValue?.toString() ?? null)) {
-      return {
-        quoteLeafId: attachment.quoteLeafId,
-        quoteSkuId: quoteLeafId,
-        tierId,
-        clientTargetPricePerUnit: previousValue,
-      };
-    }
-
-    let storedValue: string | null;
-    if (parsedValue === null) {
-      await db
-        .delete(assemblyLeafTargets)
-        .where(
-          and(
-            eq(assemblyLeafTargets.quoteLeafId, quoteLeafId),
-            eq(assemblyLeafTargets.tierId, tierId),
-          ),
-        );
-      storedValue = null;
-    } else {
-      const stored = parsedValue.toString();
-      await db
-        .insert(assemblyLeafTargets)
-        .values({
-          quoteLeafId,
-          // Legacy compatibility only — NULL for a Direct Component; read by nothing.
-          assemblyLeafId: attachment.assemblyLeafId,
-          tierId,
-          clientTargetPricePerUnit: stored,
-        })
-        .onConflictDoUpdate({
-          target: [
-            assemblyLeafTargets.quoteLeafId,
-            assemblyLeafTargets.tierId,
-          ],
-          set: {
-            clientTargetPricePerUnit: stored,
-            updatedAt: new Date(),
-          },
-        });
-      storedValue = stored;
-    }
-
-    await logAudit({
-      userId: user.id,
-      entityType: "assembly_leaf_target",
-      entityId: `${quoteLeafId}:${tierId}`,
-      action: "assembly_leaf_client_target_updated",
-      diffJson: {
-        quote_leaf_id: attachment.quoteLeafId,
-        assembly_leaf_id: attachment.assemblyLeafId,
-        tier_id: tierId,
-        client_target_price_per_unit: {
-          from: previousValue,
-          to: storedValue,
-        },
-      },
-    });
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return {
-      quoteLeafId: attachment.quoteLeafId,
-      quoteSkuId: quoteLeafId,
-      tierId,
-      clientTargetPricePerUnit: storedValue,
-    };
-  });
-}
+// It had no production caller and the table held zero rows, so nothing was
+// migrated and no operator expectation changed. Full trace:
+// docs/validation/client-target-identity-trace.md
 
 // ---------- mutation: applyClientTargetSolveTierAdj (Slice 9.4b) ----------
 
@@ -1574,7 +1420,8 @@ export async function applyClientTargetSolveTierAdj(
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
-      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+      clientTargets: newModelData.clientTargetRows.map((r) => ({
+        assemblyId: r.assemblyId,
         quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,
@@ -1894,7 +1741,8 @@ export async function getCostingBundle(
         tierId: r.tierId,
         sellPriceOverride: r.sellPriceOverride,
       })),
-      assemblyLeafTargets: newModelData.assemblyLeafTargetRows.map((r) => ({
+      clientTargets: newModelData.clientTargetRows.map((r) => ({
+        assemblyId: r.assemblyId,
         quoteLeafId: r.quoteLeafId,
         tierId: r.tierId,
         clientTargetPricePerUnit: r.clientTargetPricePerUnit,

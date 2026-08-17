@@ -17,6 +17,7 @@ import { Text, View } from "@react-pdf/renderer";
 
 import { money, serviceFeesTotal, tierGrand, unit } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
+import { unpricedLinePhrase } from "./customer-pdf-unpriced";
 import type {
   CpdfPdfLayout,
   CpdfServiceFee,
@@ -36,16 +37,20 @@ export function GrandTotalRow({
 }: {
   skuSet: ReadonlyArray<CpdfSku>;
   tiers: ReadonlyArray<CpdfTier>;
-  recommendedTierIdx: number;
+  recommendedTierIdx: number | null;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   layout: CpdfPdfLayout;
   foldFees: boolean;
   freightAtCost: boolean;
   allInUnit: boolean;
 }) {
+  // SINGLE-TIER LAYOUT picks which tier to SHOW. With no recommendation it
+  // shows the first — a display choice, not a claim that the tier is
+  // recommended. Nothing in this component says the word.
+  const soloIdx = recommendedTierIdx ?? 0;
   const isSingle = layout === "single_tier";
   const cols = isSingle
-    ? [{ tier: tiers[recommendedTierIdx], ti: recommendedTierIdx }]
+    ? [{ tier: tiers[soloIdx], ti: soloIdx }]
     : tiers.map((t, i) => ({ tier: t, ti: i }));
   const colData = cols.map(({ tier, ti }) => ({
     tier,
@@ -54,6 +59,10 @@ export function GrandTotalRow({
     rec: !isSingle && tier.recommended === true,
   }));
   const anyUnpriced = colData.some((c) => c.hasUnpriced);
+  // Named from the quote, not from the prototype. The literal that stood here
+  // ("CAP-60 · Tier 1") named a mock SKU to every customer whose quote had a
+  // pending line, while their actual pending line went unnamed.
+  const unpricedPhrase = unpricedLinePhrase(skuSet, tiers);
 
   return (
     // Slice 11 Step 3 Fix 2 (CA 2026-06-30): GrandTotalRow (label
@@ -156,8 +165,9 @@ export function GrandTotalRow({
         {anyUnpriced && (
           <Text style={styles.grandNote}>
             <Text style={styles.grandNoteK}>{"From   ".toUpperCase()}</Text>
-            Totals exclude lines marked {"“"}quote on request{"”"}{" "}
-            (CAP-60 · Tier 1); the final total issues once that line is priced.
+            Totals exclude lines marked {"“"}quote on request{"”"}
+            {unpricedPhrase !== null && ` (${unpricedPhrase})`}; the final
+            total issues once those lines are priced.
           </Text>
         )}
       </View>

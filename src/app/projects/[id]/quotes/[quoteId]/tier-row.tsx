@@ -1,19 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import {
-  deleteTier,
-  setTierRecommended,
-  updateTier,
-} from "@/app/actions/quotes";
-import { updateTierPriceAdj } from "@/app/actions/costing";
+import { deleteTier, updateTier } from "@/app/actions/quotes";
 
 type Tier = {
   id: string;
   label: string;
   qty: number | null;
   recommended: boolean;
-  tierPriceAdjPct: string | null;
 };
 
 const DEBOUNCE_MS = 500;
@@ -49,17 +43,11 @@ export function TierRow({
 }) {
   const [label, setLabel] = useState(tier.label);
   const [qty, setQty] = useState(tier.qty == null ? "" : String(tier.qty));
-  const [priceAdj, setPriceAdj] = useState(
-    tier.tierPriceAdjPct === null
-      ? ""
-      : (Number(tier.tierPriceAdjPct) * 100).toString(),
-  );
-
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef({ label, qty, priceAdj });
-  stateRef.current = { label, qty, priceAdj };
+  const stateRef = useRef({ label, qty });
+  stateRef.current = { label, qty };
 
   useEffect(
     () => () => {
@@ -68,7 +56,7 @@ export function TierRow({
     [],
   );
 
-  type Overrides = Partial<{ label: string; qty: string; priceAdj: string }>;
+  type Overrides = Partial<{ label: string; qty: string }>;
 
   function scheduleLabelQtySave(overrides: Overrides = {}) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -86,21 +74,6 @@ export function TierRow({
     }, DEBOUNCE_MS);
   }
 
-  function schedulePriceAdjSave(overrides: Overrides = {}) {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const s = { ...stateRef.current, ...overrides };
-      const fd = new FormData();
-      fd.set("tierId", tier.id);
-      fd.set("tierPriceAdjPct", s.priceAdj);
-      startTransition(async () => {
-        const r = await updateTierPriceAdj(fd);
-        if (!r.ok) setSaveError(r.error.message);
-        else setSaveError(null);
-      });
-    }, DEBOUNCE_MS);
-  }
-
   function handleDelete() {
     if (!confirm(`Delete tier "${label}"?`)) return;
     const fd = new FormData();
@@ -108,17 +81,6 @@ export function TierRow({
     startTransition(async () => {
       const r = await deleteTier(fd);
       if (!r.ok) setSaveError(r.error.message);
-    });
-  }
-
-  function handleToggleRecommended() {
-    const fd = new FormData();
-    fd.set("tierId", tier.id);
-    fd.set("recommended", tier.recommended ? "false" : "true");
-    startTransition(async () => {
-      const r = await setTierRecommended(fd);
-      if (!r.ok) setSaveError(r.error.message);
-      else setSaveError(null);
     });
   }
 
@@ -136,28 +98,21 @@ export function TierRow({
           }}
           aria-label="Tier label"
         />
-        {tier.recommended ? (
-          <button
-            type="button"
-            className="rec rec-clickable"
-            onClick={handleToggleRecommended}
-            disabled={disabled || pending}
-            aria-label="Recommended tier — click to clear"
-            title="Recommended tier — click to clear"
+        {/* The recommendation is SET on Pricing now, and the row still shows
+            it. Setting it here meant deciding, on Setup, which tier the quote
+            is priced and ordered at — while the only three figures that depend
+            on that decision (order value, blended margin, the sentence the
+            customer PDF prints) live two surfaces away and could not be seen
+            while making it. The star was also the one place the decision
+            existed, so a PM reading Pricing's "None chosen" had nowhere on
+            that page to go. */}
+        {tier.recommended && (
+          <span
+            className="rec"
+            title="Recommended tier — set on Pricing"
           >
             ★ recommended
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="rec-set"
-            onClick={handleToggleRecommended}
-            disabled={disabled || pending}
-            aria-label="Mark as recommended tier"
-            title="Mark as recommended tier (clears siblings)"
-          >
-            ☆ mark recommended
-          </button>
+          </span>
         )}
       </div>
       <div className="qty">
@@ -176,21 +131,17 @@ export function TierRow({
           aria-label="Quantity"
         />
       </div>
-      <div className="adj">
-        <input
-          type="number"
-          step="0.01"
-          placeholder="—"
-          value={priceAdj}
-          disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setPriceAdj(v);
-            schedulePriceAdjSave({ priceAdj: v });
-          }}
-          aria-label="Per-tier price adjustment percent"
-        />
-      </div>
+      {/* The per-tier price adjustment used to be authored here.
+          It is not a second way to do the same thing — it was a SECOND
+          AUTHORITY over one column. This input wrote
+          `quote_tiers.tier_price_adj_pct` on a debounce, immediately: no
+          staging, no preview, no Discard, outside the plan that clears tier
+          overrides when the quote-wide rate moves, and outside both staleness
+          guards. An operator could change a committed price here and never see
+          a chip for it.
+          Pricing owns the lever now — staged, previewed against the exact
+          state Apply will write, and refused when someone else moved it first.
+          The column and its audit action are unchanged; only this door is. */}
       <div className="actions">
         <button
           type="button"

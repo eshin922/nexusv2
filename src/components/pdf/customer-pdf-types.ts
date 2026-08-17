@@ -117,7 +117,13 @@ export type CpdfData = {
   customer: CpdfCustomer;
   quote: CpdfQuote;
   tiers: ReadonlyArray<CpdfTier>;
-  recommendedTierIdx: number;
+  /**
+   * Index of the recommended tier, or NULL when the firm has recommended none.
+   *
+   * Was non-null with a middle-tier fallback upstream, which meant the document
+   * could not represent "no recommendation" and therefore always made one.
+   */
+  recommendedTierIdx: number | null;
   skus: ReadonlyArray<CpdfSku>;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;

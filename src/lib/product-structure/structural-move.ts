@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { db } from "../../db/index.ts";
 import {
   assemblies,
+  quoteClientTargets,
   assemblyLeafInputs,
   assemblyLeafOverrides,
   assemblyLeafTargets,
@@ -68,6 +69,13 @@ export type StructuralMoveEvidence = {
   position: number;
   /** Dependent rows whose `assembly_leaf_id` was re-pointed or nulled. */
   dependentsRepointed: number;
+  /**
+   * Client targets removed because the product stopped being a sellable unit.
+   *
+   * Non-zero only when a Direct Product moved INTO a group. Reported rather
+   * than silent: the operator entered those numbers.
+   */
+  clientTargetsDropped: number;
 };
 
 /** The four dual-keyed tables. Named once so a new one cannot be half-handled. */
@@ -77,6 +85,12 @@ const DEPENDENT_TABLES = [
   assemblyLeafTargets,
   freightSubcategoryItems,
 ] as const;
+
+// `quote_client_targets` is deliberately NOT in that list. These four are the
+// DUAL-KEYED tables, carrying both a canonical `quote_leaf_id` and the legacy
+// `assembly_leaf_id` that a move has to re-point. Client Target has no legacy
+// column to re-point — it keys the sellable unit directly — so a move either
+// leaves it alone or invalidates it outright, which is handled above.
 
 /**
  * Re-point every dependent economic row from one junction to another, or to
@@ -200,6 +214,32 @@ export async function moveStructuralMembership(
   }
   // else: already Direct and staying Direct — position-only change below.
 
+  // A DIRECT PRODUCT MOVING INTO A GROUP STOPS BEING A SELLABLE UNIT.
+  //
+  // Client Target is keyed to the top-level sellable unit, and a Direct Product
+  // qualifies precisely because `quote_leaves.assembly_id IS NULL`. Move it
+  // inside an Item Group and it becomes an internal member — the one identity
+  // the target model refuses, because a client names a price for the finished
+  // product and not for a component of it.
+  //
+  // The row would survive this move on its own: the FK still resolves and the
+  // CHECK still holds. It would then be emitted as a target on a member leaf,
+  // and the engine — which supports leaf-level targets — would compute a
+  // verdict against it. A benchmark the customer never gave, on a component
+  // they are not buying.
+  //
+  // So it is removed, and `clientTargetsDropped` reports how many, because a
+  // structural move that quietly discards a commercial input is the kind of
+  // loss nobody finds until they go looking for the number they entered.
+  let clientTargetsDropped = 0;
+  if (args.target.kind === "group" && fromAssemblyId === null) {
+    const dropped = await tx
+      .delete(quoteClientTargets)
+      .where(eq(quoteClientTargets.quoteLeafId, canonical.id))
+      .returning({ id: quoteClientTargets.id });
+    clientTargetsDropped = dropped.length;
+  }
+
   await tx
     .update(quoteLeaves)
     .set({
@@ -240,6 +280,7 @@ export async function moveStructuralMembership(
     quantity: canonical.quantity,
     position: resolvedPosition,
     dependentsRepointed,
+    clientTargetsDropped,
   };
 }
 

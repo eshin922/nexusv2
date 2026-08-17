@@ -170,13 +170,19 @@ export default async function MarkAcceptedPage({
     };
   });
 
-  // §6.b Step 5 prep (Pattern 22 #7) — read recommended tier from
-  // quote_tiers.recommended. Replaces the prior "middle tier"
-  // hardcoded stub. Legacy fallback: when no tier is marked
-  // recommended (quotes created before §6.b), default to the middle
-  // tier so Mark-Accepted always surfaces a recommendation. PM
-  // overrides via the ★ toggle on Setup; once toggled, fallback
-  // doesn't run.
+  // The recommended tier, as recorded — and NOT invented when there is none.
+  //
+  // A legacy fallback used to default to the middle tier
+  // (`Math.floor(tierData.length / 2)`) "so Mark-Accepted always surfaces a
+  // recommendation". It always surfaced one; it just was not the firm's. This
+  // is the same fabrication Item 1 removed from the customer PDF, which had
+  // defaulted to index 0 — position is not a recommendation, and a quote with
+  // none has none.
+  //
+  // Its comment also told the reader to override "via the ★ toggle on Setup",
+  // which no longer exists: the recommendation is set on Pricing, where the
+  // three figures that depend on it are. A fallback whose escape hatch has
+  // moved is a fallback nobody can get out of.
   const tierRecommendedRows = await db
     .select({ id: quoteTiers.id, recommended: quoteTiers.recommended })
     .from(quoteTiers)
@@ -188,9 +194,6 @@ export default async function MarkAcceptedPage({
     if (idx !== -1) {
       tierData[idx] = { ...tierData[idx], recommended: true };
     }
-  } else if (tierData.length > 0) {
-    const recIdx = Math.floor(tierData.length / 2);
-    tierData[recIdx] = { ...tierData[recIdx], recommended: true };
   }
 
   // Null stays null through the unit conversion. `null * 100` is 0 in

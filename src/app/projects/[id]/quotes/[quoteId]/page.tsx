@@ -2,7 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { projects, quotes, quoteTiers, users } from "@/db/schema";
+import {
+  projects,
+  quoteClientTargets,
+  quotes,
+  quoteTiers,
+  users,
+} from "@/db/schema";
 // canonical-scenario-create-flow Step 3 — legacy SKU table imports
 // removed: quoteSkus, packagingInputs, productionInputs (data
 // sources), buildTreeRenderOrder, getEligibleParents (helpers),
@@ -112,6 +118,14 @@ export default async function QuoteBuilderPage({
     .from(quoteTiers)
     .where(eq(quoteTiers.quoteId, quote.id))
     .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+
+  // Client Target rows for the whole quote — raw, and resolved where they are
+  // read. One query rather than one per sellable unit; the table carries
+  // `quote_id` so no join is needed to scope it.
+  const clientTargetRows = await db
+    .select()
+    .from(quoteClientTargets)
+    .where(eq(quoteClientTargets.quoteId, quote.id));
 
   const editable = quote.status === "draft";
 
@@ -264,6 +278,13 @@ export default async function QuoteBuilderPage({
         <AssemblyTreeView
           tree={assemblyTree}
           editable={editable}
+          tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
+          clientTargets={clientTargetRows.map((r) => ({
+            assemblyId: r.assemblyId,
+            quoteLeafId: r.quoteLeafId,
+            tierId: r.tierId,
+            clientTargetPricePerUnit: Number(r.clientTargetPricePerUnit),
+          }))}
           projectId={projectId}
           quoteId={quoteId}
           itemGroupCategories={productTypeOptions.itemGroupCategories}
@@ -274,8 +295,8 @@ export default async function QuoteBuilderPage({
 
       {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
           Decision 5. Same card chrome + footer pill grammar as the
-          SKU table. 5-column layout: Label · ★ · Qty · Price adj % ·
-          ×. Tier preset picker lives in Step 6 (empty-state). */}
+          SKU table. Layout: Label · ★ · Qty · ×. Tier preset picker
+          lives in Step 6 (empty-state). */}
       {/* §6.b path-B migration commit 4 — Tier table → canonical
           r7b-card / r7b-tier-* structure (7bsetup.jsx TierRail
           lines 250-309 + 7bstyles.css .r7b-tier-* rules at line
@@ -302,12 +323,14 @@ export default async function QuoteBuilderPage({
           <TierPresetPicker quoteId={quote.id} disabled={!editable} />
         ) : (
           <>
-            {/* Canonical .r7b-tier-thead — 4 columns:
-                1fr · 100px · 90px · 28px (label · qty · adj · actions) */}
+            {/* THREE columns now: label · qty · actions.
+                The Price adj column went with its input — the per-tier
+                adjustment is authored on Pricing, staged and previewed there.
+                The header outlived the cell by one commit, which left the
+                actions column rendering in the adjustment's slot. */}
             <div className="r7b-tier-thead">
               <span>Tier</span>
               <span className="num">Qty</span>
-              <span className="num">Price adj</span>
               <span></span>
             </div>
             {tiers.map((t) => (
@@ -318,7 +341,6 @@ export default async function QuoteBuilderPage({
                   label: t.label,
                   qty: t.qty,
                   recommended: t.recommended,
-                  tierPriceAdjPct: t.tierPriceAdjPct,
                 }}
                 disabled={!editable}
               />
