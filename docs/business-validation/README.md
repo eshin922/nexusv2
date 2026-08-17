@@ -35,6 +35,7 @@ the business contract.
 - [BV-010 — Blended Margin Definition](BV-010-blended-margin-definition.md)
 - [BV-011 — Production / OTC Accounting Map](BV-011-production-otc-accounting-map.md) — classification only; authorizes no implementation
 - [BV-012 — Production Cost Ownership](BV-012-production-cost-ownership.md) — where Production economics belong; distinct from BV-011's destinations
+- [BV-013 — Production Markup Authority](BV-013-production-markup-authority.md) — one shared `Production` rate; pricing policy, not accounting destination
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
 BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).
