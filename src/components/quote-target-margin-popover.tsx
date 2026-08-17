@@ -241,7 +241,7 @@ export function QuoteTargetMarginPopover({
         }
         aria-expanded={open}
         title="Per-quote target margin"
-        className="ml-1 inline-flex shrink-0 items-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[11px] leading-none text-gray-700 hover:border-gray-400 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
+        className="psr-target-trigger"
       >
         ⚙
       </button>
@@ -257,22 +257,18 @@ export function QuoteTargetMarginPopover({
             width: POPOVER_WIDTH_PX,
             visibility: position ? "visible" : "hidden",
           }}
-          className="z-50 rounded-md border border-gray-200 bg-white p-4 text-sm shadow-lg"
+          className="psr-target-pop"
         >
-          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Target margin
-          </div>
+          <div className="psr-target-pop-head">Target margin</div>
 
-          <div className="mb-2 flex items-baseline justify-between text-xs text-gray-600">
+          <div className="psr-target-pop-row">
             <span>Firm default</span>
-            <span className="tabular-nums">
-              {fmtPct(firmSettings.targetMarginPct)}
-            </span>
+            <span className="num">{fmtPct(firmSettings.targetMarginPct)}</span>
           </div>
 
-          <label className="mb-3 flex items-center justify-between gap-2 text-xs">
-            <span className="text-gray-700">This quote</span>
-            <div className="flex items-center gap-1">
+          <label className="psr-target-pop-row edit">
+            <span>This quote</span>
+            <div className="field">
               <input
                 type="number"
                 inputMode="decimal"
@@ -292,41 +288,43 @@ export function QuoteTargetMarginPopover({
                   firmSettings.targetMarginPct,
                 )}
                 aria-label="Per-quote target margin override"
-                className="w-20 rounded border border-gray-300 bg-white px-2 py-1 text-right text-sm tabular-nums focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                className="psr-target-input"
               />
-              <span className="text-xs text-gray-400">%</span>
+              <span className="unit">%</span>
             </div>
           </label>
 
-          <div className="mb-3 flex items-baseline justify-between rounded bg-gray-50 px-2 py-1 text-xs">
-            <span className="text-gray-600">Currently effective</span>
-            <span className="tabular-nums text-gray-900">
+          <div className="psr-target-pop-row effective">
+            <span>Currently effective</span>
+            <span className="num">
               {effectivePreview.value === null ? "—" : fmtPct(effectivePreview.value)}{" "}
-              <span className="text-[10px] text-gray-500">
-                ({effectivePreview.source})
-              </span>
+              <span className="src">({effectivePreview.source})</span>
             </span>
           </div>
 
           {validationError && (
-            <p className="mb-2 text-[11px] text-red-700" role="alert">
+            <p className="psr-target-err" role="alert">
               {validationError}
             </p>
           )}
           {error && !validationError && (
-            <p className="mb-2 text-[11px] text-red-700" role="alert">
+            <p className="psr-target-err" role="alert">
               {error}
             </p>
           )}
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="psr-target-pop-actions">
             {overrideIsActive && (
               <button
                 type="button"
                 onClick={revertToFirm}
                 disabled={pending}
-                title="Clear override and inherit firm-level target"
-                className="mr-auto rounded border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                title={
+                  pending
+                    ? "Saving — the revert will be available in a moment."
+                    : "Clear override and inherit firm-level target"
+                }
+                className="psr-target-btn revert"
               >
                 ↺ revert to firm
               </button>
@@ -334,16 +332,22 @@ export function QuoteTargetMarginPopover({
             <button
               type="button"
               onClick={() => setOpen(false)}
-              disabled={pending}
-              className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              // Pattern 47(f): NOT gated on `pending`. Cancel initiates no
+              // write, so an in-flight save must not trap the operator in a
+              // dialog they have decided to leave. The save completes either
+              // way; dismissing the popover does not cancel it, which is why
+              // this is safe as well as correct.
+              className="psr-target-btn"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={() => attemptSave(draft)}
+              // Its OWN action's pending — double-click protection, permitted
+              // on buttons by Pattern 47(e), scoped by (f).
               disabled={pending}
-              className="rounded border border-blue-700 bg-blue-700 px-3 py-1 text-xs font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+              className="psr-target-btn primary"
             >
               {pending ? "Saving…" : "Save"}
             </button>
