@@ -25,13 +25,25 @@ import type { QuoteState } from "@/lib/pricing-classifier";
 import { fmtPct, fmtPct0 } from "./format";
 
 // ──────────────────────────────────────────────────────────────────
-// StateLine — always rendered. Status pill + lead + qualifiers.
+// StateLine — readiness qualifiers. Renders nothing when it has none.
 // ──────────────────────────────────────────────────────────────────
+//
+// P-UX-1 (2026-08-17): this carried a status pill and a compliance LEAD
+// ("REVIEW · 3 tiers below target") that the page already stated twice above
+// it — in the page sub-copy and, substantively, in StateCallout/StateCard,
+// which name the worst tier, the blended margin, the target and the floor.
+// Three statements of one fact, stacked between the operator and the grid
+// that B-16 had just made the most precise source of truth on the surface.
+//
+// COLLAPSED, not deleted, because the qualifiers are NOT restatements:
+// "12 cells awaiting raws" is a readiness fact with no other home. The pill
+// and the lead are gone; the qualifiers and the just-updated chrome stay.
 //
 // `justUpdated` is page-composer state (set true for 30s after a
 // mode transition per brief §6 + designer notes §4.6 / §9.2
 // pushback 2). When true, renders the persistent "just updated"
-// hint per round-2 disposition.
+// hint per round-2 disposition. It survives the collapse because it marks a
+// TRANSITION, not a state — the one thing here nothing else says.
 
 export function StateLine({
   state,
@@ -41,25 +53,12 @@ export function StateLine({
   justUpdated?: boolean;
 }) {
   const sl = state.state_line;
-  // Pill class mirrors the 4 state-line statuses; falls back to
-  // 'review' for forward-compat if a new status string slips through
-  // (the verifier asserts the 4-value enum is closed, so this is
-  // belt-and-suspenders).
-  const pillClass: "sendable" | "review" | "blocked" | "provisional" =
-    sl.status === "sendable" ||
-    sl.status === "review" ||
-    sl.status === "blocked" ||
-    sl.status === "provisional"
-      ? sl.status
-      : "review";
+  // Nothing to qualify and no transition to mark: render nothing rather than
+  // an empty rule. `sl.status` and `sl.lead` are deliberately NOT read here —
+  // see the note above.
+  if (sl.qualifiers.length === 0 && !justUpdated) return null;
   return (
     <div className="psr-state-line">
-      <span className={"pill " + pillClass}>
-        <span className="dot" />
-        {sl.status}
-        {sl.status === "provisional" ? " *" : ""}
-      </span>
-      <span className="lead">{sl.lead}</span>
       {sl.qualifiers.map((q, i) => (
         <span key={i} className="qualifier">
           {q}

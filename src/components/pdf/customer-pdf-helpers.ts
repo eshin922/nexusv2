@@ -2,7 +2,10 @@
 // Source: docs/design-prototypes/dist/Nexus Customer PDF Render/app/cpdf/
 //         pdf-render.jsx:12-38
 //
-// money/unit/qtyK/longDate match CD's formatters byte-for-byte.
+// qtyK/longDate match CD's formatters byte-for-byte. money/unit no longer do:
+// both now delegate to the governed money-display path (2026-08-17), which
+// supersedes CD's magnitude-inferred precision and its double-rounding. See
+// `src/lib/money-display.ts` for the rule and the defect it replaces.
 // lineTotal/tierGrand consume the fixture tier shape (`tiers[ti].quantity`)
 // per CD's source. Adapter (Step 4) supplies tier data sourced from
 // the costing bundle.
@@ -10,23 +13,28 @@
 // Pattern 45 boundary: pure functions over customer-visible numerics.
 // No costing-store imports, no cost-side reads, no margin/markup access.
 
+import { extendedAmount, unitPrice } from "@/lib/money-display";
+
 import type { CpdfServiceFee, CpdfSku, CpdfTier } from "./customer-pdf-types";
 
-/** USD; 0 dp ≥ $100 else 2 dp; null → "—".
- * CD `pdf-render.jsx:15-19`. */
-export function money(n: number | null | undefined): string {
-  if (n == null) return "—";
-  const dp = Math.abs(n) >= 100 ? 0 : 2;
-  return (
-    "$" +
-    n.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })
-  );
-}
+/**
+ * An extended amount — line total, service fee, turnkey total, grand total.
+ * 2 dp at every magnitude; null → "—".
+ *
+ * CD `pdf-render.jsx:15-19` specified 0 dp at ≥ $100. That is superseded by the
+ * governed customer-display rule (2026-08-17): trailing cents are preserved, so
+ * `$100.50` no longer prints as `$101`. Pattern 30 keeps canonical CSS
+ * verbatim; it does not license a formatter that rounds fifty cents off a
+ * customer document.
+ */
+export const money = extendedAmount;
 
-/** Always 2 dp; null → "—". CD `pdf-render.jsx:20`. */
-export function unit(n: number | null | undefined): string {
-  return n == null ? "—" : "$" + n.toFixed(2);
-}
+/** A per-unit price. 2 dp; null → "—". CD `pdf-render.jsx:20`.
+ *
+ * Was `"$" + n.toFixed(2)`, which rounds the IEEE-754 double and therefore
+ * disagreed with Pricing on exact halves — `2.8350` printed `$2.83` here and
+ * `$2.84` there. ROUND-1. */
+export const unit = unitPrice;
 
 /** "5k" vs "5,000". CD `pdf-render.jsx:21`. */
 export function qtyK(n: number): string {

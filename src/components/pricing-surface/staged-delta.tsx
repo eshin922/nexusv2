@@ -19,6 +19,7 @@
 
 import { nodeDelta, marginPointsDelta, type NodeDelta } from "@/lib/pricing-delta";
 import type { CostingGraph } from "@/lib/costing-nodes";
+import { ladderAmount } from "@/lib/money-display";
 
 function sign(n: number): string {
   return n > 0 ? "+" : "−";
@@ -36,7 +37,8 @@ export function StagedDelta({
 }) {
   const d = nodeDelta(committedGraph, previewGraph, nodeKey);
   if (d === null) return null;
-  return <DeltaChip d={d} format={(v) => `$${Math.abs(v).toFixed(4)}`} />;
+  // Magnitude only — DeltaChip renders the direction. Governed money display.
+  return <DeltaChip d={d} format={(v) => ladderAmount(Math.abs(v))} />;
 }
 
 /** A margin movement, in points. */

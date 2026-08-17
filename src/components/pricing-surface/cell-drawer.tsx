@@ -39,19 +39,14 @@ import type { CellRef } from "@/lib/pricing-staging";
 import type { CostingGraph } from "@/lib/costing-nodes";
 import { CellAction } from "./cell-action";
 import { PricingTrace } from "./pricing-trace";
+import { ladderAmount } from "@/lib/money-display";
 
 function fmtPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function fmtUsd(v: number): string {
-  return v.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  });
-}
+/** Governed money display at ladder precision — see `src/lib/money-display.ts`. */
+const fmtUsd = ladderAmount;
 
 /**
  * What the drawer is open on.

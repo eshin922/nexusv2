@@ -6,17 +6,25 @@
 // instead of redefining inline so output stays consistent across the
 // STATE / ACTION / DETAIL zones.
 
+import { extendedAmount, ladderAmount } from "@/lib/money-display";
+
 export const fmtPct = (v: number | null | undefined): string =>
   v == null ? "—" : (v * 100).toFixed(1);
 
 export const fmtPct0 = (v: number | null | undefined): string =>
   v == null ? "—" : (v * 100).toFixed(0);
 
-export const fmtUsd = (v: number | null | undefined): string =>
-  v == null ? "—" : "$" + Math.round(v).toLocaleString();
+/**
+ * An extended amount — order value, line total, turnkey total.
+ *
+ * Was `Math.round(v)`, i.e. whole dollars. The governed customer-display rule
+ * (2026-08-17) preserves trailing cents at every magnitude, and this figure is
+ * the same semantic amount the customer PDF prints as its grand total — so
+ * whole dollars here would guarantee the two disagree by up to 50 cents.
+ */
+export const fmtUsd = extendedAmount;
 
-export const fmtUsd2 = (v: number | null | undefined): string =>
-  v == null ? "—" : "$" + v.toFixed(2);
+export const fmtUsd2 = extendedAmount;
 
 /**
  * Four decimals, for the Cost Stack's price ladder.
@@ -29,8 +37,7 @@ export const fmtUsd2 = (v: number | null | undefined): string =>
  * sitting under numbers that appear to contradict it is worse than either
  * alone.
  */
-export const fmtUsd4 = (v: number | null | undefined): string =>
-  v == null ? "—" : "$" + v.toFixed(4);
+export const fmtUsd4 = ladderAmount;
 
 export const fmtQty = (v: number | null | undefined): string =>
   v == null ? "—" : v.toLocaleString();
