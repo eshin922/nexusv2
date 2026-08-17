@@ -29,11 +29,18 @@ require it:
 - a **separately billed Item Group** OTC/service charge must reach the SO as an
   explicit line **associated with the owning Item Group**.
 
-**F2 — where are allocation-OFF fees billed? → ON THE SO.** The current state,
-where the PDF can show a separately billed fee that `totalRevenue` and the SO
-omit, is **not preserved**. The Sales Order must represent the accepted
-commercial total. This is the direction, not the mechanism; the reconciliation
-is implementation-sequenced.
+**F2 — where are allocation-OFF fees billed? → ON THE SO, AND THE MECHANISM IS
+SETTLED TOO.** The state where the PDF shows a separately billed fee that
+`totalRevenue` and the SO omit is **not preserved**.
+
+`Accepted Commercial Total = unit-based sell revenue + separately billed
+OTC/service lines`. `totalRevenue` keeps its unit-economics meaning — growing it
+would silently change Pricing's margin semantics everywhere it is read — and the
+Quote/SO reconciliation authority composes the OTC lines explicitly on top.
+BV-012 §5.g.
+
+**Freezing settles with it:** the OTC line set and amounts freeze at the
+acceptance/send boundary and are never first derived at push. BV-012 §5.h.
 
 **F4 — are OTC lines inside the Item Group's `composition_hash`? → NO.**
 `composition_hash` represents finished-good product structure. Packaging /
@@ -49,8 +56,19 @@ Service does not expose it and does not route through it. What remains open is
 whether allocation stays uniform across Item Group OTC destinations, and whether
 an Inventory-Item OTC may be amortised into unit cost.
 
-**Unchanged and still open:** A1, A2, B1–B4, D1/D2 (settled separately by
-BV-013), E1–E3, F3.
+**B1 — which unrepresented destinations get inputs? → PARTIALLY SETTLED.** The
+five governed Direct Service identities — Formulation, Filling / Blending,
+Pack-out / Assembly, Testing / Micros, Other Service — need authoring surfaces
+as Direct Services. The rest (Setup, Tooling, Artwork, Dies, Print Plates,
+Samples / PPS, Processing Fee, Freight / Duties / Tariffs, Customs, Cartons,
+Bulk Raw) are **not** promoted to Direct Services, and their Item Group input
+question is unchanged. BV-012 §5.f.
+
+**A2 — Bulk Raw → NOT a Direct Service.** Material/input economics, inside an
+Item Group envelope. Its *markup* question was settled separately by BV-013;
+its *sellability* is settled here.
+
+**Unchanged and still open:** A1, B2–B4, E1–E3, F3. (D1/D2 settled by BV-013.)
 
 ---
 

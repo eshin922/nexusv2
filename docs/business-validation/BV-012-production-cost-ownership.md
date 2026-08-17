@@ -193,6 +193,75 @@ expansion**, not conversion.
 V1 requires the smallest safe operator path, not a generalized fulfillment
 engine.
 
+### 5.f The governed V1 Direct Service vocabulary — a closed set
+
+Only identities the firm actually sells directly are Direct Services:
+
+- **Formulation**
+- **Filling / Blending**
+- **Pack-out / Assembly**
+- **Testing / Micros**
+- **Other Service**
+
+**BV-011 destinations are NOT automatically promoted into Direct Services.** The
+accounting map answers *where a cost projects*; it does not answer *what is
+sellable on its own*. These remain Item Group / OTC accounting inputs and must
+not appear in `Add Direct Service` without separate approval:
+
+`Setup` · `Tooling` · `Artwork` · `Dies` · `Print Plates` · `Samples / PPS` ·
+`Processing Fee` · `Freight / Duties / Tariffs` · `Customs` · `Cartons` ·
+`Bulk Raw`
+
+**Bulk Raw specifically is not a Direct Service.** It is material/input
+economics. It may belong inside an Item Group's finished-good envelope; it is
+not offered as a standalone sellable unit.
+
+The Product Library service classification expresses one of the five governed
+identities, **and that identity determines which Production input the Costs
+surface exposes.** A Filling service exposes filling, not formulation.
+
+### 5.g The accepted commercial total composes; it does not redefine unit revenue
+
+> **Accepted Commercial Total = unit-based sell revenue + separately billed
+> OTC/service lines.**
+
+Separately billed OTC charges are part of what the customer accepted and **must
+reach the NetSuite Sales Order.** The state where the PDF shows a separately
+billed fee that the SO omits is not preserved.
+
+**The mechanism matters as much as the direction.** `totalRevenue` is
+unit-economics revenue and feeds margin. Growing it to absorb separately billed
+OTC would silently change Pricing's margin semantics on every surface that reads
+it — a different defect, introduced to fix this one.
+
+So the priced sellable unit's `totalRevenue` and margin semantics stay as the
+engine means them, and the **Quote/SO reconciliation authority composes the OTC
+lines explicitly** on top. Two figures, each meaning one thing.
+
+**The SO must equal what the customer accepted.**
+
+### 5.h OTC lines freeze at the commercial boundary, not at push
+
+The OTC line set and its amounts freeze at the **same acceptance/send boundary
+as the rest of the quote**. The authoritative set is never derived for the first
+time at NetSuite push.
+
+The accepted/sent commercial snapshot must be sufficient to reconstruct exactly:
+
+- which OTC lines were separately billed;
+- their amounts;
+- their owning sellable unit / Item Group association;
+- the customer-facing total.
+
+**NetSuite push consumes that frozen representation** rather than re-evaluating
+current mutable policy or configuration.
+
+This is the anti-drift principle already carried by the commercial pins and by
+`quote_snapshot_artifacts`, whose own header states the invariant: *a sent
+version must be reconstructable from immutable data, without depending on future
+costing, pricing, Library, firm-settings or live quote behaviour.* OTC lines
+join that set rather than becoming an exception to it.
+
 ---
 
 ## 4. Related authority

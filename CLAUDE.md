@@ -5671,6 +5671,42 @@ to reconcile is not that contract.
 - Pattern 50 (compliance-basis intersection state) — two subsystems agreeing by
   coincidence rather than construction.
 
+## Branch off the integration branch, or the squash carries what you did not intend
+
+**Standing rule — banked 2026-08-17 from the #287/#288 incident.**
+
+> A feature branch cut from another feature branch inherits its commits. When
+> the child is squash-merged, the parent's content lands too — without the
+> parent's review.
+
+**Reference moment.** `docs/direct-service-trace` was cut while checked out on
+`fix/legacy-pin-backfill` rather than on `main`. Merging the docs PR (#288)
+carried migration `0078`, a schema nullability change, and two scripts onto
+`main`. The open PR for that work (#287) was still awaiting review and became
+redundant the moment the docs merged.
+
+Nothing broke — the migration had already been applied to the shared database
+and the code was proven. **That is the trap.** The outcome was fine, so the
+process failure leaves no symptom; the next occurrence could ship an unreviewed
+schema migration to the shared production database on the strength of a docs
+PR, and it would look exactly as uneventful until it didn't.
+
+**The check, before pushing any branch:**
+
+```
+git log --oneline main..HEAD     # every commit here ships when this merges
+```
+
+If that shows a commit belonging to different work, the branch has the wrong
+ancestor. Re-cut from `main` and cherry-pick, rather than reasoning that the
+extra commit is harmless.
+
+**Recognition heuristic.** Creating a branch while not on `main` is the whole
+of the mistake. `git switch -c <name> main` states the base explicitly and costs
+nothing; `git checkout -b <name>` inherits wherever you happen to be standing.
+
+---
+
 ## Merge and certification evidence must use repository-governed test commands
 
 **Standing rule — banked 2026-08-06 from the Costs certification merge gate.**

@@ -149,41 +149,75 @@ review. Certification is the gate, not the last coding step.
 
 ---
 
-## Genuinely unresolved — these still block
+## The four blocking questions — SETTLED 2026-08-17
 
-**Q-A · What is "the accepted commercial total" once OTC lines exist? (blocks 8)**
-Today `totalRevenue` excludes allocation-OFF fees while the PDF folds them into
-the grand total. The disposition settles that the SO must carry them. It does
-not settle whether `totalRevenue` grows to include them (changing a figure many
-surfaces read, including margin) or whether the SO composes its total from
-`totalRevenue` **plus** OTC lines (leaving `totalRevenue` a unit-economics
-figure). **These produce identical SO totals and different Pricing surfaces**,
-so it cannot be deferred to implementation.
+| # | Settled as | Authority |
+|---|---|---|
+| **Q-A** | `Accepted Commercial Total = unit-based sell revenue + separately billed OTC/service lines`. `totalRevenue` keeps its unit-economics meaning; the reconciliation authority composes OTC explicitly on top | BV-012 §5.g |
+| **Q-B** | Bulk Raw is **not** a Direct Service — material/input economics, inside an Item Group envelope | BV-012 §5.f |
+| **Q-C** | Five governed identities: Formulation · Filling / Blending · Pack-out / Assembly · Testing / Micros · Other Service. BV-011 destinations are **not** auto-promoted | BV-012 §5.f |
+| **Q-D** | OTC lines freeze at the acceptance/send boundary; push consumes the frozen representation and never derives the set for the first time | BV-012 §5.h |
 
-**Q-B · Is Bulk Raw authorable on a Direct Service? (blocks 4)**
-BV-011 places Bulk Raw in the finished-good class with Filling and Pack-out. A
-`Formulation` service plausibly carries raw material; a `Testing` service does
-not. Stage 4 gates the surface on service identity, so this resolves as part of
-Q-C rather than separately — but it is the case where the finished-good/OTC
-split and the service vocabulary visibly disagree.
+**Q-A's shape is the one to carry into stage 8.** The two candidate mechanisms
+produced identical SO totals and different Pricing surfaces, and the chosen one
+keeps them apart deliberately: `totalRevenue` was not widened, because every
+margin read in the engine consumes it. Stage 8 composes; it does not redefine.
 
-**Q-C · What is the governed service vocabulary, and its input mapping?
-(blocks 1 and 4)** BV-011 names 16 accounting destinations. Which are sellable
-as Direct Services, and which Production inputs does each expose? Stage 1 cannot
-define the classification's *values* without this, and stage 4 cannot gate a
-surface on it.
-
-**Q-D · Do OTC lines exist at accept time or at push time? (blocks 8, 10)**
-If they materialise only during SO push they are invisible to the operator
-before it; if they exist earlier they need a home in the quote model and in the
-snapshot. Bears directly on Pattern 52 — whether an OTC line is frozen at send.
+**Q-D binds stage 8 to stage 6, not only to stage 7.** If the authoritative OTC
+set freezes at send, the snapshot must already carry it — so the customer-facing
+representation and the frozen set are one piece of work, not a PDF change
+followed later by a push change.
 
 ---
 
-## Not blocking, but decide before stage 3
+## Final sequencing
 
-**The pin/backfill work is complete and unaffected** — 14/14 pinned, economics
-bit-identical, `legacy_live` at zero. **Step 5 of that sequence (retiring
-`legacy_live` as a runtime path) is independent of everything here** and can
-land whenever dispositioned; leaving it undone means a future unpinned non-draft
-quote silently resolves live again.
+Confirmed as directed. Where a stage carries a guard that must not drift into a
+later one, it is named.
+
+| # | Stage | Ships with it |
+|---|---|---|
+| 1 | Product Library Direct Service identity + attachment prohibition | The prohibition is enforced at the governed write boundary, not in UI copy (BV-012 §5.c). Classification values come from the §5.f closed set |
+| 2 | Setup `Add Direct Service` | Operator states intent; nothing inferred from which Costs fields hold values |
+| 3 | **Production ownership XOR migration — with same-slice guards** | See below. Non-negotiable co-shipping |
+| 4 | Direct Service Costs authoring/persistence | Surface gated on service **identity**, never on presence of rows (#282 must not be undone). No allocation control (§5.d) |
+| 5 | BV-013 `Production = 40%` | After ownership is stable. Carries the fallback-ladder work and the existing-pin category compatibility |
+| 6 | Customer Quote/PDF Direct Service + explicit OTC total | Widen `aggByAssembly` to the owning sellable unit; a Direct Service must not be invisible on the signed document (Pattern 45). Freeze per §5.h |
+| 7 | NetSuite Direct Service line projection | Library service identity + BV-011 mapping resolve the item |
+| 8 | Item Group separate-OTC SO lines + exact accepted-total reconciliation | Compose per §5.g. OTC association must not join `composition_hash` (F4) — OD-004 identity stability is falsifiable here |
+| 9 | Engagement-expansion workflow | Explicit action; original history intact; §5.c holds through expansion |
+| 10 | Sandbox + operator certification | All three sellable units, representative NetSuite orders |
+
+### Stage 3 — what must ship in the same slice
+
+Today "a Direct Product cannot own Production" is **unrepresentable**: the
+`NOT NULL` FK to `assemblies` makes the violating row impossible to write.
+Introducing the second owner branch makes it merely *illegal*.
+
+So the following are one slice, not a slice and a follow-up:
+
+1. the XOR migration (`quote_leaf_id` nullable, `assembly_id` nullable, CHECK
+   exactly one) — following migration 0077's shape;
+2. the **service-identity guard**: only a service-classified leaf may own
+   production rows;
+3. the **attachment constraint** from stage 1 enforced at the write boundary.
+
+Pattern 56: a property that held because nothing could express the violation
+leaves no symptom when it stops holding. The guard has no observable effect on
+the day it ships, which is exactly why it cannot be deferred to the day it
+would.
+
+**Falsification for the slice:** a production row keyed to a non-service
+`quote_leaf_id` is refused; a service entry attached beneath an Item Group is
+refused; existing assembly-owned rows are bit-identical; the costing witness
+shows zero movement.
+
+---
+
+## Carried, not lost
+
+**`legacy_live` retirement** (step 5 of the pin sequence) remains outstanding
+and is independent of every stage above. The pin backfill is complete — 14/14
+pinned, economics bit-identical, `legacy_live` at zero today — but the runtime
+path still exists, so a future unpinned non-draft quote would silently resolve
+live again. Tracked in `UX_BACKLOG.md`.
