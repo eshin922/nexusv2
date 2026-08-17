@@ -287,6 +287,48 @@ operational pre-flight.)
 
 ## Open
 
+- **V1.1 — Final Quote artifact on the NetSuite Sales Order**
+
+  **Driver:** Edward, 2026-08-17. **V1.1 enhancement. Explicitly NOT part of
+  the Production/OTC workstream, and not a change to V1 SO payload
+  certification.**
+
+  **The ask:** when Nexus pushes a Sales Order from a finalized/accepted
+  quote, the customer-facing Quote PDF must be reachable directly from that
+  Sales Order.
+
+  - **Preferred:** attach the finalized Quote PDF to the NetSuite SO.
+  - **Acceptable alternative** if NetSuite/API constraints make attachment
+    undesirable: a durable Nexus link in a dedicated SO custom field.
+
+  **The governing constraint:** the artifact must correspond to the finalized
+  commercial state that produced the Sales Order. Regenerating a mutable
+  "current" quote later is not acceptable where it could differ from the
+  accepted/pushed state.
+
+  That constraint has a direct bearing on existing architecture: `quotes.pdf_url`
+  is already the persisted send-time artifact and is the Pattern 52 partial
+  mitigation for exactly this class of drift — it answers "what did the
+  customer receive" when live columns have moved. Whatever V1.1 chooses should
+  start from that pointer rather than introduce a second notion of "the final
+  PDF".
+
+  **V1.1 design must determine:**
+
+  - attachment vs durable-link/custom-field mechanism;
+  - where the immutable/final artifact is stored;
+  - replay/re-push behaviour, so a second push does not create duplicate
+    attachments — note the SO push is already idempotency-keyed, so this should
+    compose with that rather than invent a second scheme;
+  - whether a revised quote/SO preserves the prior artifact or supersedes it;
+  - access/authentication requirements if a Nexus URL is used — a link a
+    NetSuite operator cannot open is not traceability;
+  - NetSuite sandbox certification that an operator can open the correct quote
+    artifact directly from the resulting SO.
+
+  **Scope:** traceability and operator convenience only. No commercial figure,
+  no payload field that participates in reconciliation.
+
 - **Classifier config validation: `floor_margin_pct <= target_margin_pct`**
 
   **Driver:** Slice 12 Step 8c-3 smoke build (2026-07-28).
