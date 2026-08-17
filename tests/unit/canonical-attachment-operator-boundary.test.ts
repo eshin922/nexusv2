@@ -114,8 +114,9 @@ test("a rejected production policy write is surfaced, not silently swallowed", (
   // reach the operator.
   //
   // Both failure paths — a governed `{ok:false}` and a thrown error — must now
-  // land in operator-visible state. Asserted on both the section control and
-  // the per-assembly control, since each owns its own error slot.
+  // land in operator-visible state. The count is 2 because BOTH quote-level
+  // Production controls write policy: Customer ships raws and Allocate service
+  // fees. A new writer without an error slot drops the count and fails here.
   const rejected = production.match(/setWriteError\(res\.error\.message\)/g) ?? [];
   const threw = production.match(/setWriteError\(\s*\n?\s*e instanceof Error/g) ?? [];
   assert.ok(rejected.length >= 2, `governed rejection surfaced (${rejected.length})`);

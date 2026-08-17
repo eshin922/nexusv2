@@ -1015,20 +1015,16 @@ test("same-group reorder is untouched by the cross-home move", async () => {
 test("§1 · the assembly row holds identity only; allocation moved to the section head", async () => {
   // SUPERSEDED, deliberately, and rewritten rather than deleted.
   //
-  // This test used to pin the per-assembly allocation control INSIDE the
-  // assembly's row — first because the control had been section-wide and
-  // broadcast (2026-08-11), then because it had drifted to a band below the
-  // identity strip. On 2026-08-17 the control was removed altogether by
-  // operator disposition: paired with Customer ships raws at the section head,
-  // two controls sharing one label read as a duplicate rather than two scopes.
+  // This test used to pin a per-assembly allocation control INSIDE the
+  // assembly's row. Business disposition 2026-08-17 makes allocation QUOTE-WIDE
+  // operator authority for V1: set once from the Production section header,
+  // applied across all assemblies, with no per-assembly authoring affordance.
   //
-  // What that costs is stated in the sibling suite and not re-litigated here:
-  // creating divergence is no longer reachable from the UI.
-  //
-  // What this test now protects is the part that did NOT change — the write is
-  // still per assembly, so existing divergent values survive and still read as
-  // `mixed`. A future single-write "simplification" would make the column dead
-  // and the aggregate a lie, and would fail here.
+  // What this test now protects is the part the disposition did NOT settle —
+  // storage stays per assembly, so existing divergent values survive an
+  // unrelated write and still read as `mixed by product`. A single-write
+  // "simplification" would make the column dead and the aggregate a lie; it is
+  // a Production/OTC decision, not a tidy-up, and it fails here.
   const src = await code("src/components/costs/production-drilldown.tsx");
 
   assert.ok(

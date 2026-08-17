@@ -1,17 +1,29 @@
 /**
- * Aggregate view of a per-assembly production policy.
+ * Aggregate view of allocation policy across a quote.
  *
- * `allocate_service_fees_to_cost` is per-assembly on `assembly_production_inputs`
- * — the schema, the costing adapter and the customer-view resolver all model it
- * that way, and the 2026-08-11 repair moved the operator control onto the
- * assembly it governs precisely because one quote-level copy had been
- * broadcasting across every assembly and making A=ON / B=OFF unreachable.
+ * ── AUTHORITY (business disposition, 2026-08-17) ──────────────────────────
  *
- * A quote-level control over a per-assembly value therefore has no single value
- * to display. It has three honest states and one empty one, and the whole point
- * of naming them here is that `mixed` cannot be rendered as either `on` or
- * `off` by accident — a bulk control that shows ON while one assembly is OFF is
- * the broadcast defect again, this time in the read direction.
+ * For V1, `Allocate service fees to unit cost` is QUOTE-WIDE operator
+ * authority: set once from the Production section header and applied across
+ * all assemblies. V1 does not need operators to create new divergence.
+ *
+ * ── WHY AN AGGREGATE IS STILL REQUIRED ────────────────────────────────────
+ *
+ * Authoring is quote-wide; STORAGE is per-assembly. `assembly_production_inputs
+ * .allocate_service_fees_to_cost` is keyed by `assembly_id`, and the costing
+ * adapter and customer-view resolver both consume it that way, so divergent
+ * rows can exist and produce genuinely different money per assembly
+ * (`tests/unit/assembly-allocation-policy-scope.test.ts`).
+ *
+ * A quote-level control over that therefore has no single value to display. It
+ * has three honest states and one empty one, and the point of naming them is
+ * that `mixed` cannot be rendered as `on` or `off` by accident: showing ON
+ * while one assembly is OFF would state something false about money.
+ *
+ * Normalising the persistence is deferred architecture/accounting cleanup for
+ * the bounded Production/OTC workstream. Nothing here presumes its outcome —
+ * if the column ever becomes quote-level, `mixed` becomes unreachable and this
+ * module gets simpler, which is a fine way for it to end.
  */
 
 export type AllocationAggregate = "on" | "off" | "mixed" | "none";
@@ -45,9 +57,10 @@ export function aggregateAllocation(
  * amortized-into-per-unit treatment the section header describes, so resolving
  * upward is the less surprising of the two.
  *
- * Either resolution FLATTENS divergence — that is what a bulk control does, and
- * it is why the per-assembly control stays on the assembly it governs so the
- * divergence is re-expressible afterwards.
+ * Either resolution FLATTENS pre-existing divergence, deliberately: under V1's
+ * quote-wide authority that is the operator setting the quote's policy, and it
+ * is the only exit from `mixed`. It is not silent — the control reads `mixed`
+ * and says so before the click, in both the consequence line and the title.
  */
 export function resolveBulkAllocation(state: AllocationAggregate): boolean | null {
   switch (state) {

@@ -174,14 +174,15 @@ export function ProductionDrilldown({
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
 
-  // V1 Costs defect repair (2026-08-11) — allocation policy is ASSEMBLY-scoped.
+  // Allocation policy is stored per ASSEMBLY.
   //
   // `assembly_production_inputs.allocate_service_fees_to_cost` is keyed by
   // `assembly_id`; costing consumes it per assembly and so does the
-  // customer-view resolver. The UI was the outlier: one section-level control,
-  // read from the first leaf and broadcast to every assembly on change. An
-  // operator could not express A=ON / B=OFF, which the model has always
-  // supported.
+  // customer-view resolver. AUTHORING is quote-wide for V1 (business
+  // disposition 2026-08-17) but storage is not, so this map is what lets the
+  // section control write each assembly its own row — and what lets a
+  // pre-existing divergent quote be read honestly as `mixed` instead of being
+  // reported as whichever value the first leaf happens to carry.
   //
   // `policyBySku` is keyed by the ANCHOR LEAF (the adapter's per-assembly ->
   // per-leaf coercion puts production data on the lowest-position child), so an
@@ -299,19 +300,18 @@ export function ProductionDrilldown({
         if (isAssembly) {
           return (
             <div key={sku.id} style={indentStyle}>
-            {/* The assembly's identity strip.
+            {/* Identity only.
 
-                It carried a per-assembly allocation control until 2026-08-17,
-                when the quote-level control was paired with Customer ships raws
-                at the section head and this one was removed as a duplicate of
-                the same label.
+                Allocation is quote-wide operator authority for V1 (business
+                disposition, 2026-08-17), set from the Production section
+                header. There is deliberately no per-assembly authoring
+                affordance here: two controls sharing one label read as a
+                duplicate rather than as two scopes.
 
-                The column is still per-assembly and the section control still
-                writes it per assembly, so divergent values PERSIST and are
-                still read honestly (the section control reads `mixed`). What
-                went is the operator's ability to CREATE divergence — the reach
-                the 2026-08-11 repair had restored. Reinstating it means putting
-                a control back here, not changing scope anywhere. */}
+                The write is still per assembly, so existing divergent values
+                persist and are still read honestly as `mixed by product`.
+                Normalising that persistence is deferred to the bounded
+                Production/OTC workstream. */}
             {/* One row again, now that it holds only identity. The nested
                 wrapper existed to stack the control beneath the strip. */}
             <div
@@ -956,12 +956,11 @@ function SectionToggles({
   /**
    * Bulk-set allocation across every assembly.
    *
-   * This is a BROADCAST, and deliberately so — it is the quote-level affordance
-   * Edward asked for beside Customer ships raws. It differs from the pre-repair
-   * defect in the two ways that made that one a defect: the aggregate is read
-   * honestly (a divergent quote reads `mixed`, never a uniform value that is
-   * only true of the first leaf), and the per-assembly control it flattens is
-   * still on the assembly, so divergence is re-expressible immediately after.
+   * Quote-wide authority for V1 — the operator sets allocation once and it
+   * applies to every assembly. The property that keeps this honest is the READ,
+   * not the write: a divergent quote reads `mixed`, never a uniform value that
+   * is only true of the first leaf, so the operator is told before the click
+   * that one value is about to replace several.
    *
    * Each write still carries THAT assembly's own `customerShipsRaws` and
    * `notes`, because the action rewrites the whole policy row. Sourcing them
@@ -1006,9 +1005,9 @@ function SectionToggles({
   const noAssemblies = allocation === "none";
 
   return (
-    // Two-up again, which is what `.r6-prod-toggles` was written for: the two
-    // quote-level production policies side by side. The allocation control here
-    // is the BULK one; the per-assembly control stays on its assembly.
+    // Two-up, which is what `.r6-prod-toggles` was written for: the two
+    // quote-level Production policy controls side by side. Both are quote-wide
+    // operator authority for V1.
     <div className="r6-prod-toggles r6-prod-toggles-section">
       <button
         type="button"

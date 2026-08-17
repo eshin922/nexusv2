@@ -1,27 +1,37 @@
 /**
- * The quote-level allocation control is a bulk writer over a per-assembly value.
+ * `Allocate service fees to unit cost` — quote-wide authority, per-assembly storage.
  *
- * ── WHY THIS NEEDS ITS OWN TESTS ──────────────────────────────────────────
+ * ── THE DISPOSITION ───────────────────────────────────────────────────────
  *
- * `allocate_service_fees_to_cost` is per-assembly. A quote-level control over it
- * existed before, broadcast to every assembly, and was removed on 2026-08-11
- * because it made A=ON / B=OFF unreachable for operators while the schema, the
- * costing adapter and the customer-view resolver all modelled it.
+ * Business disposition, 2026-08-17: for V1 this is QUOTE-WIDE operator
+ * authority. The operator sets it once from the Production section header and
+ * it applies across all assemblies. V1 does not need operators to create new
+ * divergence, so there is no per-assembly authoring affordance and these tests
+ * hold that there is exactly one control bearing the label.
  *
- * It is back by explicit operator disposition — paired with Customer ships raws
- * at the section head — so the two properties that made the old one a DEFECT
- * rather than an affordance have to be asserted, not assumed:
+ * ── WHAT THE DISPOSITION DID NOT SETTLE ───────────────────────────────────
  *
- *   1. The aggregate is read honestly. The old control displayed the FIRST
- *      LEAF's value as though it were the quote's. A divergent quote must read
- *      `mixed` and must never render as a uniform value.
- *   2. Flattening is opt-in and reversible. The per-assembly control stays on
- *      the assembly it governs, so divergence is re-expressible immediately.
+ * Storage stays per-assembly. `assembly_production_inputs.allocate_service_fees
+ * _to_cost` is keyed by `assembly_id` and divergent rows produce genuinely
+ * different money per assembly — proven at the math layer in
+ * `assembly-allocation-policy-scope.test.ts`, which is kept for exactly that
+ * reason. Normalising the persistence is deferred to the bounded Production/OTC
+ * workstream and nothing here presumes its outcome.
  *
- * And the anti-flatten guard on the SIBLING control must survive: toggling
- * Customer ships raws rewrites the whole policy row per assembly, so it has to
- * carry each assembly's own allocation value or it silently flattens the very
- * divergence this control exists to make settable.
+ * So two properties have to hold even though authoring is uniform, and they are
+ * what most of this file is about:
+ *
+ *   1. Existing divergence is not MISREPRESENTED. A divergent quote reads
+ *      `mixed`, never a uniform value taken from one product's row. Displaying
+ *      ON while one assembly is OFF would state something false about money.
+ *   2. Existing divergence is not DESTROYED by an unrelated write. Toggling
+ *      Customer ships raws rewrites the whole policy row per assembly, so it
+ *      has to carry each assembly's own allocation value — and the allocation
+ *      write has to carry each assembly's own raws and notes.
+ *
+ * Flattening via the allocation control itself is not a violation of (2): under
+ * quote-wide authority that IS the operator setting the quote's policy, and the
+ * control says `mixed` before the click rather than after it.
  */
 
 import assert from "node:assert/strict";
@@ -45,8 +55,9 @@ test("a uniform quote reads as that value", () => {
 });
 
 test("a single divergent product makes the whole quote mixed", () => {
-  // The defect this replaces: five ON and one OFF displayed as ON, because the
-  // control read one leaf's row. One dissenter is enough.
+  // Property 1. Five ON and one OFF must not display as ON — that is a false
+  // statement about money, since the sixth assembly really does cost
+  // differently. One dissenter is enough.
   assert.equal(aggregateAllocation([on, on, on, on, on, off]), "mixed");
   assert.equal(aggregateAllocation([off, off, off, off, off, on]), "mixed");
 });
@@ -73,7 +84,8 @@ test("mixed resolves UP rather than toggling", () => {
   // There is no prior uniform state to invert. ON is the schema default and the
   // treatment the section header describes, so it is the less surprising of the
   // two — but the point of asserting it is that it is a DECISION, and a future
-  // change to it should have to come here and say so.
+  // change to it should have to come here and say so. This is also the only
+  // exit from `mixed` under V1 authority.
   assert.equal(resolveBulkAllocation("mixed"), true);
 });
 
@@ -178,14 +190,13 @@ test("the disabled state says why", async () => {
 });
 
 test("there is exactly ONE control bearing this label", async () => {
-  // The per-assembly control was removed on 2026-08-17: two controls with the
-  // same label, one quote-level and one per-product, read as a duplicate rather
-  // than as two scopes. Operator disposition.
+  // Quote-wide authority, one control. Two controls sharing a label — one
+  // quote-level, one per-product — read as a duplicate rather than as two
+  // scopes, which is why the per-assembly affordance is deliberately absent
+  // rather than pending.
   //
-  // What this costs is recorded rather than hidden: creating divergence is no
-  // longer reachable from the UI. The column stays per-assembly, the section
-  // control still writes it per assembly, and existing divergence still reads
-  // `mixed` — so `mixed` is a state the operator can leave but not enter.
+  // A future slice restoring per-assembly authoring is a business decision, not
+  // a refactor: it fails here and has to say so.
   const src = await code();
   assert.doesNotMatch(src, /AssemblyAllocationToggle/);
   const labels = src.match(/Allocate service fees to unit cost/g) ?? [];
@@ -193,10 +204,11 @@ test("there is exactly ONE control bearing this label", async () => {
 });
 
 test("divergent data is still written per assembly, not collapsed", async () => {
-  // The reach went; the SCOPE did not. Each assembly still gets its own write,
-  // so a pre-existing divergent value is preserved by an unrelated raws toggle
-  // and is still visible as `mixed`. If this ever became a single write, the
-  // per-assembly column would be dead and the aggregate meaningless.
+  // Authoring is quote-wide; the WRITE is still per assembly. That is what
+  // keeps a pre-existing divergent value preserved through an unrelated raws
+  // toggle and still visible as `mixed`. If this ever became a single write,
+  // the per-assembly column would be dead and the aggregate meaningless —
+  // which is a Production/OTC decision, not a tidy-up.
   const body = fn(await code(), "SectionToggles");
   const bulk = body.slice(body.indexOf("function bulkSetAllocation"));
   assert.match(bulk, /for \(const asm of assemblies\)/);

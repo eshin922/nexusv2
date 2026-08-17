@@ -1,14 +1,22 @@
-// V1 Costs defect repair — allocation policy is owned by the assembly.
+// Divergent allocation policy is modelled end to end at the math layer.
 //
 // `assembly_production_inputs.allocate_service_fees_to_cost` is keyed by
-// `assembly_id`; costing consumes it per assembly and so does the
-// customer-view resolver. The UI was the outlier: one section-level control,
-// read from the first leaf and broadcast to every assembly on change, so an
-// operator could not express A=ON / B=OFF.
+// `assembly_id`; costing consumes it per assembly and so does the customer-view
+// resolver. These tests pin the CONSEQUENCE: each assembly's fee follows its
+// own value, and one assembly's policy cannot move another's unit sell.
 //
-// These tests pin the CONSEQUENCE at the math layer — divergent policy is
-// modelled end to end and each assembly's fee follows its own value. The UI
-// ownership fix is what makes it reachable; this is what it has to produce.
+// AUTHORING is a separate question from MODELLING, and only the first was
+// settled on 2026-08-17: for V1, `Allocate service fees to unit cost` is
+// QUOTE-WIDE operator authority, set once from the Production section header
+// and applied across all assemblies. V1 does not need operators to create new
+// divergence.
+//
+// These tests are unaffected by that and are deliberately kept, because
+// divergent rows may still exist and must not be silently misrepresented or
+// destroyed. They are the proof that such a row still costs correctly. The
+// per-assembly persistence itself is deferred architecture/accounting cleanup
+// for the bounded Production/OTC workstream — nothing here presumes its
+// outcome.
 //
 // THE OBSERVABLE IS UNIT SELL, not `separateServiceFeesPerUnit`.
 // `computeLeafPerTier` sets `separateServiceFees = 0` unconditionally
@@ -138,8 +146,9 @@ const shape = (a: boolean, b: boolean) => [
 ];
 
 test("1 · A=true and B=false are modelled simultaneously", () => {
-  // The capability the UI made unreachable. Under a quote-global policy these
-  // two could not differ.
+  // The storage model expresses this whether or not any UI does. V1 authoring
+  // is quote-wide, so a divergent pair now arrives only from existing data —
+  // and it still has to cost correctly when it does.
   assert.deepEqual(shape(true, false), [true, false]);
 });
 
@@ -185,19 +194,18 @@ test("5 · toggling B does not change A", () => {
   assert.equal(feeInSell(true, false, A_LEAF), feeInSell(true, true, A_LEAF));
 });
 
-test("6 · uniform quotes behave exactly as before the repair", () => {
-  // Requirement 5: quotes where every assembly shares a value must be
-  // untouched. Both-ON and both-OFF are the only shapes the old UI could
-  // produce, so they are the regression surface for existing data.
+test("6 · uniform quotes are untouched", () => {
+  // Both-ON and both-OFF are the only shapes V1 authoring can produce, so they
+  // are the everyday path as well as the regression surface.
   assert.deepEqual(shape(true, true), [true, true]);
   assert.deepEqual(shape(false, false), [false, false]);
 });
 
-test("7 · FALSIFICATION — a broadcast write cannot express the divergence", () => {
-  // Reconstructs the pre-repair behaviour: one control writing the SAME value
-  // to every assembly. No broadcast value reproduces A=ON/B=OFF, which is
-  // exactly why the defect was invisible — every reachable state looked
-  // self-consistent.
+test("7 · FALSIFICATION — no uniform value reproduces the divergent shape", () => {
+  // Why a divergent row cannot be approximated by the quote-wide value: neither
+  // all-ON nor all-OFF produces what A=ON/B=OFF produces. So a display that
+  // rounded `mixed` to either one would be stating something false about money,
+  // which is what `mixed by product` exists to prevent.
   const divergent = shape(true, false);
   assert.notDeepEqual(shape(true, true), divergent);
   assert.notDeepEqual(shape(false, false), divergent);

@@ -973,18 +973,14 @@
 /* ── Production policy cards: one card width, defined once ────────────────
  *
  * `.r6-prod-toggles` is a two-up flex row with `flex: 1` children, and the
- * section row holds two again: Customer ships raws beside the BULK allocation
- * control. `--prod-policy-card-w` is the width of ONE card, so the section row
- * is capped at two of them plus the divider, and the per-assembly card — a
- * different control with a different scope — is capped at one.
+ * section row holds the two quote-level Production policy controls: Customer
+ * ships raws beside Allocate service fees to unit cost. Both are quote-wide
+ * operator authority for V1.
  *
- * The property is shared rather than duplicated as two literals that happen to
- * agree today: the requirement is that all three read as the same kind of
- * object at the same size, which two numbers satisfy only until somebody tunes
- * one of them.
- *
- * Width only. Scope is unchanged and is NOT a width concern: the section
- * control writes every assembly, the per-assembly control writes one.
+ * `--prod-policy-card-w` is the width of ONE card, so the row is capped at two
+ * of them plus the divider. Named rather than written as a literal because the
+ * requirement is that the two read as the same kind of object at the same size
+ * — a pair of numbers satisfies that only until somebody tunes one.
  */
 :root {
   --prod-policy-card-w: 560px;
