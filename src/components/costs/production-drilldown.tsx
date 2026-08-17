@@ -289,6 +289,21 @@ export function ProductionDrilldown({
         if (isAssembly) {
           return (
             <div key={sku.id} style={indentStyle}>
+            {/* The assembly's own block: an identity STRIP, and beneath it the
+                one policy that belongs to this assembly.
+
+                Stacked, not inline. The strip is a 13px `align-items: center`
+                row — a badge, a label, a caption — and the allocation control
+                is a full card with a label, a description and a consequence
+                line. Wedging the card into the strip is what made it read as
+                something bolted onto the right-hand edge rather than a policy
+                for this product.
+
+                Association is by CONTAINMENT now: both sit inside the same
+                accent-bordered block, so the control plainly governs the
+                assembly named directly above it. Scope, action and state are
+                untouched — allocation stays assembly-scoped per the 2026-08-11
+                repair, and each assembly still expresses its own policy. */}
             <div
               style={{
                 marginBottom: "12px",
@@ -296,42 +311,33 @@ export function ProductionDrilldown({
                 background: "oklch(from var(--accent) l c h / 0.05)",
                 border: "1px solid oklch(from var(--accent) l c h / 0.30)",
                 borderRadius: "8px",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
                 fontSize: "13px",
               }}
             >
-              <span className="r6-badge accent">Assembly</span>
-              <span style={{ color: "var(--ink)", fontWeight: 500 }}>
-                {sku.skuLabel}
-              </span>
-              <span style={{ color: "var(--ink-3)" }}>· {sku.productName}</span>
-              <span
+              <div
                 style={{
-                  marginLeft: "auto",
-                  fontSize: "11px",
-                  color: "var(--ink-3)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
                 }}
               >
-                Production rolls up from leaf children.
-              </span>
-              {/* §1 presentation closeout · the allocation control is back IN
-                  the assembly's control row.
-
-                  It had come to sit as a sibling BELOW the banner — the stray
-                  indentation on the closing tag was the tell — so each assembly
-                  occupied two stacked bands: an identity row, then a lone
-                  control floating under it. On a quote with several assemblies
-                  that doubled the vertical rhythm of the section and detached
-                  each control from the thing it controls.
-
-                  The row was already built for this: the caption carries
-                  `marginLeft: auto`, which exists to push trailing controls to
-                  the right edge. Nothing about the control, its scope or its
-                  action changes — allocation stays ASSEMBLY-scoped per the
-                  2026-08-11 repair, and each assembly still expresses its own
-                  policy. */}
+                <span className="r6-badge accent">Assembly</span>
+                <span style={{ color: "var(--ink)", fontWeight: 500 }}>
+                  {sku.skuLabel}
+                </span>
+                <span style={{ color: "var(--ink-3)" }}>
+                  · {sku.productName}
+                </span>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: "11px",
+                    color: "var(--ink-3)",
+                  }}
+                >
+                  Production rolls up from leaf children.
+                </span>
+              </div>
               <AssemblyAllocationToggle
                 assemblyId={sku.id}
                 policy={policyByAssembly.get(sku.id) ?? sectionPolicy}
