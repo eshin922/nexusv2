@@ -251,8 +251,13 @@ export function ComplianceGrid({
               below is measured against. Mounting it here also keeps P-UX-1
               honoured — no card returns to the pre-grid path.
             */}
-            target {fmtPct(targetPct)}
-            <QuoteTargetMarginPopover disabled={!editable} />{" "}
+            <QuoteTargetMarginPopover
+              disabled={!editable}
+              // The same number this caption used to print and the grid still
+              // bands against — passed through rather than re-read, so the
+              // control cannot state a target the grid is not using.
+              value={targetPct}
+            />{" "}
             · floor {fmtPct(floorPct)}
           </span>
         </div>

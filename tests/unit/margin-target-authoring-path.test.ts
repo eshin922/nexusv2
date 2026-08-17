@@ -44,22 +44,57 @@ async function code(rel: string): Promise<string> {
 
 // ── reachability, which is the whole finding ──────────────────────────────
 
-test("the control is mounted on a surface that renders", async () => {
-  // `VerdictBand` is still on disk and still imports the popover. An assertion
-  // that "something imports it" would therefore have passed throughout the
-  // entire period the column was unwritable. This pins the LIVE surface.
+test("the control is mounted on a surface that renders, and on ONE of them", async () => {
+  // `VerdictBand` was still on disk and still importing the popover, so an
+  // assertion of the form "something imports it" would have passed throughout
+  // the entire period the column was unwritable. That dead mount is now gone,
+  // which makes this assertion mean what it says.
   const grid = await code("components/pricing-surface/compliance-grid.tsx");
   assert.match(grid, /import \{ QuoteTargetMarginPopover \}/);
-  assert.match(grid, /<QuoteTargetMarginPopover disabled=\{!editable\} \/>/);
+  assert.match(grid, /<QuoteTargetMarginPopover/);
+
+  const orphan = await code("components/pricing/verdict-band.tsx");
+  assert.doesNotMatch(
+    orphan,
+    /QuoteTargetMarginPopover/,
+    "the torn-down legacy host mounts the control again",
+  );
 });
 
-test("the mount sits on the target figure it governs, not merely near it", async () => {
+test("the control IS the target figure, rather than an icon beside it", async () => {
+  // The discoverability defect: a bare gear next to the word "target". The
+  // number read as passive status and the icon read as generic settings, so
+  // the restored authoring path was still effectively unfindable.
   const grid = await code("components/pricing-surface/compliance-grid.tsx");
-  // Between the target and the floor, inside the header caption.
+  // The caption no longer prints the target itself — the control does.
+  assert.doesNotMatch(grid, /target \{fmtPct\(targetPct\)\}/);
+  assert.match(grid, /<QuoteTargetMarginPopover[\s\S]{0,300}?value=\{targetPct\}/);
+  // Still inside the grid header caption, before the floor. No new card.
   assert.match(
     grid,
-    /target \{fmtPct\(targetPct\)\}[\s\S]{0,120}?<QuoteTargetMarginPopover[\s\S]{0,80}?floor \{fmtPct\(floorPct\)\}/,
+    /<QuoteTargetMarginPopover[\s\S]{0,320}?floor \{fmtPct\(floorPct\)\}/,
   );
+});
+
+test("the displayed target is the caller's, not a second read of the ladder", async () => {
+  // The grid bands every cell against `targetPct`. A control that re-derived
+  // its own value could be individually correct and still disagree with the
+  // grid it sits on top of.
+  const pop = await code("components/quote-target-margin-popover.tsx");
+  assert.match(pop, /value: number;/);
+  assert.match(pop, /\{fmtPct\(value\)\}/);
+});
+
+test("it names itself Margin Target, and the value is inside the clickable target", async () => {
+  const pop = await code("components/quote-target-margin-popover.tsx");
+  const trigger = pop.slice(0, pop.indexOf("psr-target-pop\""));
+  assert.match(trigger, /Margin target/);
+  // Label, value and edit affordance in ONE button — not an icon to hunt for.
+  assert.match(
+    trigger,
+    /<button[\s\S]{0,900}?className=\{`psr-target-control[\s\S]{0,400}?Margin target[\s\S]{0,200}?\{fmtPct\(value\)\}[\s\S]{0,120}?Edit/,
+  );
+  assert.doesNotMatch(trigger, /⚙/, "the bare gear is back");
 });
 
 test("the grid is rendered by the live shell with editability threaded", async () => {
@@ -67,8 +102,18 @@ test("the grid is rendered by the live shell with editability threaded", async (
   assert.match(shell, /<ComplianceGrid[\s\S]{0,400}?editable=\{committable\}/);
 });
 
-test("a sent quote shows the target and cannot change it", async () => {
-  // Affordance only — the action enforces the draft guard server-side too.
+test("a sent quote shows the target with NO edit treatment at all", async () => {
+  // Not a dimmed control: a greyed affordance reads as something broken rather
+  // than something absent, which is what the walk found with the old gear.
+  const pop = await code("components/quote-target-margin-popover.tsx");
+  assert.match(pop, /disabled \? \([\s\S]{0,400}?psr-target-static/);
+  const readOnly = pop.slice(pop.indexOf("psr-target-static"));
+  const untilElse = readOnly.slice(0, readOnly.indexOf(") : ("));
+  assert.match(untilElse, /Margin target/, "the read-only state must still name it");
+  assert.match(untilElse, /\{fmtPct\(value\)\}/, "and still state the value");
+  assert.doesNotMatch(untilElse, /<button/, "read-only must not render a button");
+  assert.doesNotMatch(untilElse, /Edit/, "read-only must not offer an edit affordance");
+
   const grid = await code("components/pricing-surface/compliance-grid.tsx");
   assert.match(grid, /disabled=\{!editable\}/);
   const action = await code("app/actions/costing.ts");
