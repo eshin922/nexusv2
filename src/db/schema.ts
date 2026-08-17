@@ -792,8 +792,22 @@ export const quoteCommercialSettingsPins = pgTable(
     quoteId: uuid("quote_id")
       .notNull()
       .references(() => quotes.id, { onDelete: "cascade" }),
+    // OPTIONAL PROVENANCE, not identity (migration 0078).
+    //
+    // The QUOTE owns the pin — `quote_id` above is NOT NULL and unchanged.
+    // This answers the secondary question of WHICH immutable send artifact
+    // produced the pin. For a legacy quote sent before the pin mechanism
+    // existed, no artifact was ever captured and NULL is the truthful value;
+    // the alternative was inventing a `quote_snapshots` row, which would
+    // corrupt the record of what was actually sent in order to fix a
+    // different problem.
+    //
+    // UNIQUE is retained and still does its job: Postgres treats NULLs as
+    // distinct, so many legacy pins may be NULL while two pins can never
+    // claim the same snapshot.
+    //
+    // A NULL here is only legible alongside `backfillReason` below.
     quoteSnapshotId: uuid("quote_snapshot_id")
-      .notNull()
       .unique()
       .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
     targetMarginPct: numeric("target_margin_pct", {
@@ -809,6 +823,11 @@ export const quoteCommercialSettingsPins = pgTable(
       scale: 4,
     }).notNull(),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    // NULL for pins written by the live send path. Non-NULL names the
+    // migration that wrote this pin and why, so a NULL `quoteSnapshotId`
+    // reads as a recorded fact rather than an omission — those are opposite
+    // meanings and a NULL alone cannot distinguish them.
+    backfillReason: text("backfill_reason"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

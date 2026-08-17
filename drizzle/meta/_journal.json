@@ -533,6 +533,13 @@
       "when": 1786320014000,
       "tag": "0077_client_target_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1786320015000,
+      "tag": "0078_legacy_commercial_pin_provenance",
+      "breakpoints": true
     }
   ]
 }
