@@ -226,3 +226,45 @@ test("commercial kind is not derived from anything it was forbidden to be derive
     "the classification must be stated, never inferred",
   );
 });
+
+// ── the create affordance ─────────────────────────────────────────────────
+
+test("the operator chooses the kind; it is never inferred", async () => {
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  assert.match(modal, /fd\.set\("commercialKind", commercialKind\)/);
+  assert.match(modal, /DIRECT_SERVICE_IDENTITIES\.map/);
+  // The five governed labels come from the shared module, not retyped here —
+  // a second list is a second vocabulary waiting to drift from the enum.
+  assert.match(modal, /DIRECT_SERVICE_LABELS\[id\]/);
+});
+
+test("a service sends no HubSpot type, and a product is unchanged", async () => {
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  // Mutually exclusive at the submit, not merely hidden in the UI: a hidden
+  // field still submits.
+  assert.match(
+    modal,
+    /if \(commercialKind === "service"\) \{[\s\S]{0,120}?serviceIdentity[\s\S]{0,80}?\} else if \(hsTypeValue\)/,
+  );
+});
+
+test("switching back to product clears the service identity", async () => {
+  // Otherwise a stale identity sits in state and is submitted with a product,
+  // which the action would reject — correctly, but for a reason the operator
+  // could not see, having already switched the control back.
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  assert.match(modal, /if \(next === "product"\) props\.onServiceIdentity\(""\)/);
+});
+
+test("a service creates no HubSpot product at all", async () => {
+  // Not merely "omit the two classification fields" — a service's downstream
+  // identity is a BV-011 accounting destination resolved at NetSuite
+  // projection, and HubSpot is not in that path. Creating a catalog record for
+  // it would put a row in a system with no question to answer about it.
+  const action = await code("app/actions/leaves.ts");
+  assert.match(action, /const isService = commercialKind === "service";/);
+  assert.match(action, /if \(!isService\) \{[\s\S]{0,600}?hubspot\.createProduct/);
+  assert.match(action, /hubspotProductType: isService \? null : hubspotProductType/);
+  // And the local row is Nexus-local.
+  assert.match(action, /let hubspotProductId: string \| null = null;/);
+});
