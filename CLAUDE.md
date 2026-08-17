@@ -4807,6 +4807,22 @@ NULL" branches.
 
 ## Markup vocabulary decision (Slice 9.1)
 
+> **⚠️ Read [`docs/business-validation/BV-011`](docs/business-validation/BV-011-production-otc-accounting-map.md)
+> first for anything touching production / service-fee CLASSIFICATION.**
+> BV-011 (2026-08-17) is the governing business map: 16 destinations, each with
+> an item type. It supersedes the assumption that production / service-fee
+> inputs are one accounting class. It authorizes no implementation.
+>
+> Two things below are **not true of the live database**, verified 2026-08-17:
+> `markup_defaults` contains exactly seven rows — Freight, Manufacturing, Other,
+> Primary, Secondary, Soft Goods, Tooling. The twelve "hybrid workbook
+> additions" are not present, and neither is `Raw ingredients`, which
+> `RAW_MARKUP_CATEGORY` (`src/lib/costing.ts:904`) expects — bulk raw falls back
+> to `Other` at 30% today. Reconciling the vocabulary is in the bounded
+> Production / OTC workstream's scope; see BV-011 §4.6 and §4.7.
+>
+> The section is retained below as the Slice 9.1 record.
+
 The 7-category schedule (Primary, Secondary, Manufacturing,
 Tooling, Freight, Soft Goods, Other) **plus** the hybrid workbook
 additions (Co-Packing, Filling and Packout, Cards/Booklets,
