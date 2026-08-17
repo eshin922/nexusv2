@@ -30,7 +30,14 @@
 // from `idMap.numericToUuid.values()` rather than re-invoking the
 // engine. One classify, one engine call per render.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { Mode } from "@/lib/pricing-classifier";
 // `applyGlobalAdj` is deliberately NOT imported. It is still exported, and
@@ -61,6 +68,7 @@ import {
 } from "./detail-zone";
 import { usePricingClassifier } from "./pricing-classifier-context";
 import { ComplianceGrid } from "./compliance-grid";
+import { setTierRecommended } from "@/app/actions/quotes";
 import { CellDrawer, type DrawerTarget } from "./cell-drawer";
 import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
@@ -171,8 +179,15 @@ export function PricingSurfaceShell({
   // Read here rather than further down because the recommendation handlers
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
-  const { stageTierAdj, stageGlobalAdj, committed, working, plannedTierAdj, previewResult } =
-    usePricingStaging();
+  const {
+    stageTierAdj,
+    stageGlobalAdj,
+    committed,
+    working,
+    plannedTierAdj,
+    previewResult,
+    committable,
+  } = usePricingStaging();
   const [applyError, setApplyError] = useState<string | null>(null);
   const [globalPreview, setGlobalPreview] =
     useState<GlobalPricingPreview | null>(null);
@@ -412,6 +427,57 @@ export function PricingSurfaceShell({
     }
     return byNumeric;
   }, [tiers, uuidToNumeric]);
+
+  /**
+   * The tier list the recommendation control writes against.
+   *
+   * Carries BOTH identities because the two ends speak different ones: the
+   * classifier's summary card reports a numeric tier id, and
+   * `setTierRecommended` takes the UUID. Resolved here, where `idMap` already
+   * owns the correspondence, rather than in the card — a component translating
+   * between two identity spaces is one that can translate wrongly, and the cost
+   * of being wrong is a recommendation printed against the wrong tier.
+   */
+  const recommendableTiers = useMemo(
+    () =>
+      tiers
+        .map((t) => {
+          const numeric = uuidToNumeric.get(t.id);
+          return numeric === undefined
+            ? null
+            : { numericId: numeric, uuid: t.id, label: t.label };
+        })
+        .filter((t): t is { numericId: number; uuid: string; label: string } => t !== null),
+    [tiers, uuidToNumeric],
+  );
+
+  // Its own transition and its own error (Pattern 47f). A recommendation in
+  // flight must not disable an unrelated control, and a refusal has to be
+  // legible where the act was made rather than in a console.
+  const [recPending, startRecommend] = useTransition();
+  const [recError, setRecError] = useState<string | null>(null);
+
+  const onSetRecommended = useCallback(
+    (tierUuid: string | null) => {
+      setRecError(null);
+      startRecommend(async () => {
+        // Clearing means turning OFF whichever tier currently carries it —
+        // the action is per-tier, and `recommended: false` on the live one is
+        // what "none" means to the schema. Selecting a tier sets that one; the
+        // action clears the siblings itself, which is where the one-per-quote
+        // invariant belongs and where it already was.
+        const target =
+          tierUuid ?? tiers.find((t) => t.recommended)?.id ?? null;
+        if (target === null) return;
+        const fd = new FormData();
+        fd.set("tierId", target);
+        fd.set("recommended", String(tierUuid !== null));
+        const r = await setTierRecommended(fd);
+        if (!r.ok) setRecError(r.error.message);
+      });
+    },
+    [tiers],
+  );
 
   /**
    * The tier a request would authorize.
@@ -1087,7 +1153,15 @@ export function PricingSurfaceShell({
         recommended tier and order value. It renders after the verdict and
         before the corrective actions, as the prototype does.
       */}
-      <SendableSummary state={state} />
+      <SendableSummary
+        state={state}
+        tiers={recommendableTiers}
+        // Draft-only, from the same flag the staged levers use. A sent
+        // quote shows the recommendation and offers no way to change it.
+        onSetRecommended={committable ? onSetRecommended : undefined}
+        recommendedPending={recPending}
+        recommendedError={recError}
+      />
 
       {/* ACTION — ranked actions per mode.
           CB Patch round 3 BUG-C disposition: in suggestion_led mode

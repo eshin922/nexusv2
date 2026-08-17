@@ -113,14 +113,18 @@ test("Setup is not among them", async () => {
   }
 });
 
-test("the Setup tier row authors label, quantity and recommendation only", async () => {
+test("the Setup tier row authors label and quantity only", async () => {
   const src = await code(
     path.join(SRC, "app/projects/[id]/quotes/[quoteId]/tier-row.tsx"),
   );
   assert.doesNotMatch(src, /priceAdj/i);
-  // The row is still a writer — of the things Setup legitimately owns. If this
-  // ever fails, the row has lost a capability it was supposed to keep, which
-  // is a different mistake from the one above and worth telling apart.
+  // The row is still a writer — of the things Setup legitimately owns: what a
+  // tier is CALLED and how many units it is. Both are structure. If this ever
+  // fails, the row has lost a capability it was supposed to keep, which is a
+  // different mistake from the one above and worth telling apart.
   assert.match(src, /updateTier\b/);
-  assert.match(src, /setTierRecommended/);
+  // The recommendation left too, for a different reason: not a second
+  // authority, but a decision that was being made two surfaces away from the
+  // three figures that depend on it. See recommended-tier-authority.
+  assert.doesNotMatch(src, /setTierRecommended/);
 });

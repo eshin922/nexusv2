@@ -65,8 +65,17 @@ export function MarkAcceptedHost({
   const [subState, setSubState] =
     useState<MarkAcceptedSubState>(initialSubState);
 
-  const recommendedTier =
-    tiers.find((t) => t.recommended) ?? tiers[Math.floor(tiers.length / 2)];
+  // The recorded recommendation, or none.
+  //
+  // This fell back to `tiers[Math.floor(tiers.length / 2)]` — the middle tier —
+  // so a quote with no recommendation showed one anyway, and the `locked` panel
+  // named it as the ACCEPTED tier. Position is not a recommendation: the same
+  // inference the customer PDF made with index 0 and Mark-Accepted's page made
+  // with the middle tier, all three now removed.
+  //
+  // The `locked` render already guards on this being present, so a quote
+  // without one renders nothing there rather than a tier nobody chose.
+  const recommendedTier = tiers.find((t) => t.recommended);
 
   return (
     // Sweep Step 5/N — adopt `r3-shared` parent-scope class so the
@@ -176,16 +185,16 @@ export function MarkAcceptedHost({
           draftVersion="current draft"
           showVersionMismatch={false}
           activeSiblings={activeSiblings}
-          customerAcceptance={
-            customerAcceptance ?? {
-              // Switcher-only fallback for prototype state preview when
-              // real customer-accept hasn't been recorded yet.
-              tierId: tiers[Math.floor(tiers.length / 2)]?.id ?? "",
-              tierLabel:
-                tiers[Math.floor(tiers.length / 2)]?.label ?? "Tier ?",
-              recordedAt: new Date(),
-            }
-          }
+          // Null when nothing has been recorded, which is the truth and which
+          // this component already renders — the `good` sub-state above passes
+          // null unconditionally.
+          //
+          // It used to synthesise one at the middle tier, described as a
+          // "switcher-only fallback for prototype state preview". It was not
+          // switcher-only: `awaitingMark` is a real sub-state, so a PM whose
+          // customer had accepted nothing was shown an acceptance, at a tier
+          // chosen by position, stamped with the current time.
+          customerAcceptance={customerAcceptance}
         />
       )}
       {/*

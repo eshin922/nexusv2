@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import {
-  deleteTier,
-  setTierRecommended,
-  updateTier,
-} from "@/app/actions/quotes";
+import { deleteTier, updateTier } from "@/app/actions/quotes";
 
 type Tier = {
   id: string;
@@ -88,17 +84,6 @@ export function TierRow({
     });
   }
 
-  function handleToggleRecommended() {
-    const fd = new FormData();
-    fd.set("tierId", tier.id);
-    fd.set("recommended", tier.recommended ? "false" : "true");
-    startTransition(async () => {
-      const r = await setTierRecommended(fd);
-      if (!r.ok) setSaveError(r.error.message);
-      else setSaveError(null);
-    });
-  }
-
   return (
     <div className={`r7b-tier-row${tier.recommended ? " recommended" : ""}`}>
       <div className="label">
@@ -113,28 +98,21 @@ export function TierRow({
           }}
           aria-label="Tier label"
         />
-        {tier.recommended ? (
-          <button
-            type="button"
-            className="rec rec-clickable"
-            onClick={handleToggleRecommended}
-            disabled={disabled || pending}
-            aria-label="Recommended tier — click to clear"
-            title="Recommended tier — click to clear"
+        {/* The recommendation is SET on Pricing now, and the row still shows
+            it. Setting it here meant deciding, on Setup, which tier the quote
+            is priced and ordered at — while the only three figures that depend
+            on that decision (order value, blended margin, the sentence the
+            customer PDF prints) live two surfaces away and could not be seen
+            while making it. The star was also the one place the decision
+            existed, so a PM reading Pricing's "None chosen" had nowhere on
+            that page to go. */}
+        {tier.recommended && (
+          <span
+            className="rec"
+            title="Recommended tier — set on Pricing"
           >
             ★ recommended
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="rec-set"
-            onClick={handleToggleRecommended}
-            disabled={disabled || pending}
-            aria-label="Mark as recommended tier"
-            title="Mark as recommended tier (clears siblings)"
-          >
-            ☆ mark recommended
-          </button>
+          </span>
         )}
       </div>
       <div className="qty">

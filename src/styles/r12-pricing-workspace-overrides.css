@@ -664,3 +664,51 @@
   color: var(--ink-3);
   line-height: 1.5;
 }
+
+/* ── The recommended-tier control ─────────────────────────────────────────
+ *
+ * The summary card's Recommended tier cell became the place the
+ * recommendation is SET, not only reported — it already said "set one to
+ * price the order" and sent the operator two surfaces away to a star on a
+ * Setup row.
+ *
+ * Styled to sit in the `.val` slot it replaces rather than as a form control
+ * dropped into a summary: same size and weight as the figure beside it, with
+ * only enough border to say it can be pressed.
+ */
+.psr-summary-cell .psr-rec-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  margin: 1px 0 2px;
+  padding: 3px 22px 3px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background-color: var(--paper);
+  /* The caret, inline so no asset is fetched for 7px of chrome. `%23` is a
+   * url-encoded `#`, not a literal colour token dodge — currentColor cannot
+   * be used inside a data URI, so the stroke follows --ink-3's light value and
+   * is deliberately faint enough that dark mode reads it as chrome either. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'><path d='M1 1l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.2'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.psr-summary-cell .psr-rec-select:hover:not(:disabled) {
+  border-color: var(--ink-3);
+}
+
+.psr-summary-cell .psr-rec-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.psr-summary-cell .psr-rec-select:disabled {
+  cursor: default;
+  color: var(--ink-3);
+}
