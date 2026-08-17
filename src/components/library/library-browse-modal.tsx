@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { LibrarySpecModal } from "./library-spec-modal";
 import { useRouter } from "next/navigation";
 import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
+import { directServiceLabel } from "@/lib/product-structure/direct-service";
 
 /** B-11 · rows per page. Matches the loader default so the pager's arithmetic
  *  and the query agree without either having to know the other's number. */
@@ -1151,11 +1152,28 @@ export function LibraryBrowseModal({
                           for display only. Nexus productTypeId is neither read
                           nor written here: two taxonomies, no mapping. */}
                       <span className="type-cell">
-                        {row.hubspotProductType
-                          ? (hsTypeOptions.find(
-                              (o) => o.value === row.hubspotProductType,
-                            )?.label ?? row.hubspotProductType)
-                          : "Unclassified"}
+                        {/* BV-012 §5 — a service says so, and says WHICH.
+                            
+                            Shown INSTEAD of the HubSpot type, not beside it.
+                            HubSpot's taxonomy describes what a thing physically
+                            is; for a service that question has no useful answer
+                            and printing both would invite reading one as
+                            qualifying the other. The commercial identity is the
+                            fact that governs here. */}
+                        {row.commercialKind === "service" ? (
+                          <span className="lb-service-type">
+                            <span className="kind">Service</span>
+                            <span className="ident">
+                              {directServiceLabel(row.serviceIdentity)}
+                            </span>
+                          </span>
+                        ) : row.hubspotProductType ? (
+                          (hsTypeOptions.find(
+                            (o) => o.value === row.hubspotProductType,
+                          )?.label ?? row.hubspotProductType)
+                        ) : (
+                          "Unclassified"
+                        )}
                       </span>
                       <span className="status-cell">
                         {/* §9.4 — surface the ALREADY-ENFORCED eligibility

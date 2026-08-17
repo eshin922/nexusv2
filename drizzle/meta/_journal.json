@@ -540,6 +540,13 @@
       "when": 1786320015000,
       "tag": "0078_legacy_commercial_pin_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1786320016000,
+      "tag": "0079_leaf_commercial_kind",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,10 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
+import {
+  DIRECT_SERVICE_IDENTITIES,
+  type DirectServiceIdentity,
+} from "@/lib/product-structure/direct-service";
 import { assertCanCreateLeaves } from "@/lib/spec-permission-guard";
 import {
   loadLibraryBrowse,
@@ -74,6 +78,52 @@ export async function createLeaf(
       String(formData.get("hubspotProductType") ?? "").trim();
     const hubspotProductType =
       hubspotProductTypeRaw === "" ? null : hubspotProductTypeRaw;
+    // BV-012 §5 — the Nexus-governed commercial classification. Local only:
+    // it is a statement about what Nexus may sell this as, not a HubSpot
+    // property, so the HubSpot mapper below is deliberately untouched.
+    //
+    // Defaults to `product`, so the entire existing create path is unchanged
+    // by its presence — a caller that sends nothing gets exactly what it got
+    // before.
+    const commercialKindRaw = String(formData.get("commercialKind") ?? "").trim();
+    const serviceIdentityRaw = String(formData.get("serviceIdentity") ?? "").trim();
+    const commercialKind: "product" | "service" =
+      commercialKindRaw === "service" ? "service" : "product";
+    const serviceIdentityCandidate =
+      commercialKind === "service" && serviceIdentityRaw !== ""
+        ? serviceIdentityRaw
+        : null;
+
+    if (commercialKindRaw !== "" && commercialKindRaw !== "product" && commercialKindRaw !== "service") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `"${commercialKindRaw}" is not a commercial kind. Expected "product" or "service".`,
+      );
+    }
+    // Refused here as well as by the DB CHECK. The constraint would catch it,
+    // but as a 500 naming a constraint; an operator needs to be told that a
+    // service has to say WHICH service.
+    if (commercialKind === "service" && serviceIdentityCandidate === null) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "A service needs a service identity — formulation, filling / blending, " +
+          "pack-out / assembly, testing / micros, or other service.",
+      );
+    }
+    // Narrowed here rather than cast at the insert. A cast would let a future
+    // edit widen the accepted set without the compiler noticing; the predicate
+    // makes the type follow the validation instead of asserting past it.
+    const isGoverned = (v: string): v is DirectServiceIdentity =>
+      (DIRECT_SERVICE_IDENTITIES as readonly string[]).includes(v);
+    if (serviceIdentityCandidate !== null && !isGoverned(serviceIdentityCandidate)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `"${serviceIdentityCandidate}" is not a governed Direct Service identity. ` +
+          `BV-012 §5.f keeps this set closed: ${DIRECT_SERVICE_IDENTITIES.join(", ")}.`,
+      );
+    }
+    const serviceIdentity: DirectServiceIdentity | null = serviceIdentityCandidate;
+
     const unitCostRaw = String(formData.get("unitCost") ?? "").trim();
     const unitCost = unitCostRaw === "" ? null : unitCostRaw;
     const ownerIdRaw = String(formData.get("ownerId") ?? "").trim();
@@ -148,6 +198,8 @@ export async function createLeaf(
         // Persisted from the same value sent to HubSpot, so a later pull
         // re-reading the product finds the classification unchanged.
         hubspotProductType,
+        commercialKind,
+        serviceIdentity,
       })
       .returning();
     const newRow = inserted[0];

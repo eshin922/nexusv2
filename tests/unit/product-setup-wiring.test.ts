@@ -407,8 +407,16 @@ test("editing a mixed quote is never blocked", async () => {
 
 test("the loader returns the SERVER's eligibility verdict, not a flag", async () => {
   const src = await read("src/lib/library-browse-loader.ts");
-  assert.match(src, /evaluateAttachmentEligibility\(\{ sku: r\.sku, archived: r\.archived \}\)/);
+  assert.match(src, /eligibility: evaluateAttachmentEligibility\(/);
   assert.match(src, /eligibility: AttachmentEligibility/);
+
+  // BV-012 §5.c — BOTH destinations now come from the gate, because the
+  // modal's "adding to" target changes on the client without a refetch.
+  // Precomputing one verdict would go stale; deciding the second in the
+  // component would put a governed prohibition in a second place. The
+  // strengthened form of the same property this test already asserted.
+  assert.match(src, /eligibilityAsGroupMember: evaluateAttachmentEligibility\(/);
+  assert.match(src, /commercialKind: r\.commercialKind/);
 });
 
 test("the client never re-derives eligibility", async () => {

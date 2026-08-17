@@ -1171,3 +1171,28 @@
   color: var(--paper);
 }
 .psr-target-btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* ── Library · commercial identity of a service entry (BV-012 §5) ──────────
+ *
+ * Shown in the TYPE column instead of the HubSpot classification. HubSpot's
+ * taxonomy answers what a thing physically is; for a service that question has
+ * no useful answer, and rendering both would invite reading one as qualifying
+ * the other. Two lines because the two facts are different: that it IS a
+ * service, and WHICH service — the second determines its Production surface. */
+.lb-service-type {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+}
+.lb-service-type .kind {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.lb-service-type .ident {
+  font-size: 11px;
+  color: var(--ink-2, var(--ink));
+}

@@ -271,8 +271,27 @@ test("the Library's visible Type is HubSpot's classification, not the Nexus taxo
   assert.doesNotMatch(src, /row\.productType\?\.name \?\? "untyped"/);
   // Absent classification says so plainly; an unrecognised value shows the
   // stored string rather than claiming the product is unclassified.
-  assert.match(src, /: "Unclassified"/);
+  assert.match(src, /"Unclassified"/);
   assert.match(src, /\?\? row\.hubspotProductType/);
+
+  // BV-012 §5 — a SERVICE entry shows its commercial identity here instead.
+  //
+  // This test guards Step 9's lesson: do not display a Nexus taxonomy where
+  // HubSpot's classification belongs. That guard still holds, and the
+  // distinction is worth stating rather than quietly relaxing.
+  //
+  // What Step 9 removed was `product_type_id` — a SECOND ANSWER to HubSpot's
+  // own question ("what kind of thing is this"), operator-maintained and unset
+  // on ~1,051 of 1,077 products, which made the column disagree with the chips
+  // above it. `commercial_kind` answers a DIFFERENT question: what Nexus may
+  // sell the entry as. It is never shown for a product, so the column and the
+  // chips still cannot disagree on any row the chips can filter.
+  assert.match(src, /row\.commercialKind === "service"/);
+  assert.doesNotMatch(
+    src,
+    /row\.productTypeId/,
+    "the removed Nexus taxonomy is back in the Type column",
+  );
 });
 
 test("Library Edit specs is a subordinate control, not a peer or a column", async () => {
