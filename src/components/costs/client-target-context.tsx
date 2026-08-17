@@ -80,11 +80,24 @@ export function ClientTargetContext({
           // from the engine's rollup rather than assembled here. It is the
           // right comparator on Costs precisely because no pricing decision
           // has been made yet.
-          const baseSell = pt?.sellBeforeAdjustmentPerUnit ?? null;
+          //
+          // NOTHING ENTERED IS NOT A BASE SELL OF ZERO. The engine reports
+          // `sellBeforeAdjustmentPerUnit = 0` on an uncosted unit, and taking
+          // that at face value produced "$2.25 below client target" on a quote
+          // with no cost inputs at all — a position stated where none exists.
+          //
+          // `UNAVAILABLE` is the engine's own word for "no revenue and no
+          // cost, nothing has been entered", so the absence is read from the
+          // authority that decided it rather than by testing the number for
+          // zero. A local `=== 0` check would also swallow a real zero.
+          const noBasis = pt === undefined || pt.marginStatus === "UNAVAILABLE";
+          const baseSell = noBasis
+            ? null
+            : (pt.sellBeforeAdjustmentPerUnit ?? null);
           const facts = clientTargetFacts({
             target,
             quotedSellPerUnit: baseSell,
-            costPerUnit: pt?.contributionCostPerUnit ?? null,
+            costPerUnit: noBasis ? null : (pt.contributionCostPerUnit ?? null),
           });
           return {
             id: r.skuId,
