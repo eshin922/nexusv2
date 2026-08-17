@@ -943,7 +943,15 @@ function SectionToggles({
     rawsMode === "customer_supplies" || policy.customerShipsRaws;
 
   return (
-    <div className="r6-prod-toggles">
+    // `-solo` because this row holds ONE control now, not two.
+    //
+    // The container is a two-up flex row with `flex: 1` children, built when
+    // Customer ships raws and Allocate service fees sat side by side. The
+    // allocation control moved onto the assembly it governs, and the survivor
+    // inherited the whole width — a lone full-width slab that reads as half a
+    // broken pair. The modifier stops it stretching; it does not put the two
+    // back together, which would mean broadcasting a per-product policy again.
+    <div className="r6-prod-toggles r6-prod-toggles-solo">
       <button
         type="button"
         className={`r6-prod-toggle ${customerShipsRawsEffective ? "on" : ""}`}

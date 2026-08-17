@@ -977,3 +977,20 @@
 }
 .a1v2-leaf-row.structure-pending,
 .a1v2-asy-row.structure-pending { position: relative; }
+
+/* A toggle row that holds ONE control.
+ *
+ * `.r6-prod-toggles` is a two-up flex row with `flex: 1` children, written when
+ * Customer ships raws and Allocate service fees sat side by side. The
+ * allocation control moved onto the assembly it governs — it is per-assembly in
+ * the schema and a single quote-level copy of it broadcast across every
+ * assembly — and the remaining toggle inherited the full width, reading as half
+ * of a pair with the other half missing.
+ *
+ * Constrained to roughly half, which is the width it had when it WAS half of
+ * a pair. This is the visual fix only: the two controls are not reunited,
+ * because they no longer share a scope.
+ */
+.r6-prod-toggles-solo {
+  max-width: 560px;
+}
