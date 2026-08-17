@@ -1018,25 +1018,77 @@
  * would have put the one un-themed card on a surface whose dark mode was just
  * verified clean under B-17.
  */
-.psr-target-trigger {
-  margin-left: 6px;
+/* The control: label, value and edit affordance as ONE target.
+ *
+ * Was a bare gear beside the word "target" — the number read as passive status
+ * and the icon read as generic settings, so the restored authoring path was
+ * effectively unfindable. Naming it and making the figure itself clickable is
+ * the fix; a better-styled icon would not have been. */
+.psr-target-control {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  align-items: baseline;
+  gap: 7px;
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--paper);
-  color: var(--ink-3);
-  padding: 0 4px;
-  font-size: 10px;
-  line-height: 1.6;
+  padding: 2px 8px;
   cursor: pointer;
+  font-family: inherit;
+  line-height: 1.7;
 }
-.psr-target-trigger:hover:not(:disabled) {
-  border-color: var(--accent);
+.psr-target-control .lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.psr-target-control .val {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+.psr-target-control .edit {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--accent-ink);
 }
-.psr-target-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
+.psr-target-control:hover {
+  border-color: var(--accent);
+  background: oklch(from var(--accent) l c h / 0.06);
+}
+.psr-target-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* An override is a decision someone took. It should be visible as one without
+ * the operator opening the popover to find out. */
+.psr-target-control.overridden {
+  border-color: oklch(from var(--accent) l c h / 0.55);
+}
+.psr-target-control.overridden .val { color: var(--accent-ink); }
+
+/* Non-committable: states the target, offers nothing. No dimmed control left
+ * behind — a greyed affordance reads as something broken rather than absent. */
+.psr-target-static {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.psr-target-static .lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.psr-target-static .val {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2, var(--ink));
+}
 
 .psr-target-pop {
   z-index: 50;

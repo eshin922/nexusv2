@@ -67,8 +67,19 @@ function fmtPct(n: number): string {
 
 export function QuoteTargetMarginPopover({
   disabled = false,
+  value,
 }: {
   disabled?: boolean;
+  /**
+   * The effective target, as a decimal, SUPPLIED BY THE CALLER.
+   *
+   * Deliberately not re-derived here. The grid captions itself with this same
+   * number and bands every cell against it, so passing it through guarantees
+   * the control states the target the grid is actually measuring — one value,
+   * one source. A second read of the resolution ladder would be a second thing
+   * that can be right on its own and wrong next to the grid.
+   */
+  value: number;
 }) {
   const quoteId = useCostingStore(selectQuoteId);
   const firmSettings = useCostingStore(selectFirmSettings);
@@ -224,27 +235,48 @@ export function QuoteTargetMarginPopover({
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (disabled) return;
-          setOpen((o) => !o);
-        }}
-        disabled={disabled}
-        aria-label={
-          overrideIsActive
-            ? "Edit per-quote target margin override"
-            : "Set per-quote target margin override"
-        }
-        aria-expanded={open}
-        title="Per-quote target margin"
-        className="psr-target-trigger"
-      >
-        ⚙
-      </button>
+      {/*
+        DISCOVERABILITY (2026-08-17). This was a bare ⚙ beside the word
+        "target". The number read as passive status and the icon read as
+        generic settings, so nothing on the surface suggested that the quote's
+        Margin Target was editable at all — the authoring path was restored and
+        still effectively unfindable.
+        
+        The label, the value and the edit affordance are now ONE target. An
+        operator reading the figure is already pointing at the control that
+        changes it, which is the property a separate icon cannot have however
+        well it is styled.
+      */}
+      {disabled ? (
+        // Read-only, and readable AS read-only: no button, no edit treatment,
+        // no dimmed icon left behind to look like something that failed. A
+        // sent quote states its Margin Target and offers nothing.
+        <span className="psr-target-static">
+          <span className="lab">Margin target</span>
+          <span className="val">{fmtPct(value)}</span>
+        </span>
+      ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((o) => !o);
+          }}
+          aria-label={
+            overrideIsActive
+              ? `Edit Margin Target — currently ${fmtPct(value)}, set on this quote`
+              : `Set a Margin Target for this quote — currently ${fmtPct(value)}, the firm default`
+          }
+          aria-expanded={open}
+          className={`psr-target-control${overrideIsActive ? " overridden" : ""}`}
+        >
+          <span className="lab">Margin target</span>
+          <span className="val">{fmtPct(value)}</span>
+          <span className="edit">Edit</span>
+        </button>
+      )}
       {open && (
         <div
           ref={popoverRef}

@@ -11,7 +11,6 @@ import {
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { GlobalPriceAdjInput } from "@/components/global-price-adj-input";
-import { QuoteTargetMarginPopover } from "@/components/quote-target-margin-popover";
 
 // Slice RI.5 — Pricing Room 2: Margin verdict band.
 //
@@ -148,7 +147,19 @@ export function VerdictBand({ editable }: { editable: boolean }) {
                 quote target override · {effectiveTargetPct.toFixed(0)}%
               </span>
             )}
-            <QuoteTargetMarginPopover disabled={!editable} />
+            {/*
+              The Margin Target control USED to mount here, and this component
+              is orphan-on-disk — torn down with the legacy reframe shell,
+              nothing renders it. That is how the control became unreachable
+              for three and a half months while the engine kept reading the
+              column.
+
+              It now lives in the compliance grid header, on the figure it
+              governs. The mount is removed rather than kept compiling, so this
+              file can no longer read as a live host for an authority it cannot
+              actually offer. If VerdictBand is ever re-mounted, the target
+              belongs where it is; do not restore a second writer here.
+            */}
           </div>
           <div
             style={{
