@@ -66,12 +66,23 @@ const usd = (n: number) =>
  */
 function TargetInput({
   value,
+  inherited,
   placeholder,
   disabled,
   onCommit,
   ariaLabel,
 }: {
+  /** This row's OWN value. Null when it has none of its own. */
   value: number | null;
+  /**
+   * The value in force here anyway, when this row has none of its own.
+   *
+   * Shown muted rather than as an em-dash. A tier inheriting $5.00 and a tier
+   * with no target at all are different states, and rendering both as "—"
+   * makes the number column say the same thing about each — leaving the
+   * caption beneath to carry a distinction the figure contradicts.
+   */
+  inherited?: number | null;
   placeholder: string;
   disabled: boolean;
   onCommit: (next: number | null) => void;
@@ -92,7 +103,13 @@ function TargetInput({
           setEditing(true);
         }}
       >
-        {value === null ? <span className="ct-unset">—</span> : usd(value)}
+        {value !== null ? (
+          usd(value)
+        ) : inherited != null ? (
+          <span className="ct-inherited">{usd(inherited)}</span>
+        ) : (
+          <span className="ct-unset">—</span>
+        )}
       </button>
     );
   }
@@ -281,9 +298,10 @@ export function ClientTargetCell({
                     <span className="ct-drawer-val">
                       <TargetInput
                         value={own ? value : null}
-                        // The inherited figure as the placeholder: visible,
-                        // and plainly not this tier's own.
-                        placeholder={value === null ? "—" : usd(value)}
+                        // What is in force here regardless — muted, so the
+                        // figure and the caption beneath it agree.
+                        inherited={own ? null : value}
+                        placeholder={value === null ? "0.00" : String(value)}
                         disabled={!editable}
                         ariaLabel={`Client target for ${t.label}`}
                         onCommit={(next) =>

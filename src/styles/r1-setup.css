@@ -697,3 +697,11 @@
   color: var(--bad, var(--ink));
   margin: 0;
 }
+
+/* An inherited target: in force here, but not this row's own. Muted rather
+ * than absent — a tier inheriting $5.00 and a tier with no target at all are
+ * different states, and an em-dash for both makes the number column
+ * contradict the caption beneath it. */
+.ct-read .ct-inherited {
+  color: var(--ink-3);
+}
