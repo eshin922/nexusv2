@@ -1,7 +1,9 @@
 # Bounded implementation plan — Stage 3, service mapping, and per-use `Other Service`
 
-**Status:** plan. Nothing implemented.
+**Status:** GOVERNING implementation plan. All business decisions resolved
+2026-08-17; the one measurement is taken and recorded at §B.2.
 **Requested by:** Edward, 2026-08-17 (#291 re-review disposition).
+**Amended:** 2026-08-17 with the #292 review dispositions, inline.
 **Explicitly out of scope:** Sales Order projection of Direct Service lines.
 
 Three workstreams. **A** and **B** are independent of each other; **C** depends
@@ -69,7 +71,7 @@ production" needs an explicit guard.
 relaxation first leaves a window in which the database will accept production
 economics on a folding carton, in direct contradiction of BV-012 §1.b.
 
-### A.3 How to enforce it — recommendation and the trade-off
+### A.3 RESOLVED — declarative enforcement
 
 The predicate is two hops: production row → `quote_leaves.leaf_id` →
 `leaves.commercial_kind`. A plain CHECK cannot cross tables.
@@ -100,10 +102,16 @@ leaf — which converts "it never changes in practice" into "it cannot change",
 and is what makes the denormalized copy safe rather than merely currently
 correct.
 
-If Edward prefers to avoid the denormalization, the fallback is an action-layer
-guard plus a standing verification query. That is weaker in exactly the way
-Pattern 56 warns about — it holds until someone adds a writer — and should be
-chosen deliberately, not by default.
+**Disposition: the declarative approach, all five parts** — denormalized
+`commercial_kind` on `quote_leaves`; composite FK back to `leaves`;
+Production-owner composite FK proving a leaf owner is `service`; declarative
+member prohibition proving members are `product`; immutability of
+`leaves.commercial_kind` in the same slice.
+
+The action-layer fallback is **rejected as a primary boundary.** The gates stay
+— they produce the operator-facing sentence, which a constraint violation
+cannot — but the database enforces the invariants independently of them. Two
+defences, and neither is load-bearing alone.
 
 ### A.4 The attachment prohibition, finally declarative
 
@@ -146,17 +154,37 @@ established one Production surface per Item Group and none on leaves; a surface
 that appeared because a row existed would be #282 undone by the first stray
 write.
 
-### A.7 Blocking decision
+### A.7 RESOLVED — one governed Production input per service identity
 
-**Which Production inputs does each service expose?** Open question 3 in
-`docs/validation/direct-service-architecture-trace.md`, still unanswered. The
-disposition says library identity determines it, but not by what mechanism —
-a per-type `field_schema` (the column exists and is unused for this), a curated
-mapping, or operator choice.
+**Each canonical Direct Service exposes exactly ONE Production input, fixed by
+its service identity. Not operator-selectable.**
 
-**A cannot be built without this.** It decides the shape of the authoring
-surface and possibly of the row itself. Everything above is the plumbing; this
-is what flows through it.
+| Service identity | Production input |
+|---|---|
+| `formulation` | R&D / Formulation |
+| `filling_blending` | Filling / Blending |
+| `packout_assembly` | CM Assembly / Pack-out |
+| `testing_micros` | Testing / Micros |
+| `other_service` | Other Service |
+
+**A Direct Service must not expose the generic Item Group Production table.**
+That is the load-bearing half. A one-row-per-identity surface and a full table
+filtered to one row look similar and are not: the filtered table is a table
+that currently shows one thing, and the first widening of the filter — or the
+first stray row — turns it back into an Item Group surface on a leaf, which is
+#282 undone. The surface renders the single input the identity names, and has
+no capacity to render another.
+
+Explicitly still **excluded** from a Direct Service, remaining Item Group / OTC
+economics unless separately approved: Bulk Raw, Setup, Tooling, Artwork,
+Freight / Duties / Tariffs, Customs, Dies, Print Plates, Samples / PPS,
+Processing Fee, Cartons.
+
+The mapping is a constant in code keyed by the `direct_service_identity` enum,
+beside `DIRECT_SERVICE_LABELS`. Not a database table: it is governed
+vocabulary, closed, and changing it should require a code change and this
+document, not an UPDATE. Not `product_types.field_schema` either — that
+mechanism is operator/admin-populated, and this must not be operator-selectable.
 
 ---
 
@@ -190,13 +218,67 @@ firm-level mapping each. Design accepted at
 `other_service` is deliberately absent from this table. Adding a fifth row
 "for symmetry" would be the generic default the disposition prohibits.
 
-### B.2 Preflight vs completion
+### B.2 MEASURED — the query is cheap; preflight is the wrong place for it
 
-Preflight confirms the stored mapping is still usable **only if the existing
-NetSuite API can do it cheaply and reliably** — to be measured, not assumed. If
-one round trip per mapped identity is not cheap, preflight reads stored state
-only and the block relies on the admin Verify action. Either way an
-indeterminate read stays indeterminate.
+Taken against the NetSuite **sandbox**, read-only SuiteQL, 2026-08-17.
+
+| Path | n | fails | min | p50 | p90 | max |
+|---|---|---|---|---|---|---|
+| **A** baseline SKU-match, 1 SKU — *already on the live push path* | 5 | 0 | 162 | 198 | — | 278 |
+| **B** validate 1 stored internal ID | 5 | 0 | 192 | 288 | — | 922 |
+| **C** validate **all 4** in one round trip | 15 | 0 | 154 | 183 | 309 | 450 |
+| **D** REST `getRecord` | 5 | **5** | — | — | — | — |
+
+**The query is cheap.** Validating all four mappings in one batched round trip
+costs about what *one* SKU-match costs, and the push path already pays that per
+unique SKU sequentially — a ten-SKU quote spends ~2s there today. One batched
+validation is roughly a 10% addition. Batching is also strictly better than
+per-identity: four separate calls would cost four times a query that is not
+cheaper individually (B's p50 is *higher* than C's).
+
+**It is also reliable, and reliable in the specific way the state machine
+needs.** Two correctness probes, not just timings:
+
+- A nonexistent ID returns **0 rows and does not throw**. So absence is
+  *authoritative* and is distinguishable from a failed read, which throws.
+  That is precisely the `not_found` vs `read_failed` distinction §B.1.4
+  depends on — it is a measured property of the API, not an assumption.
+- Rows with `isinactive='T'` are visible when not filtered out, so
+  deactivation is **detectable** rather than presenting as disappearance.
+
+**D failed all five attempts**, and the failure is informative rather than
+incidental: `getRecord` requires the record type in the URL, and these items
+are `NonInvtPart`, not `serviceSaleItem`. A validator built on REST would have
+to know each item's type before it could look it up — which is part of what it
+is trying to find out. SuiteQL is type-agnostic and is the right instrument.
+
+**But the answer to "should preflight do it" is NO, and not for cost reasons.**
+
+`loadSalesOrderPreflight` is **DB-only today** — its own comment says so:
+*"Cheap DB-only reads (customer-map lookup + hubspot deal cache row + latest
+netsuite_so_pushes row)."* It makes zero NetSuite calls, and it runs on **every
+Quote-tab render** for an accepted or complete quote
+(`quote/page.tsx:230-233`).
+
+Putting a NetSuite round trip there would introduce a network dependency into a
+page render — and specifically into the page an operator opens **to find out
+what went wrong with their push**. A NetSuite outage would then take out the
+diagnostic surface along with the push. The query being fast does not fix that;
+the objection is to the dependency, not the latency.
+
+**Disposition:**
+
+- **Preflight displays stored state only** — `mapped` / `unmapped` / `stale`
+  as last known, from the DB, no network. Cheap, and honest about being a
+  cached view.
+- **Live validation runs in the completion action**, immediately before push,
+  as one batched SuiteQL over every mapping the quote needs. That path already
+  requires the network, already spends this much per SKU, and is the only
+  moment at which staleness actually matters.
+- **Admin Verify/Remap** remains the explicit refresh, as dispositioned.
+- An indeterminate read stays indeterminate everywhere. At push time that means
+  the completion **fails closed** with a NetSuite-unreachable message — not a
+  silent pass, and not a false "stale".
 
 ### B.3 Not Pattern 52
 
@@ -235,12 +317,15 @@ kinds of decision.
    complete, naming the line. No fallback to the four fixed mappings, and no
    generic default.
 
-### C.2 Open
+### C.2 RESOLVED — per service line
 
-Whether the selection is per **line** or per **quote**. Per line is the safer
-default — two `Other Service` lines on one quote may genuinely be two different
-things, which is the entire reason `other_service` has no firm default. Worth
-confirming rather than inferring.
+Two `Other Service` lines on one quote may represent different accounting
+destinations. A quote-level selection would collapse them — which is the same
+error as a firm-wide default, one scope down, and for the same reason.
+
+The resolved internal ID freezes with **that line's** accepted state, not with
+the quote as an undifferentiated whole. So the freeze-list entry is the sparse
+row keyed on `quote_leaf_id`, and `assertNotFrozen` is called per line.
 
 ---
 
@@ -252,10 +337,9 @@ A ── Stage 3 XOR ──────────────┐   blocked on 
 B ── mapping Settings ── C ────┘
 ```
 
-**A and B are independent and may run in either order or in parallel.** A is
-Costs-side and blocked on a business answer; B is Settings-side and blocked on
-nothing. If A.7 does not resolve quickly, **B first** is the better use of the
-time.
+**B runs first, per disposition.** A is Costs-side and now unblocked too
+(A.7 resolved), but B is the shorter path and carries the §0 obligation, which
+should not sit latent while A is built.
 
 C requires B's resolver plumbing and state vocabulary.
 
@@ -287,11 +371,13 @@ something real on this workstream.
 
 ---
 
-## Decisions needed before work starts
+## Decisions — all resolved 2026-08-17
 
-| # | Question | Blocks | Kind |
-|---|---|---|---|
-| 1 | Which Production inputs does each service identity expose, and by what mechanism? | **A entirely** | business |
-| 2 | Denormalize `commercial_kind` onto `quote_leaves` for declarative enforcement, or action-layer guard plus verification query? | A.3 | architecture — recommendation given |
-| 3 | Is the per-use `Other Service` selection per line or per quote? | C | business — per line recommended |
-| 4 | Can preflight verify a stored mapping cheaply against the NetSuite API? | B.2 | measurement |
+| # | Question | Resolution |
+|---|---|---|
+| 1 | Which Production inputs does each service identity expose? | **A.7** — exactly one per identity, fixed by identity, not operator-selectable |
+| 2 | Declarative enforcement or action-layer guard? | **A.3** — declarative, all five parts; action layer explicitly rejected as the primary boundary |
+| 3 | Per-use `Other Service`: per line or per quote? | **C.2** — per line |
+| 4 | Can preflight verify a mapping cheaply? | **B.2** — the query is cheap and reliable, but preflight is DB-only by design and renders on page load; live validation moves to the completion action |
+
+**Sequencing disposition: B first.**
