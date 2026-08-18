@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -215,7 +215,18 @@ export default async function CostBuildPage({
         quoteLeaves,
         eq(quoteLeaves.id, assemblyLeafInputs.quoteLeafId),
       )
-      .where(eq(quoteLeaves.quoteId, quote.id))
+      // Stage 3 A · and never a service's. Materialization no longer creates
+      // these, but rows predating that fix exist, and the read must not render
+      // them: with the service correctly absent from the SKU list, its
+      // packaging rows resolved to no name and rendered as "Unknown
+      // component" — a nameless authoring surface, which is worse than the
+      // named one it replaced.
+      .where(
+        and(
+          eq(quoteLeaves.quoteId, quote.id),
+          ne(quoteLeaves.commercialKind, "service"),
+        ),
+      )
       .orderBy(
         asc(assemblyLeafInputs.sortOrder),
         asc(assemblyLeafInputs.lineGroupId),

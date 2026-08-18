@@ -168,6 +168,25 @@ test("a Direct Service is excluded from the Packaging list", async () => {
   assert.match(page, /if \(leaf\.commercialKind === "service"\) continue;/);
 });
 
+test("no packaging line is MATERIALIZED for a service", async () => {
+  // The root cause. Attaching a service created one empty packaging row per
+  // tier, because materialization enumerates every quote_leaf. Excluding the
+  // service from the SKU list alone was not enough — the rows still rendered,
+  // now as "Unknown component", which is a nameless authoring surface and
+  // worse than the named one.
+  const mat = await code("src/lib/packaging-materialization.ts");
+  assert.match(mat, /ne\(quoteLeaves\.commercialKind, "service"\)/);
+});
+
+test("and the packaging READ excludes them too, for rows that predate the fix", async () => {
+  // Two defences because the write fix cannot reach rows already committed.
+  const page = await code("src/app/projects/[id]/quotes/[quoteId]/costs/page.tsx");
+  assert.match(
+    page,
+    /assemblyLeafInputs[\s\S]{0,700}?ne\(quoteLeaves\.commercialKind, "service"\)/,
+  );
+});
+
 test("the production read covers both owners — no inner join on assemblies", async () => {
   // An inner join drops a service-owned row exactly as an IN list does: NULL
   // matches nothing. The value round-trips to the database and vanishes on
