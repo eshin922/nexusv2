@@ -2635,6 +2635,16 @@ export const quoteLeaves = pgTable(
     ),
     pinnedAt: timestamp("pinned_at", { withTimezone: true }),
     quantity: numeric("quantity").notNull().default("1"),
+    // Denormalised from leaves.commercial_kind and maintained BY THE DATABASE
+    // (trigger quote_leaves_commercial_kind_sync, migration 0082). No writer
+    // sets it — including this one — which is why it is absent from every
+    // insert in the codebase and still NOT NULL.
+    //
+    // Safe as a copy because leaves.commercial_kind is immutable and this
+    // column is held to its source by a composite FK.
+    commercialKind: leafCommercialKind("commercial_kind")
+      .notNull()
+      .default("product"),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -3102,9 +3112,28 @@ export const assemblyProductionInputs = pgTable(
   "assembly_production_inputs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    assemblyId: uuid("assembly_id")
-      .notNull()
-      .references(() => assemblies.id, { onDelete: "cascade" }),
+    // Stage 3 A · ONE of assemblyId / quoteLeafId, never both, never neither
+    // (CHECK assembly_production_inputs_owner_xor, migration 0082). Nullable
+    // here for the same reason migration 0077 made Client Target's owner
+    // columns nullable: the value belongs to either a group or a top-level
+    // direct unit, and which one is data rather than schema.
+    assemblyId: uuid("assembly_id").references(() => assemblies.id, {
+      onDelete: "cascade",
+    }),
+    // The other branch: a top-level Direct Service. Constrained to
+    // SERVICE-classified leaves by a composite FK on
+    // (quote_leaf_id, owner_commercial_kind) — a Direct Product's quote leaf
+    // carries commercial_kind='product' and therefore has no referent.
+    quoteLeafId: uuid("quote_leaf_id").references(() => quoteLeaves.id, {
+      onDelete: "cascade",
+    }),
+    // GENERATED in the database and never written. Declared so Drizzle knows
+    // the column exists; excluded from every insert shape because a writer
+    // cannot set it — which is what makes a wrong value unrepresentable
+    // rather than merely refused.
+    ownerCommercialKind: leafCommercialKind("owner_commercial_kind").generatedAlwaysAs(
+      sql`CASE WHEN "quote_leaf_id" IS NULL THEN NULL ELSE 'service'::"leaf_commercial_kind" END`,
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -3128,6 +3157,14 @@ export const assemblyProductionInputs = pgTable(
       scale: 2,
     }),
     rdTotal: numeric("rd_total", { precision: 12, scale: 2 }),
+    // Migration 0083. Its own column rather than a reuse of otherServiceTotal:
+    // BV-011 maps Testing and Other to DIFFERENT accounting destinations, and
+    // one column carrying both would discard the distinction a Sales Order
+    // line needs. Not surfaced on the Item Group Production table.
+    testingMicrosTotal: numeric("testing_micros_total", {
+      precision: 12,
+      scale: 2,
+    }),
     otherServiceTotal: numeric("other_service_total", {
       precision: 12,
       scale: 2,

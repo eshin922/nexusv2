@@ -223,6 +223,9 @@ test("production data anchors to the lowest-position leaf, by canonical order", 
       assemblyProductionInputs: [
         {
           assemblyId: ASSEMBLY,
+          // Stage 3 A · the other owner branch. Explicit null rather than
+          // omitted, so this fixture states which owner it is exercising.
+          quoteLeafId: null,
           tierId: TIER_A,
           customerShipsRaws: false,
           allocateServiceFeesToCost: true,

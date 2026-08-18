@@ -7,6 +7,17 @@ export type SkuRoleValue = "leaf" | "assembly";
 
 export type SkuRow = {
   id: string;
+  /**
+   * The CANONICAL quote_leaf id, when this row came from a canonical
+   * attachment. Distinct from `id`, which is the assembly_leaf junction id for
+   * a member — and identical to it for a top-level leaf, which is exactly what
+   * lets the two be confused.
+   *
+   * Declared because the Costs page already sets it and a consumer needed it:
+   * the production markup node is keyed by this id, not by `id`, and reading
+   * the wrong one fails closed to an em-dash indistinguishable from "no rate".
+   */
+  quoteLeafId?: string | null;
   skuLabel: string;
   productName: string;
   skuRole: SkuRoleValue;

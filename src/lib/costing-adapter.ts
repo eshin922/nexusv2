@@ -166,7 +166,12 @@ export type AdapterAssemblyLeafInputRow = {
 // Minimum columns from `assembly_production_inputs`. Production
 // policy + per-tier service-fee inputs at assembly level.
 export type AdapterAssemblyProductionInputRow = {
-  assemblyId: string;
+  // Stage 3 A · exactly one owner. `assemblyId` for an Item Group, or
+  // `quoteLeafId` for a top-level Direct Service. The database enforces the
+  // XOR and restricts the leaf branch to service-classified leaves; this type
+  // reflects that rather than re-asserting it.
+  assemblyId: string | null;
+  quoteLeafId: string | null;
   tierId: string;
   customerShipsRaws: boolean;
   allocateServiceFeesToCost: boolean;
@@ -363,18 +368,40 @@ export function buildQuoteCostingInputFromNewModel(
     }
   }
 
+  // Stage 3 A · the leaf-owned branch needs no anchor at all.
+  //
+  // A Direct Service IS a top-level quote leaf, so its production row maps
+  // straight onto that leaf's math id. The anchor-leaf coercion above exists
+  // only because an Item Group's production is per-ASSEMBLY while the math
+  // layer keys per-leaf; a service has no such mismatch to bridge.
+  //
+  // Which also means the service branch does not inherit the anchor pattern's
+  // known cost — the UI asymmetry where one of N sibling rows carries the
+  // value. There is one row, and it owns its own economics.
+  const directLeafIds = new Set(
+    args.quoteLeafAttachments.map((al) => mathSkuId(al)),
+  );
+
   const production: CostingProductionInput[] = [];
   for (const api of args.assemblyProductionInputs) {
-    const anchorLeafId = anchorLeafByAssembly.get(api.assemblyId);
-    if (!anchorLeafId) {
-      // Assembly has no leaves — production row has nowhere to
-      // attach. Skip silently; this is a degenerate state (no
-      // components to produce) and the cost contribution would be
-      // 0 anyway. Future v1.1+ may surface this as a quote warning.
+    const targetLeafId = api.quoteLeafId
+      ? // Owned by a Direct Service. Present in the attachment set unless the
+        // leaf was removed in the same read window; skipping is correct then,
+        // for the same reason the assembly branch skips a leafless assembly.
+        (directLeafIds.has(api.quoteLeafId) ? api.quoteLeafId : undefined)
+      : api.assemblyId
+        ? anchorLeafByAssembly.get(api.assemblyId)
+        : undefined;
+
+    if (!targetLeafId) {
+      // Assembly has no leaves, or the owning leaf is gone — production row
+      // has nowhere to attach. Skip; this is a degenerate state and the cost
+      // contribution would be 0 anyway. Future v1.1+ may surface it as a
+      // quote warning.
       continue;
     }
     production.push({
-      quoteSkuId: anchorLeafId,
+      quoteSkuId: targetLeafId,
       tierId: api.tierId,
       customerShipsRaws: api.customerShipsRaws,
       allocateServiceFeesToCost: api.allocateServiceFeesToCost,

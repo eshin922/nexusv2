@@ -20,6 +20,11 @@ import {
   resolveBulkAllocation,
   type AllocationAggregate,
 } from "@/lib/production-policy";
+import { PRODUCTION_MARKUP_CATEGORY } from "@/lib/costing";
+import {
+  DirectServiceProduction,
+  type DirectServiceProductionRow,
+} from "./direct-service-production";
 
 // Step 8 — drilldown consumes the structural SkuRow shape from
 // sku-tree.ts (replaced typeof quoteSkus.$inferSelect dependency).
@@ -117,7 +122,17 @@ function num(v: string | null | undefined): number | null {
 }
 
 /** A resolved markup rate, as the operator reads it: `32.0%`. */
-function fmtPct1(v: number): string {
+/**
+ * Exported so the Direct Service table formats the rate the SAME way, rather
+ * than restating the conversion.
+ *
+ * The node's value is a DECIMAL FRACTION (0.30), not a percentage. The service
+ * table first rendered `pct.toFixed(1) + "%"` and displayed "0.3%" against a
+ * 30% rate — a 100x error in a commercial figure, and a plausible-looking one.
+ * Sharing the formatter removes the second place that conversion can be got
+ * wrong.
+ */
+export function fmtPct1(v: number): string {
   return (v * 100).toFixed(1) + "%";
 }
 
@@ -136,12 +151,16 @@ export function ProductionDrilldown({
   inputRows,
   editable,
   rawsMode,
+  directServices = [],
 }: {
   skus: QuoteSku[];
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   inputRows: ProductionInputRow[];
   editable: boolean;
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
+  /** Stage 3 A · the other owner branch. Rendered by its own component,
+   *  which has no capacity to show an Item Group's inputs. */
+  directServices?: DirectServiceProductionRow[];
 }) {
   const rowsBySku = new Map<string, Map<string, ProdRowForUI>>();
   const policyBySku = new Map<string, SkuPolicy>();
@@ -183,6 +202,43 @@ export function ProductionDrilldown({
   // is still read honestly as `mixed` rather than reported as whichever value
   // one component happened to hold.
   const assemblies = skus.filter((s) => s.skuRole === "assembly");
+
+  // ── THE MARKUP NODE IS KEYED BY THE ANCHOR LEAF, NOT THE ASSEMBLY ───────
+  //
+  // The engine attaches an Item Group's production to the lowest-position
+  // member leaf (`costing-adapter.ts` anchor-leaf fan-out), so that is the id
+  // its markup resolution node is keyed under.
+  //
+  // #282 re-keyed this DISPLAY to `assembly.id`, correctly — production
+  // belongs to the Item Group, not to one of its components. But the markup
+  // read kept resolving `nodeKey(sku.id, ...)`, which after the re-key is an
+  // assembly id and matches no node. `readSection` then fails closed and the
+  // column renders an em-dash on EVERY row — including rows the engine is
+  // actively marking up and carrying into quoted price, which is exactly the
+  // C-1 defect the read was written to fix, reintroduced by a key change
+  // rather than by a logic change.
+  //
+  // Display keys by assembly; the markup read keys by anchor leaf. Two
+  // different questions, two different keys.
+  const anchorLeafByAssembly = new Map<string, string>();
+  for (const asm of assemblies) {
+    const children = skus
+      .filter((s) => s.skuRole !== "assembly" && s.parentSkuId === asm.id)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    // `quoteLeafId`, NOT `id`. For an assembly member, `skus[].id` is the
+    // assembly_leaf id while the math node is keyed by the CANONICAL quote_leaf
+    // id (`mathSkuId` in the adapter returns `row.quoteLeafId`).
+    //
+    // Getting this wrong is silent: the lookup misses, `readSection` fails
+    // closed, and the column renders the same em-dash it renders when there is
+    // genuinely no rate. The Direct Service branch masked it, because for a
+    // top-level leaf the two ids are the same value — so the service showed a
+    // rate while the Item Group beside it did not, which is the asymmetry that
+    // gave it away.
+    if (children.length > 0) {
+      anchorLeafByAssembly.set(asm.id, children[0].quoteLeafId ?? children[0].id);
+    }
+  }
 
   // EVERY Item Group contributes, persisted or not.
   //
@@ -352,6 +408,7 @@ export function ProductionDrilldown({
             </span>
           </div>
           <ProductionTable
+            markupNodeId={anchorLeafByAssembly.get(asm.id) ?? asm.id}
             sku={asm}
             policy={policyByAssembly.get(asm.id) ?? sectionPolicy}
             tiers={tiers}
@@ -360,6 +417,19 @@ export function ProductionDrilldown({
             disabled={!editable}
           />
         </div>
+      ))}
+
+      {/* Stage 3 A · the other owner branch, in its own component. Rendered
+          BELOW the Item Group tables rather than among them: a service is not
+          an Item Group, and interleaving them would invite reading one as a
+          variant of the other. */}
+      {directServices.map((svc) => (
+        <DirectServiceMarkupBridge
+          key={svc.quoteLeafId}
+          service={svc}
+          tiers={tiers}
+          editable={editable}
+        />
       ))}
 
       <PostProdReconcile
@@ -373,6 +443,7 @@ export function ProductionDrilldown({
 
 function ProductionTable({
   sku,
+  markupNodeId,
   policy,
   tiers,
   rowsByTier,
@@ -380,6 +451,9 @@ function ProductionTable({
   disabled,
 }: {
   sku: QuoteSku;
+  /** The engine's node key for this section's markup — the ANCHOR LEAF, which
+   *  is not the same id the display is keyed by. See the note at the caller. */
+  markupNodeId: string;
   policy: SkuPolicy;
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   rowsByTier: Map<string, ProdRowForUI>;
@@ -388,7 +462,7 @@ function ProductionTable({
 }) {
   // One read for the whole section — the rate is firm-wide, so resolving it
   // per row would be the same traversal repeated once per line.
-  const markup = useProductionMarkup(sku.id, tiers);
+  const markup = useProductionMarkup(markupNodeId, tiers);
 
   // Per-line × per-tier value computation:
   // Every production input is persisted and entered as a total. Resulting
@@ -1150,5 +1224,40 @@ function PostProdReconcile({
         </div>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * Resolves a Direct Service's Production markup through the SAME read the
+ * Item Group table uses, then hands it to the presentation component.
+ *
+ * A bridge rather than the hook inside `DirectServiceProduction` because the
+ * hook must be called once per service, and one component rendering N services
+ * cannot call a hook in a loop. The important property is which read it is:
+ * the same one, so BV-013 changes both surfaces at once and neither carries a
+ * private copy of the rate.
+ *
+ * The node key here needs no anchor translation — a Direct Service IS the math
+ * leaf, so its quote-leaf id is already the key the engine used.
+ */
+function DirectServiceMarkupBridge({
+  service,
+  tiers,
+  editable,
+}: {
+  service: DirectServiceProductionRow;
+  tiers: Array<{ id: string; label: string; qty: number | null }>;
+  editable: boolean;
+}) {
+  const markup = useProductionMarkup(service.quoteLeafId, tiers);
+  return (
+    <DirectServiceProduction
+      services={[service]}
+      tiers={tiers}
+      editable={editable}
+      categoryLabel={PRODUCTION_MARKUP_CATEGORY}
+      markupPct={markup.prod.pct}
+    />
   );
 }

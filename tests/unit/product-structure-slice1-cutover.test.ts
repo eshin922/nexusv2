@@ -319,6 +319,21 @@ const classifiedIdentityFiles = new Set([
   // fewer groups. Holding both is what makes that a comparison rather than an
   // assertion; the junction appears only inside a `count(*)` taken to be beaten.
   "scripts/verify/od-023-snapshot-completeness.ts",
+  // CLASSIFIED — canonical identity only, read + display. The Direct Service
+  // Production surface addresses its rows by `quote_leaf_id`, the governed
+  // owner of a service-owned production row, and resolves no junction.
+  "src/components/costs/direct-service-production.tsx",
+  // CLASSIFIED — type declaration only. `SkuRow.quoteLeafId` carries the
+  // CANONICAL id alongside the junction `id`, so consumers that must key on
+  // the canonical one (the production markup node) can. Declares, resolves
+  // nothing, writes nothing.
+  "src/lib/sku-tree.ts",
+  // CLASSIFIED — canonical identity ONLY, and by construction. Stage 3 A's
+  // Direct Service Production writer keys on `quote_leaf_id`, which is the
+  // governed owner of a service-owned production row; it never resolves or
+  // writes the legacy junction, and it cannot, because the column it targets
+  // is derived from the leaf's service identity rather than supplied.
+  "src/app/actions/direct-service-production.ts",
   // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
   // what the V1 freight distribution policy moved across the S-7 basket before
   // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment

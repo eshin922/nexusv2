@@ -822,6 +822,11 @@ export async function getQuoteCosting(
       assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
         (r) => ({
           assemblyId: r.assemblyId,
+          // Stage 3 A · the other owner branch. Threaded here so a Direct
+          // Service's production reaches the adapter; without it the row
+          // would load and then be silently dropped for having no owner the
+          // adapter recognises.
+          quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
           customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
@@ -1402,6 +1407,11 @@ export async function applyClientTargetSolveTierAdj(
       assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
         (r) => ({
           assemblyId: r.assemblyId,
+          // Stage 3 A · the other owner branch. Threaded here so a Direct
+          // Service's production reaches the adapter; without it the row
+          // would load and then be silently dropped for having no owner the
+          // adapter recognises.
+          quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
           customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
@@ -1723,6 +1733,11 @@ export async function getCostingBundle(
       assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
         (r) => ({
           assemblyId: r.assemblyId,
+          // Stage 3 A · the other owner branch. Threaded here so a Direct
+          // Service's production reaches the adapter; without it the row
+          // would load and then be silently dropped for having no owner the
+          // adapter recognises.
+          quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
           customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
