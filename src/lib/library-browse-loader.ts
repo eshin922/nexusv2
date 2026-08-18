@@ -63,6 +63,14 @@ export type LibraryBrowseFilters = {
    */
   sourceTypeFilter?: string;
   scopeFilter?: "all" | "this" | "other";
+  /**
+   * BV-012 §5 — restrict to one commercial kind.
+   *
+   * Used by the service-mode browse so `Add Direct Service` cannot show
+   * packaging, and by the product modes so they cannot show services. Absent
+   * means no restriction, which is what every pre-existing caller gets.
+   */
+  commercialKindFilter?: "product" | "service";
   targetQuoteId: string;
   limit?: number;
   /** B-11 · rows to skip. Page N is `offset = (N - 1) * limit`. */
@@ -181,6 +189,13 @@ export async function loadLibraryBrowse(
   // `archived = false` filter so the catalog-size figure PMs see
   // in empty-state copy reflects only active leaves.
   const conds: SQL[] = [];
+  // BV-012 §5 — a service browse shows only services, and a product browse
+  // only products. Applied in SQL rather than filtered after the page is
+  // fetched: post-filtering a paginated result silently shortens pages and
+  // makes the count disagree with the rows, which is the B-11 defect.
+  if (filters.commercialKindFilter) {
+    conds.push(eq(leaves.commercialKind, filters.commercialKindFilter));
+  }
   if (search.length > 0) {
     const pattern = `%${search}%`;
     const orClause = or(

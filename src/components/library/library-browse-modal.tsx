@@ -77,7 +77,13 @@ export function LibraryBrowseModal({
    * Defaults to `group` so any caller not yet passing a mode keeps its current
    * behaviour rather than silently changing structure.
    */
-  mode?: "direct" | "group";
+  /**
+   * BV-012 §5. `service` browses the library's SERVICE entries and attaches at
+   * top level; it shares `direct`'s no-picker behaviour because a service is
+   * top-level by definition, and an item group is not a legal destination for
+   * it at all.
+   */
+  mode?: "direct" | "group" | "service";
   /**
    * Preselected destination for `group` mode.
    *
@@ -212,6 +218,9 @@ export function LibraryBrowseModal({
           limit: PAGE_SIZE,
           sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
+          // BV-012 §5 — service browse shows services; the two product modes
+          // show products. Neither can offer the other by accident.
+          commercialKindFilter: mode === "service" ? "service" : "product",
           targetQuoteId: quoteId,
         });
         if (!result.ok) {
@@ -356,10 +365,14 @@ export function LibraryBrowseModal({
   // Direct mode needs no target: the quote IS the target. Gating it on an
   // assembly would have made Add Product impossible on a quote with no Item
   // Groups — precisely the quote it exists to serve.
-  const attachReady = mode === "direct" || Boolean(targetAssemblyId);
+  // A Direct Service is top-level by definition (BV-012 §5.c), so it needs no
+  // target for the same reason `direct` does not — and gating it on an
+  // assembly would be gating it on the one thing it may never be attached to.
+  const isTopLevel = mode === "direct" || mode === "service";
+  const attachReady = isTopLevel || Boolean(targetAssemblyId);
 
   function handleAttach(row: LibraryBrowseRow) {
-    const direct = mode === "direct";
+    const direct = isTopLevel;
     if (!direct && !targetAssemblyId) {
       setError("Pick a target item group at the top of the modal first.");
       return;
@@ -716,12 +729,15 @@ export function LibraryBrowseModal({
               attach destination (row buttons just say "Attach"). */}
           <div className="lib-target-bar">
             <span className="eyebrow">Adding to</span>
-            {mode === "direct" ? (
-              // No picker in direct mode: the destination is the quote, and a
-              // control offering item groups here would invite the operator to
-              // group a product they explicitly chose not to group.
+            {isTopLevel ? (
+              // No picker: the destination is the quote. For `direct` a control
+              // offering item groups would invite grouping a product the
+              // operator explicitly chose not to group; for `service` an item
+              // group is not a legal destination at all.
               <span className="name" style={{ justifySelf: "flex-start" }}>
-                This quote — as a standalone product
+                {mode === "service"
+                  ? "This quote — as a service line"
+                  : "This quote — as a standalone product"}
               </span>
             ) : (
             <div
@@ -836,9 +852,11 @@ export function LibraryBrowseModal({
               </div>
             )}
             <span className="target-hint">
-              {mode === "direct"
-                ? "Each product you add becomes its own quote line"
-                : "Products you add land in this item group"}
+              {mode === "service"
+                ? "A service is sold on its own line. It cannot be added inside an item group."
+                : mode === "direct"
+                  ? "Each product you add becomes its own quote line"
+                  : "Products you add land in this item group"}
             </span>
           </div>
 
@@ -1259,8 +1277,10 @@ export function LibraryBrowseModal({
                               // hover it here or trigger the refusal.
                               !row.eligibility.attachable
                                 ? row.eligibility.message
-                                : mode === "direct"
-                                  ? "Add this product to the quote"
+                                : mode === "service"
+                                  ? "Add this service to the quote"
+                                  : mode === "direct"
+                                    ? "Add this product to the quote"
                                   : targetAssemblyId
                                     ? `Add to ${targetAssembly?.sku}`
                                     : "Create an item group first to enable adding"

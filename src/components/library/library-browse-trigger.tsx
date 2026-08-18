@@ -43,7 +43,7 @@ export function LibraryBrowseTrigger({
    * becomes `group` because one product was added, and `group` never collapses
    * to `direct` because it holds only one.
    */
-  mode: "direct" | "group";
+  mode: "direct" | "group" | "service";
   quoteId: string;
   projectId: string;
   editable: boolean;
@@ -59,12 +59,18 @@ export function LibraryBrowseTrigger({
 }) {
   const [open, setOpen] = useState(false);
   const isDirect = mode === "direct";
+  const isService = mode === "service";
+  // Direct Service is a peer sellable unit, not a variant of Add Product, so
+  // it carries the same primary weight (BV-012 §5.b). A ghost beside two
+  // filled buttons would read as secondary chrome — the exact treatment that
+  // made the grouped choice go unnoticed even after it became reachable.
+  const isPrimary = isDirect || isService;
 
   return (
     <>
       <button
         type="button"
-        className={className ?? `a1v2-btn ${isDirect ? "primary" : "ghost"} sm`}
+        className={className ?? `a1v2-btn ${isPrimary ? "primary" : "ghost"} sm`}
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}
@@ -73,12 +79,19 @@ export function LibraryBrowseTrigger({
         title={
           !editable
             ? "Quote is not draft — editing disabled"
-            : isDirect
-              ? "Add a single product to this quote"
-              : "Add products into an existing item group"
+            : isService
+              ? "Sell a service on its own line — formulation, filling, pack-out, testing"
+              : isDirect
+                ? "Add a single product to this quote"
+                : "Add products into an existing item group"
         }
       >
-        {label ?? (isDirect ? "+ Add Product" : "+ Add to Item Group")}
+        {label ??
+          (isService
+            ? "+ Add Direct Service"
+            : isDirect
+              ? "+ Add Product"
+              : "+ Add to Item Group")}
       </button>
       <LibraryBrowseModal
         mode={mode}

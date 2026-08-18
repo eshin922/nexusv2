@@ -155,18 +155,25 @@ test("Create New Product is library master data only — no Item Group branch", 
   );
 });
 
-test("the two structural peers carry equal visual weight", async () => {
+test("the structural peers carry equal visual weight", async () => {
   // A ghost beside a filled button is not a peer — it reads as secondary
   // chrome, which is how the grouped choice stayed unnoticed even after B-1
-  // made it reachable. Both are primary.
+  // made it reachable.
+  //
+  // THREE peers now, not two: BV-012 §5.b makes Direct Service a sellable unit
+  // alongside Direct Product and Item Group, so it takes the same weight. The
+  // `isDirect ? primary : ghost` form this used to pin could not express a
+  // third primary, which is why the predicate is named rather than inlined.
   assert.match(
     await read("src/components/assembly-tree/create-item-group-trigger.tsx"),
     /className="a1v2-btn primary sm"/,
   );
-  assert.match(
-    await read("src/components/library/library-browse-trigger.tsx"),
-    /isDirect \? "primary" : "ghost"/,
-  );
+  const trigger = await read("src/components/library/library-browse-trigger.tsx");
+  assert.match(trigger, /const isPrimary = isDirect \|\| isService;/);
+  assert.match(trigger, /isPrimary \? "primary" : "ghost"/);
+  // `group` remains the one non-peer: it acts on a destination already chosen
+  // by which row the operator pressed, so it is genuinely subordinate.
+  assert.doesNotMatch(trigger, /isGroup \? "primary"/);
 });
 
 test("adding products into a group lives on that group's row, not the quote head", async () => {
@@ -174,6 +181,10 @@ test("adding products into a group lives on that group's row, not the quote head
   // No quote-level grouped entry. It had to ask which group in a menu, and on
   // a quote with no groups the question had no answer.
   assert.doesNotMatch(view, /mode="group"/);
+  // The two quote-level modes that ARE there are both top-level sellable
+  // units, which is the property that makes them legitimate here.
+  assert.match(view, /mode="direct"/);
+  assert.match(view, /mode="service"/);
 
   // §1 presentation closeout — the action MOVED from a button on the group's
   // control band into that group's context menu. Same row, same pre-chosen
@@ -208,9 +219,13 @@ test("the group route survives because the surface-level one cannot replace it",
   const modal = await code("src/components/library/library-browse-modal.tsx");
   assert.match(
     modal,
-    /mode === "direct" \? \(/,
-    "precondition: direct mode takes a branch that renders no target picker",
+    /\{isTopLevel \? \(/,
+    "precondition: the top-level modes take a branch that renders no target picker",
   );
+  // `isTopLevel` is `direct` OR `service` — both quote-level, neither able to
+  // reach an Item Group. The precondition this test depends on is therefore
+  // stronger than when it was written, not weaker.
+  assert.match(modal, /const isTopLevel = mode === "direct" \|\| mode === "service";/);
 });
 
 test("an explicit destination survives the modal's auto-select", async () => {
@@ -241,7 +256,11 @@ test("direct mode needs no item group to be attachable", async () => {
   const src = await read("src/components/library/library-browse-modal.tsx");
   // Gating Add Product on an existing group would make it impossible on the
   // very quote it exists to serve — one with no groups at all.
-  assert.match(src, /attachReady = mode === "direct" \|\| Boolean\(targetAssemblyId\)/);
+  // Now expressed through `isTopLevel`, which covers Direct Service too — a
+  // service is top-level by definition and an Item Group is not a legal
+  // destination for it at all (BV-012 §5.c).
+  assert.match(src, /const isTopLevel = mode === "direct" \|\| mode === "service";/);
+  assert.match(src, /attachReady = isTopLevel \|\| Boolean\(targetAssemblyId\)/);
 });
 
 // ------------------------------------------------------------- rendering

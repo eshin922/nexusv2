@@ -119,10 +119,14 @@ export function AssemblyTreeView({
           </span>
           {/* TWO PEER STRUCTURAL ACTIONS, at equal visual weight.
 
-              + Add Product       browse the library, attach an existing product
-                                  to the quote as a standalone Direct Product.
-              + Create Item Group create quote-local grouping structure. Not a
-                                  product; nothing is written to the library.
+              + Add Product        browse the library, attach an existing
+                                   product as a standalone Direct Product.
+              + Add Direct Service browse the library's SERVICE entries and
+                                   attach one as a top-level service line. A
+                                   service is never an item group member
+                                   (BV-012 §5.c) — the gate refuses it.
+              + Create Item Group  create quote-local grouping structure. Not a
+                                   product; nothing is written to the library.
 
               Both are primary. A ghost beside a filled button is not a peer —
               it reads as secondary chrome, which is how the grouped choice went
@@ -135,6 +139,18 @@ export function AssemblyTreeView({
               on a quote with no groups it could not be answered at all. */}
           <LibraryBrowseTrigger
             mode="direct"
+            quoteId={quoteId}
+            projectId={projectId}
+            editable={editable}
+            assemblies={assemblyTargets}
+            fullLeafTypes={leafTypes}
+            permissions={permissions}
+          />
+          {/* THREE peer sellable units — BV-012 §5.b. The operator states
+              what the customer is buying; nothing is inferred from which cost
+              fields later hold values. */}
+          <LibraryBrowseTrigger
+            mode="service"
             quoteId={quoteId}
             projectId={projectId}
             editable={editable}
