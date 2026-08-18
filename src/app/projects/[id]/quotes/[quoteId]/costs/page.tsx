@@ -20,6 +20,7 @@ import {
 import { Suspense } from "react";
 import { listMarkupDefaults } from "@/app/actions/markup-defaults";
 import { getCostingBundle } from "@/app/actions/costing";
+import { DIRECT_SERVICE_PRODUCTION_INPUT } from "@/lib/product-structure/direct-service";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
 import { isProductionRealtimeConfigured } from "@/lib/integrations/realtime-composition";
 import { ActiveTierUrlSync } from "@/components/pricing/active-tier-url-sync";
@@ -469,9 +470,67 @@ export default async function CostBuildPage({
   // this re-key moves no money, and why the adapter is deliberately untouched
   // (its coercion is structurally different but arithmetically exact; see
   // docs/validation/production-cost-ownership-trace.md S-1).
+  // ── Direct Service Production (Stage 3 A) ───────────────────────────────
+  //
+  // A Direct Service owns its own Production economics — the other branch of
+  // the ownership XOR. Gated on service CLASSIFICATION, never on the presence
+  // of a production row: a surface that appeared because a row existed would
+  // be #282 undone by the first stray write, so the list is built from the
+  // service leaves attached to this quote and the amounts are looked up
+  // afterwards.
+  const serviceLeafRows = await db
+    .select({
+      quoteLeafId: quoteLeaves.id,
+      name: leaves.name,
+      serviceIdentity: leaves.serviceIdentity,
+    })
+    .from(quoteLeaves)
+    .innerJoin(leaves, eq(leaves.id, quoteLeaves.leafId))
+    .where(
+      and(
+        eq(quoteLeaves.quoteId, quote.id),
+        isNull(quoteLeaves.assemblyId),
+        eq(quoteLeaves.commercialKind, "service"),
+      ),
+    )
+    .orderBy(asc(quoteLeaves.position));
+
+  const serviceAmounts = new Map<string, Map<string, string | null>>();
+  for (const r of newProdInputRows) {
+    const api = r.assembly_production_inputs;
+    if (api.quoteLeafId === null) continue;
+    const byTier = serviceAmounts.get(api.quoteLeafId) ?? new Map();
+    // The governed column is resolved from the row's own identity, not from
+    // whichever column happens to be populated — reading "the non-null one"
+    // would silently accept a value in a column this service may not author.
+    const svc = serviceLeafRows.find((x) => x.quoteLeafId === api.quoteLeafId);
+    const col = svc?.serviceIdentity
+      ? DIRECT_SERVICE_PRODUCTION_INPUT[svc.serviceIdentity]
+      : null;
+    byTier.set(
+      api.tierId,
+      col ? ((api[col as keyof typeof api] as string | null) ?? null) : null,
+    );
+    serviceAmounts.set(api.quoteLeafId, byTier);
+  }
+
+  const directServices = serviceLeafRows
+    .filter((r) => r.serviceIdentity !== null)
+    .map((r) => ({
+      quoteLeafId: r.quoteLeafId,
+      name: r.name,
+      serviceIdentity: r.serviceIdentity!,
+      amountsByTier: Object.fromEntries(serviceAmounts.get(r.quoteLeafId) ?? []),
+    }));
+
   const prodRows: SyntheticProductionRow[] = [];
   for (const r of newProdInputRows) {
     const api = r.assembly_production_inputs;
+    // Stage 3 A · this prop shape is the ITEM GROUP production table's, keyed
+    // by assembly. A service-owned row has no assembly and does not belong in
+    // it — the Direct Service surface reads its own row. Skipping is the
+    // correct projection, not a dropped value.
+    if (api.assemblyId === null) continue;
     prodRows.push({
       production_inputs: {
         id: api.id,
@@ -700,6 +759,7 @@ export default async function CostBuildPage({
               inputRows={prodRows}
               editable={editable}
               rawsMode={rawsMode}
+              directServices={directServices}
             />
           </SectionWithDrilldown>
 

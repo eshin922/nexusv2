@@ -25,6 +25,19 @@
  * `policySource` is captured alongside the digest because a migration can hold
  * every number still while changing WHERE the policy came from, and that
  * transition is itself the thing being proven in the pin backfill.
+ *
+ * ── PRODUCTION OWNERSHIP (Stage 3 A) ──────────────────────────────────────
+ *
+ * The costing digest alone cannot see an OWNERSHIP change that leaves every
+ * total intact — which is precisely what Stage 3 A risks, since it relaxes
+ * `assembly_production_inputs.assembly_id` to nullable and adds a second
+ * possible owner. "Exact reconciliation is necessary but not sufficient": a
+ * value can move to a different owner and still sum correctly.
+ *
+ * So the witness also captures, per production row, its OWNER and a digest of
+ * its VALUES, keyed by row id. After the migration the same row must have the
+ * same owner and the same values — an assertion the costing digest cannot
+ * make on its own.
  */
 
 import { createHash } from "node:crypto";
@@ -83,22 +96,89 @@ for (const q of quotes) {
   };
 }
 
+// ── production ownership ─────────────────────────────────────────────────
+//
+// Keyed by row id so a moved value is detectable as a CHANGED row rather than
+// as a coincidentally-equal total. Every monetary column is included; adding
+// one later changes the digest, which is the correct alarm.
+const prodRows = (await db.execute(sql`
+  select api.id::text id,
+         api.assembly_id::text assembly_id,
+         a.quote_id::text quote_id,
+         coalesce(api.filling_blending_cost::text,'~')  a1,
+         coalesce(api.cm_assembly_total::text,'~')      a2,
+         coalesce(api.setup_fee_total::text,'~')        a3,
+         coalesce(api.tooling_artwork_total::text,'~')  a4,
+         coalesce(api.rd_total::text,'~')               a5,
+         coalesce(api.other_service_total::text,'~')    a6,
+         coalesce(api.bulk_raw_cost::text,'~')          a7,
+         api.customer_ships_raws::text                  p1,
+         api.allocate_service_fees_to_cost::text        p2
+    from assembly_production_inputs api
+    left join assemblies a on a.id = api.assembly_id
+   order by api.id::text
+`)) as unknown as Record<string, string | null>[];
+
+const production: Record<string, { owner: string; quoteId: string | null; values: string }> = {};
+for (const r of prodRows) {
+  production[r.id!] = {
+    // "assembly:<id>" today; Stage 3 A introduces "leaf:<id>". Encoding the
+    // KIND of owner means a silent re-parenting cannot look like an id change.
+    owner: r.assembly_id ? `assembly:${r.assembly_id}` : "NONE",
+    quoteId: r.quote_id ?? null,
+    values: [r.a1, r.a2, r.a3, r.a4, r.a5, r.a6, r.a7, r.p1, r.p2].join("|"),
+  };
+}
+const productionDigest = createHash("sha256")
+  .update(
+    Object.keys(production)
+      .sort()
+      .map((k) => `${k}|${production[k].owner}|${production[k].values}`)
+      .join("\n"),
+  )
+  .digest("hex");
+const quotesWithProduction = [
+  ...new Set(Object.values(production).map((p) => p.quoteId).filter(Boolean)),
+].sort();
+
 const global = createHash("sha256")
   .update(Object.keys(entries).sort().map((k) => `${k}|${entries[k].digest}`).join("\n"))
   .digest("hex");
 
-writeFileSync(out, JSON.stringify({ count: quotes.length, failed, global, entries }, null, 2) + "\n");
+writeFileSync(
+  out,
+  JSON.stringify(
+    {
+      count: quotes.length,
+      failed,
+      global,
+      productionDigest,
+      quotesWithProduction,
+      entries,
+      production,
+    },
+    null,
+    2,
+  ) + "\n",
+);
 console.log(`WITNESS quotes=${quotes.length} failed=${failed}`);
 console.log(`WITNESS global ${global}`);
+console.log(
+  `WITNESS production rows=${Object.keys(production).length} quotes=${quotesWithProduction.length}`,
+);
+console.log(`WITNESS productionDigest ${productionDigest}`);
 
 const bySource: Record<string, number> = {};
 for (const e of Object.values(entries)) bySource[e.policySource] = (bySource[e.policySource] ?? 0) + 1;
 for (const [s, n] of Object.entries(bySource).sort()) console.log(`WITNESS source ${s}: ${n}`);
 
 if (comparePath) {
-  const before = JSON.parse(readFileSync(comparePath, "utf8")) as typeof entries extends never
-    ? never
-    : { global: string; entries: Record<string, Entry> };
+  const before = JSON.parse(readFileSync(comparePath, "utf8")) as {
+    global: string;
+    entries: Record<string, Entry>;
+    productionDigest?: string;
+    production?: Record<string, { owner: string; quoteId: string | null; values: string }>;
+  };
   const moved: string[] = [];
   const sourceChanged: string[] = [];
   for (const [id, now] of Object.entries(entries)) {
@@ -117,5 +197,26 @@ if (comparePath) {
   for (const m of moved.slice(0, 20)) console.log(`   MOVED ${m}`);
   console.log(`COMPARE policy source changed: ${sourceChanged.length}`);
   for (const s of sourceChanged.slice(0, 20)) console.log(`   SOURCE ${s}`);
+
+  // Ownership is checked SEPARATELY from economics, because the whole risk of
+  // Stage 3 A is a row that keeps its value and changes hands.
+  if (before.production) {
+    const reowned: string[] = [];
+    const revalued: string[] = [];
+    const vanished: string[] = [];
+    for (const [id, was] of Object.entries(before.production)) {
+      const now = production[id];
+      if (!now) { vanished.push(id); continue; }
+      if (now.owner !== was.owner) reowned.push(`${id}: ${was.owner} -> ${now.owner}`);
+      if (now.values !== was.values) revalued.push(`${id}: ${was.values} -> ${now.values}`);
+    }
+    const added = Object.keys(production).filter((id) => !(id in before.production!));
+    console.log(`COMPARE production digest ${before.productionDigest === productionDigest ? "UNCHANGED" : "CHANGED"}`);
+    console.log(`COMPARE production re-owned: ${reowned.length}`);
+    for (const r of reowned.slice(0, 20)) console.log(`   REOWNED ${r}`);
+    console.log(`COMPARE production re-valued: ${revalued.length}`);
+    for (const r of revalued.slice(0, 20)) console.log(`   REVALUED ${r}`);
+    console.log(`COMPARE production removed: ${vanished.length} added: ${added.length}`);
+  }
 }
 process.exit(0);

@@ -1,0 +1,932 @@
+{
+  "count": 75,
+  "failed": 0,
+  "global": "9f0d41f666193a40aaecbf97ba86547bc9c96e789b07acfd5d10e08b34efa1fd",
+  "productionDigest": "c2e196610f97f5522213d21c168d6a107fec23d30fd03733ce4914e6244b3d09",
+  "quotesWithProduction": [
+    "071486be-e1a6-4475-8df6-2a2b78a21b58",
+    "0d76e2eb-5993-4ae9-851f-267f5108207e",
+    "27581262-14b3-4f3f-86e8-b12123f7d899",
+    "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+    "2f29af72-805b-446c-866c-73e9b0991b1a",
+    "4781e4bb-0597-4044-a1ea-3ffc8c3be35a",
+    "52bd0077-20af-4345-8856-45003bfca8b3",
+    "600dd15c-e304-40d4-883b-5a13dd3ba214",
+    "93a5d4bb-7006-4bc4-9215-216af4d39747",
+    "9cff9b26-0506-4fbf-a925-185e82424f5b",
+    "a264a755-c375-4674-9342-5dc02a96d20e",
+    "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+    "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+    "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+    "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+    "e4b25292-7566-463b-8a2c-585a3f57b7c7",
+    "f5f5ac14-4d6b-4a48-98da-e6285a2cd9be",
+    "f84334bd-afa1-4016-9511-71f7d5600e35",
+    "f88c22e3-2d50-419e-b923-c771f5784531",
+    "f9c23c2f-765a-4404-9ecb-081a24ad73dc"
+  ],
+  "entries": {
+    "03d79ffe-43fb-4cb8-a21d-7e50da813254": {
+      "digest": "1fc4707f27b7089de79ec2251b0d747786ffd861c6e02554b050523cc324d8b6",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Kirby Beauty - Restoring Shampoo and Conditioner Tandem / Primary"
+    },
+    "071486be-e1a6-4475-8df6-2a2b78a21b58": {
+      "digest": "bc6f2174ecc95dc2025ccc22353ec9804179d698bc07442d592932488f2b720e",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-pure-0727"
+    },
+    "0d76e2eb-5993-4ae9-851f-267f5108207e": {
+      "digest": "d046f58494aa61b5349531012f868ef70a1ce31635edbd76fae919bce88752b4",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 2"
+    },
+    "1402ecf0-5ad9-4b42-a51f-f265f22dd90f": {
+      "digest": "095147b7574b7fb567b5735171d012dbdf7e7aaa83357fb5150568db4885d74d",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Alt 2"
+    },
+    "180e6410-8999-4d38-95bc-8d18567431b9": {
+      "digest": "08abc3160deda5bbaa4c3fed5092aa27c9c3596b7ddf8ccdbdefdd623a04208f",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "MISTR - Sachet Rollstock Test Roll / smoke-addendum-0727"
+    },
+    "1c6948d3-8904-4c4a-a2f8-caadb2e92816": {
+      "digest": "f150aeab1513a9bdfd291ffffa72a9474f5d626eed6cf64f6721b204a973d2d2",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SPRAE - 500ml Stove-Top Cleaner / Primary"
+    },
+    "21ff6673-0e18-4ebf-8252-eba86d7a6fa0": {
+      "digest": "5d487230de52c89b281487709277ecc7473e3a27479e1f4693e88f1791134344",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / PSR-6 · Blocked single tier below floor"
+    },
+    "238d312c-1bff-42bc-a438-43a0acd37bfc": {
+      "digest": "64d3f67486fce26f769b97e7e9b20b58b8d47099f549209837a9796f948bd412",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "Root - Powder Pouch w/ Seal / Primary"
+    },
+    "27581262-14b3-4f3f-86e8-b12123f7d899": {
+      "digest": "c7bcc9b5da380078c1b4586367628d613a0f4948bdb7061102e6c45a7fb76c8f",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / SAMPLE TEST 3 - ED"
+    },
+    "2de1dd81-e0cc-40b6-b3a0-df189d3a7865": {
+      "digest": "f7e7d8b23e60f927c0a342f6f1b0434b2c5a6f7289c3c47e585b423eb4aaea7c",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Alt 4"
+    },
+    "2f29af72-805b-446c-866c-73e9b0991b1a": {
+      "digest": "d3f4874fc85b108329066eabff6e068ffa2a1eaaf560d720da84ec53e382c605",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / Primary"
+    },
+    "4781e4bb-0597-4044-a1ea-3ffc8c3be35a": {
+      "digest": "8325595cc5ee59ce5b225faab22a4a79da0a5a25f00e476cb273a918d15a7b1b",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-pricing-authority"
+    },
+    "47cff9e9-96f8-4afd-b749-b3d8daaffba4": {
+      "digest": "68115284e4bb332a1fd4c8a44f707cb650461e34966ad6ea77044c339edea0ef",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SOL - Gen Z '68 Bag / Primary"
+    },
+    "50aeb05e-c129-412c-81bb-6988d2f5d7b5": {
+      "digest": "adde957ad1fc99e4c0428069fac12d99f0a75b6d6e99a25a5505b5fd837389fa",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SOL - Gen Z '68 Bag / Primary"
+    },
+    "52bd0077-20af-4345-8856-45003bfca8b3": {
+      "digest": "6a7a98da7beddcda4bac27ae48cd5b2a477ccefe8025ea5e8fd7509175160b16",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-tier-propagation"
+    },
+    "54c38f67-3aa3-44e1-8be2-b85f85882ac1": {
+      "digest": "6d147e0a7fa75f99f9317651c81aad4e267624a5de317217e644585fdc1b3a4d",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "MISTR - Sachet Rollstock Test Roll / smoke-gate0-happy-0727"
+    },
+    "559ea572-fc5f-4ae1-824e-f4868452515e": {
+      "digest": "bbf006a58385db7062d5f638eacf685bfddcd7ea0981fb85ccf532e6e85d4645",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / PSR-10 · Provisional missing raws"
+    },
+    "5997263d-645d-4905-942f-69d8b2277a9a": {
+      "digest": "8785e0148b5e60187cf7cfa997d0281df74e14a4f48af273aef6a84da7988742",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Primary"
+    },
+    "600dd15c-e304-40d4-883b-5a13dd3ba214": {
+      "digest": "cc0d0e64fbf0fbb9c6e3d92e761cb4c7af7ee5df8f0862ad57d6ebbfef62cc63",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Alt 5"
+    },
+    "61402d93-2e48-48c7-b713-5e7b482258ff": {
+      "digest": "dc5aa83d7a677538d08e4478fd4fbe0a17e6fcca021c66b37ca83559e97f0863",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "Afore - 30ml DermaReverse Serum Bottle + Dropper / Primary"
+    },
+    "663b4dc2-6b62-4145-af9d-377bec24c7a5": {
+      "digest": "052aa0ba1d10aee4e5bca26b64e5b4e0fdc8430893c6ece9983df93bbbc3d6dd",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "Ro - GLP-1 Epson Proofs / OD004 Grouped Certification"
+    },
+    "68f53a7c-7013-418c-a1da-f367ff0e5b97": {
+      "digest": "0cc0f8545a30c640cbd9d13c3a3657e0dd45361dd0a4c08fcb003011e0c02b5f",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / PSR-4 · Suggestion-led surgical"
+    },
+    "6b6579c7-d04f-45e8-8a7e-b1d2067a9336": {
+      "digest": "b6914ba619233e262fd15042604a5cc2069760b4b35d00643bff685b7f312aa0",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / CSF-4 retest"
+    },
+    "6c41409e-423e-4968-896c-8d29c03e0732": {
+      "digest": "c1252c36fd1667888449d474a8e628c4734f30b608101548828efc94fe703d03",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Root - 2 Side Seal Sachets / Primary"
+    },
+    "6c5b8ad4-f04a-44c2-9f47-13afd0546706": {
+      "digest": "e0eb701f5f5365de7237834843552e8ed0b2bb6a3640b70e69dcf93c84757112",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Root - Powder Container / Primary"
+    },
+    "79c66013-da33-479d-aa65-7d83b6f0bfb6": {
+      "digest": "a4b915c6a3e9d4c56491e6804ae03373fe4138e05b78c2f99676938bbf6883ad",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / CSF-3 retest"
+    },
+    "7bba3cdd-b791-4a48-bda6-1262ae26457a": {
+      "digest": "7d37a4edff1525cf756201eeeaf4030f39fcd13af887cc016f4e0c1562ba5e5a",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Pattern Beauty - All Over Body Balm / OD004 Final Grouped Certification"
+    },
+    "7f831413-2c48-409d-8988-6dd37b1848f9": {
+      "digest": "39368811a1a78d49912ae8cc0dfe7e695b0d975c46126747a53dc1108973a326",
+      "policySource": "live",
+      "status": "draft",
+      "label": "HANKS - Sample Shipping Charges / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · flat control"
+    },
+    "84ba7229-f6b4-422e-9ac0-067592464d00": {
+      "digest": "c669ce7e0eb9b703f8b3c622cb0e61c552eb60c6abfd2ebae1feb6a72faefd20",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / PSR-1 · Sendable 5-tier"
+    },
+    "89688023-b8c4-40a7-83a9-29eb8e14d662": {
+      "digest": "fcb7a011c5b106217eb539cd11c08b40a4d09c9990b3674289d5681f5d583b68",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Root - 2 Side Seal Sachets / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · single Item Group"
+    },
+    "922fc8d6-84dc-441f-9534-0366545b987f": {
+      "digest": "42fefd162101320e063ea78d7002a124ba9c7ed7330df8165ba87ba69874285e",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Alt 3"
+    },
+    "92b2b396-edb5-4e14-90df-e20b2fd54709": {
+      "digest": "7d011a4dca1f517aa7c4f3692bdc90b4e087f1f3f3389974dae2e3a20526ea4d",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Masks / Primary"
+    },
+    "93a5d4bb-7006-4bc4-9215-216af4d39747": {
+      "digest": "a0ebb3df54cd1f3749f63e6b897d854c154bd76cb5a4b9fc3a6ec8191d96b233",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-charges-0727"
+    },
+    "94e6f6d6-2950-44dd-b5bc-1eb89171acbb": {
+      "digest": "f3e0e0f7bbda2771c425da78afd246dbe509f04e6a7be722a0b23c3eb2ea36c0",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Nemah - 15ml Nipple and Lip Balm Jar / Primary"
+    },
+    "974d8328-da62-4fe0-92ca-aa1ac701d285": {
+      "digest": "60cafe066be5243c2eabc22e940e68d389af804161e2bc3bc894a487813ca361",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SWW PO1033 Alkalized Greens Single Serve  / Primary"
+    },
+    "9af5fe52-b71c-4e25-ba53-271852708bcc": {
+      "digest": "325ba6418ee53918de48bed6c3815796ada44f82a99c2ee199e1f8b97371f6d5",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Nemah - 15ml Nipple and Lip Balm Jar / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · Item Group + freight"
+    },
+    "9cff9b26-0506-4fbf-a925-185e82424f5b": {
+      "digest": "3a060de92556f0e98670210faff5e4f69dc5518a9f2c8c3ac9370a885bc95e0c",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / smoke-step-8"
+    },
+    "9de0a19d-8a2c-4911-8c32-ebbff908e5d4": {
+      "digest": "6d2231666dd21f731021446db21a661947e93485406b4b965ef652b62857de44",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "MISTR - Sachet Rollstock Test Roll / smoke-snapshot3-0727"
+    },
+    "9ece2dd6-b567-425a-afa5-f02f9cfc4356": {
+      "digest": "5bbc4d3416b3a78ab45cd0ef23a70bae885ee1cec893f5a37185216a5af52eba",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / PSR-3 · Sendable 2-tier"
+    },
+    "a0b60e43-1b04-48b7-9d88-6e6ed65358f4": {
+      "digest": "1b26bbee8b3281c10a39839f22388722422408d9db89aa2b8312c879f5364186",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Primary"
+    },
+    "a264a755-c375-4674-9342-5dc02a96d20e": {
+      "digest": "10f58f3bff253b304d006d2e98007605479c3df63f3a265fd5a8c29639c092e4",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-pure-cluster1-0727"
+    },
+    "a4c36959-78e6-4347-a530-62892aecfa71": {
+      "digest": "036bd7b5beba9b415af502d2add2ee39bd00dd9a118b611035a4e4da1028ae69",
+      "policySource": "pinned",
+      "status": "accepted",
+      "label": "Root - 2 Side Seal Sachets / CERT-MIXED-DELETE-ME-2026-08-13T20-26-37"
+    },
+    "a79a0fb1-7cfc-46c6-b2bd-c548c31ab7f6": {
+      "digest": "aa5930b7cc0f3290b9190426da986dc49ffc71cea2a597ddb8ece84791c684ee",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Nemah - 30ml Nipple and Lip Balm Jar / Primary"
+    },
+    "aa23e2fc-9d48-42b9-8859-9f0345ad182c": {
+      "digest": "dee6f0672ae822df3370a62610d0f71339612d64df375e4108eb8cf341888824",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Nemah - 15ml Nipple and Lip Balm Jar / Primary"
+    },
+    "ad6f7513-17fc-4e84-978e-a2492cdb8f29": {
+      "digest": "768de6c9dbaad44402b921225d89232afd131ef0b373705ba96f0d6535a8779d",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Hanks - Hydration Full Retail Rollout / CERT-MIXED-DELETE-ME-2026-08-13T21-26-07"
+    },
+    "ae4083e8-4a4f-4fde-b51b-547845a2be94": {
+      "digest": "ddb49a9242919538c92850e7d5a45f9688147cb9ecd82cf67d2c643e637f9a50",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Masks / Primary"
+    },
+    "b2125ccc-042a-4aa5-8634-c9772c668986": {
+      "digest": "3b6f0fd460bad846d54361e0214487f98bc4922a9f66cd8bbd56fe2cee5aa299",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / smoke-gate0-0727"
+    },
+    "b6290087-d450-43b3-97fc-8f701bb40018": {
+      "digest": "a015f935a2e1b5647c4b2d5a3df29d14a22dfb377689c9f38d8000df99bfb7a4",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Primary"
+    },
+    "bb11c698-5123-4014-b520-2c22762910b5": {
+      "digest": "088d40df66e7b544220b81ccffd16323c44b3d3bfeb5d8d947608af38fe0529c",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "Afore - 30ml DermaReverse Serum Bottle + Dropper / Primary"
+    },
+    "bd36adbe-63b7-41b2-a725-99b70ce0a59c": {
+      "digest": "3903bdc3d3e521af5003624bc4359dfd0de7876989177c0a94d3f90959d03af0",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "Epicuren - Pro Mask Boosters / Primary"
+    },
+    "bd95c0f2-d9d5-4564-b772-3c6ff385dd6d": {
+      "digest": "fdf37f1cbd245212dff8c9eafd728b924cae390b2d16cd8efae255cb429e9e20",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "SMOKE-CB-STEP10-DELETE-ME-2026-07-29T17-43-34 / SMOKE-CB-STEP10"
+    },
+    "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea": {
+      "digest": "2104f51c538e1e54fd9c83f4f4f4be4e96740c58e34a8447c00cd785e91d8f7d",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / SAMPLE TEST 2 - ED"
+    },
+    "c3c951c7-bb90-493a-a915-a18bee1f480c": {
+      "digest": "1097b387df2b09533688202aa4bfcd8cf21c1492367608acedfe8dd271a58b96",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Kirby Beauty - Restoring Shampoo and Conditioner Tandem / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · multi Item Group"
+    },
+    "cd709321-5bc5-40e7-bc14-7d3e51dad94f": {
+      "digest": "a3606831e2ac49a9fdd636e28638da09ae752a38cb780e04761b7f61304fe8ed",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Cost-down exploration"
+    },
+    "d1bbdb4e-41b1-4f4a-ba71-26069503d76f": {
+      "digest": "d5f4ef14ce64e99b0df7f2621b20aa8d861d8767d1a0920956bbe42865279857",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Kirby Beauty - Restoring Shampoo and Conditioner Tandem / Primary"
+    },
+    "d6a3ba17-9216-40b0-b473-92f4472dbbba": {
+      "digest": "16d71ddfae0dee4c11fa41d8b79944d5fac876ad416d13fe132b0d09d0bd5a87",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / CERT-MIXED-DELETE-ME-2026-08-13T22-43-03"
+    },
+    "d73b9f11-646c-4730-9ed0-15595525dd10": {
+      "digest": "d686a24bcc64f6eefe63bee84c2eca9868d3b13cb2ba34d51c46747eb839b91e",
+      "policySource": "pinned",
+      "status": "accepted",
+      "label": "SMOKE-CB-8B-DELETE-ME-2026-07-28T18-00-15 / SMOKE-CB-8B"
+    },
+    "da0f27d9-b014-442a-8b2d-65a9b85da258": {
+      "digest": "62307b00024cc2697e60a826d00bd88e6d6deec89e159163a320dd0dc4bbd56e",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Masks / Primary"
+    },
+    "da56da37-ef4e-4e48-a177-ade3a677fcdd": {
+      "digest": "68cc999b1223450612024b91826526b384a60bbc2044f142d73e43091bd17cce",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 3"
+    },
+    "df23eebf-a26f-4a0b-9d17-d3f628b10886": {
+      "digest": "fc8a84546a17bca2af7c5dfd4f85ad4ee058211e22684463bae8163afaa152e7",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Afore - 30ml DermaReverse Serum Bottle + Dropper / Primary"
+    },
+    "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a": {
+      "digest": "ec12501c4c3927bb28c95994072694322a490c9eae4be86dbe589a30d2733778",
+      "policySource": "pinned",
+      "status": "sent",
+      "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / 5K / 15K / 50K — China sources"
+    },
+    "e33d0f54-008a-437a-820c-4b2f3b5ac002": {
+      "digest": "74bfcdf901a00644472a2b971a2eb46153cf53e8b9c609c3f3da602b7af6b10d",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 1"
+    },
+    "e4b25292-7566-463b-8a2c-585a3f57b7c7": {
+      "digest": "e90766faca1264293426d2c1204219618e628b7b6f4fe6766fe09cc04fa16183",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / smoke-gate0-0727b"
+    },
+    "eb0b93da-9501-4390-81de-63ad080daabf": {
+      "digest": "ea20ae139dd8746b1d667463117393b87b132ff87916c621fbd7f9be251b2155",
+      "policySource": "live",
+      "status": "draft",
+      "label": "PSR Smoke Test / PSR-5 · Suggestion-led global"
+    },
+    "ed3e8c44-5cf2-4f96-b58a-1a3862b422c1": {
+      "digest": "36ad5c840eadd47cd586219eecbb79da1438f6964c2017b19f73c8ac96a1d1ff",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Primary"
+    },
+    "ed74cce9-42a0-4c49-8864-3ce45111c3b4": {
+      "digest": "064bcc56680e7c72ad06cb0604b46da959a2a2404afbb81ffd419facbe30acbf",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Primary"
+    },
+    "f0655029-7102-4283-acb3-c909aa66adc3": {
+      "digest": "8a41e787292206232fb7aa690c22a9b2799813dc02dfc323f50ff4d8c66db18a",
+      "policySource": "live",
+      "status": "draft",
+      "label": "SWW PO1033 Alkalized Greens Single Serve  / Primary"
+    },
+    "f544128a-e4b3-4a42-836e-1d50ef474026": {
+      "digest": "1fc7f295aefccc004419489859a2f9c05e36495d53094c46d7315b94a8a42cee",
+      "policySource": "pinned",
+      "status": "complete",
+      "label": "Nemah - 30ml Nipple and Lip Balm Jar / OD-004 Case B Validation (do not quote)"
+    },
+    "f5f5ac14-4d6b-4a48-98da-e6285a2cd9be": {
+      "digest": "c5d61e0469c14e1073efd0854c07c363d10257de7f91432c6efdb8b38340b5f7",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Nemah - 30ml Nipple and Lip Balm Jar / Rendered coverage fixture (do not quote)"
+    },
+    "f84334bd-afa1-4016-9511-71f7d5600e35": {
+      "digest": "e08034b3a8d4b3a17c67b8e0eae03e3d951a3eaa3f05649d7fd1b4827a2f7c67",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Mask Boosters / Alt 1"
+    },
+    "f88c22e3-2d50-419e-b923-c771f5784531": {
+      "digest": "17d3f1f664932bf381905161ebc8d322fb1b6a1838f57b07cc3c9017df2b101c",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Nemah - 30ml Nipple and Lip Balm Jar / Ed's Test Scenario"
+    },
+    "f9c23c2f-765a-4404-9ecb-081a24ad73dc": {
+      "digest": "9a106bf22be3c8cf8ed361dabc86f73fa1c3b3a72af82a922d151e37afc0e34b",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Nemah - 30ml Nipple and Lip Balm Jar / Alt 1"
+    },
+    "fa74cbe5-e3f6-456f-9855-b06dd1ef0d74": {
+      "digest": "4d1225361fc75ea646e4ea236a08b61f80cb5c0e71a67fc361b559611155dbdf",
+      "policySource": "pinned",
+      "status": "accepted",
+      "label": "SMOKE-CB-DELETE-ME-2026-07-28T03-59-50 / SMOKE"
+    },
+    "ff3900bc-795f-4809-98eb-30154024902a": {
+      "digest": "40afd17f6a824bc0dfb97a8ff6b3e961798ea44392e449d1afcefd3985212e8a",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Epicuren - Pro Masks / Primary"
+    },
+    "ff90d502-28a1-4a11-bbd5-75e1b5b916e8": {
+      "digest": "50a452c32ee867796530a08c3d2aaf54ebdeccd26a29790ea1c48fce927ce60f",
+      "policySource": "live",
+      "status": "draft",
+      "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-drag-drop"
+    }
+  },
+  "production": {
+    "00efa39d-d290-4bb1-b780-2a1e526a8912": {
+      "owner": "assembly:6184143f-0270-4723-9186-8f55c537e365",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "01bc3e2e-e8d6-4f11-b992-f750ca243ac2": {
+      "owner": "assembly:30a701d9-a562-4ae8-88e2-f97f7a32fb66",
+      "quoteId": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "01d10e80-a75b-41fa-8873-4a8eb308ed64": {
+      "owner": "assembly:6184143f-0270-4723-9186-8f55c537e365",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "0235a26b-7ef4-4325-8996-c389ab96e07a": {
+      "owner": "assembly:417f15fc-96ac-4a87-9049-6099be79f63d",
+      "quoteId": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "0441c36c-7a0f-4501-a3c0-cfa8b1b123ba": {
+      "owner": "assembly:2f0e909c-c043-4662-90d4-5e1ec6005d13",
+      "quoteId": "f88c22e3-2d50-419e-b923-c771f5784531",
+      "values": "200.00|200.00|200.00|200.00|200.00|200.00|200.00|false|true"
+    },
+    "054b39a9-794d-45f5-9e00-088af5f651b4": {
+      "owner": "assembly:30a701d9-a562-4ae8-88e2-f97f7a32fb66",
+      "quoteId": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "062a50f1-db3c-44b2-bca5-90b68f423414": {
+      "owner": "assembly:a07b293b-6ebf-4474-aa30-c5df66c7b696",
+      "quoteId": "0d76e2eb-5993-4ae9-851f-267f5108207e",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "0be64d04-3528-410b-829f-b2479fb8d05c": {
+      "owner": "assembly:90ad48c7-e08b-496b-9f1c-6d780b4b0429",
+      "quoteId": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "0d985b33-43ab-423e-b273-0b288728ea6b": {
+      "owner": "assembly:40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "quoteId": "52bd0077-20af-4345-8856-45003bfca8b3",
+      "values": "100.00|100.00|100.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "21b331b6-008c-4492-aef2-2ecdfe94c9d3": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333301",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "22fc6d28-d438-435b-a197-d903c7194e15": {
+      "owner": "assembly:98c1daa5-3acb-4530-a931-e4409b82f1dc",
+      "quoteId": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "23abf817-642a-4d1e-8479-79a295ad2a53": {
+      "owner": "assembly:3c3df3c6-a5ca-41a8-936e-b2d9987c32a5",
+      "quoteId": "4781e4bb-0597-4044-a1ea-3ffc8c3be35a",
+      "values": "100.00|100.00|100.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "26aceeae-5a92-4ed0-9071-15070c3b21b4": {
+      "owner": "assembly:2f0e909c-c043-4662-90d4-5e1ec6005d13",
+      "quoteId": "f88c22e3-2d50-419e-b923-c771f5784531",
+      "values": "100.00|100.00|100.00|100.00|100.00|100.00|100.00|false|true"
+    },
+    "26f39bca-4433-42cb-83dd-dfca80d46e51": {
+      "owner": "assembly:417f15fc-96ac-4a87-9049-6099be79f63d",
+      "quoteId": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "27e25df0-e511-4f93-898f-1512ddb92e06": {
+      "owner": "assembly:23756c7c-ceb0-4078-8960-7e34b458bcc1",
+      "quoteId": "f5f5ac14-4d6b-4a48-98da-e6285a2cd9be",
+      "values": "~|~|~|17000.00|~|~|~|false|false"
+    },
+    "29e15f20-ccb5-43c0-b80a-88ca4bfe9a82": {
+      "owner": "assembly:6390353b-acd1-4a5c-9a6a-122ef590e34b",
+      "quoteId": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "2f997f40-3ae5-4646-b0f2-1e68e93617fc": {
+      "owner": "assembly:5a573af4-7e9b-41ff-ad28-9de96aacb8c9",
+      "quoteId": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "32a28a56-289b-41f7-a328-9ddbe2fe408b": {
+      "owner": "assembly:679ac1ab-76cd-42a3-9873-e7a8a57aaa01",
+      "quoteId": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "33f515d2-868e-450c-8d69-e8eb06047f4f": {
+      "owner": "assembly:40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "quoteId": "52bd0077-20af-4345-8856-45003bfca8b3",
+      "values": "500.00|509.00|500.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "3478c5b1-fe1f-4f11-8acc-2dd245ff43f8": {
+      "owner": "assembly:a07b293b-6ebf-4474-aa30-c5df66c7b696",
+      "quoteId": "0d76e2eb-5993-4ae9-851f-267f5108207e",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "3bd00f87-68d3-487b-bc2f-0e68664ac65f": {
+      "owner": "assembly:18ed8925-b101-4a06-a6b5-8f01b1e22934",
+      "quoteId": "2f29af72-805b-446c-866c-73e9b0991b1a",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "3e6187c0-6023-448f-9fcf-9ebac53724fe": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333302",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "4128f6a2-522b-43b9-9020-a2110c81daf7": {
+      "owner": "assembly:1090a2ff-9dcf-41e5-b81b-930a4a02b22a",
+      "quoteId": "e4b25292-7566-463b-8a2c-585a3f57b7c7",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "4a277e37-c7c9-4368-b883-7b2df834d5ce": {
+      "owner": "assembly:f5b34bbf-b762-4116-96f4-0e774258cc1f",
+      "quoteId": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "4a3192cc-0bdf-43a3-a115-3a118f6ff274": {
+      "owner": "assembly:1090a2ff-9dcf-41e5-b81b-930a4a02b22a",
+      "quoteId": "e4b25292-7566-463b-8a2c-585a3f57b7c7",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "4a93abc0-7a55-45e6-ae84-f01400a8c12a": {
+      "owner": "assembly:4603938c-1f2c-41cd-9c6e-5c5587f32c36",
+      "quoteId": "27581262-14b3-4f3f-86e8-b12123f7d899",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "4c23092e-e992-4989-8046-9b836de81f10": {
+      "owner": "assembly:0d56899d-555e-42ac-8e3f-b8d9efdf72ed",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "4c2ce22a-c9f2-4be8-8681-b4b1f56aaa3f": {
+      "owner": "assembly:de9fb51e-86f5-4bcc-b760-137c9bed5128",
+      "quoteId": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "58953d43-61b8-4c31-bfaa-879b90ed724d": {
+      "owner": "assembly:5041e940-1a1c-44fe-8c9c-0eb9a49e7847",
+      "quoteId": "93a5d4bb-7006-4bc4-9215-216af4d39747",
+      "values": "~|~|~|~|~|~|~|false|false"
+    },
+    "59a9f237-5840-4168-a5d3-d7eae9563bda": {
+      "owner": "assembly:5041e940-1a1c-44fe-8c9c-0eb9a49e7847",
+      "quoteId": "93a5d4bb-7006-4bc4-9215-216af4d39747",
+      "values": "~|~|150.00|75.00|~|~|~|false|false"
+    },
+    "5f402c96-720f-4136-9adb-09c81458be5a": {
+      "owner": "assembly:095214c8-7350-4ae5-b26d-727a3950044c",
+      "quoteId": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "667f6ce2-c354-4c7a-822d-7f829c91e35b": {
+      "owner": "assembly:4603938c-1f2c-41cd-9c6e-5c5587f32c36",
+      "quoteId": "27581262-14b3-4f3f-86e8-b12123f7d899",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "6ab091d9-a491-4278-ad1b-a3611371a67c": {
+      "owner": "assembly:a5db1a88-5659-4490-a332-c82de8fba9c9",
+      "quoteId": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "6ea98edb-a29c-4286-a7dd-6b947736cba6": {
+      "owner": "assembly:98c1daa5-3acb-4530-a931-e4409b82f1dc",
+      "quoteId": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "6ec9ebc9-03cf-4984-8f02-ebe4650d8c62": {
+      "owner": "assembly:59417d7d-93ee-4bec-9cb0-5a7bf83e7331",
+      "quoteId": "0d76e2eb-5993-4ae9-851f-267f5108207e",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "701b15d2-b7f8-4055-900f-3866b7629f51": {
+      "owner": "assembly:66cbeaf6-52ab-4442-8e90-5f4d57ba289a",
+      "quoteId": "600dd15c-e304-40d4-883b-5a13dd3ba214",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "70bc8606-bea5-498d-ac1c-b8f73847acbe": {
+      "owner": "assembly:82121b08-49cf-4bb1-a61a-6820e97b4972",
+      "quoteId": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "71da60aa-a6fb-4fab-8ca3-47c93711f906": {
+      "owner": "assembly:679ac1ab-76cd-42a3-9873-e7a8a57aaa01",
+      "quoteId": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "72e33e67-ccd2-4bb1-9bc7-413ff7ba1988": {
+      "owner": "assembly:438f42b6-19c5-4d75-b52b-6850fa6c92a1",
+      "quoteId": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "7379ffb5-280a-4fd0-8f5b-b51dd77943b9": {
+      "owner": "assembly:417f15fc-96ac-4a87-9049-6099be79f63d",
+      "quoteId": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "75a68cf9-a1e8-49ef-a092-9c036dafbcef": {
+      "owner": "assembly:98c1daa5-3acb-4530-a931-e4409b82f1dc",
+      "quoteId": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "7b491a99-13fb-4bc8-8a70-3eab9645467d": {
+      "owner": "assembly:35d18a2d-4fd7-4adb-a0a5-4578e32e5bf1",
+      "quoteId": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "7de968b2-21c4-4663-afb3-81d8277bdb57": {
+      "owner": "assembly:9dc73ff2-00bd-4a16-b601-2e674129d166",
+      "quoteId": "600dd15c-e304-40d4-883b-5a13dd3ba214",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "8721c0c3-76e9-4dee-b842-0d019d0f901e": {
+      "owner": "assembly:18ed8925-b101-4a06-a6b5-8f01b1e22934",
+      "quoteId": "2f29af72-805b-446c-866c-73e9b0991b1a",
+      "values": "100.00|~|100.00|~|100.00|~|~|false|true"
+    },
+    "89107cee-537c-4b13-b3a7-cddeb227aed0": {
+      "owner": "assembly:18559078-e565-4234-8a8d-94ece4b59b3f",
+      "quoteId": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "8c2532b9-3671-4280-ab87-eefda10c83d7": {
+      "owner": "assembly:d327b6a2-94f0-4f58-9d7e-29b0a86cfc32",
+      "quoteId": "600dd15c-e304-40d4-883b-5a13dd3ba214",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "8f3088a3-edac-455d-94da-ec17cfe88d17": {
+      "owner": "assembly:3c3df3c6-a5ca-41a8-936e-b2d9987c32a5",
+      "quoteId": "4781e4bb-0597-4044-a1ea-3ffc8c3be35a",
+      "values": "1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "96b6bb99-7566-4757-be3d-e608c2d61c7f": {
+      "owner": "assembly:22a38b96-a9d9-4363-9205-ec91f557385f",
+      "quoteId": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "9899917b-26ad-40b6-b05f-0ae0b097368b": {
+      "owner": "assembly:7ce85f65-0565-40af-ac00-50de4321e421",
+      "quoteId": "a264a755-c375-4674-9342-5dc02a96d20e",
+      "values": "~|~|~|~|~|~|~|false|false"
+    },
+    "99625593-4fb1-42d9-9769-7733f8f76f94": {
+      "owner": "assembly:04db4aa9-6ea9-4894-bf24-7166189fafbf",
+      "quoteId": "600dd15c-e304-40d4-883b-5a13dd3ba214",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "9c1c44bb-77a1-43c5-be25-188887fc2ec3": {
+      "owner": "assembly:30a701d9-a562-4ae8-88e2-f97f7a32fb66",
+      "quoteId": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "9f097cb2-1a3a-48b1-a544-9e72246accf8": {
+      "owner": "assembly:82121b08-49cf-4bb1-a61a-6820e97b4972",
+      "quoteId": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "9f8608f5-acdb-4999-a107-7592cd61b650": {
+      "owner": "assembly:0d56899d-555e-42ac-8e3f-b8d9efdf72ed",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "a14b6a99-9724-440a-9c13-163af0ee019c": {
+      "owner": "assembly:e8df2e77-df65-4a8a-adc9-e7ea0bfdd927",
+      "quoteId": "9cff9b26-0506-4fbf-a925-185e82424f5b",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "a5e0ca08-1c56-422f-81d4-61394466b17c": {
+      "owner": "assembly:2abd9f30-a3ea-41f4-98ac-7e0163da2305",
+      "quoteId": "600dd15c-e304-40d4-883b-5a13dd3ba214",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "a66a9677-b384-4b58-a270-fb24c3741fd0": {
+      "owner": "assembly:4cce880b-8021-431b-8a47-4e903a8d1db6",
+      "quoteId": "071486be-e1a6-4475-8df6-2a2b78a21b58",
+      "values": "~|~|~|~|~|~|~|false|false"
+    },
+    "a76ddc3a-9993-4791-8176-34dc606bd73d": {
+      "owner": "assembly:7ce85f65-0565-40af-ac00-50de4321e421",
+      "quoteId": "a264a755-c375-4674-9342-5dc02a96d20e",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "aa214321-4e43-46b2-9b52-611367935b03": {
+      "owner": "assembly:22a38b96-a9d9-4363-9205-ec91f557385f",
+      "quoteId": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "ac072182-59e4-4621-bf40-6c4ebc139d43": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333304",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "ac8e89fc-28dd-41aa-a9ac-4b8707b647b5": {
+      "owner": "assembly:f34c0a3c-24fc-40c0-9d8f-2a4a7085fc1f",
+      "quoteId": "27581262-14b3-4f3f-86e8-b12123f7d899",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "ad55fb7d-2312-4cfa-a524-2dc9f860898e": {
+      "owner": "assembly:679ac1ab-76cd-42a3-9873-e7a8a57aaa01",
+      "quoteId": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "b0b73281-505f-41e4-8a57-c1b0aadafc8b": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333301",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "b15e49f0-5849-4d5d-9c6b-196ba6b66cfa": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333302",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "b1b7b7a6-a430-443d-bcf3-90691e9f57d8": {
+      "owner": "assembly:40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "quoteId": "52bd0077-20af-4345-8856-45003bfca8b3",
+      "values": "1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "b7318980-8cae-4259-9071-41201db19bbe": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333303",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "b8ff77ca-7ecf-4b5f-8802-f35e6bfa44e9": {
+      "owner": "assembly:59417d7d-93ee-4bec-9cb0-5a7bf83e7331",
+      "quoteId": "0d76e2eb-5993-4ae9-851f-267f5108207e",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "bd7c1e30-7da3-4f52-ac64-a0f77ec74ecd": {
+      "owner": "assembly:22a38b96-a9d9-4363-9205-ec91f557385f",
+      "quoteId": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "bf4b4a7d-fc83-42b3-af94-2d648689e3f3": {
+      "owner": "assembly:5a573af4-7e9b-41ff-ad28-9de96aacb8c9",
+      "quoteId": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "c23ccf21-9789-4933-a937-14b0f5dd87f8": {
+      "owner": "assembly:c47c77c4-e68f-414b-94d4-9c063f832563",
+      "quoteId": "f5f5ac14-4d6b-4a48-98da-e6285a2cd9be",
+      "values": "7000.00|~|11000.00|~|~|~|13000.00|false|true"
+    },
+    "ce505dbf-7b62-4ae1-b561-af190254e1bc": {
+      "owner": "assembly:18ed8925-b101-4a06-a6b5-8f01b1e22934",
+      "quoteId": "2f29af72-805b-446c-866c-73e9b0991b1a",
+      "values": "100.00|100.00|100.00|100.00|100.00|100.00|100.00|false|true"
+    },
+    "cf77882a-4201-4fd7-92bc-5fe8c27ccb2e": {
+      "owner": "assembly:82121b08-49cf-4bb1-a61a-6820e97b4972",
+      "quoteId": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "d14f299d-2072-49f7-9c3b-b49fbfeff632": {
+      "owner": "assembly:40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "quoteId": "52bd0077-20af-4345-8856-45003bfca8b3",
+      "values": "1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "d2172f07-984c-4407-9ff3-377132421a12": {
+      "owner": "assembly:f34c0a3c-24fc-40c0-9d8f-2a4a7085fc1f",
+      "quoteId": "27581262-14b3-4f3f-86e8-b12123f7d899",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "d5644af9-aa23-49c0-b58f-5efba8afbb39": {
+      "owner": "assembly:e8df2e77-df65-4a8a-adc9-e7ea0bfdd927",
+      "quoteId": "9cff9b26-0506-4fbf-a925-185e82424f5b",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "d7facf16-5ed4-48b7-9594-05e8c8630048": {
+      "owner": "assembly:6390353b-acd1-4a5c-9a6a-122ef590e34b",
+      "quoteId": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "d8dcdca8-6ed8-4153-bfbf-31f907aef5be": {
+      "owner": "assembly:f34c0a3c-24fc-40c0-9d8f-2a4a7085fc1f",
+      "quoteId": "27581262-14b3-4f3f-86e8-b12123f7d899",
+      "values": "25500.00|1200.00|~|~|~|~|~|false|true"
+    },
+    "e076f068-fada-4106-8d0f-03975e3e3673": {
+      "owner": "assembly:a07b293b-6ebf-4474-aa30-c5df66c7b696",
+      "quoteId": "0d76e2eb-5993-4ae9-851f-267f5108207e",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "e0dca252-a5ba-4c46-8bf2-e4fc0a2cb0e4": {
+      "owner": "assembly:6390353b-acd1-4a5c-9a6a-122ef590e34b",
+      "quoteId": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "e1991a9a-476a-4ffa-983b-5b88eb72e2ce": {
+      "owner": "assembly:59417d7d-93ee-4bec-9cb0-5a7bf83e7331",
+      "quoteId": "0d76e2eb-5993-4ae9-851f-267f5108207e",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "e1dc94a7-9ec7-47df-bf3e-3e9af16dbadd": {
+      "owner": "assembly:71095573-1e0e-4871-a9ed-060da94df768",
+      "quoteId": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "e323bda5-19a7-42ce-8303-6c73ade63064": {
+      "owner": "assembly:5a573af4-7e9b-41ff-ad28-9de96aacb8c9",
+      "quoteId": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
+      "values": "10000.00|500.00|~|~|~|~|~|false|true"
+    },
+    "ec082634-a220-4894-a366-a0549e553dbc": {
+      "owner": "assembly:b24617b6-3646-434c-85df-bc61092f78a8",
+      "quoteId": "600dd15c-e304-40d4-883b-5a13dd3ba214",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "eefe526f-761b-4ad4-b9d4-de74ff6819ec": {
+      "owner": "assembly:4603938c-1f2c-41cd-9c6e-5c5587f32c36",
+      "quoteId": "27581262-14b3-4f3f-86e8-b12123f7d899",
+      "values": "70000.00|3000.00|~|~|~|~|~|false|true"
+    },
+    "f3d852ec-dea1-4b7f-928f-335c1fcdcbe8": {
+      "owner": "assembly:6e5c943a-382f-449c-8753-0ace73cb226d",
+      "quoteId": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "f4ddffc6-93c5-4a9c-bc87-d33340b403e4": {
+      "owner": "assembly:3c3df3c6-a5ca-41a8-936e-b2d9987c32a5",
+      "quoteId": "4781e4bb-0597-4044-a1ea-3ffc8c3be35a",
+      "values": "1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "f53b5448-8563-4818-b9d7-6593f8e48e2d": {
+      "owner": "assembly:3c3df3c6-a5ca-41a8-936e-b2d9987c32a5",
+      "quoteId": "4781e4bb-0597-4044-a1ea-3ffc8c3be35a",
+      "values": "500.00|509.00|500.00|1000.00|1000.00|1000.00|1000.00|false|false"
+    },
+    "f618f834-6f51-4387-9bc4-903402bacb97": {
+      "owner": "assembly:231cd769-8a4a-49f0-8136-b96a2aceef28",
+      "quoteId": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "fb94e150-5a74-4909-82c1-d1a2aab0f7d8": {
+      "owner": "assembly:89fea918-9786-48f7-93c1-5d4f434e240e",
+      "quoteId": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "fc57167b-4342-42de-9a4f-67d6c4128963": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333303",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    },
+    "fcc8d322-66ae-4eb6-b120-d36f631ba67e": {
+      "owner": "assembly:33333333-3333-3333-3333-333333333304",
+      "quoteId": "f84334bd-afa1-4016-9511-71f7d5600e35",
+      "values": "~|~|~|~|~|~|~|false|true"
+    }
+  }
+}

@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { renderToBuffer } from "@react-pdf/renderer";
 
-import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
@@ -3444,39 +3444,6 @@ export async function cloneQuoteGraph(
       }
     }
 
-    // 4. assembly_production_inputs — production cost rows (per-assembly per-tier)
-    const sourceProductionInputs = await tx
-      .select()
-      .from(assemblyProductionInputs)
-      .where(inArray(assemblyProductionInputs.assemblyId, sourceAssemblyIds));
-    if (sourceProductionInputs.length > 0) {
-      await tx.insert(assemblyProductionInputs).values(
-        sourceProductionInputs.map((r) => {
-          const newAsyId = assemblyIdMap.get(r.assemblyId);
-          const newTierId = tierIdMap.get(r.tierId);
-          if (!newAsyId || !newTierId) {
-            throw new Error(
-              `clone: assembly_production_inputs unmapped ref (asy=${r.assemblyId}, tier=${r.tierId})`,
-            );
-          }
-          return {
-            assemblyId: newAsyId,
-            tierId: newTierId,
-            customerShipsRaws: r.customerShipsRaws,
-            allocateServiceFeesToCost: r.allocateServiceFeesToCost,
-            notes: r.notes,
-            fillingBlendingCost: r.fillingBlendingCost,
-            cmAssemblyTotal: r.cmAssemblyTotal,
-            setupFeeTotal: r.setupFeeTotal,
-            toolingArtworkTotal: r.toolingArtworkTotal,
-            rdTotal: r.rdTotal,
-            otherServiceTotal: r.otherServiceTotal,
-            bulkRawCost: r.bulkRawCost,
-            actualUnitsProduced: r.actualUnitsProduced,
-          };
-        }),
-      );
-    }
   }
 
   // ── DIRECT PRODUCTS ──────────────────────────────────────────────────────
@@ -3511,6 +3478,76 @@ export async function cloneQuoteGraph(
       specTemplateFromQuoteId: args.sourceQuoteId,
     });
     quoteLeafIdMap.set(direct.id, attached.quoteLeafId);
+  }
+
+  // ── assembly_production_inputs — BOTH owner branches ────────────────────
+  //
+  // Stage 3 A gave this table a second owner, and moving the clone here is the
+  // point rather than an accident: `quoteLeafIdMap` is only complete after the
+  // direct-leaf loop above, and a Direct Service's production row is keyed to
+  // a direct leaf.
+  //
+  // It also repairs a defect this migration would otherwise have introduced,
+  // of the exact shape already documented a few lines below: the previous
+  // query selected `WHERE assembly_id IN (...)`, and a service-owned row has
+  // `assembly_id IS NULL`. NULL is never `IN` a list, so those rows would have
+  // been filtered out BEFORE the unmapped-reference guard could see them —
+  // a successful commit of an incomplete clone, with no error to notice. The
+  // guard is real but can only validate rows the query already matched.
+  //
+  // One query over both owner sets keeps the guard reachable for both.
+  // Re-derived here: the previous location was inside the assemblies block,
+  // and this one must also run for a quote that has services and no groups.
+  const sourceAssemblyIds = sourceAssemblies.map((a) => a.id);
+  const sourceDirectLeafIds = sourceDirectLeaves.map((d) => d.id);
+  const sourceProductionInputs =
+    sourceAssemblyIds.length > 0 || sourceDirectLeafIds.length > 0
+      ? await tx
+          .select()
+          .from(assemblyProductionInputs)
+          .where(
+            or(
+              sourceAssemblyIds.length > 0
+                ? inArray(assemblyProductionInputs.assemblyId, sourceAssemblyIds)
+                : undefined,
+              sourceDirectLeafIds.length > 0
+                ? inArray(assemblyProductionInputs.quoteLeafId, sourceDirectLeafIds)
+                : undefined,
+            ),
+          )
+      : [];
+  if (sourceProductionInputs.length > 0) {
+    await tx.insert(assemblyProductionInputs).values(
+      sourceProductionInputs.map((r) => {
+        const newTierId = tierIdMap.get(r.tierId);
+        // The XOR is a database constraint, so exactly one of these resolves.
+        // Both guards stay because an unmapped reference must fail loudly:
+        // the alternative is a clone that commits missing economics.
+        const newAsyId = r.assemblyId ? assemblyIdMap.get(r.assemblyId) : null;
+        const newLeafId = r.quoteLeafId ? quoteLeafIdMap.get(r.quoteLeafId) : null;
+        if (!newTierId || (r.assemblyId && !newAsyId) || (r.quoteLeafId && !newLeafId)) {
+          throw new Error(
+            `clone: assembly_production_inputs unmapped ref (asy=${r.assemblyId}, leaf=${r.quoteLeafId}, tier=${r.tierId})`,
+          );
+        }
+        return {
+          assemblyId: newAsyId,
+          quoteLeafId: newLeafId,
+          tierId: newTierId,
+          customerShipsRaws: r.customerShipsRaws,
+          allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          notes: r.notes,
+          fillingBlendingCost: r.fillingBlendingCost,
+          cmAssemblyTotal: r.cmAssemblyTotal,
+          setupFeeTotal: r.setupFeeTotal,
+          toolingArtworkTotal: r.toolingArtworkTotal,
+          rdTotal: r.rdTotal,
+          otherServiceTotal: r.otherServiceTotal,
+          bulkRawCost: r.bulkRawCost,
+          actualUnitsProduced: r.actualUnitsProduced,
+        };
+      }),
+    );
   }
 
   // ── PER-LEAF COST DATA — selected on CANONICAL quote_leaf_id ─────────────

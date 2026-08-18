@@ -20,6 +20,10 @@ import {
   resolveBulkAllocation,
   type AllocationAggregate,
 } from "@/lib/production-policy";
+import {
+  DirectServiceProduction,
+  type DirectServiceProductionRow,
+} from "./direct-service-production";
 
 // Step 8 — drilldown consumes the structural SkuRow shape from
 // sku-tree.ts (replaced typeof quoteSkus.$inferSelect dependency).
@@ -136,12 +140,16 @@ export function ProductionDrilldown({
   inputRows,
   editable,
   rawsMode,
+  directServices = [],
 }: {
   skus: QuoteSku[];
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   inputRows: ProductionInputRow[];
   editable: boolean;
   rawsMode: "cm_sources" | "dps_sources" | "customer_supplies";
+  /** Stage 3 A · the other owner branch. Rendered by its own component,
+   *  which has no capacity to show an Item Group's inputs. */
+  directServices?: DirectServiceProductionRow[];
 }) {
   const rowsBySku = new Map<string, Map<string, ProdRowForUI>>();
   const policyBySku = new Map<string, SkuPolicy>();
@@ -361,6 +369,16 @@ export function ProductionDrilldown({
           />
         </div>
       ))}
+
+      {/* Stage 3 A · the other owner branch, in its own component. Rendered
+          BELOW the Item Group tables rather than among them: a service is not
+          an Item Group, and interleaving them would invite reading one as a
+          variant of the other. */}
+      <DirectServiceProduction
+        services={directServices}
+        tiers={tiers}
+        editable={editable}
+      />
 
       <PostProdReconcile
         actualUnitsProduced={actualUnitsProduced}
