@@ -60,5 +60,11 @@ test("customer and NetSuite boundaries validate selected worksheet commercial in
   assert.match(completeness, /enter Freight and Freight Markup/);
   assert.match(completeness, /crossesInternationalBorder/);
   assert.match(completeness, /"duty", "tariff"/);
-  assert.match(completeness, /return \[\.\.\.packaging, \.\.\.freight\]/);
+  // Guards that BOTH cost sources reach the gate, not the literal order of a
+  // spread. BV-013 added a third source — a missing firm Production default —
+  // and an assertion pinned to the exact expression fails for a reason that has
+  // nothing to do with what it protects.
+  assert.match(completeness, /\.\.\.packaging/);
+  assert.match(completeness, /\.\.\.freight/);
+  assert.match(completeness, /return \[[\s\S]{0,120}?\.\.\.packaging/);
 });

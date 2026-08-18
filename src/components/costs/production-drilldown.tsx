@@ -628,6 +628,12 @@ function readSection(
     // markup — the same position packaging reads for its per-line rate.
     const markupOperand = node.operands?.[1];
     if (!markupOperand || markupOperand.kind !== "resolution") continue;
+    // BV-013 · a resolution with NO chosen candidate means the governed
+    // Production default is missing. The node's numeric value is the effective
+    // 0 the arithmetic used, and rendering that as "0.0%" would state a
+    // decision nobody made. An em-dash is the honest answer, and the quote is
+    // separately unsendable.
+    if (!markupOperand.candidates?.some((c) => c.chosen)) continue;
     if (pct !== null && Math.abs(markupOperand.value - pct) > 1e-12) {
       return { pct: null, source: null };
     }

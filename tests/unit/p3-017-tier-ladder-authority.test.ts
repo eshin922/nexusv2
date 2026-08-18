@@ -63,7 +63,7 @@ function input(over: Partial<QuoteCostingInput> = {}): QuoteCostingInput {
   return {
     quote: { id: QUOTE, globalPriceAdjPct: 0.1, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Manufacturing: 0.32, Primary: 0.4, Other: 0.3 },
+    markupDefaults: { Production: 0.32, Manufacturing: 0.32, Primary: 0.4, Other: 0.3 },
     skus: [
       {
         id: LEAF, canonicalQuoteLeafId: CANON, parentSkuId: null, qtyPerParent: null,

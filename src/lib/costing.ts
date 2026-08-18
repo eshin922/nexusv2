@@ -903,8 +903,20 @@ const FALLBACK_MARKUP = 0.3;
 // Exported so the Costs surface can LABEL the category it is priced at
 // rather than restating it. BV-013 renames this to "Production"; every
 // display reading it follows without being told.
-export const PRODUCTION_MARKUP_CATEGORY = "Manufacturing";
-const RAW_MARKUP_CATEGORY = "Raw ingredients"; // Slice 9 will likely add this; falls back to Other today
+// BV-013 · ONE authority for every Production economic: the Item Group
+// production section, Direct Service production, and Bulk Raw alike.
+//
+// `Manufacturing` (0.30) and `Raw ingredients` are NOT renamed to get here.
+// Renaming would have silently repriced anything still resolving them and
+// erased the row the pin backfill derived every historical rate from. This is
+// a new authority; the old ones stay live until a consumer trace says
+// otherwise.
+export const PRODUCTION_MARKUP_CATEGORY = "Production";
+// Bulk raw used to resolve `Raw ingredients`, which has never had a default
+// row and therefore priced through `Other` — silently, and correctly only
+// because both sat at 0.30. It is the same authority now, in name as well as
+// in value.
+const RAW_MARKUP_CATEGORY = PRODUCTION_MARKUP_CATEGORY;
 
 // Phase 2 freight model cutover — diagnostic for the shadowing case.
 //
@@ -955,6 +967,52 @@ export type MarkupCandidate = {
   chosen: boolean;
   unavailableReason: string | null;
 };
+
+/**
+ * BV-013 · resolve WITHOUT the substitute rungs.
+ *
+ * `resolveMarkup`'s last rung is the firm 30% and is always available, so that
+ * function can never fail. For Production that is precisely the defect: a
+ * missing governed default priced through `Other`, or through the firm
+ * fallback, and nothing said so.
+ *
+ * Here the substitute rungs are still LISTED — an operator inspecting the
+ * ladder should see what was not consulted and why — but they are marked
+ * unavailable, so when the governed category has no default there is no winner
+ * and the value is null.
+ *
+ * Null is not "zero markup". It is "this cannot be priced", and the caller
+ * must route it to the unresolved-cost readiness path rather than substitute
+ * a number of its own.
+ */
+export function resolveMarkupStrict(args: {
+  defaults: Record<string, number>;
+  category: string;
+}): { value: number | null; candidates: MarkupCandidate[] } {
+  const { defaults, category } = args;
+  const available = defaults[category] !== undefined;
+  const candidates: MarkupCandidate[] = [
+    {
+      label: `${category} default`,
+      value: available ? defaults[category] : null,
+      chosen: available,
+      unavailableReason: available ? null : `no ${category} default exists`,
+    },
+    {
+      label: "Other default",
+      value: null,
+      chosen: false,
+      unavailableReason: "not a Production authority (BV-013)",
+    },
+    {
+      label: "Firm fallback",
+      value: null,
+      chosen: false,
+      unavailableReason: "not a Production authority (BV-013)",
+    },
+  ];
+  return { value: available ? defaults[category] : null, candidates };
+}
 
 export function resolveMarkup(args: {
   defaults: Record<string, number>;
@@ -1768,15 +1826,27 @@ function computeLeafPerTier(args: {
   bulkRawTotal = num(production?.bulkRawCost);
   rawExcludedByCustomerShipping = Boolean(production?.customerShipsRaws);
 
-  const productionMarkup = lookupMarkup(
-    markupDefaults,
-    PRODUCTION_MARKUP_CATEGORY,
-  );
-  const rawMarkup = lookupMarkup(
-    markupDefaults,
-    RAW_MARKUP_CATEGORY,
-    "Other",
-  );
+  // BV-013 · strict. No `Other`, no firm fallback.
+  //
+  // When the governed default is missing the value is null, and the arithmetic
+  // below uses 0 so the page can still RENDER — not because zero is the rate.
+  // The consequences are deliberate and paired: the Markup cell shows an
+  // em-dash rather than a number, the section prices at cost, and the quote
+  // becomes unsendable via the unresolved-cost readiness path.
+  //
+  // Zero rather than a substitute rate because it fails toward a VISIBLE
+  // problem: an unmarked section drags the margin verdict red, where a
+  // plausible 30% would have looked like a priced quote.
+  const productionMarkupResolution = resolveMarkupStrict({
+    defaults: markupDefaults,
+    category: PRODUCTION_MARKUP_CATEGORY,
+  });
+  const rawMarkupResolution2 = resolveMarkupStrict({
+    defaults: markupDefaults,
+    category: RAW_MARKUP_CATEGORY,
+  });
+  const productionMarkup = productionMarkupResolution.value ?? 0;
+  const rawMarkup = rawMarkupResolution2.value ?? 0;
 
   // Retained under a private name: these are the values the NODES are built
   // from, and the exported scalars below are derived from the nodes rather
@@ -1871,10 +1941,7 @@ function computeLeafPerTier(args: {
           }),
     };
 
-    const prodMarkupResolution = resolveMarkup({
-      defaults: markupDefaults,
-      category: PRODUCTION_MARKUP_CATEGORY,
-    });
+    const prodMarkupResolution = productionMarkupResolution;
     productionSectionNode = {
       key: prodBase,
       kind: "markup",
@@ -1890,10 +1957,16 @@ function computeLeafPerTier(args: {
         {
           key: nodeKey(prodBase, "markup"),
           kind: "resolution",
-          label: "Manufacturing markup",
+          label: `${PRODUCTION_MARKUP_CATEGORY} markup`,
+          // The EFFECTIVE number the arithmetic above used, so the node stays
+          // arithmetically honest. Whether a rate was actually resolved is
+          // carried by `candidates` — none is `chosen` when it was not — and
+          // the display keys off that rather than off this value, so an
+          // unresolved section shows an em-dash instead of a decisive 0.0%.
           value: productionMarkup,
           unit: "pct",
-          op: "category default ?? Other ?? firm fallback",
+          // No `??` chain any more. There is one authority and no substitute.
+          op: `${PRODUCTION_MARKUP_CATEGORY} default (no fallback)`,
           candidates: prodMarkupResolution.candidates,
         },
       ],
@@ -1902,11 +1975,7 @@ function computeLeafPerTier(args: {
 
     // ---------- bulk raw ----------
     const rawBase = nodeKey(sku.id, tier.id, "raw");
-    const rawMarkupResolution = resolveMarkup({
-      defaults: markupDefaults,
-      category: RAW_MARKUP_CATEGORY,
-      fallbackCategory: "Other",
-    });
+    const rawMarkupResolution = rawMarkupResolution2;
     // A-7 / F8: two unconnected representations exist and the quote-level
     // ingredient tree is never passed to this engine. The node carries the
     // pricing-active value and says so, rather than implying the ingredient

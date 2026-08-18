@@ -3,7 +3,12 @@
 import { asc, count, eq, isNotNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { assemblyLeafInputs, auditLog, markupDefaults } from "@/db/schema";
+import {
+  assemblyLeafInputs,
+  assemblyProductionInputs,
+  auditLog,
+  markupDefaults,
+} from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
@@ -13,6 +18,19 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { validatePercentDecimal } from "@/lib/percent-validation";
+import { PRODUCTION_MARKUP_CATEGORY } from "@/lib/costing";
+
+/** A production row the Production rate actually marks up — one with money on
+ *  it. An all-null row is structure, not an economic the rate touches. */
+const PRODUCTION_VALUE_PRESENT = sql`
+  COALESCE(${assemblyProductionInputs.fillingBlendingCost}, 0)
++ COALESCE(${assemblyProductionInputs.cmAssemblyTotal}, 0)
++ COALESCE(${assemblyProductionInputs.setupFeeTotal}, 0)
++ COALESCE(${assemblyProductionInputs.toolingArtworkTotal}, 0)
++ COALESCE(${assemblyProductionInputs.rdTotal}, 0)
++ COALESCE(${assemblyProductionInputs.otherServiceTotal}, 0)
++ COALESCE(${assemblyProductionInputs.bulkRawCost}, 0)
++ COALESCE(${assemblyProductionInputs.testingMicrosTotal}, 0) <> 0`;
 
 // Markup-defaults admin actions. listMarkupDefaults moved here from
 // packaging.ts for hygiene (markup-defaults is the owning concern;
@@ -154,6 +172,25 @@ export async function listMarkupDefaultReferenceCounts(): Promise<
   for (const r of rows) {
     if (r.category !== null) map.set(r.category, Number(r.n));
   }
+
+  // BV-013 · Production is consumed at SECTION level, not per line.
+  //
+  // This count reads `assembly_leaf_inputs.category`, which is packaging's
+  // per-line authority. `assembly_production_inputs` has no category column —
+  // the engine marks the whole section at one rate — so Production could never
+  // appear here and was badged UNUSED · never used while pricing every
+  // production economic in the estate.
+  //
+  // That is not cosmetic. An admin reading "unused" may reasonably delete the
+  // row, and since BV-013 made the ladder fail-visible, deleting it prices
+  // every draft's production AT COST and makes those quotes unsendable. The
+  // surface would have invited exactly the action it is least safe to take.
+  const productionRows = await db
+    .select({ n: count() })
+    .from(assemblyProductionInputs)
+    .where(PRODUCTION_VALUE_PRESENT);
+  map.set(PRODUCTION_MARKUP_CATEGORY, Number(productionRows[0]?.n ?? 0));
+
   return map;
 }
 
@@ -233,21 +270,52 @@ export async function previewMarkupDefaultRecompute(
     // PMs benefit from knowing the total category usage. Draft count
     // is the specifically-affected subset (sent+ quotes are frozen
     // per the propagation rule — only drafts recompute).
-    const lineCountRow = await db
-      .select({ n: count() })
-      .from(assemblyLeafInputs)
-      .where(eq(assemblyLeafInputs.category, category));
+    // BV-013 · Production counts production rows, not packaging lines.
+    //
+    // Before this the preview told an admin that changing Production would
+    // "recompute markup on 0 line items across 0 draft quotes — no draft
+    // quotes affected, this change is forward-only", and then repriced six
+    // drafts. A confident, wrong statement about a commercial change, which
+    // is the exact class of defect BV-013 exists to remove.
+    const isProduction = category === PRODUCTION_MARKUP_CATEGORY;
+
+    const lineCountRow = isProduction
+      ? await db
+          .select({ n: count() })
+          .from(assemblyProductionInputs)
+          .where(PRODUCTION_VALUE_PRESENT)
+      : await db
+          .select({ n: count() })
+          .from(assemblyLeafInputs)
+          .where(eq(assemblyLeafInputs.category, category));
     const affectedLineItems = Number(lineCountRow[0]?.n ?? 0);
 
-    const draftCountResult = (await db.execute(sql`
-      SELECT COUNT(DISTINCT q.id) AS n
-      FROM "assembly_leaf_inputs" ali
-      JOIN "assembly_leaves" al ON al.id = ali.assembly_leaf_id
-      JOIN "assemblies" a ON a.id = al.assembly_id
-      JOIN "quotes" q ON q.id = a.quote_id
-      WHERE ali.category = ${category}
-        AND q.status = 'draft'
-    `)) as unknown as Array<{ n: string | number }>;
+    // Both owner branches for Production — an Item Group's section and a
+    // Direct Service's — because the one rate prices both.
+    const draftCountResult = (
+      isProduction
+        ? await db.execute(sql`
+            SELECT COUNT(DISTINCT q.id) AS n
+            FROM "assembly_production_inputs" api
+            LEFT JOIN "assemblies" a ON a.id = api.assembly_id
+            LEFT JOIN "quote_leaves" ql ON ql.id = api.quote_leaf_id
+            JOIN "quotes" q ON q.id = COALESCE(a.quote_id, ql.quote_id)
+            WHERE q.status = 'draft'
+              AND (COALESCE(api.filling_blending_cost,0) + COALESCE(api.cm_assembly_total,0)
+                 + COALESCE(api.setup_fee_total,0) + COALESCE(api.tooling_artwork_total,0)
+                 + COALESCE(api.rd_total,0) + COALESCE(api.other_service_total,0)
+                 + COALESCE(api.bulk_raw_cost,0) + COALESCE(api.testing_micros_total,0)) <> 0
+          `)
+        : await db.execute(sql`
+            SELECT COUNT(DISTINCT q.id) AS n
+            FROM "assembly_leaf_inputs" ali
+            JOIN "assembly_leaves" al ON al.id = ali.assembly_leaf_id
+            JOIN "assemblies" a ON a.id = al.assembly_id
+            JOIN "quotes" q ON q.id = a.quote_id
+            WHERE ali.category = ${category}
+              AND q.status = 'draft'
+          `)
+    ) as unknown as Array<{ n: string | number }>;
     const affectedDraftQuotes = Number(draftCountResult[0]?.n ?? 0);
 
     // Approximate margin-shift range. Packaging typically contributes

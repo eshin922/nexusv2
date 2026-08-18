@@ -653,12 +653,28 @@ export function findGraphViolations(root: CostingNode): GraphViolation[] {
       out.push({ key: n.key, kind: n.kind, problem: "non-terminal has no operation" });
     }
     if (n.kind === "resolution") {
-      const chosen = (n.candidates ?? []).filter((c) => c.chosen);
-      if (chosen.length !== 1) {
+      const candidates = n.candidates ?? [];
+      const chosen = candidates.filter((c) => c.chosen);
+      // BV-013 · ZERO chosen is legitimate, and ONLY when nothing was
+      // available to choose. That is the fail-visible state: the governed
+      // Production default is missing and the ladder deliberately has no
+      // substitute rung to fall to.
+      //
+      // Widened precisely rather than relaxed. Two chosen is still a defect,
+      // and so is zero chosen while an available candidate sat there unpicked
+      // — which would mean the resolver skipped a rung it should have taken.
+      // The candidates themselves are still emitted so an operator can see
+      // what was not consulted and why.
+      const available = candidates.filter((c) => c.unavailableReason === null);
+      const legitimatelyUnresolved = chosen.length === 0 && available.length === 0;
+      if (chosen.length !== 1 && !legitimatelyUnresolved) {
         out.push({
           key: n.key,
           kind: n.kind,
-          problem: `resolution has ${chosen.length} chosen candidates, expected exactly 1`,
+          problem:
+            chosen.length === 0
+              ? `resolution chose nothing while ${available.length} candidate(s) were available`
+              : `resolution has ${chosen.length} chosen candidates, expected exactly 1`,
         });
       }
     }

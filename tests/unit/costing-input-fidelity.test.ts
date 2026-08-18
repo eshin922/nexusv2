@@ -95,7 +95,7 @@ function snapshot(): HydrateSnapshot {
   const input: QuoteCostingInput = {
     quote: { id: "q-1", globalPriceAdjPct: 0.1, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Primary: 0.45, Secondary: 0.5, Manufacturing: 0.3 },
+    markupDefaults: { Production: 0.3, Primary: 0.45, Secondary: 0.5, Manufacturing: 0.3 },
     skus: [
       {
         id: LEAF,

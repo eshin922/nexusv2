@@ -48,7 +48,14 @@ import { getCostingBundle } from "@/app/actions/costing";
 import { canonical } from "./gate-1b/canonical-digest.ts";
 import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 
-type Entry = { digest: string; policySource: string; status: string; label: string };
+type Entry = {
+  digest: string;
+  policySource: string;
+  status: string;
+  label: string;
+  /** `section=RungLabel@value`, e.g. `prod=Production default@0.4`. */
+  rungs?: string[];
+};
 
 const out = process.argv[2];
 if (!out || out.startsWith("--")) {
@@ -76,10 +83,59 @@ for (const q of quotes) {
   const res = await getCostingBundle(q.id);
   if (!res.ok) {
     failed += 1;
-    entries[q.id] = { digest: `ERROR:${res.error.code}`, policySource, status: q.status, label };
+    entries[q.id] = {
+      digest: `ERROR:${res.error.code}`,
+      policySource,
+      status: q.status,
+      label,
+      rungs: [],
+    };
     continue;
   }
   const c = res.data.costing as Record<string, unknown>;
+
+  // ── BV-013 · which AUTHORITY priced each section ───────────────────────
+  //
+  // A digest of totals cannot see this. Production resolving through `Other`
+  // and Production resolving through `Production` produce the SAME number
+  // while both categories sit at 0.30 — which is the situation today, and
+  // exactly the coincidence BV-013 removes. "Exact reconciliation is
+  // necessary but not sufficient": the rung is the attribution half.
+  //
+  // Read off the engine's own resolution operand, never re-derived. A witness
+  // that recomputed the ladder would agree with a broken ladder.
+  const rungs = new Set<string>();
+  const seenNodes = new Set<unknown>();
+  const walk = (node: unknown, depth: number): void => {
+    if (!node || typeof node !== "object" || depth > 10) return;
+    if (seenNodes.has(node)) return;
+    seenNodes.add(node);
+    if (Array.isArray(node)) {
+      for (const x of node) walk(x, depth + 1);
+      return;
+    }
+    const n = node as Record<string, unknown>;
+    if (n.kind === "markup" && typeof n.key === "string") {
+      // Node keys are `<skuId>/<tierId>/<section>[/<lineId>]`. Strip the
+      // UUIDs so the tally is per SECTION rather than per cell — otherwise
+      // every one of thousands of cells is its own line and the pattern the
+      // rung capture exists to show is invisible.
+      const section =
+        n.key
+          .split("/")
+          .filter((seg) => !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(seg))
+          .join("/") || "?";
+      const operands = Array.isArray(n.operands) ? n.operands : [];
+      const resolution = operands[1] as Record<string, unknown> | undefined;
+      const candidates = Array.isArray(resolution?.candidates)
+        ? (resolution!.candidates as Record<string, unknown>[])
+        : [];
+      const chosen = candidates.find((x) => x.chosen === true);
+      rungs.add(`${section}=${String(chosen?.label ?? "NONE")}@${String(chosen?.value ?? "-")}`);
+    }
+    for (const k of Object.keys(n)) walk(n[k], depth + 1);
+  };
+  walk(c, 0);
   const payload = {
     quote: c.quote,
     firmSettings: c.firmSettings,
@@ -93,6 +149,7 @@ for (const q of quotes) {
     policySource,
     status: q.status,
     label,
+    rungs: [...rungs].sort(),
   };
 }
 
@@ -168,6 +225,12 @@ console.log(
 );
 console.log(`WITNESS productionDigest ${productionDigest}`);
 
+const rungTally: Record<string, number> = {};
+for (const e of Object.values(entries)) {
+  for (const r of e.rungs ?? []) rungTally[r] = (rungTally[r] ?? 0) + 1;
+}
+for (const [r, n] of Object.entries(rungTally).sort()) console.log(`WITNESS rung ${r}: ${n}`);
+
 const bySource: Record<string, number> = {};
 for (const e of Object.values(entries)) bySource[e.policySource] = (bySource[e.policySource] ?? 0) + 1;
 for (const [s, n] of Object.entries(bySource).sort()) console.log(`WITNESS source ${s}: ${n}`);
@@ -195,6 +258,17 @@ if (comparePath) {
   console.log(`COMPARE global after  ${global}`);
   console.log(`COMPARE economics moved: ${moved.length}`);
   for (const m of moved.slice(0, 20)) console.log(`   MOVED ${m}`);
+  const rungChanged: string[] = [];
+  for (const [id, now] of Object.entries(entries)) {
+    const was = before.entries[id];
+    if (!was) continue;
+    const a = (was.rungs ?? []).join(",");
+    const b = (now.rungs ?? []).join(",");
+    if (a !== b) rungChanged.push(`${now.label} [${now.status}]: ${a || "-"} -> ${b || "-"}`);
+  }
+  console.log(`COMPARE markup authority changed: ${rungChanged.length}`);
+  for (const r of rungChanged.slice(0, 30)) console.log(`   RUNG ${r}`);
+
   console.log(`COMPARE policy source changed: ${sourceChanged.length}`);
   for (const s of sourceChanged.slice(0, 20)) console.log(`   SOURCE ${s}`);
 
