@@ -40,7 +40,7 @@ naming wrong or to reach for a client record "just this once".
 |---|---|---|---|
 | 1 | Validation **company** | HubSpot | **human, in the UI** — see the scope note |
 | 2 | Validation **deal**, associated to that company | HubSpot | write token (`crm.objects.deals.write`) |
-| 3 | NetSuite **customer** with Terms set | NetSuite sandbox (`*_SB2`) | `createRecord`, sandbox-authorized |
+| 3 | NetSuite **customer** with Terms set | NetSuite sandbox (`*_SB2`) | **human, in the NetSuite UI** — see the permission note |
 | 4 | `netsuite_customer_map` row: company → customer | Nexus DB | the Quote surface's customer-match affordance |
 
 Then the Nexus **project** is imported from the deal through the normal
@@ -64,6 +64,35 @@ reachable from existing scopes and existing operator surfaces.
 `scripts/gate-1b/hubspot-scope-probe.ts` re-measures this. Run it rather than
 trusting the table above if a write ever fails unexpectedly — the scopes on a
 private app can change without anything in this repo changing.
+
+### Permission note — why link 3 also needs a human
+
+The NetSuite integration role can READ customers but not create them:
+
+```
+POST /record/v1/customer -> 403 INSUFFICIENT_PERMISSION
+  "You need a higher level of the 'Lists -> Customers' permission"
+```
+
+**Do not raise that permission to close this.** The gap is correct
+least-privilege: Nexus references governed customers, it does not mint them.
+Customer creation belongs to the firm's NetSuite administrator, and granting
+the integration role the ability to create customers would hand Nexus a
+capability it should never exercise — in the sandbox today and, by however the
+role is later mirrored, in production tomorrow.
+
+So the validation customer is created by hand, once, exactly like the HubSpot
+company. `cert-lineage-build.ts` then finds it by name and binds it.
+
+**Create it as:**
+
+| field | value |
+|---|---|
+| Company Name | `ZZ-VALIDATION Nexus Certification Customer` |
+| Terms | `50% Deposit/balance at shipment` (internalId 7 — the firm's standard, on 968 of 1000 sampled customers) |
+
+Terms is the whole point: `resolveGovernedPaymentTerms` reads
+`customer.terms.refName` and returns `no_terms_on_customer` without it.
 
 ## Naming
 

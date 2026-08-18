@@ -32,7 +32,7 @@ import { hubspotDealsCache, users } from "@/db/schema";
 import { syncDealById } from "@/lib/hubspot-cache";
 import { upsertCustomerMap } from "@/lib/netsuite/customer-map";
 import { resolveGovernedPaymentTerms } from "@/lib/netsuite/customer-terms";
-import { createRecord, suiteQL, describeNetsuiteTarget } from "@/lib/netsuite/client";
+import { createRecord, getRecord, suiteQL, describeNetsuiteTarget } from "@/lib/netsuite/client";
 
 const companyId = process.argv[2];
 const COMMIT = process.argv.includes("--commit");
@@ -175,13 +175,24 @@ let nsTermsPresent = false;
     // reads `customer.terms.refName` and returns no_terms_on_customer without
     // it. Take the Terms record the firm's own customers use rather than
     // inventing an id.
-    const { items: termsRows } = await suiteQL<{ terms: string; n: string }>(
-      `SELECT terms, COUNT(*) AS n FROM customer WHERE terms IS NOT NULL
-        GROUP BY terms ORDER BY COUNT(*) DESC`,
+    //
+    // Tallied in JS: `term` is not a queryable SuiteQL record, and
+    // `GROUP BY terms ORDER BY COUNT(*)` returns a 500 from this account.
+    const { items: used } = await suiteQL<{ terms: string }>(
+      `SELECT terms FROM customer WHERE terms IS NOT NULL`, { limit: 1000 },
     );
-    const commonest = termsRows[0]?.terms;
+    const tally = new Map<string, number>();
+    for (const r of used) tally.set(String(r.terms), (tally.get(String(r.terms)) ?? 0) + 1);
+    const [commonest, n] = [...tally].sort((a, b) => b[1] - a[1])[0] ?? [];
     if (!commonest) { console.error("  no Terms record found to copy"); process.exit(1); }
-    say("terms internalId", `${commonest} (most used: ${termsRows[0].n} customers)`);
+
+    // Read the refName rather than assuming what the id means — the same REST
+    // path `readCustomerTerms` uses, so what is verified is what SEND reads.
+    const { items: exemplar } = await suiteQL<{ id: string }>(
+      `SELECT id FROM customer WHERE terms = ${Number(commonest)}`, { limit: 1 },
+    );
+    const rec = await getRecord<{ terms?: { refName?: string } }>("customer", String(exemplar[0].id));
+    say("terms internalId", `${commonest} · "${rec.terms?.refName ?? "?"}" · ${n} of ${used.length} sampled customers`);
 
     const created = await createRecord({
       recordType: "customer",
