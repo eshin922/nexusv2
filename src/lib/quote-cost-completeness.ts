@@ -5,9 +5,11 @@ import { db } from "@/db";
 import { assemblyLeafInputs, leaves, quoteLeaves, quoteTiers } from "@/db/schema";
 import { loadFreightWorkbook } from "./freight-workbook";
 import { assertQuoteCostsResolved, type UnresolvedQuoteCost } from "./quote-cost-completeness-contract";
+import { markupDefaults as markupDefaultsTable } from "@/db/schema";
+import { PRODUCTION_MARKUP_CATEGORY } from "./costing";
 
 export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<UnresolvedQuoteCost[]> {
-  const [packaging, workbook, tiers] = await Promise.all([
+  const [packaging, workbook, tiers, productionDefault] = await Promise.all([
     // OD-017 · scoped through the canonical attachment. Reaching the quote via
     // `assemblies` meant an unpriced Direct Component was invisible to this
     // gate — the quote would have passed the Send check with a missing cost.
@@ -27,7 +29,33 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
       .where(and(eq(quoteLeaves.quoteId, quoteId), isNull(assemblyLeafInputs.unitCost))),
     loadFreightWorkbook(quoteId),
     db.select({ id: quoteTiers.id, label: quoteTiers.label }).from(quoteTiers).where(eq(quoteTiers.quoteId, quoteId)),
+    // BV-013 · a missing governed Production default is a firm-configuration
+    // gap, and it reaches the operator HERE rather than through a substitute
+    // rate. Before this, the ladder's `Other` and firm-30% rungs meant it was
+    // literally unreportable: there was no state in which the engine did not
+    // have a number.
+    db.select({ category: markupDefaultsTable.category })
+      .from(markupDefaultsTable)
+      .where(eq(markupDefaultsTable.category, PRODUCTION_MARKUP_CATEGORY))
+      .limit(1),
   ]);
+
+  const configuration: UnresolvedQuoteCost[] = [];
+  if (productionDefault.length === 0) {
+    // Quote-wide rather than per-line: the gap is one firm setting, so one row
+    // saying so beats the same sentence repeated once per production cell.
+    // `description` carries it, which is what that field exists for.
+    configuration.push({
+      quoteLeafId: null,
+      assemblyLeafId: null,
+      tierId: tiers[0]?.id ?? "",
+      tierLabel: tiers[0]?.label ?? "—",
+      lineGroupId: `markup-default:${PRODUCTION_MARKUP_CATEGORY}`,
+      leafSku: null,
+      leafName: `${PRODUCTION_MARKUP_CATEGORY} markup default`,
+      description: `No ${PRODUCTION_MARKUP_CATEGORY} markup default is configured, so production economics cannot be priced. An admin sets it in Settings → Markup Defaults. Production is deliberately NOT priced through another category when this is missing.`,
+    });
+  }
 
   const freight: UnresolvedQuoteCost[] = [];
   const unresolved = (subcategoryId: string, label: string, tierId: string, tierLabel: string, description: string) =>
@@ -73,7 +101,10 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
       }
     }
   }
-  return [...packaging, ...freight];
+  // Configuration first: an operator told "enter the missing costs" when the
+  // real problem is an unset firm default would go and enter costs that were
+  // never missing.
+  return [...configuration, ...packaging, ...freight];
 }
 
 export async function requireResolvedQuoteCosts(quoteId: string): Promise<void> {

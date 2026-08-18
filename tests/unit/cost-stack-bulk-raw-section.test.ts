@@ -9,6 +9,25 @@
 // sell, margins and markup policy are unchanged, and test 7 is the assertion
 // that keeps it that way — the split reapportions an existing figure between
 // two rows rather than adding or removing one.
+//
+// ── BV-013 AMENDS ONE HALF OF THE PREMISE, AND NOT THE OTHER ─────────────
+//
+// T-4 rested on two claims. One survives; one is superseded, by business
+// decision rather than by a defect.
+//
+//   SURVIVES  — Bulk Raw is its own governed QUANTITY: its own canonical node,
+//               its own cost, its own Cost Stack section. Every structural
+//               assertion below still holds and still matters.
+//
+//   SUPERSEDED — that its markup comes from a DIFFERENT AUTHORITY. It used to
+//               resolve `Raw ingredients`, which has never had a default row
+//               and therefore priced through `Other`. BV-013 makes one
+//               `Production` authority serve the section and bulk raw alike.
+//
+// Keeping those apart is the point, and it is Pattern 57/58 exactly: being
+// independently governed as a QUANTITY is a different property from being
+// independently governed as a RATE. Tests 5 and 6 asserted the second and are
+// rewritten below; nothing about the first is weakened to accommodate it.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -23,16 +42,21 @@ const LEAF = "leaf-1";
 const TIER = "tier-1";
 const QTY = 1000;
 
-/** Manufacturing and Raw markups differ throughout — evidence item 2. If they
- *  were equal, a wrong-authority implementation would pass by coincidence. */
-const MANUFACTURING = 0.32;
-const RAW = 0.5;
+/** One Production authority since BV-013. The fixture keeps a rate distinct
+ *  from every OTHER category (Primary 0.4, Other 0.5) for the same reason the
+ *  two used to differ from each other: if Production shared a value with a
+ *  substitute rung, an implementation that fell through to it would pass by
+ *  coincidence. */
+const PRODUCTION = 0.32;
+/** Deliberately NOT the Production rate. Nothing should ever resolve here on a
+ *  production path; if something does, the arithmetic diverges visibly. */
+const OTHER_TRAP = 0.5;
 
 function input(over: Partial<QuoteCostingInput> = {}): QuoteCostingInput {
   return {
     quote: { id: "q-1", globalPriceAdjPct: 0, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Manufacturing: MANUFACTURING, Primary: 0.4, Other: RAW },
+    markupDefaults: { Production: PRODUCTION, Primary: 0.4, Other: OTHER_TRAP },
     skus: [
       {
         id: LEAF,
@@ -104,17 +128,21 @@ const run = (over: Partial<QuoteCostingInput> = {}) =>
 const perUnit = (r: ReturnType<typeof computeQuoteCosting>, name: string) =>
   readNodeValue(r.graph, quoteScopeKey(TIER, `per-unit/${name}`));
 
-test("1+2 · fixture has Production > 0, Bulk Raw > 0, and differing markups", () => {
+test("1+2 · both sections carry cost, and both price at the ONE authority", () => {
+  // The title used to end "and differing markups". BV-013 removed that, and
+  // the two costs remaining independent is what the section split now rests on.
   const r = run();
   assert.ok((perUnit(r, "prod/cost") ?? 0) > 0, "production cost > 0");
   assert.ok((perUnit(r, "raw/cost") ?? 0) > 0, "bulk raw cost > 0");
-  assert.notEqual(MANUFACTURING, RAW, "the two markup authorities differ");
+  assert.notEqual(perUnit(r, "prod/cost"), perUnit(r, "raw/cost"), "distinct costs");
 
-  // The markup RATES resolve differently, which is what makes item 6 meaningful.
   const prodRate = (perUnit(r, "prod/markup") ?? 0) / (perUnit(r, "prod/cost") ?? 1);
   const rawRate = (perUnit(r, "raw/markup") ?? 0) / (perUnit(r, "raw/cost") ?? 1);
-  assert.ok(Math.abs(prodRate - MANUFACTURING) < 1e-9, `prod rate ${prodRate}`);
-  assert.ok(Math.abs(rawRate - RAW) < 1e-9, `raw rate ${rawRate}`);
+  assert.ok(Math.abs(prodRate - PRODUCTION) < 1e-9, `prod rate ${prodRate}`);
+  assert.ok(Math.abs(rawRate - PRODUCTION) < 1e-9, `raw rate ${rawRate}`);
+  // And neither drifted to the trap rate sitting in `Other`.
+  assert.ok(Math.abs(prodRate - OTHER_TRAP) > 1e-6, "prod did not use Other");
+  assert.ok(Math.abs(rawRate - OTHER_TRAP) > 1e-6, "raw did not use Other");
 });
 
 test("3 · both Production and Bulk Raw sections render", () => {
@@ -128,10 +156,11 @@ test("3 · both Production and Bulk Raw sections render", () => {
 
 test("4 · each section matches its governed node independently", () => {
   const r = run();
-  // Bulk raw: 4000 over 1000 units, marked up at the RAW authority.
+  // Bulk raw: 4000 over 1000 units, marked up at the ONE Production authority
+  // since BV-013 — same rate as the section above it, different cost.
   assert.ok(Math.abs((perUnit(r, "raw/cost") ?? 0) - 4) < 1e-9, "4000 / 1000");
-  assert.ok(Math.abs((perUnit(r, "raw/markup") ?? 0) - 4 * RAW) < 1e-9);
-  assert.ok(Math.abs((perUnit(r, "raw") ?? 0) - 4 * (1 + RAW)) < 1e-9);
+  assert.ok(Math.abs((perUnit(r, "raw/markup") ?? 0) - 4 * PRODUCTION) < 1e-9);
+  assert.ok(Math.abs((perUnit(r, "raw") ?? 0) - 4 * (1 + PRODUCTION)) < 1e-9);
 
   // Production is NET of raw — it must not still contain it.
   const prodCost = perUnit(r, "prod/cost") ?? 0;
@@ -151,45 +180,63 @@ test("4 · each section matches its governed node independently", () => {
   }
 });
 
-test("5 · changing Raw markup moves only the Raw contribution", () => {
+test("5 · BV-013 · one Production rate moves BOTH sections together", () => {
+  // SUPERSEDES "changing Raw markup moves only the Raw contribution".
+  //
+  // That test asserted the two sections had independent rates. BV-013 removes
+  // that independence deliberately — one authority for all Production
+  // economics — so the inverse is now the invariant worth pinning: move
+  // Production and both sections must follow.
   const base = run();
   const moved = computeQuoteCosting(
     input({
       packaging: [pkg()],
       production: [prod()],
-      markupDefaults: { Manufacturing: MANUFACTURING, Primary: 0.4, Other: 0.9 },
-    })
-  );
-  assert.notEqual(perUnit(base, "raw"), perUnit(moved, "raw"), "raw moved");
-
-  // PROD is derived as `productionMarkupSum - rawMarkupSum`, so changing the
-  // raw markup re-associates that subtraction and PROD can differ in the last
-  // representable bit — 6.6 vs 6.600000000000001. That is float
-  // representation, not a commercial move, so this asserts at a tolerance far
-  // below a cent rather than on bit equality. Stated explicitly because
-  // "unmoved" asserted with a tolerance is a weaker claim than "unmoved", and
-  // the reader is owed the difference.
-  const unmoved = (name: string) =>
-    assert.ok(
-      Math.abs((perUnit(base, name) ?? 0) - (perUnit(moved, name) ?? 0)) < 1e-9,
-      `${name} unmoved: ${perUnit(base, name)} vs ${perUnit(moved, name)}`
-    );
-  unmoved("prod");
-  unmoved("pkg");
-  unmoved("raw/cost");
-});
-
-test("6 · changing Manufacturing markup does not move Raw", () => {
-  const base = run();
-  const moved = computeQuoteCosting(
-    input({
-      packaging: [pkg()],
-      production: [prod()],
-      markupDefaults: { Manufacturing: 0.75, Primary: 0.4, Other: RAW },
+      markupDefaults: { Production: 0.75, Primary: 0.4, Other: OTHER_TRAP },
     })
   );
   assert.notEqual(perUnit(base, "prod"), perUnit(moved, "prod"), "prod moved");
-  assert.equal(perUnit(base, "raw"), perUnit(moved, "raw"), "raw unmoved");
+  assert.notEqual(perUnit(base, "raw"), perUnit(moved, "raw"), "raw moved");
+  // Packaging has its own authority and must be untouched by a Production
+  // change — the separation that DOES survive.
+  assert.equal(perUnit(base, "pkg"), perUnit(moved, "pkg"), "pkg unmoved");
+  // And the underlying cost is unchanged; only the rate applied to it moved.
+  assert.equal(perUnit(base, "raw/cost"), perUnit(moved, "raw/cost"), "raw cost unmoved");
+});
+
+test("6 · BV-013 · neither section resolves through Other, at any rate", () => {
+  // The fail-visible half. `Other` is set to a rate far from Production's, so
+  // a fallthrough would be arithmetically obvious rather than hidden behind
+  // two categories that happen to agree — which is exactly how the live
+  // substitution stayed invisible for as long as it did.
+  const withHostileOther = computeQuoteCosting(
+    input({
+      packaging: [pkg()],
+      production: [prod()],
+      markupDefaults: { Production: PRODUCTION, Primary: 0.4, Other: 0.99 },
+    })
+  );
+  const base = run();
+  assert.equal(perUnit(base, "prod"), perUnit(withHostileOther, "prod"), "prod ignored Other");
+  assert.equal(perUnit(base, "raw"), perUnit(withHostileOther, "raw"), "raw ignored Other");
+});
+
+test("6b · BV-013 · a MISSING Production default resolves to no rate at all", () => {
+  // Not to Other, not to the firm 30%. The resolution node reports no chosen
+  // candidate, which is what the Costs surface reads to render an em-dash
+  // instead of a decisive number.
+  const missing = computeQuoteCosting(
+    input({
+      packaging: [pkg()],
+      production: [prod()],
+      markupDefaults: { Primary: 0.4, Other: 0.99 },
+    })
+  );
+  const prodPerUnit = perUnit(missing, "prod") ?? 0;
+  const rawPerUnit = perUnit(missing, "raw") ?? 0;
+  // Priced at COST — no markup applied — rather than at Other's 0.99.
+  assert.ok(prodPerUnit < (perUnit(run(), "prod") ?? 0), "prod not marked up");
+  assert.ok(rawPerUnit < (perUnit(run(), "raw") ?? 0), "raw not marked up");
 });
 
 test("7 · visible Cost Stack reconciliation remains exact", () => {
@@ -247,13 +294,26 @@ test("8 · FALSIFICATION — under the prior behaviour the Raw contribution is u
   );
   assert.ok(withoutRawRow < subtotal, "the four-row stack under-reports");
 
-  // (b) And the folded alternative misattributes it: a PROD row carrying raw
-  // would report a markup that matches neither authority's rate.
+  // (b) is SUPERSEDED by BV-013, and saying so is more useful than quietly
+  // dropping it.
+  //
+  // It used to show that folding raw into PROD produced a blended rate
+  // belonging to neither authority — the misattribution half of T-4, and its
+  // sharpest evidence. With ONE authority the fold now produces exactly that
+  // authority's rate, so the arithmetic no longer objects to folding.
+  //
+  // The section split therefore stands on the structural argument alone: bulk
+  // raw has its own canonical node and its own governed cost, which is a
+  // different property from having its own rate. Asserted here so a future
+  // reader does not rediscover the weakened falsification and conclude the
+  // split was never justified.
   const foldedCost = (perUnit(r, "prod/cost") ?? 0) + (perUnit(r, "raw/cost") ?? 0);
   const foldedMarkup = (perUnit(r, "prod/markup") ?? 0) + (perUnit(r, "raw/markup") ?? 0);
   const blendedRate = foldedMarkup / foldedCost;
   assert.ok(
-    Math.abs(blendedRate - MANUFACTURING) > 1e-6 && Math.abs(blendedRate - RAW) > 1e-6,
-    `folded rate ${blendedRate} is neither ${MANUFACTURING} nor ${RAW}`
+    Math.abs(blendedRate - PRODUCTION) < 1e-9,
+    `under one authority the folded rate IS the authority's rate: ${blendedRate}`
   );
+  // What still distinguishes them, and what the split preserves.
+  assert.notEqual(perUnit(r, "prod/cost"), perUnit(r, "raw/cost"));
 });

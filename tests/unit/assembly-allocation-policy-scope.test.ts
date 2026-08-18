@@ -110,7 +110,7 @@ function input(
   return {
     quote: { id: "q-1", globalPriceAdjPct: 0, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Manufacturing: 0.32, Primary: 0.4, Other: 0.3 },
+    markupDefaults: { Production: 0.32, Manufacturing: 0.32, Primary: 0.4, Other: 0.3 },
     skus: [asm(A_ASM), leaf(A_LEAF, A_ASM), asm(B_ASM), leaf(B_LEAF, B_ASM)],
     tiers: [
       { id: TIER, label: "T1", qty: QTY, sortOrder: 0, tierPriceAdjPct: null },

@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  PRODUCTION_MARKUP_CATEGORY,
   computeQuoteCosting,
   type CostingPackagingInput,
   type CostingProductionInput,
@@ -52,7 +53,7 @@ function input(over: Partial<QuoteCostingInput> = {}): QuoteCostingInput {
   return {
     quote: { id: "q-1", globalPriceAdjPct: 0, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Manufacturing: 0.32, Primary: 0.4, Other: 0.3 },
+    markupDefaults: { Production: 0.32, Manufacturing: 0.32, Primary: 0.4, Other: 0.3 },
     skus: [
       {
         id: LEAF,
@@ -471,7 +472,12 @@ test("production · allocation OFF removes the operand rather than zeroing it", 
 test("production · one aggregate markup, never a per-line one", () => {
   const r = computeQuoteCosting(input({ production: [prod()] }));
   const resolution = productionNode(r).operands!.find((o) => o.kind === "resolution")!;
-  assert.equal(resolution.label, "Manufacturing markup");
+  // Derived from the governed constant, not restated. BV-013 renamed this
+  // from "Manufacturing markup"; a hardcoded expectation here would have to be
+  // edited by hand on every future rename, which is how a label and its
+  // authority drift apart.
+  assert.equal(resolution.label, `${PRODUCTION_MARKUP_CATEGORY} markup`);
+  assert.equal(PRODUCTION_MARKUP_CATEGORY, "Production");
   assert.equal(resolution.value, 0.32);
   // Production has no per-line markup column. Reproducing packaging's
   // per-line ladder here would be a fabrication.
