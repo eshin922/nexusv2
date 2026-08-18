@@ -323,6 +323,11 @@ const classifiedIdentityFiles = new Set([
   // Production surface addresses its rows by `quote_leaf_id`, the governed
   // owner of a service-owned production row, and resolves no junction.
   "src/components/costs/direct-service-production.tsx",
+  // CLASSIFIED — type declaration only. `SkuRow.quoteLeafId` carries the
+  // CANONICAL id alongside the junction `id`, so consumers that must key on
+  // the canonical one (the production markup node) can. Declares, resolves
+  // nothing, writes nothing.
+  "src/lib/sku-tree.ts",
   // CLASSIFIED — canonical identity ONLY, and by construction. Stage 3 A's
   // Direct Service Production writer keys on `quote_leaf_id`, which is the
   // governed owner of a service-owned production row; it never resolves or
