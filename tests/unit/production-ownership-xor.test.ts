@@ -316,3 +316,95 @@ test("only rows carrying money count as used", async () => {
   assert.match(src, /PRODUCTION_VALUE_PRESENT/);
   assert.match(src, /testingMicrosTotal/);
 });
+
+// ── the Direct Service must reach the ENGINE, not only the Costs surface ──
+
+test("the costing bundle loads BOTH production owner branches", async () => {
+  // Operator-found V1 blocker. `getCostingBundle`'s loader inner-joined
+  // `assemblies`, so a service-owned production row — which carries a
+  // quote_leaf_id and no assembly — never reached the math.
+  //
+  // The symptom was not a missing line. The service still appeared in
+  // skuRollups as a leaf priced at 0, so the customer PDF rendered a
+  // `Formulation` row reading "quote on request" and EXCLUDED it from the
+  // turnkey total, for a cost the operator had entered and could see on Costs.
+  //
+  // Fourth instance of NULL-matches-nothing in this slice, and the only one
+  // where a write succeeded, displayed, and then failed to reach the
+  // arithmetic — which is worse than being refused, because nothing looked
+  // wrong at the point of entry.
+  const src = await code("src/app/actions/costing.ts");
+  assert.doesNotMatch(
+    src,
+    /from\(assemblyProductionInputs\)\s*\.innerJoin/,
+    "the engine's production loader still inner-joins assemblies",
+  );
+  assert.match(src, /eq\(quoteLeaves\.quoteId, quoteId\)/);
+});
+
+test("a top-level service prices at cost x the governed Production markup", async () => {
+  // The commercial semantics, asserted rather than assumed from a screenshot:
+  // sell = (fee / tier qty) x (1 + Production), with no packaging cost
+  // involved and no Item Group anywhere.
+  const { computeQuoteCosting } = await import("../../src/lib/costing.ts");
+  const LEAF = "svc-leaf";
+  const TIER = "tier-1";
+  const QTY = 1000;
+  const FEE = 123454;
+  const RATE = 0.4;
+
+  const r = computeQuoteCosting({
+    quote: { id: "q", globalPriceAdjPct: 0, targetMarginPct: null },
+    firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
+    markupDefaults: { Production: RATE, Other: 0.99 },
+    skus: [
+      {
+        id: LEAF,
+        parentSkuId: null,
+        qtyPerParent: null,
+        skuRole: "leaf",
+        skuLabel: "SVC-FORMULATION",
+        productName: "Formulation",
+        unitsPerPack: 1,
+        cbmPerUnit: null,
+        dutyPct: null,
+        tariffPct: null,
+      },
+    ],
+    tiers: [{ id: TIER, label: "Tier 1", qty: QTY, tierPriceAdjPct: null }],
+    packaging: [],
+    production: [
+      {
+        quoteSkuId: LEAF,
+        tierId: TIER,
+        customerShipsRaws: false,
+        allocateServiceFeesToCost: true,
+        fillingBlendingCost: null,
+        cmAssemblyTotal: null,
+        setupFeeTotal: null,
+        toolingArtworkTotal: null,
+        rdTotal: FEE,
+        otherServiceTotal: null,
+        bulkRawCost: null,
+        actualUnitsProduced: null,
+      },
+    ],
+    freight: [],
+    freightLegs: [],
+    freightLegTiers: [],
+    freightLegGroups: [],
+    cellOverrides: [],
+    cellTargets: [],
+  } as never);
+
+  const rollup = r.skuRollups.find((x) => x.skuLabel === "SVC-FORMULATION");
+  assert.ok(rollup, "the service produced no rollup");
+  const cell = rollup!.perTier.find((p) => p.tierId === TIER);
+  const expected = (FEE / QTY) * (1 + RATE);
+  assert.ok(
+    Math.abs((cell?.requiredSellPerUnit ?? 0) - expected) < 1e-9,
+    `expected ${expected}, got ${cell?.requiredSellPerUnit}`,
+  );
+  // And nowhere near the trap rate sitting in `Other`.
+  assert.ok(Math.abs((cell?.requiredSellPerUnit ?? 0) - (FEE / QTY) * 1.99) > 1);
+});
