@@ -62,7 +62,7 @@ import {
   type PlanLineInput,
 } from "./grouping-plan";
 import {
-  describeUnusableMapping,
+  evaluateDirectServiceGate,
   isFixedServiceIdentity,
   loadServiceItemMappings,
   validateServiceItemMappings,
@@ -415,21 +415,18 @@ export async function runMarkComplete(
   );
 
   if (directServices.length > 0) {
-    // The mapping check comes FIRST, because it is the one an operator can act
-    // on. Reporting "projection not enabled" to someone whose real problem is
-    // an unmapped service sends them to wait for a feature instead of to
-    // Settings.
+    // The decision lives in `evaluateDirectServiceGate` so it can be exercised
+    // rather than only code-asserted: driving a real quote to `accepted` to
+    // test this would fire the production HubSpot deal-stage push.
     const stored = await loadServiceItemMappings();
-    const needed = directServices
-      .map((svc) => svc.serviceIdentity)
-      .filter((id): id is DirectServiceIdentity => id !== null);
-
-    const mappable = needed.filter(isFixedServiceIdentity);
-    const perUse = needed.filter((id) => !isFixedServiceIdentity(id));
+    const identities = directServices.map((svc) => svc.serviceIdentity);
+    const fixed = identities
+      .filter((id): id is DirectServiceIdentity => id !== null)
+      .filter(isFixedServiceIdentity);
 
     const verdicts = await validateServiceItemMappings(
       netsuite,
-      mappable
+      fixed
         .map((id) => ({ id, m: stored.get(id) }))
         .filter(
           (x): x is { id: FixedServiceIdentity; m: StoredServiceMapping } =>
@@ -441,35 +438,20 @@ export async function runMarkComplete(
         })),
     );
 
-    const unusable = mappable
-      .map((id) =>
-        describeUnusableMapping(
-          id,
-          stored.has(id) ? verdicts.get(id) : undefined,
-        ),
-      )
-      .filter((m): m is string => m !== null);
-
-    // `other_service` has no firm mapping BY DESIGN — it takes a per-line
-    // selection (workstream C), which does not exist yet. Named separately so
-    // it does not read as a missing admin mapping someone could go and add.
-    if (perUse.length > 0) {
-      unusable.push(
-        `This quote has ${perUse.length} Other Service line(s). Other Service has no firm-wide NetSuite item — its item is chosen per line, and that selection is not available yet.`,
+    const gate = evaluateDirectServiceGate({
+      serviceIdentities: identities,
+      mapped: new Set(stored.keys()),
+      verdicts,
+    });
+    // Unreachable while services are present, and asserted rather than assumed
+    // — if the gate ever returns "proceed" here, a service falls through into
+    // the SKU loop and gets emitted as a Direct-Product-shaped line.
+    if (!gate.blocked) {
+      throw new Error(
+        "[mark-complete] Direct Service gate returned proceed with services present.",
       );
     }
-
-    if (unusable.length > 0) {
-      throw new Error(unusable.join(" "));
-    }
-
-    // Every service resolves. The remaining refusal is ours, not the
-    // operator's, and says so.
-    throw new Error(
-      "Direct Service Sales Order projection is not enabled. This quote carries " +
-        `${directServices.length} service line(s) whose NetSuite items are mapped and usable, ` +
-        "but projecting a service onto a Sales Order has not been certified. Nothing was pushed.",
-    );
+    throw new Error(gate.reason);
   }
 
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND

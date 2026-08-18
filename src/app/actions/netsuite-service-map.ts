@@ -17,6 +17,7 @@ import {
   FIXED_SERVICE_IDENTITIES,
   isFixedServiceIdentity,
   loadServiceItemMappings,
+  requireFixedServiceIdentity,
   validateServiceItemMappings,
   type FixedServiceIdentity,
   type MappingVerdict,
@@ -93,32 +94,6 @@ export async function listServiceItemMappings(
   });
 }
 
-function requireFixedIdentity(raw: unknown): FixedServiceIdentity {
-  if (typeof raw !== "string") {
-    throw new ActionGuardError(ERR.VALIDATION, "Service identity is required.");
-  }
-  // Narrowed through the governed enum first, so an unknown string cannot
-  // reach the fixed-set check and be reported as "not a fixed identity" when
-  // it is not an identity at all.
-  const known = (
-    Object.keys(DIRECT_SERVICE_LABELS) as DirectServiceIdentity[]
-  ).find((k) => k === raw);
-  if (!known) {
-    throw new ActionGuardError(
-      ERR.VALIDATION,
-      `Unknown service identity: ${raw}`,
-    );
-  }
-  if (!isFixedServiceIdentity(known)) {
-    // The one case worth its own sentence. `other_service` is refused here
-    // AND by a schema CHECK; this is the message, that is the enforcement.
-    throw new ActionGuardError(
-      ERR.VALIDATION,
-      "Other Service has no firm-wide NetSuite item. It is the catch-all and carries no single accounting meaning, so its item is selected per service line on the quote.",
-    );
-  }
-  return known;
-}
 
 /**
  * Map a service identity to a NetSuite item, resolving the entered item code
@@ -141,7 +116,7 @@ export async function saveServiceItemMapping(
 ): Promise<ActionResult<{ itemCode: string; internalId: string }>> {
   return runAction(async () => {
     const user = await requireAdminAction();
-    const identity = requireFixedIdentity(formData.get("serviceIdentity"));
+    const identity = requireFixedServiceIdentity(formData.get("serviceIdentity"));
     const itemCode = String(formData.get("netsuiteItemCode") ?? "").trim();
     if (!itemCode) {
       throw new ActionGuardError(
@@ -235,7 +210,7 @@ export async function verifyServiceItemMapping(
 ): Promise<ActionResult<{ verdict: MappingVerdict }>> {
   return runAction(async () => {
     const user = await requireAdminAction();
-    const identity = requireFixedIdentity(serviceIdentity);
+    const identity = requireFixedServiceIdentity(serviceIdentity);
 
     const stored = await loadServiceItemMappings();
     const mapping = stored.get(identity);

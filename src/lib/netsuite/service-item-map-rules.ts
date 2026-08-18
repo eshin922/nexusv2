@@ -1,4 +1,5 @@
 import type { NetSuiteOperations } from "@/lib/integrations/netsuite-provider";
+import { ActionGuardError, ERR } from "@/lib/action-result";
 import {
   DIRECT_SERVICE_LABELS,
   type DirectServiceIdentity,
@@ -38,6 +39,38 @@ export function isFixedServiceIdentity(
   v: DirectServiceIdentity,
 ): v is FixedServiceIdentity {
   return (FIXED_SERVICE_IDENTITIES as readonly string[]).includes(v);
+}
+
+/**
+ * Narrow an incoming identity to one that may carry a FIRM-WIDE mapping.
+ *
+ * Lives here rather than in the action so it can be exercised: the action
+ * module imports the database and cannot be loaded by the unit runner, and
+ * "other_service is refused" is a rule, not an action concern.
+ *
+ * Two rejections, deliberately distinct. An unknown string is not an identity
+ * at all; `other_service` IS one and is simply not firm-mappable. Reporting
+ * the second as the first would tell an admin they had mistyped something.
+ */
+export function requireFixedServiceIdentity(raw: unknown): FixedServiceIdentity {
+  if (typeof raw !== "string") {
+    throw new ActionGuardError(ERR.VALIDATION, "Service identity is required.");
+  }
+  const known = (
+    Object.keys(DIRECT_SERVICE_LABELS) as DirectServiceIdentity[]
+  ).find((k) => k === raw);
+  if (!known) {
+    throw new ActionGuardError(ERR.VALIDATION, `Unknown service identity: ${raw}`);
+  }
+  if (!isFixedServiceIdentity(known)) {
+    // Refused here AND by a schema CHECK. This is the sentence; that is the
+    // enforcement. Neither is load-bearing alone.
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "Other Service has no firm-wide NetSuite item. It is the catch-all and carries no single accounting meaning, so its item is selected per service line on the quote.",
+    );
+  }
+  return known;
 }
 
 export type StoredServiceMapping = {
@@ -143,4 +176,79 @@ export function describeUnusableMapping(
       // known to be wrong with the mapping. Retrying is the whole remedy.
       return `Could not reach NetSuite to confirm the item mapping for ${label}. Nothing has changed — try again shortly. (${verdict.reason})`;
   }
+}
+
+/**
+ * The Direct Service completion gate.
+ *
+ * Extracted from `mark-complete` so it can be EXERCISED rather than only
+ * code-asserted. Driving a real quote to `accepted` to test this would fire the
+ * production HubSpot deal-stage push, so the decision has to be provable
+ * without the transition — and a decision this consequential should not rest
+ * on a grep for a string literal.
+ *
+ * ── WHY IT NEVER RETURNS "PROCEED" WHILE SERVICES ARE PRESENT ─────────────
+ *
+ * Before Stage 2 a service quote was blocked BY ACCIDENT: its Nexus-invented
+ * `SVC-*` SKU could not resolve, so completion threw. That accident was real
+ * protection — Direct Service Sales Order projection is not certified.
+ * Supplying a mapping removes the accident, so the protection has to become
+ * deliberate or it simply disappears. Pattern 56.
+ *
+ * Hence: any service on the quote blocks. What varies is WHOSE problem it is.
+ *
+ * ── WHY THE MAPPING CHECK COMES FIRST ─────────────────────────────────────
+ *
+ * Telling an operator "projection is not enabled" when their actual problem is
+ * an unmapped service sends them to wait for a feature instead of to Settings.
+ * The actionable refusal wins whenever both apply.
+ */
+export type DirectServiceGateVerdict =
+  | { blocked: false }
+  /** The operator (or an admin) can clear this. */
+  | { blocked: true; kind: "mapping"; reason: string }
+  /** Ours, not theirs. Removed by the slice that certifies projection. */
+  | { blocked: true; kind: "projection"; reason: string };
+
+export const PROJECTION_NOT_ENABLED = "Direct Service Sales Order projection is not enabled";
+
+export function evaluateDirectServiceGate(input: {
+  serviceIdentities: ReadonlyArray<DirectServiceIdentity | null>;
+  mapped: ReadonlySet<FixedServiceIdentity>;
+  verdicts: ReadonlyMap<FixedServiceIdentity, MappingVerdict>;
+}): DirectServiceGateVerdict {
+  const { serviceIdentities, mapped, verdicts } = input;
+  if (serviceIdentities.length === 0) return { blocked: false };
+
+  const known = serviceIdentities.filter(
+    (id): id is DirectServiceIdentity => id !== null,
+  );
+  const fixed = known.filter(isFixedServiceIdentity);
+  const perUse = known.filter((id) => !isFixedServiceIdentity(id));
+
+  const problems = fixed
+    .map((id) => describeUnusableMapping(id, mapped.has(id) ? verdicts.get(id) : undefined))
+    .filter((m): m is string => m !== null);
+
+  // `other_service` has no firm mapping BY DESIGN. Named separately so it does
+  // not read as a missing admin mapping someone could go and add — the schema
+  // refuses that row.
+  if (perUse.length > 0) {
+    problems.push(
+      `This quote has ${perUse.length} Other Service line(s). Other Service has no firm-wide NetSuite item — its item is chosen per line, and that selection is not available yet.`,
+    );
+  }
+
+  if (problems.length > 0) {
+    return { blocked: true, kind: "mapping", reason: problems.join(" ") };
+  }
+
+  return {
+    blocked: true,
+    kind: "projection",
+    reason:
+      `${PROJECTION_NOT_ENABLED}. This quote carries ${serviceIdentities.length} service line(s) ` +
+      "whose NetSuite items are mapped and usable, but projecting a service onto a Sales Order " +
+      "has not been certified. Nothing was pushed.",
+  };
 }
