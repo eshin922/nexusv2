@@ -5014,3 +5014,28 @@ names are illustrative; final names land at implementation time.
   when someone goes looking, and this one has to be read before someone runs a
   command. It blocks authoring any new schema migration; it does not block
   Gate 1B analysis.
+
+## V1.1 — retire the obsolete pin-writer category vocabulary (BV-013)
+
+`src/lib/commercial-settings.ts:118-122` hardcodes `"Manufacturing"` and
+`"Raw ingredients"` into the category set captured by every NEW commercial pin,
+alongside whatever `markup_defaults` contains.
+
+Since BV-013 neither is a Production pricing authority. New pins are already
+correct — the set spreads `markup_defaults`, which now includes `Production` —
+so these two are simply pinned and never read.
+
+**Deliberately not removed in the BV-013 slice**, and the reason is the whole
+point of the item: those two names are what makes a pin taken today
+structurally comparable with the 26 that predate the migration. Removing them
+would split the pin population into two shapes for no operational gain, and
+anyone later diffing a new pin against an old one would meet that difference
+with no explanation attached.
+
+Retire when there is a reason to — a pin-schema change, or a forensic tool that
+has to special-case the two shapes anyway. Not as tidying.
+
+Related: `docs/validation/bv-013-production-markup-migration-trace.md`
+Appendix A, Step 4 consumer trace. Edward's disposition 2026-08-18: retire
+nothing; the authority outcome is already achieved because nothing on the
+Production pricing path reads them.
