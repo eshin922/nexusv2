@@ -1,5 +1,8 @@
 import "server-only";
-import { directServiceLabel } from "@/lib/product-structure/direct-service";
+import {
+  directServiceLabel,
+  type DirectServiceIdentity,
+} from "@/lib/product-structure/direct-service";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -109,6 +112,13 @@ export type AssemblyLeafNode = {
   // Spec completeness — derived from current leaf_specs row + the
   // product type's field_schema. Null when no product_type assigned.
   specCompleteness: SpecCompleteness | null;
+  // What this may be SOLD AS (migration 0079). Carried on the node because
+  // consumers must be able to tell a Direct Service from a Direct Product
+  // WITHOUT re-deriving it — `mark-complete` in particular, where inferring
+  // service-ness from the `SVC-` SKU prefix would be exactly the string
+  // matching the canonical-identity model exists to remove.
+  commercialKind: "product" | "service";
+  serviceIdentity: DirectServiceIdentity | null;
 };
 
 export type SpecCompleteness =
@@ -422,6 +432,8 @@ function assembleTree(
       unitCost: leaf.unitCost,
       archived: leaf.archived,
       globalRefCount: refCountMap.get(leaf.id) ?? 1,
+      commercialKind: leaf.commercialKind,
+      serviceIdentity: leaf.serviceIdentity,
       specCompleteness: serviceLabel
         ? { kind: "no_schema", typeLabel: serviceLabel }
         : computeSpecCompleteness(schema, spec, typeMap),

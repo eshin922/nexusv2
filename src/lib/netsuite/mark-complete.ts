@@ -61,6 +61,15 @@ import {
   stripGroupingPlan,
   type PlanLineInput,
 } from "./grouping-plan";
+import {
+  describeUnusableMapping,
+  isFixedServiceIdentity,
+  loadServiceItemMappings,
+  validateServiceItemMappings,
+  type FixedServiceIdentity,
+  type StoredServiceMapping,
+} from "./service-item-map";
+import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
@@ -373,6 +382,96 @@ export async function runMarkComplete(
   // already expands. That is the condition Probe 7a actually established, and
   // it remains true.
 
+  // ── DIRECT SERVICES ARE NOT SKU-RESOLVED, AND DO NOT PROJECT YET ────────
+  //
+  // `tree.directProducts` holds every top-level row, and since Stage 2 that
+  // includes Direct Services. Two things follow, and the second is the one
+  // that is easy to lose.
+  //
+  // 1. A service must NEVER enter the SKU-match loop. Its `SVC-*` SKU is a
+  //    Nexus-invented identifier that nothing put in NetSuite, so the match
+  //    would normally find nothing — and the danger is the case where it finds
+  //    SOMETHING, an unrelated item an admin happened to create with that
+  //    code. A wrong item on a Sales Order is worse than a blocked push.
+  //    Services are partitioned out by their `commercialKind`, never by
+  //    inspecting the SKU string.
+  //
+  // 2. Before this change a service quote was blocked here BY ACCIDENT: the
+  //    unresolvable SKU threw. That was real protection — Direct Service SO
+  //    projection is not certified — arrived at for an unrelated reason.
+  //    Removing the accidental block without replacing it would let a mapped
+  //    service fall straight through and be emitted as a flat
+  //    Direct-Product-shaped line, at whatever quantity and rate that path
+  //    computes, unreviewed. Pattern 56: a guarantee supplied for free by an
+  //    unrelated failure, removed by fixing the unrelated failure.
+  //
+  // So the block is now DELIBERATE and stated, below. It is removed by the
+  // slice that certifies Direct Service projection, and by nothing else.
+  const directServices = tree.directProducts.filter(
+    (p) => p.commercialKind === "service",
+  );
+  const directProductsOnly = tree.directProducts.filter(
+    (p) => p.commercialKind !== "service",
+  );
+
+  if (directServices.length > 0) {
+    // The mapping check comes FIRST, because it is the one an operator can act
+    // on. Reporting "projection not enabled" to someone whose real problem is
+    // an unmapped service sends them to wait for a feature instead of to
+    // Settings.
+    const stored = await loadServiceItemMappings();
+    const needed = directServices
+      .map((svc) => svc.serviceIdentity)
+      .filter((id): id is DirectServiceIdentity => id !== null);
+
+    const mappable = needed.filter(isFixedServiceIdentity);
+    const perUse = needed.filter((id) => !isFixedServiceIdentity(id));
+
+    const verdicts = await validateServiceItemMappings(
+      netsuite,
+      mappable
+        .map((id) => ({ id, m: stored.get(id) }))
+        .filter(
+          (x): x is { id: FixedServiceIdentity; m: StoredServiceMapping } =>
+            Boolean(x.m),
+        )
+        .map((x) => ({
+          serviceIdentity: x.id,
+          netsuiteInternalId: x.m.netsuiteInternalId,
+        })),
+    );
+
+    const unusable = mappable
+      .map((id) =>
+        describeUnusableMapping(
+          id,
+          stored.has(id) ? verdicts.get(id) : undefined,
+        ),
+      )
+      .filter((m): m is string => m !== null);
+
+    // `other_service` has no firm mapping BY DESIGN — it takes a per-line
+    // selection (workstream C), which does not exist yet. Named separately so
+    // it does not read as a missing admin mapping someone could go and add.
+    if (perUse.length > 0) {
+      unusable.push(
+        `This quote has ${perUse.length} Other Service line(s). Other Service has no firm-wide NetSuite item — its item is chosen per line, and that selection is not available yet.`,
+      );
+    }
+
+    if (unusable.length > 0) {
+      throw new Error(unusable.join(" "));
+    }
+
+    // Every service resolves. The remaining refusal is ours, not the
+    // operator's, and says so.
+    throw new Error(
+      "Direct Service Sales Order projection is not enabled. This quote carries " +
+        `${directServices.length} service line(s) whose NetSuite items are mapped and usable, ` +
+        "but projecting a service onto a Sales Order has not been certified. Nothing was pushed.",
+    );
+  }
+
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND
   // Direct Products. A Direct Product resolves through the identical SKU-match;
   // membership has never been part of item resolution.
@@ -380,7 +479,7 @@ export async function runMarkComplete(
     new Set(
       [
         ...tree.assemblies.flatMap((a) => a.children),
-        ...tree.directProducts,
+        ...directProductsOnly,
       ]
         .map((child) => child.sku)
         .filter((s): s is string => Boolean(s)),

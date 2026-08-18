@@ -138,3 +138,95 @@ export async function resolveNetsuiteItems(
 // --experimental-strip-types without the whole client + drizzle graph.
 // Re-exported here for callers that already import from item-resolver.
 export { formatResolutionErrors } from "./item-resolver-format";
+
+/**
+ * Confirm a set of NetSuite internal ids is still usable. ONE round trip.
+ *
+ * The sibling of `resolveNetsuiteItem`, for the case where the authoritative
+ * id is already stored and the question is "does it still work" rather than
+ * "which item is this".
+ *
+ * ── WHY BATCHED, AND WHY SUITEQL ──────────────────────────────────────────
+ *
+ * Measured against the sandbox (implementation plan §B.2): four ids in one
+ * query is n=15, 0 failures, p50 183ms — about what a SINGLE SKU-match costs.
+ * Validating one at a time measured SLOWER per call (p50 288ms), so
+ * per-id calls would pay four times for a query that is not cheaper alone.
+ *
+ * SuiteQL rather than REST `getRecord`: `getRecord` needs the record type in
+ * its URL, and these items are `NonInvtPart` rather than `serviceSaleItem`, so
+ * a REST validator would have to already know what it is trying to find out.
+ * All five `getRecord` attempts failed in measurement.
+ *
+ * The query deliberately does NOT filter `isinactive`. An inactive item must
+ * be DETECTABLE; filtering it out would make deactivation indistinguishable
+ * from deletion, which are different problems with different remedies.
+ *
+ * ── gone VS indeterminate ─────────────────────────────────────────────────
+ *
+ * `gone` is reachable ONLY after a successful read, which is what makes it
+ * authoritative. A thrown call yields `indeterminate` for EVERY id in the
+ * batch, because a failed read says nothing about any of them.
+ *
+ * Measured, not assumed: a nonexistent id returns zero rows and does not
+ * throw. Collapsing the two would report the same value for "deleted" and
+ * "the call failed" — the OD-027 failure recorded in CLAUDE.md.
+ */
+export type ItemIdVerdict =
+  | { state: "usable"; itemCode: string }
+  | { state: "gone" }
+  | { state: "inactive"; itemCode: string }
+  | { state: "indeterminate"; reason: string };
+
+export async function validateItemInternalIds(
+  internalIds: readonly string[],
+  opts?: { config?: NetsuiteConfig },
+): Promise<Map<string, ItemIdVerdict>> {
+  const out = new Map<string, ItemIdVerdict>();
+  if (internalIds.length === 0) return out;
+
+  // NetSuite internal ids are integers. Coerce and refuse anything else
+  // rather than interpolating an unvalidated string into SQL.
+  const numeric: number[] = [];
+  for (const raw of internalIds) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+      out.set(raw, {
+        state: "indeterminate",
+        reason: `not a NetSuite internal id: ${raw}`,
+      });
+      continue;
+    }
+    numeric.push(n);
+  }
+  if (numeric.length === 0) return out;
+
+  let rows: { id: string; itemid: string; isinactive: string }[];
+  try {
+    const res = await suiteQL<{ id: string; itemid: string; isinactive: string }>(
+      `SELECT id, itemid, isinactive FROM item WHERE id IN (${numeric.join(",")})`,
+      { config: opts?.config },
+    );
+    rows = res.items;
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : "NetSuite read failed";
+    for (const n of numeric) out.set(String(n), { state: "indeterminate", reason });
+    return out;
+  }
+
+  const byId = new Map(rows.map((r) => [String(r.id), r] as const));
+  for (const n of numeric) {
+    const row = byId.get(String(n));
+    if (!row) {
+      out.set(String(n), { state: "gone" });
+      continue;
+    }
+    out.set(
+      String(n),
+      row.isinactive === "T"
+        ? { state: "inactive", itemCode: row.itemid }
+        : { state: "usable", itemCode: row.itemid },
+    );
+  }
+  return out;
+}

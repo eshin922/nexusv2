@@ -24,6 +24,30 @@ export interface NetSuiteOperations {
    * boundary that one caller can route around is a boundary for the others
    * only.
    */
+  /**
+   * Confirm stored NetSuite internal ids are still usable — one round trip
+   * for all of them.
+   *
+   * Routed through the provider boundary rather than imported directly, for
+   * the reason OD-023 records one method above: a boundary one caller can go
+   * around is a boundary for the others only. The isolated harness must be
+   * able to answer this without reaching production NetSuite.
+   *
+   * Returns one verdict per id. A FAILED read must yield `indeterminate` for
+   * every id in the batch — never `gone`, which is reserved for a read that
+   * SUCCEEDED and found nothing.
+   */
+  validateItemInternalIds(
+    internalIds: readonly string[],
+  ): Promise<
+    Map<
+      string,
+      | { state: "usable"; itemCode: string }
+      | { state: "gone" }
+      | { state: "inactive"; itemCode: string }
+      | { state: "indeterminate"; reason: string }
+    >
+  >;
   readCustomerTerms(
     netsuiteCustomerId: string,
   ): Promise<{ terms?: { id?: string; refName?: string } | null } | null>;

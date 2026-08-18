@@ -15,7 +15,13 @@ const SECTIONS: Array<{
     href: "/admin/markup-defaults",
     label: "Markup defaults",
     description:
-      "Per-category markup percentages applied to packaging, production, and freight cost components. Slice 9 will redefine the category schedule.",
+      "Per-category markup percentages applied to packaging, production, and freight cost components.",
+  },
+  {
+    href: "/admin/netsuite",
+    label: "NetSuite",
+    description:
+      "Integration settings. Direct Service item mappings decide which NetSuite record each service becomes on a Sales Order.",
   },
 ];
 

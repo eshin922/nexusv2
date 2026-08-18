@@ -57,6 +57,34 @@ export const fakeNetSuite: NetSuiteOperations = {
       itemtype: "InvtPart",
     };
   },
+  /**
+   * Scenario-driven, and deliberately able to produce the case a real outage
+   * produces: `item-validate-fails` throws, which the caller must turn into
+   * `indeterminate` for every id — never `gone`. A fake that could only ever
+   * answer "usable" or "gone" would make the distinction untestable in the
+   * harness, which is where the distinction most needs exercising.
+   */
+  async validateItemInternalIds(internalIds) {
+    record("item-validate", { internalIds: [...internalIds] });
+    fail("item-validate");
+    const out = new Map<
+      string,
+      | { state: "usable"; itemCode: string }
+      | { state: "gone" }
+      | { state: "inactive"; itemCode: string }
+      | { state: "indeterminate"; reason: string }
+    >();
+    for (const id of internalIds) {
+      if (scenario() === "item-validate-gone") {
+        out.set(id, { state: "gone" });
+      } else if (scenario() === "item-validate-inactive") {
+        out.set(id, { state: "inactive", itemCode: `FAKE-${id}` });
+      } else {
+        out.set(id, { state: "usable", itemCode: `FAKE-${id}` });
+      }
+    }
+    return out;
+  },
   async resolveBusinessSegment(segmentId) {
     record("business-segment-resolution", { segmentId });
     fail("business-segment-resolution");
