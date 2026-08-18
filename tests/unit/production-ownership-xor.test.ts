@@ -280,3 +280,39 @@ test("owner_commercial_kind is generated, so no writer can set it", async () => 
     assert.doesNotMatch(await code(f), /ownerCommercialKind:/, `${f} writes a generated column`);
   }
 });
+
+// ── BV-013 · the admin surface must not misreport Production usage ────────
+
+test("Production usage counts production rows, not packaging lines", async () => {
+  // The walk found the admin surface telling an operator that changing
+  // Production would recompute "0 line items across 0 draft quotes — no draft
+  // quotes affected, this change is forward-only", and then repricing six
+  // drafts.
+  //
+  // Same root cause as the UNUSED badge: usage was measured by counting
+  // `assembly_leaf_inputs.category`, packaging's PER-LINE authority.
+  // `assembly_production_inputs` has no category column — the engine marks the
+  // whole section at one rate — so Production could never appear used.
+  //
+  // Not cosmetic. An admin reading "unused" may reasonably delete the row, and
+  // since BV-013 made the ladder fail-visible that prices every draft's
+  // production at cost and makes those quotes unsendable. The surface would
+  // have invited precisely the action it is least safe to take.
+  const src = await code("src/app/actions/markup-defaults.ts");
+  assert.match(src, /PRODUCTION_MARKUP_CATEGORY/);
+  assert.match(src, /assemblyProductionInputs/);
+  // Both the badge count and the impact preview, not just one of them.
+  assert.match(src, /map\.set\(PRODUCTION_MARKUP_CATEGORY/);
+  assert.match(src, /const isProduction = category === PRODUCTION_MARKUP_CATEGORY/);
+  // And the draft count covers BOTH owner branches, because one rate prices
+  // an Item Group's section and a Direct Service's alike.
+  assert.match(src, /COALESCE\(a\.quote_id, ql\.quote_id\)/);
+});
+
+test("only rows carrying money count as used", async () => {
+  // An all-null production row is structure, not an economic the rate touches.
+  // Counting it would replace one wrong number with a different wrong number.
+  const src = await code("src/app/actions/markup-defaults.ts");
+  assert.match(src, /PRODUCTION_VALUE_PRESENT/);
+  assert.match(src, /testingMicrosTotal/);
+});
