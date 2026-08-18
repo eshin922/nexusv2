@@ -225,7 +225,19 @@ export function ProductionDrilldown({
     const children = skus
       .filter((s) => s.skuRole !== "assembly" && s.parentSkuId === asm.id)
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    if (children.length > 0) anchorLeafByAssembly.set(asm.id, children[0].id);
+    // `quoteLeafId`, NOT `id`. For an assembly member, `skus[].id` is the
+    // assembly_leaf id while the math node is keyed by the CANONICAL quote_leaf
+    // id (`mathSkuId` in the adapter returns `row.quoteLeafId`).
+    //
+    // Getting this wrong is silent: the lookup misses, `readSection` fails
+    // closed, and the column renders the same em-dash it renders when there is
+    // genuinely no rate. The Direct Service branch masked it, because for a
+    // top-level leaf the two ids are the same value — so the service showed a
+    // rate while the Item Group beside it did not, which is the asymmetry that
+    // gave it away.
+    if (children.length > 0) {
+      anchorLeafByAssembly.set(asm.id, children[0].quoteLeafId ?? children[0].id);
+    }
   }
 
   // EVERY Item Group contributes, persisted or not.

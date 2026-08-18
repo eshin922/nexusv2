@@ -212,6 +212,10 @@ test("Item Group markup resolves on the ANCHOR LEAF, not the assembly id", async
   // into quoted price.
   const drill = await code("src/components/costs/production-drilldown.tsx");
   assert.match(drill, /anchorLeafByAssembly/);
+  // The CANONICAL id, not the assembly_leaf id. `mathSkuId` returns
+  // `row.quoteLeafId`, so keying on `children[0].id` misses every node and
+  // fails closed to the same em-dash it shows when there is no rate at all.
+  assert.match(drill, /children\[0\]\.quoteLeafId/);
   assert.match(drill, /useProductionMarkup\(markupNodeId, tiers\)/);
   assert.doesNotMatch(drill, /useProductionMarkup\(sku\.id, tiers\)/);
 });
