@@ -266,3 +266,36 @@ test("the mapping inputs are not disabled while saving", async () => {
   assert.match(table, /savePending/);
   assert.match(table, /verifyPending/);
 });
+
+// ── the section is reachable ──────────────────────────────────────────────
+
+test("nav and index read the SAME section list, so neither can omit a page", async () => {
+  // The nav and the index kept separate lists and had already drifted — the
+  // nav offered Users and Audit log, the index did not. That drift is what let
+  // NetSuite ship reachable from one and invisible in the other: a missing nav
+  // entry raises no error and breaks no page, it just produces a section
+  // nobody finds.
+  const layout = await code("app/admin/layout.tsx");
+  const index = await code("app/admin/page.tsx");
+  for (const [name, src] of [["layout", layout], ["index", index]] as const) {
+    assert.match(src, /ADMIN_SECTIONS/, `${name} does not use the shared list`);
+    assert.doesNotMatch(
+      src,
+      /^const (NAV|SECTIONS)/m,
+      `${name} still keeps its own section list`,
+    );
+  }
+});
+
+test("every admin route has a section entry", async () => {
+  const { readdir } = await import("node:fs/promises");
+  const { ADMIN_SECTIONS } = await import("../../src/app/admin/sections.ts");
+  const entries = await readdir(SRC + "app/admin", { withFileTypes: true });
+  const routes = entries
+    .filter((e) => e.isDirectory())
+    .map((e) => `/admin/${e.name}`);
+  const listed = new Set(ADMIN_SECTIONS.map((s) => s.href));
+  for (const r of routes) {
+    assert.ok(listed.has(r), `${r} exists but is not in ADMIN_SECTIONS — unreachable from the nav`);
+  }
+});
