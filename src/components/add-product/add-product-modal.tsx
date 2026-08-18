@@ -161,13 +161,24 @@ export function AddProductModal({
   }, [toast]);
 
   const selectedLeafType = leafTypes.find((t) => t.id === leafTypeId) ?? null;
+  const isService = commercialKind === "service";
 
   function handleSubmitLeaf(option: "continue" | "defer") {
     if (!leafName.trim()) {
       setError("Leaf name is required.");
       return;
     }
-    if (!leafTypeId) {
+    // Leaf Product Type drives SPEC FIELDS, and the four it offers are all
+    // packaging — Primary, Secondary, Tertiary, Soft goods. None of them
+    // describes a service, and a service has no physical specification to
+    // enter: the Library already renders exactly this state as "Specs not
+    // applicable" for logistics leaves.
+    //
+    // Requiring it made a Direct Service UNCREATABLE through the UI — the
+    // submit sat inert behind a picker with no correct answer. Found on the
+    // Stage 1+2 walk, which is the only place it could have been found: every
+    // unit test exercised the action, and the action never required it.
+    if (!isService && !leafTypeId) {
       setError("Pick a Product Type.");
       return;
     }
@@ -302,7 +313,7 @@ export function AddProductModal({
               >
                 Cancel
               </button>
-              {!leafTypeId ? (
+              {!isService && !leafTypeId ? (
                 <button
                   type="button"
                   className="a1v2-btn primary"
@@ -476,26 +487,33 @@ function LeafFields(props: {
       </>
       )}
       <div className="row-pair">
-        <div className="field">
-          <span className="lbl req">Leaf Product Type</span>
-          <select
-            aria-label="Leaf Product Type"
-            value={props.typeId}
-            onChange={(e) => props.onTypeId(e.target.value)}
-          >
-            <option value="">— Pick a type —</option>
-            {props.leafTypes.map((t) => {
-              const meta = t.placeholder
-                ? "fields TBD"
-                : `${t.fieldSchema?.fields.length ?? 0} fields`;
-              return (
-                <option key={t.id} value={t.id}>
-                  {t.name} · {meta}
-                </option>
-              );
-            })}
-          </select>
-        </div>
+        {/* Spec fields, and every option is packaging. A service has no
+            physical specification to enter — the Library renders that exact
+            state as "Specs not applicable" for logistics leaves — so the field
+            is not shown rather than shown-and-optional: a required-looking
+            control with no correct answer is what made a service uncreatable. */}
+        {props.commercialKind === "product" && (
+          <div className="field">
+            <span className="lbl req">Leaf Product Type</span>
+            <select
+              aria-label="Leaf Product Type"
+              value={props.typeId}
+              onChange={(e) => props.onTypeId(e.target.value)}
+            >
+              <option value="">— Pick a type —</option>
+              {props.leafTypes.map((t) => {
+                const meta = t.placeholder
+                  ? "fields TBD"
+                  : `${t.fieldSchema?.fields.length ?? 0} fields`;
+                return (
+                  <option key={t.id} value={t.id}>
+                    {t.name} · {meta}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
         <div className="field">
           <span className="lbl">SKU</span>
           <input

@@ -93,3 +93,29 @@ test("attachment still routes through the one governed gate", async () => {
   const action = await code("app/actions/quote-products.ts");
   assert.match(action, /evaluateAttachmentEligibility\(leafRows\[0\], "direct"\)/);
 });
+
+// ── found on the walk ─────────────────────────────────────────────────────
+
+test("a service is creatable — the packaging spec-type is not required for it", async () => {
+  // WALK FINDING. `Leaf Product Type` drives spec fields and offers only
+  // Primary / Secondary / Tertiary / Soft goods — all packaging. Requiring it
+  // for a service left the submit inert behind a picker with NO CORRECT
+  // ANSWER, so a Direct Service could not be created through the UI at all.
+  //
+  // Every unit test passed while this was true, because they exercised the
+  // action and the action never required a spec type. Only the operator path
+  // could surface it.
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  assert.match(modal, /if \(!isService && !leafTypeId\) \{/);
+  assert.match(modal, /\{!isService && !leafTypeId \? \(/);
+});
+
+test("the packaging spec-type field is hidden for a service, not merely optional", async () => {
+  // A required-looking control with no correct answer is the defect. Showing
+  // it as optional would leave the same question on screen unanswered.
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  assert.match(
+    modal,
+    /props\.commercialKind === "product" && \([\s\S]{0,200}?Leaf Product Type/,
+  );
+});
