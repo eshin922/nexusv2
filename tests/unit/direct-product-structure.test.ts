@@ -264,7 +264,7 @@ test("the attach writer creates no assembly", async () => {
 // --------------------------------------------------- 10 · eligibility gate
 test("SKU-less products are refused with the true reason", () => {
   for (const sku of [null, "", "   "]) {
-    const verdict = evaluateAttachmentEligibility({ sku, archived: false });
+    const verdict = evaluateAttachmentEligibility({ sku, archived: false }, "direct");
     assert.equal(verdict.attachable, false);
     assert.equal(
       verdict.attachable === false ? verdict.reason : null,
@@ -279,7 +279,7 @@ test("SKU-less products are refused with the true reason", () => {
 });
 
 test("archived is reported as archived, not as a SKU problem", () => {
-  const verdict = evaluateAttachmentEligibility({ sku: "REAL", archived: true });
+  const verdict = evaluateAttachmentEligibility({ sku: "REAL", archived: true }, "direct");
   assert.equal(verdict.attachable, false);
   assert.equal(
     verdict.attachable === false ? verdict.reason : null,
@@ -289,7 +289,7 @@ test("archived is reported as archived, not as a SKU problem", () => {
 
 test("a product with a SKU is attachable", () => {
   assert.deepEqual(
-    evaluateAttachmentEligibility({ sku: "SKU-1", archived: false }),
+    evaluateAttachmentEligibility({ sku: "SKU-1", archived: false }, "direct"),
     { attachable: true },
   );
 });

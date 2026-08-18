@@ -4,6 +4,10 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { createLeaf, fetchHubspotProductTypes } from "@/app/actions/leaves";
+import {
+  DIRECT_SERVICE_IDENTITIES,
+  DIRECT_SERVICE_LABELS,
+} from "@/lib/product-structure/direct-service";
 
 // Phase A.1 v2 impl-4 — Add Product modal (scenarios ⑪-⑯).
 //
@@ -73,6 +77,11 @@ export function AddProductModal({
   // rendered. The two differ on the three largest categories, so conflating
   // them would send a string HubSpot stores but never matches.
   const [hsTypeValue, setHsTypeValue] = useState<string>("");
+  // BV-012 §5 — what the operator is creating. Stated, never inferred.
+  const [commercialKind, setCommercialKind] = useState<"product" | "service">(
+    "product",
+  );
+  const [serviceIdentity, setServiceIdentity] = useState<string>("");
   const [hsTypeOptions, setHsTypeOptions] = useState<
     { label: string; value: string }[]
   >([]);
@@ -170,7 +179,15 @@ export function AddProductModal({
     // The internal value, never the label. The server re-validates membership
     // against the governed option set, so a stale client cannot write a
     // withdrawn or invented classification.
-    if (hsTypeValue) fd.set("hubspotProductType", hsTypeValue);
+    // A service sends its classification and NOT a HubSpot type: HubSpot is
+    // not the authority for it and the action creates no HubSpot product for a
+    // service at all.
+    fd.set("commercialKind", commercialKind);
+    if (commercialKind === "service") {
+      fd.set("serviceIdentity", serviceIdentity);
+    } else if (hsTypeValue) {
+      fd.set("hubspotProductType", hsTypeValue);
+    }
     if (leafSku) fd.set("sku", leafSku.trim());
     if (leafUnitCost) fd.set("unitCost", leafUnitCost.trim());
     if (leafUrl) fd.set("url", leafUrl.trim());
@@ -251,6 +268,10 @@ export function AddProductModal({
                 selectedType={selectedLeafType}
                 hsTypeValue={hsTypeValue}
                 onHsTypeValue={setHsTypeValue}
+                commercialKind={commercialKind}
+                onCommercialKind={setCommercialKind}
+                serviceIdentity={serviceIdentity}
+                onServiceIdentity={setServiceIdentity}
                 hsTypeOptions={hsTypeOptions}
                 hsTypeError={hsTypeError}
               />
@@ -341,6 +362,12 @@ function LeafFields(props: {
   /** HubSpot's `hs_product_type` INTERNAL value — never a label. */
   hsTypeValue: string;
   onHsTypeValue: (v: string) => void;
+  /** BV-012 §5 — what this entry may be sold as. */
+  commercialKind: "product" | "service";
+  onCommercialKind: (v: "product" | "service") => void;
+  /** One of the five governed identities; required when kind is service. */
+  serviceIdentity: string;
+  onServiceIdentity: (v: string) => void;
   /** Governed option set, fetched from the HubSpot property definition. */
   hsTypeOptions: { label: string; value: string }[];
   hsTypeError: string | null;
@@ -359,6 +386,63 @@ function LeafFields(props: {
         />
       </div>
 
+      {/* What is being created — BV-012 §5.
+          
+          FIRST, because it governs what the rest of this form means: a service
+          has no HubSpot classification and creates no HubSpot product, so the
+          field below is not merely irrelevant for it, it is inapplicable.
+          
+          A choice, never an inference. §5.f forbids deriving service identity
+          from HubSpot's type, from `product_types.scope`, from the legacy
+          `Service / labor` type, from Production values, or from where the
+          entry is later attached. */}
+      <div className="field">
+        <span className="lbl req">This entry is</span>
+        <select
+          aria-label="Commercial kind"
+          value={props.commercialKind}
+          onChange={(e) => {
+            const next = e.target.value === "service" ? "service" : "product";
+            props.onCommercialKind(next);
+            // Clear the other branch's value rather than carrying it hidden —
+            // a stale identity on a product would sit in state waiting to be
+            // submitted if the operator switched back.
+            if (next === "product") props.onServiceIdentity("");
+          }}
+        >
+          <option value="product">A product — packaging or physical item</option>
+          <option value="service">A service — sold on its own</option>
+        </select>
+        <span className="hint">
+          {props.commercialKind === "service"
+            ? "Services are sold as their own line. They are not added inside an item group — an item group owns its production costs directly."
+            : "The usual case. Creates the matching HubSpot product."}
+        </span>
+      </div>
+
+      {props.commercialKind === "service" && (
+        <div className="field">
+          <span className="lbl req">Which service</span>
+          <select
+            aria-label="Service identity"
+            value={props.serviceIdentity}
+            onChange={(e) => props.onServiceIdentity(e.target.value)}
+          >
+            <option value="">— Pick a service —</option>
+            {DIRECT_SERVICE_IDENTITIES.map((id) => (
+              <option key={id} value={id}>
+                {DIRECT_SERVICE_LABELS[id]}
+              </option>
+            ))}
+          </select>
+          <span className="hint">
+            Determines which production cost this service exposes later.
+          </span>
+        </div>
+      )}
+
+      {props.commercialKind === "product" && (
+      <>
       {/* HubSpot classification — a SEPARATE field from the Nexus Product Type
           below, because they are separate vocabularies. This one travels to
           HubSpot with the product and is what the Library's type filter reads;
@@ -389,6 +473,8 @@ function LeafFields(props: {
             : "Sent to HubSpot with this product. Drives the Library type filter."}
         </span>
       </div>
+      </>
+      )}
       <div className="row-pair">
         <div className="field">
           <span className="lbl req">Leaf Product Type</span>

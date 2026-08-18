@@ -109,6 +109,10 @@ export type LibraryBrowseRow = {
    * only lets the operator see it before spending an action on it.
    */
   eligibility: AttachmentEligibility;
+  /** BV-012 §5.c. Same gate, other destination — see the note at the call. */
+  eligibilityAsGroupMember: AttachmentEligibility;
+  commercialKind: "product" | "service";
+  serviceIdentity: string | null;
   /**
    * HubSpot's `hs_product_type`, raw internal value. NULL means the product is
    * genuinely unclassified — either Nexus-local (no HubSpot record) or HubSpot
@@ -388,8 +392,21 @@ export async function loadLibraryBrowse(
       url: r.url,
       hubspotProductId: r.hubspotProductId,
       archived: r.archived,
-      // The gate's own verdict, not a re-derivation of it.
-      eligibility: evaluateAttachmentEligibility({ sku: r.sku, archived: r.archived }),
+      // The gate's own verdict, not a re-derivation of it — and BOTH
+      // destinations, because the modal's "adding to" target changes on the
+      // client without a refetch. Precomputing one would go stale, and having
+      // the modal apply the group-member rule itself would put a governed
+      // prohibition in a second place.
+      eligibility: evaluateAttachmentEligibility(
+        { sku: r.sku, archived: r.archived, commercialKind: r.commercialKind },
+        "direct",
+      ),
+      eligibilityAsGroupMember: evaluateAttachmentEligibility(
+        { sku: r.sku, archived: r.archived, commercialKind: r.commercialKind },
+        "group_member",
+      ),
+      commercialKind: r.commercialKind,
+      serviceIdentity: r.serviceIdentity,
       hubspotProductType: r.hubspotProductType,
       totalRefs: at.length,
       totalScenarios: distinctQuoteIds.size,

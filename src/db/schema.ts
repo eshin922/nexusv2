@@ -121,6 +121,40 @@ export const productTypeScope = pgEnum("product_type_scope", [
   "leaf",
 ]);
 
+/**
+ * What a Product Library entry may be SOLD AS. BV-012 §5.
+ *
+ * Distinct from `leaves.hubspot_product_type`, which is an upstream vendor
+ * taxonomy describing what the thing physically IS and from which spec-field
+ * behaviour is derived. This is a Nexus governed statement about commercial
+ * identity — and Step 9's "two authorities for one question" lesson is
+ * respected because these are two questions, not two answers to one.
+ */
+export const leafCommercialKind = pgEnum("leaf_commercial_kind", [
+  "product",
+  "service",
+]);
+
+/**
+ * The closed V1 Direct Service vocabulary — BV-012 §5.f.
+ *
+ * An enum precisely BECAUSE it is closed. BV-011's other destinations (Setup,
+ * Tooling, Artwork, Dies, Print Plates, Samples, Processing Fee,
+ * Freight/Duties/Tariffs, Customs, Cartons, Bulk Raw) are deliberately not
+ * sellable on their own, and promoting one should require a migration that
+ * says so rather than a new string at a call site.
+ *
+ * The identity also determines which Production input the Costs surface
+ * exposes: a Filling service exposes filling, not formulation.
+ */
+export const directServiceIdentity = pgEnum("direct_service_identity", [
+  "formulation",
+  "filling_blending",
+  "packout_assembly",
+  "testing_micros",
+  "other_service",
+]);
+
 // Slice 7 / R6.2 — freight treatment (bundled vs pass-through).
 // Carries forward from Slice 7 unchanged; per-leg in the R6.2 model.
 export const freightTreatment = pgEnum("freight_treatment", [
@@ -2295,6 +2329,20 @@ export const leaves = pgTable(
      * outranks local validation here.
      */
     hubspotProductType: text("hubspot_product_type"),
+    /**
+     * Commercial classification — BV-012 §5. Defaults to `product`, so every
+     * pre-existing entry keeps its meaning and nothing was reclassified by the
+     * migration that added this.
+     *
+     * A `service` entry may be sold as a top-level Direct Service and may NOT
+     * be attached as an Item Group member. That prohibition is enforced at the
+     * write boundary by `evaluateAttachmentEligibility`, not by UI copy.
+     */
+    commercialKind: leafCommercialKind("commercial_kind")
+      .notNull()
+      .default("product"),
+    /** NOT NULL exactly when `commercialKind === "service"` — DB CHECK. */
+    serviceIdentity: directServiceIdentity("service_identity"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -2303,6 +2351,15 @@ export const leaves = pgTable(
       .defaultNow(),
   },
   (t) => [
+    // Biconditional: a service must name which service; a product must not
+    // carry one. Either half alone permits a row a later reader must guess at.
+    check(
+      "leaves_service_identity_matches_kind",
+      sql`(${t.commercialKind} = 'service') = (${t.serviceIdentity} IS NOT NULL)`,
+    ),
+    index("leaves_commercial_kind_idx")
+      .on(t.commercialKind)
+      .where(sql`archived = false`),
     // Library search by SKU.
     index("leaves_sku_idx").on(t.sku).where(sql`archived = false`),
     // slice-hubspot-bidirectional — partial index over archived

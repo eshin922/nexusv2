@@ -336,7 +336,11 @@ export async function attachAssemblyLeaf(
     // NetSuite resolver, so attaching it builds a quote that is already unable
     // to complete — and the failure would otherwise surface at the irreversible
     // commit rather than here.
-    const eligibility = evaluateAttachmentEligibility(leafRows[0]);
+    // BV-012 §5.c — this is the route a service entry must be refused on.
+    const eligibility = evaluateAttachmentEligibility(
+      leafRows[0],
+      "group_member",
+    );
     if (!eligibility.attachable) {
       throw new ActionGuardError(ERR.VALIDATION, eligibility.message);
     }

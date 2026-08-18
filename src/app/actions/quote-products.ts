@@ -69,8 +69,10 @@ export async function attachQuoteProduct(
       throw new ActionGuardError(ERR.NOT_FOUND, "Product not found");
 
     // Same predicate the grouped path uses. One gate, so the two attachment
-    // routes cannot diverge on what is attachable.
-    const eligibility = evaluateAttachmentEligibility(leafRows[0]);
+    // routes cannot diverge on what is attachable. The destination is passed
+    // explicitly because the service prohibition (BV-012 §5.c) applies to one
+    // route and not the other.
+    const eligibility = evaluateAttachmentEligibility(leafRows[0], "direct");
     if (!eligibility.attachable) {
       throw new ActionGuardError(ERR.VALIDATION, eligibility.message);
     }
