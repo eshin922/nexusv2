@@ -94,28 +94,48 @@ test("attachment still routes through the one governed gate", async () => {
   assert.match(action, /evaluateAttachmentEligibility\(leafRows\[0\], "direct"\)/);
 });
 
-// ── found on the walk ─────────────────────────────────────────────────────
+// ── found on the walk, and the canonical-model reconciliation ────────────
 
-test("a service is creatable — the packaging spec-type is not required for it", async () => {
-  // WALK FINDING. `Leaf Product Type` drives spec fields and offers only
-  // Primary / Secondary / Tertiary / Soft goods — all packaging. Requiring it
-  // for a service left the submit inert behind a picker with NO CORRECT
-  // ANSWER, so a Direct Service could not be created through the UI at all.
+test("the ordinary create flow is product-only", async () => {
+  // The five Direct Services are CANONICAL launch records seeded by migration
+  // 0080, unique per governed identity. An operator selects the standardized
+  // record; minting a second would make "which NetSuite item is Filling /
+  // Blending" ambiguous at a Sales Order push — the least recoverable moment.
   //
-  // Every unit test passed while this was true, because they exercised the
-  // action and the action never required a spec type. Only the operator path
-  // could surface it.
+  // The control was REMOVED rather than made conditional, per the disposition:
+  // restrict the path, do not make it smarter.
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  assert.doesNotMatch(modal, /A service — sold on its own/);
+  assert.doesNotMatch(modal, /Which service/);
+  assert.doesNotMatch(modal, /DIRECT_SERVICE_IDENTITIES\.map/);
+});
+
+test("the Product-Type gate keeps the walk finding, for a future admin path", async () => {
+  // WALK FINDING, retained rather than reverted. `Leaf Product Type` offers
+  // only packaging — Primary / Secondary / Tertiary / Soft goods — and
+  // requiring it for a service left the submit inert behind a picker with NO
+  // CORRECT ANSWER. Every unit test passed while that was true, because they
+  // exercised the action and the action never required a spec type.
+  //
+  // The ordinary flow can no longer reach it, but the branch is left correct
+  // so an admin maintenance path does not rediscover the defect.
   const modal = await code("components/add-product/add-product-modal.tsx");
   assert.match(modal, /if \(!isService && !leafTypeId\) \{/);
   assert.match(modal, /\{!isService && !leafTypeId \? \(/);
-});
-
-test("the packaging spec-type field is hidden for a service, not merely optional", async () => {
-  // A required-looking control with no correct answer is the defect. Showing
-  // it as optional would leave the same question on screen unanswered.
-  const modal = await code("components/add-product/add-product-modal.tsx");
   assert.match(
     modal,
     /props\.commercialKind === "product" && \([\s\S]{0,200}?Leaf Product Type/,
   );
+  // And the union is preserved so the gate is not narrowed to a constant — a
+  // gate the compiler folds flat is one nobody notices losing.
+  assert.match(modal, /useState<"product" \| "service">\("product"\)/);
+});
+
+test("the action still supports service creation, as the governed writer", async () => {
+  // The seed is SQL, but the action remains the one validated writer for any
+  // future admin surface: closed vocabulary, biconditional identity, no
+  // HubSpot product.
+  const action = await code("app/actions/leaves.ts");
+  assert.match(action, /const isService = commercialKind === "service";/);
+  assert.match(action, /DIRECT_SERVICE_IDENTITIES/);
 });

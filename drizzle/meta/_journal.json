@@ -547,6 +547,13 @@
       "when": 1786320016000,
       "tag": "0079_leaf_commercial_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1786320017000,
+      "tag": "0080_canonical_direct_services",
+      "breakpoints": true
     }
   ]
 }
