@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -652,15 +652,36 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
         asc(assemblyLeafInputs.lineGroupId),
         asc(assemblyLeafInputs.createdAt),
       )),
+    // Stage 3 A · BOTH owner branches reach the ENGINE.
+    //
+    // The inner join was correct while `assembly_id` was NOT NULL and silently
+    // wrong the moment it was not: a Direct Service's production row carries a
+    // `quote_leaf_id` and no assembly, so the join dropped it and the math
+    // never saw the cost.
+    //
+    // The consequence was not a missing display. The service still reached
+    // `skuRollups` as a leaf, priced at 0, so the customer PDF rendered a
+    // `Formulation` line reading "quote on request" and EXCLUDED it from the
+    // turnkey total — honestly, and for a cost the operator had entered and
+    // could see on the Costs surface.
+    //
+    // Fourth instance of the same family in this slice, and the only one where
+    // a write succeeded, displayed, and then failed to reach the arithmetic.
     timed("nm.assembly_production_inputs", quoteId, db
-      .select()
+      .select({ row: assemblyProductionInputs })
       .from(assemblyProductionInputs)
-      .innerJoin(
+      .leftJoin(
         assemblies,
         eq(assemblies.id, assemblyProductionInputs.assemblyId),
       )
-      .where(eq(assemblies.quoteId, quoteId))
-      .then((rows) => rows.map((r) => r.assembly_production_inputs))),
+      .leftJoin(
+        quoteLeaves,
+        eq(quoteLeaves.id, assemblyProductionInputs.quoteLeafId),
+      )
+      .where(
+        or(eq(assemblies.quoteId, quoteId), eq(quoteLeaves.quoteId, quoteId)),
+      )
+      .then((rows) => rows.map((r) => r.row))),
     timed("nm.assembly_leaf_overrides", quoteId, db
       .select({ assembly_leaf_overrides: assemblyLeafOverrides })
       .from(assemblyLeafOverrides)
