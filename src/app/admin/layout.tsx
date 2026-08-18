@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { requireAdminPage } from "@/lib/admin-guard";
+import { ADMIN_SECTIONS } from "./sections";
 
 // Hard role gate at the layout boundary: non-admins redirect to home
 // before any admin page renders. Each admin server action MUST also call
@@ -14,28 +15,6 @@ import { requireAdminPage } from "@/lib/admin-guard";
 // shell into the same vocabulary so dark-mode swap is consistent
 // edge-to-edge.
 
-const NAV: Array<{ href: string; label: string; description: string }> = [
-  {
-    href: "/admin/firm-settings",
-    label: "Firm settings",
-    description: "Margin policy + customer-facing defaults",
-  },
-  {
-    href: "/admin/markup-defaults",
-    label: "Markup defaults",
-    description: "Per-category markup percentages",
-  },
-  {
-    href: "/admin/users",
-    label: "Users",
-    description: "Manual phone entry for PreparedBy",
-  },
-  {
-    href: "/admin/audit-log",
-    label: "Audit log",
-    description: "Append-only write history",
-  },
-];
 
 export default async function AdminLayout({
   children,
@@ -139,7 +118,7 @@ export default async function AdminLayout({
       >
         <nav style={{ width: 224, flexShrink: 0 }}>
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {NAV.map((item) => (
+            {ADMIN_SECTIONS.map((item) => (
               <li key={item.href} style={{ marginBottom: 4 }}>
                 <Link
                   href={item.href}
@@ -171,7 +150,7 @@ export default async function AdminLayout({
                       lineHeight: 1.4,
                     }}
                   >
-                    {item.description}
+                    {item.nav}
                   </div>
                 </Link>
               </li>

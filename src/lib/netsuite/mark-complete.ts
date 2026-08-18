@@ -61,6 +61,15 @@ import {
   stripGroupingPlan,
   type PlanLineInput,
 } from "./grouping-plan";
+import {
+  evaluateDirectServiceGate,
+  isFixedServiceIdentity,
+  loadServiceItemMappings,
+  validateServiceItemMappings,
+  type FixedServiceIdentity,
+  type StoredServiceMapping,
+} from "./service-item-map";
+import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
@@ -373,6 +382,78 @@ export async function runMarkComplete(
   // already expands. That is the condition Probe 7a actually established, and
   // it remains true.
 
+  // ── DIRECT SERVICES ARE NOT SKU-RESOLVED, AND DO NOT PROJECT YET ────────
+  //
+  // `tree.directProducts` holds every top-level row, and since Stage 2 that
+  // includes Direct Services. Two things follow, and the second is the one
+  // that is easy to lose.
+  //
+  // 1. A service must NEVER enter the SKU-match loop. Its `SVC-*` SKU is a
+  //    Nexus-invented identifier that nothing put in NetSuite, so the match
+  //    would normally find nothing — and the danger is the case where it finds
+  //    SOMETHING, an unrelated item an admin happened to create with that
+  //    code. A wrong item on a Sales Order is worse than a blocked push.
+  //    Services are partitioned out by their `commercialKind`, never by
+  //    inspecting the SKU string.
+  //
+  // 2. Before this change a service quote was blocked here BY ACCIDENT: the
+  //    unresolvable SKU threw. That was real protection — Direct Service SO
+  //    projection is not certified — arrived at for an unrelated reason.
+  //    Removing the accidental block without replacing it would let a mapped
+  //    service fall straight through and be emitted as a flat
+  //    Direct-Product-shaped line, at whatever quantity and rate that path
+  //    computes, unreviewed. Pattern 56: a guarantee supplied for free by an
+  //    unrelated failure, removed by fixing the unrelated failure.
+  //
+  // So the block is now DELIBERATE and stated, below. It is removed by the
+  // slice that certifies Direct Service projection, and by nothing else.
+  const directServices = tree.directProducts.filter(
+    (p) => p.commercialKind === "service",
+  );
+  const directProductsOnly = tree.directProducts.filter(
+    (p) => p.commercialKind !== "service",
+  );
+
+  if (directServices.length > 0) {
+    // The decision lives in `evaluateDirectServiceGate` so it can be exercised
+    // rather than only code-asserted: driving a real quote to `accepted` to
+    // test this would fire the production HubSpot deal-stage push.
+    const stored = await loadServiceItemMappings();
+    const identities = directServices.map((svc) => svc.serviceIdentity);
+    const fixed = identities
+      .filter((id): id is DirectServiceIdentity => id !== null)
+      .filter(isFixedServiceIdentity);
+
+    const verdicts = await validateServiceItemMappings(
+      netsuite,
+      fixed
+        .map((id) => ({ id, m: stored.get(id) }))
+        .filter(
+          (x): x is { id: FixedServiceIdentity; m: StoredServiceMapping } =>
+            Boolean(x.m),
+        )
+        .map((x) => ({
+          serviceIdentity: x.id,
+          netsuiteInternalId: x.m.netsuiteInternalId,
+        })),
+    );
+
+    const gate = evaluateDirectServiceGate({
+      serviceIdentities: identities,
+      mapped: new Set(stored.keys()),
+      verdicts,
+    });
+    // Unreachable while services are present, and asserted rather than assumed
+    // — if the gate ever returns "proceed" here, a service falls through into
+    // the SKU loop and gets emitted as a Direct-Product-shaped line.
+    if (!gate.blocked) {
+      throw new Error(
+        "[mark-complete] Direct Service gate returned proceed with services present.",
+      );
+    }
+    throw new Error(gate.reason);
+  }
+
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND
   // Direct Products. A Direct Product resolves through the identical SKU-match;
   // membership has never been part of item resolution.
@@ -380,7 +461,7 @@ export async function runMarkComplete(
     new Set(
       [
         ...tree.assemblies.flatMap((a) => a.children),
-        ...tree.directProducts,
+        ...directProductsOnly,
       ]
         .map((child) => child.sku)
         .filter((s): s is string => Boolean(s)),

@@ -3601,3 +3601,41 @@ export const netsuiteSoPushes = pgTable(
     ),
   ],
 );
+
+
+/**
+ * Firm-level NetSuite item mapping for the four FIXED Direct Service
+ * identities. Migration 0081.
+ *
+ * `other_service` is excluded by CHECK, not by convention: it is the catch-all
+ * and carries no single accounting meaning, so it takes a per-LINE selection
+ * instead. A fifth row here "for symmetry" would be the generic default the
+ * disposition prohibits, and a quiet one — a plausible row silently routing
+ * every miscellaneous service to one item.
+ *
+ * NOT a Pattern 52 frozen surface. This is a routing table, not a commercial
+ * term: what actually pushed is recorded on the Sales Order and in the
+ * `quote_completed` audit row, so re-mapping later cannot retroactively
+ * re-route anything already sent.
+ */
+export const netsuiteServiceItemMap = pgTable(
+  "netsuite_service_item_map",
+  {
+    serviceIdentity: directServiceIdentity("service_identity").primaryKey(),
+    /** NetSuite itemid. Human recognition only — NEVER what a write references. */
+    netsuiteItemCode: text("netsuite_item_code").notNull(),
+    /** The authoritative reference. Every write uses this, never the code. */
+    netsuiteInternalId: text("netsuite_internal_id").notNull(),
+    /** When the internal id was last CONFIRMED. Not a row-modified stamp. */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id),
+  },
+  (t) => [
+    check(
+      "netsuite_service_item_map_not_other_service",
+      sql`${t.serviceIdentity} <> 'other_service'`,
+    ),
+  ],
+);

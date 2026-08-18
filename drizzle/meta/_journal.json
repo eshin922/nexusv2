@@ -554,6 +554,13 @@
       "when": 1786320017000,
       "tag": "0080_canonical_direct_services",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1786320018000,
+      "tag": "0081_netsuite_service_item_map",
+      "breakpoints": true
     }
   ]
 }
