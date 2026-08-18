@@ -155,18 +155,25 @@ test("Create New Product is library master data only — no Item Group branch", 
   );
 });
 
-test("the two structural peers carry equal visual weight", async () => {
+test("the structural peers carry equal visual weight", async () => {
   // A ghost beside a filled button is not a peer — it reads as secondary
   // chrome, which is how the grouped choice stayed unnoticed even after B-1
-  // made it reachable. Both are primary.
+  // made it reachable.
+  //
+  // THREE peers now, not two: BV-012 §5.b makes Direct Service a sellable unit
+  // alongside Direct Product and Item Group, so it takes the same weight. The
+  // `isDirect ? primary : ghost` form this used to pin could not express a
+  // third primary, which is why the predicate is named rather than inlined.
   assert.match(
     await read("src/components/assembly-tree/create-item-group-trigger.tsx"),
     /className="a1v2-btn primary sm"/,
   );
-  assert.match(
-    await read("src/components/library/library-browse-trigger.tsx"),
-    /isDirect \? "primary" : "ghost"/,
-  );
+  const trigger = await read("src/components/library/library-browse-trigger.tsx");
+  assert.match(trigger, /const isPrimary = isDirect \|\| isService;/);
+  assert.match(trigger, /isPrimary \? "primary" : "ghost"/);
+  // `group` remains the one non-peer: it acts on a destination already chosen
+  // by which row the operator pressed, so it is genuinely subordinate.
+  assert.doesNotMatch(trigger, /isGroup \? "primary"/);
 });
 
 test("adding products into a group lives on that group's row, not the quote head", async () => {
@@ -174,6 +181,10 @@ test("adding products into a group lives on that group's row, not the quote head
   // No quote-level grouped entry. It had to ask which group in a menu, and on
   // a quote with no groups the question had no answer.
   assert.doesNotMatch(view, /mode="group"/);
+  // The two quote-level modes that ARE there are both top-level sellable
+  // units, which is the property that makes them legitimate here.
+  assert.match(view, /mode="direct"/);
+  assert.match(view, /mode="service"/);
 
   // §1 presentation closeout — the action MOVED from a button on the group's
   // control band into that group's context menu. Same row, same pre-chosen
@@ -208,9 +219,13 @@ test("the group route survives because the surface-level one cannot replace it",
   const modal = await code("src/components/library/library-browse-modal.tsx");
   assert.match(
     modal,
-    /mode === "direct" \? \(/,
-    "precondition: direct mode takes a branch that renders no target picker",
+    /\{isTopLevel \? \(/,
+    "precondition: the top-level modes take a branch that renders no target picker",
   );
+  // `isTopLevel` is `direct` OR `service` — both quote-level, neither able to
+  // reach an Item Group. The precondition this test depends on is therefore
+  // stronger than when it was written, not weaker.
+  assert.match(modal, /const isTopLevel = mode === "direct" \|\| mode === "service";/);
 });
 
 test("an explicit destination survives the modal's auto-select", async () => {
@@ -241,7 +256,11 @@ test("direct mode needs no item group to be attachable", async () => {
   const src = await read("src/components/library/library-browse-modal.tsx");
   // Gating Add Product on an existing group would make it impossible on the
   // very quote it exists to serve — one with no groups at all.
-  assert.match(src, /attachReady = mode === "direct" \|\| Boolean\(targetAssemblyId\)/);
+  // Now expressed through `isTopLevel`, which covers Direct Service too — a
+  // service is top-level by definition and an Item Group is not a legal
+  // destination for it at all (BV-012 §5.c).
+  assert.match(src, /const isTopLevel = mode === "direct" \|\| mode === "service";/);
+  assert.match(src, /attachReady = isTopLevel \|\| Boolean\(targetAssemblyId\)/);
 });
 
 // ------------------------------------------------------------- rendering
@@ -353,7 +372,7 @@ test("the gate blocks NEW attachment only — history stays readable", async () 
   assert.doesNotMatch(loader, /evaluateAttachmentEligibility/);
   assert.doesNotMatch(loader, /hasUsableSku/);
   // The row renders a placeholder rather than refusing to draw.
-  const row = await read("src/components/assembly-tree/direct-product-row.tsx");
+  const row = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.match(row, /product\.sku \?\? "—"/);
 });
 
@@ -490,12 +509,48 @@ test("healthy and archived rows keep their existing presentation", async () => {
 test("the spec action names the authority it edits", async () => {
   // Specs are library master data. "Edit specs", read from inside a quote,
   // invites the operator to believe it is quote-local. It is not.
+  //
+  // The label was "Edit product specs", which named the authority only
+  // INCIDENTALLY — "product" happened to mean "the library record" because a
+  // library record could only be a product. Stage 2 made that false, and the
+  // label then asserted a Direct Service was a product.
+  //
+  // "library" names the same authority DIRECTLY and is true of both, so the
+  // original requirement is strengthened rather than traded away: the word
+  // carrying it is now the word that means it.
   for (const f of [
     "src/components/assembly-tree/leaf-context-menu.tsx",
     "src/components/assembly-tree/direct-product-row.tsx",
+    // The item-group menu's disabled row is the same act, so the same label.
+    "src/components/assembly-tree/asy-context-menu.tsx",
   ]) {
-    assert.match(await read(f), /Edit product specs/);
+    const src = await read(f);
+    assert.match(src, /Edit library specs/, `${f} does not name the authority`);
+    // Bare "Edit specs" is the failure this test has always guarded against.
+    assert.doesNotMatch(src, />\s*Edit specs/, `${f} implies quote-local specs`);
   }
+});
+
+test("top-level rows describe themselves without a sellable-unit noun", async () => {
+  // A Direct Service is a top-level row and is not a product. Rather than
+  // branching every noun by row kind, the surface uses terms true of both.
+  // `code`, not `read`: the assertion is about RENDERED copy. The source
+  // comments quote the superseded wording on purpose, to record what changed
+  // and why, and a test that forbade the history from being written down would
+  // be enforcing amnesia rather than the rule.
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  assert.match(view, /"SKU" : "SKUs"/);
+  assert.match(view, /of \{totalLeaves\} specs complete/);
+  assert.doesNotMatch(view, /products have complete specs/);
+  assert.doesNotMatch(view, /\? "product" : "products"/);
+
+  const row = await read("src/components/assembly-tree/direct-product-row.tsx");
+  assert.match(row, /aria-label="Line actions"/);
+  assert.match(row, /<div className="header">Line actions<\/div>/);
+  // Item-group MEMBERS are a different component and keep "Leaf actions" — a
+  // member is not a quote line, so the neutral term there would be wrong.
+  const member = await code("src/components/assembly-tree/leaf-context-menu.tsx");
+  assert.match(member, /Leaf actions/);
 });
 
 test("usage is counted in QUOTES, not attachment rows", async () => {
@@ -864,7 +919,15 @@ test("B-10 · displayed type and readiness resolve from named authorities", asyn
   // assertion is that neither reads the retired Nexus taxonomy.
   const src = await code("src/lib/assembly-tree.ts");
   assert.match(src, /productType: typeValue/);
-  assert.match(src, /specCompleteness: computeSpecCompleteness\(schema/);
+  // Direct Services take the one documented exception: they carry no
+  // `hubspot_product_type` by design, so the generic path resolved them to
+  // `no_type` and demanded a Product Type nobody can supply. Everything else
+  // still resolves through the one computation.
+  assert.match(src, /computeSpecCompleteness\(schema, spec, typeMap\)/);
+  assert.match(
+    src,
+    /serviceLabel\s*\?\s*\{ kind: "no_schema", typeLabel: serviceLabel \}/,
+  );
   assert.doesNotMatch(src, /leaf\.productTypeId/);
 });
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { directServiceLabel } from "@/lib/product-structure/direct-service";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -395,6 +396,21 @@ function assembleTree(
     const spec = specMap.get(leaf.id);
     const schema = describeSpecSchema(spec, typeMap);
     const typeValue = leaf.hubspotProductType;
+
+    // A Direct Service's specification question is ANSWERED, not unanswered.
+    //
+    // Services carry no `hubspot_product_type` by design — that vocabulary
+    // describes physical packaging — so the generic path resolved them to
+    // `no_type` and the row demanded a Product Type the operator can never
+    // supply. `no_schema` is the state that already means "specifications
+    // intentionally do not apply", and its own definition names services.
+    //
+    // The label is the governed service identity rather than the leaf name, so
+    // the row states WHICH service the answer is about.
+    const serviceLabel =
+      leaf.commercialKind === "service"
+        ? directServiceLabel(leaf.serviceIdentity)
+        : null;
     return {
       leafId: leaf.id,
       name: leaf.name,
@@ -406,7 +422,9 @@ function assembleTree(
       unitCost: leaf.unitCost,
       archived: leaf.archived,
       globalRefCount: refCountMap.get(leaf.id) ?? 1,
-      specCompleteness: computeSpecCompleteness(schema, spec, typeMap),
+      specCompleteness: serviceLabel
+        ? { kind: "no_schema", typeLabel: serviceLabel }
+        : computeSpecCompleteness(schema, spec, typeMap),
     };
   };
 

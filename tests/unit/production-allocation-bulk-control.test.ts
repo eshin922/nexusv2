@@ -114,8 +114,7 @@ const DRILLDOWN = fileURLToPath(
 async function code(): Promise<string> {
   const raw = await readFile(DRILLDOWN, "utf8");
   return raw
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
 }
 

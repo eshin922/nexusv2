@@ -26,7 +26,7 @@
 // Footer `.a1v2-library-affordance` block removed entirely
 // (Q2 — single entry point).
 
-import type { AssemblyTree } from "@/lib/assembly-tree";
+import type { AssemblyTree, SpecCompleteness } from "@/lib/assembly-tree";
 import { indexClientTargets, type ClientTargetRow } from "@/lib/client-target";
 import type { TargetTier } from "./client-target";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
@@ -78,16 +78,26 @@ export function AssemblyTreeView({
   // Per CD's tree summary: "X of Y products have complete specs". Counts BOTH
   // structures — a Direct Product's spec completeness matters exactly as much
   // as a grouped one's, and omitting it would overstate readiness.
-  const totalLeaves = tree.totalSkus;
-  const completeLeaves =
-    tree.assemblies.reduce(
-      (sum, a) =>
-        sum +
-        a.children.filter((c) => c.specCompleteness?.kind === "complete").length,
-      0,
-    ) +
-    tree.directProducts.filter((p) => p.specCompleteness?.kind === "complete")
-      .length;
+  //
+  // The DENOMINATOR is rows whose specs can actually be completed. `no_schema`
+  // means specifications intentionally do not apply — freight, one-time
+  // charges, and now Direct Services — so counting those rows makes "M of M"
+  // unreachable by construction, and a progress figure that can never
+  // complete stops being read as progress.
+  //
+  // Surfaced by the Direct Service walk, but not caused by it: any quote
+  // already carrying a freight or one-time-charge line had the same permanent
+  // shortfall. Services made a latent arithmetic defect a visible one.
+  const applies = (n: { specCompleteness: SpecCompleteness | null }) =>
+    n.specCompleteness?.kind !== "no_schema";
+  const specRows = [
+    ...tree.assemblies.flatMap((a) => a.children),
+    ...tree.directProducts,
+  ].filter(applies);
+  const totalLeaves = specRows.length;
+  const completeLeaves = specRows.filter(
+    (n) => n.specCompleteness?.kind === "complete",
+  ).length;
 
   // Indexed ONCE for the whole tree. Every row then resolves from the same
   // governed structure rather than filtering a flat list per row.
@@ -111,18 +121,30 @@ export function AssemblyTreeView({
               brief §5.2. Reads off the same totals the tree-summary
               header uses (totalSkus = leaf children across all
               assemblies; totalAssemblies = top-level ASY count). */}
-          <span className="meta" aria-label="product and item group count">
-            {tree.totalSkus} {tree.totalSkus === 1 ? "product" : "products"}
+          {/* "products" dates from 2f50d22, when a top-level row could only BE
+              a product. A Direct Service is a top-level row and is not one, so
+              the noun stopped being true rather than having been chosen against
+              services. SKU is the surface's own neutral term — it is this
+              card's title, it is what the caption's comment above already says,
+              and every row here has one whether it is packaging, a service, or
+              an item-group member. Neutral by vocabulary rather than by
+              branching the noun. */}
+          <span className="meta" aria-label="SKU and item group count">
+            {tree.totalSkus} {tree.totalSkus === 1 ? "SKU" : "SKUs"}
             {" · "}
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "item group" : "item groups"}
           </span>
           {/* TWO PEER STRUCTURAL ACTIONS, at equal visual weight.
 
-              + Add Product       browse the library, attach an existing product
-                                  to the quote as a standalone Direct Product.
-              + Create Item Group create quote-local grouping structure. Not a
-                                  product; nothing is written to the library.
+              + Add Product        browse the library, attach an existing
+                                   product as a standalone Direct Product.
+              + Add Direct Service browse the library's SERVICE entries and
+                                   attach one as a top-level service line. A
+                                   service is never an item group member
+                                   (BV-012 §5.c) — the gate refuses it.
+              + Create Item Group  create quote-local grouping structure. Not a
+                                   product; nothing is written to the library.
 
               Both are primary. A ghost beside a filled button is not a peer —
               it reads as secondary chrome, which is how the grouped choice went
@@ -135,6 +157,18 @@ export function AssemblyTreeView({
               on a quote with no groups it could not be answered at all. */}
           <LibraryBrowseTrigger
             mode="direct"
+            quoteId={quoteId}
+            projectId={projectId}
+            editable={editable}
+            assemblies={assemblyTargets}
+            fullLeafTypes={leafTypes}
+            permissions={permissions}
+          />
+          {/* THREE peer sellable units — BV-012 §5.b. The operator states
+              what the customer is buying; nothing is inferred from which cost
+              fields later hold values. */}
+          <LibraryBrowseTrigger
+            mode="service"
             quoteId={quoteId}
             projectId={projectId}
             editable={editable}
@@ -160,7 +194,11 @@ export function AssemblyTreeView({
         <span className="pip empty" />{" "}
         <strong>{counts.empty}</strong> empty
         <span className="right">
-          {completeLeaves} of {totalLeaves} products have complete specs
+          {/* No noun at all, which is the most neutral form available: the
+              denominator is already defined as rows whose specs CAN be
+              completed, so naming what those rows are adds nothing and is the
+              part that kept going wrong. */}
+          {completeLeaves} of {totalLeaves} specs complete
         </span>
       </div>
 

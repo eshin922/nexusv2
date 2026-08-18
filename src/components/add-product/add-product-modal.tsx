@@ -77,11 +77,27 @@ export function AddProductModal({
   // rendered. The two differ on the three largest categories, so conflating
   // them would send a string HubSpot stores but never matches.
   const [hsTypeValue, setHsTypeValue] = useState<string>("");
-  // BV-012 §5 — what the operator is creating. Stated, never inferred.
-  const [commercialKind, setCommercialKind] = useState<"product" | "service">(
-    "product",
-  );
-  const [serviceIdentity, setServiceIdentity] = useState<string>("");
+  // The ordinary create flow is PRODUCT-ONLY.
+  //
+  // The five Direct Services are canonical launch records, seeded by migration
+  // 0080 and unique per governed identity. An operator selling a filling
+  // engagement SELECTS the standardized record; minting a second one would
+  // make "which NetSuite item is Filling / Blending" ambiguous at a Sales
+  // Order push.
+  //
+  // So the control was REMOVED rather than made conditional. These are held
+  // rather than deleted because the submit gate below still reads them, and
+  // that gate carries the walk finding: a service must never be required to
+  // choose a packaging Product Type. If an admin maintenance path is ever
+  // added, it sets these and the gate is already correct — which is the point
+  // of leaving the branch intact instead of reverting it and rediscovering the
+  // defect later.
+  // Held as state with NO setter exposed: the value never changes from this
+  // flow, but the type stays the union so the Product-Type gate below remains
+  // a real check rather than being narrowed away to a constant. A gate the
+  // compiler has folded flat is a gate nobody will notice losing.
+  const [commercialKind] = useState<"product" | "service">("product");
+  const [serviceIdentity] = useState<string>("");
   const [hsTypeOptions, setHsTypeOptions] = useState<
     { label: string; value: string }[]
   >([]);
@@ -161,13 +177,24 @@ export function AddProductModal({
   }, [toast]);
 
   const selectedLeafType = leafTypes.find((t) => t.id === leafTypeId) ?? null;
+  const isService = commercialKind === "service";
 
   function handleSubmitLeaf(option: "continue" | "defer") {
     if (!leafName.trim()) {
       setError("Leaf name is required.");
       return;
     }
-    if (!leafTypeId) {
+    // Leaf Product Type drives SPEC FIELDS, and the four it offers are all
+    // packaging — Primary, Secondary, Tertiary, Soft goods. None of them
+    // describes a service, and a service has no physical specification to
+    // enter: the Library already renders exactly this state as "Specs not
+    // applicable" for logistics leaves.
+    //
+    // Requiring it made a Direct Service UNCREATABLE through the UI — the
+    // submit sat inert behind a picker with no correct answer. Found on the
+    // Stage 1+2 walk, which is the only place it could have been found: every
+    // unit test exercised the action, and the action never required it.
+    if (!isService && !leafTypeId) {
       setError("Pick a Product Type.");
       return;
     }
@@ -269,9 +296,6 @@ export function AddProductModal({
                 hsTypeValue={hsTypeValue}
                 onHsTypeValue={setHsTypeValue}
                 commercialKind={commercialKind}
-                onCommercialKind={setCommercialKind}
-                serviceIdentity={serviceIdentity}
-                onServiceIdentity={setServiceIdentity}
                 hsTypeOptions={hsTypeOptions}
                 hsTypeError={hsTypeError}
               />
@@ -302,7 +326,7 @@ export function AddProductModal({
               >
                 Cancel
               </button>
-              {!leafTypeId ? (
+              {!isService && !leafTypeId ? (
                 <button
                   type="button"
                   className="a1v2-btn primary"
@@ -362,12 +386,13 @@ function LeafFields(props: {
   /** HubSpot's `hs_product_type` INTERNAL value — never a label. */
   hsTypeValue: string;
   onHsTypeValue: (v: string) => void;
-  /** BV-012 §5 — what this entry may be sold as. */
+  /**
+   * BV-012 §5. Always `product` from the ordinary create flow — the five
+   * Direct Services are canonical seeded records, not operator-created. Kept
+   * as a prop so the Product-Type gate below stays correct for any future
+   * admin maintenance path.
+   */
   commercialKind: "product" | "service";
-  onCommercialKind: (v: "product" | "service") => void;
-  /** One of the five governed identities; required when kind is service. */
-  serviceIdentity: string;
-  onServiceIdentity: (v: string) => void;
   /** Governed option set, fetched from the HubSpot property definition. */
   hsTypeOptions: { label: string; value: string }[];
   hsTypeError: string | null;
@@ -385,61 +410,6 @@ function LeafFields(props: {
           autoFocus
         />
       </div>
-
-      {/* What is being created — BV-012 §5.
-          
-          FIRST, because it governs what the rest of this form means: a service
-          has no HubSpot classification and creates no HubSpot product, so the
-          field below is not merely irrelevant for it, it is inapplicable.
-          
-          A choice, never an inference. §5.f forbids deriving service identity
-          from HubSpot's type, from `product_types.scope`, from the legacy
-          `Service / labor` type, from Production values, or from where the
-          entry is later attached. */}
-      <div className="field">
-        <span className="lbl req">This entry is</span>
-        <select
-          aria-label="Commercial kind"
-          value={props.commercialKind}
-          onChange={(e) => {
-            const next = e.target.value === "service" ? "service" : "product";
-            props.onCommercialKind(next);
-            // Clear the other branch's value rather than carrying it hidden —
-            // a stale identity on a product would sit in state waiting to be
-            // submitted if the operator switched back.
-            if (next === "product") props.onServiceIdentity("");
-          }}
-        >
-          <option value="product">A product — packaging or physical item</option>
-          <option value="service">A service — sold on its own</option>
-        </select>
-        <span className="hint">
-          {props.commercialKind === "service"
-            ? "Services are sold as their own line. They are not added inside an item group — an item group owns its production costs directly."
-            : "The usual case. Creates the matching HubSpot product."}
-        </span>
-      </div>
-
-      {props.commercialKind === "service" && (
-        <div className="field">
-          <span className="lbl req">Which service</span>
-          <select
-            aria-label="Service identity"
-            value={props.serviceIdentity}
-            onChange={(e) => props.onServiceIdentity(e.target.value)}
-          >
-            <option value="">— Pick a service —</option>
-            {DIRECT_SERVICE_IDENTITIES.map((id) => (
-              <option key={id} value={id}>
-                {DIRECT_SERVICE_LABELS[id]}
-              </option>
-            ))}
-          </select>
-          <span className="hint">
-            Determines which production cost this service exposes later.
-          </span>
-        </div>
-      )}
 
       {props.commercialKind === "product" && (
       <>
@@ -476,26 +446,33 @@ function LeafFields(props: {
       </>
       )}
       <div className="row-pair">
-        <div className="field">
-          <span className="lbl req">Leaf Product Type</span>
-          <select
-            aria-label="Leaf Product Type"
-            value={props.typeId}
-            onChange={(e) => props.onTypeId(e.target.value)}
-          >
-            <option value="">— Pick a type —</option>
-            {props.leafTypes.map((t) => {
-              const meta = t.placeholder
-                ? "fields TBD"
-                : `${t.fieldSchema?.fields.length ?? 0} fields`;
-              return (
-                <option key={t.id} value={t.id}>
-                  {t.name} · {meta}
-                </option>
-              );
-            })}
-          </select>
-        </div>
+        {/* Spec fields, and every option is packaging. A service has no
+            physical specification to enter — the Library renders that exact
+            state as "Specs not applicable" for logistics leaves — so the field
+            is not shown rather than shown-and-optional: a required-looking
+            control with no correct answer is what made a service uncreatable. */}
+        {props.commercialKind === "product" && (
+          <div className="field">
+            <span className="lbl req">Leaf Product Type</span>
+            <select
+              aria-label="Leaf Product Type"
+              value={props.typeId}
+              onChange={(e) => props.onTypeId(e.target.value)}
+            >
+              <option value="">— Pick a type —</option>
+              {props.leafTypes.map((t) => {
+                const meta = t.placeholder
+                  ? "fields TBD"
+                  : `${t.fieldSchema?.fields.length ?? 0} fields`;
+                return (
+                  <option key={t.id} value={t.id}>
+                    {t.name} · {meta}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
         <div className="field">
           <span className="lbl">SKU</span>
           <input

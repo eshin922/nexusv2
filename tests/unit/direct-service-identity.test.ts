@@ -48,8 +48,7 @@ const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
 async function code(rel: string): Promise<string> {
   const raw = await readFile(SRC + rel, "utf8");
   return raw
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
 }
 
@@ -229,13 +228,28 @@ test("commercial kind is not derived from anything it was forbidden to be derive
 
 // ── the create affordance ─────────────────────────────────────────────────
 
-test("the operator chooses the kind; it is never inferred", async () => {
+test("the ordinary create flow no longer offers service creation", async () => {
+  // SUPERSEDED by the canonical-service model (migration 0080). This used to
+  // assert the operator CHOOSES the kind. The five Direct Services are now
+  // canonical launch records, unique per governed identity, so an operator
+  // selects the standardized record rather than minting a competing one —
+  // "which NetSuite item is Filling / Blending" must have exactly one answer.
+  //
+  // The control was removed rather than made conditional: restrict the path,
+  // do not make it smarter.
   const modal = await code("components/add-product/add-product-modal.tsx");
+  // The field is still SENT — stating `product` explicitly is clearer than
+  // relying on the column default, and it is what makes the absence of a
+  // service path a positive fact rather than an omission. What is gone is any
+  // way for it to carry anything else.
   assert.match(modal, /fd\.set\("commercialKind", commercialKind\)/);
-  assert.match(modal, /DIRECT_SERVICE_IDENTITIES\.map/);
-  // The five governed labels come from the shared module, not retyped here —
-  // a second list is a second vocabulary waiting to drift from the enum.
-  assert.match(modal, /DIRECT_SERVICE_LABELS\[id\]/);
+  assert.match(modal, /useState<"product" \| "service">\("product"\)/);
+  assert.doesNotMatch(modal, /A service — sold on its own/);
+  assert.doesNotMatch(modal, /DIRECT_SERVICE_IDENTITIES\.map/);
+  // The action keeps its validated service support — the governed writer for
+  // the seed and for any future admin surface.
+  const action = await code("app/actions/leaves.ts");
+  assert.match(action, /formData\.get\("commercialKind"\)/);
 });
 
 test("a service sends no HubSpot type, and a product is unchanged", async () => {
@@ -246,14 +260,6 @@ test("a service sends no HubSpot type, and a product is unchanged", async () => 
     modal,
     /if \(commercialKind === "service"\) \{[\s\S]{0,120}?serviceIdentity[\s\S]{0,80}?\} else if \(hsTypeValue\)/,
   );
-});
-
-test("switching back to product clears the service identity", async () => {
-  // Otherwise a stale identity sits in state and is submitted with a product,
-  // which the action would reject — correctly, but for a reason the operator
-  // could not see, having already switched the control back.
-  const modal = await code("components/add-product/add-product-modal.tsx");
-  assert.match(modal, /if \(next === "product"\) props\.onServiceIdentity\(""\)/);
 });
 
 test("a service creates no HubSpot product at all", async () => {

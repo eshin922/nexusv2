@@ -51,8 +51,7 @@ const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
 async function code(rel: string): Promise<string> {
   const raw = await readFile(SRC + rel, "utf8");
   return raw
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
 }
 

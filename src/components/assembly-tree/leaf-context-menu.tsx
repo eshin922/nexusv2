@@ -114,7 +114,10 @@ export function LeafContextMenu({
             role="menuitem"
             onClick={() => setOpen(false)}
           >
-            Edit product specs
+            {/* Same act as the top-level row's, so the same label. A member
+                is always a product today, but branching the noun by row type is
+                what produced the service mismatch one level up. */}
+            Edit library specs
           </Link>
           {/* B-4B — four disabled items removed: Move up, Move down, Move to
               another item group, View library record.

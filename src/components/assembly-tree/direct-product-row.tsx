@@ -212,15 +212,29 @@ export function DirectProductRow({
             ⋯
           </button>
           {menuOpen ? (
-            <div className="a1v2-context-menu" role="menu" aria-label="Product actions">
-              <div className="header">Product actions</div>
+            <div className="a1v2-context-menu" role="menu" aria-label="Line actions">
+              {/* "Line actions", not "Product actions": this row component
+                  renders every TOP-LEVEL row, and since Stage 2 that includes
+                  Direct Services. Both are quote lines, so the noun is true of
+                  both without branching. Item-group MEMBERS keep "Leaf
+                  actions" — different component, and a member is not a line. */}
+              <div className="header">Line actions</div>
               <a
                 href={editSpecsHref}
                 className="item accent"
                 role="menuitem"
                 onClick={() => setMenuOpen(false)}
               >
-                Edit product specs
+                {/* "library", not "product", and NOT bare "Edit specs".
+                    Two requirements meet here and both must hold. The label has
+                    to name the AUTHORITY it edits — bare "Edit specs", read
+                    from inside a quote, invites the operator to believe it is
+                    quote-local, and it is not; specs are library master data.
+                    It also has to be true of a Direct Service, which is not a
+                    product. "product" satisfied the first requirement only
+                    incidentally, by being the only kind of thing this row could
+                    hold. "library" satisfies it directly, and is neutral. */}
+                Edit library specs
               </a>
               {editable ? (
                 <>

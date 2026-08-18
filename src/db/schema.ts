@@ -2360,6 +2360,18 @@ export const leaves = pgTable(
     index("leaves_commercial_kind_idx")
       .on(t.commercialKind)
       .where(sql`archived = false`),
+    // Exactly one library record per governed Direct Service identity.
+    //
+    // The five are CANONICAL LAUNCH RECORDS, not operator-created products:
+    // each carries a NetSuite item mapping, and "which item is Filling /
+    // Blending" must have one answer. Two competing records would make that
+    // ambiguous at a Sales Order push, which is the least recoverable moment.
+    //
+    // NOT scoped to `archived = false`, deliberately — archiving one and
+    // creating a replacement is exactly the two-records state this prevents.
+    uniqueIndex("leaves_service_identity_unique_idx")
+      .on(t.serviceIdentity)
+      .where(sql`service_identity is not null`),
     // Library search by SKU.
     index("leaves_sku_idx").on(t.sku).where(sql`archived = false`),
     // slice-hubspot-bidirectional — partial index over archived

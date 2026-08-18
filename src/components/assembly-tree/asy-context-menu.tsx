@@ -185,9 +185,9 @@ export function AsyContextMenu({
             className="item disabled"
             role="menuitem"
             aria-disabled="true"
-            title="Specs live on products, not item groups"
+            title="Specs live on library entries, not item groups"
           >
-            Edit specs{" "}
+            Edit library specs{" "}
             <span
               style={{
                 marginLeft: "auto",
