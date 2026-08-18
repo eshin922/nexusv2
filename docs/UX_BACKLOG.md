@@ -5039,3 +5039,28 @@ Related: `docs/validation/bv-013-production-markup-migration-trace.md`
 Appendix A, Step 4 consumer trace. Edward's disposition 2026-08-18: retire
 nothing; the authority outcome is already achieved because nothing on the
 Production pricing path reads them.
+
+## Settings copy — Markup Defaults impact preview names the wrong cost share
+
+The inline impact preview closes with:
+
+> *Estimated blended-margin shift on those drafts: +3.0 to +6.0 pts
+> (approximate; assumes 20–40% **packaging** cost share)*
+
+That caveat was written when every category the preview could edit was a
+packaging authority. Since BV-013 it also renders for `Production`, where the
+denominator is the production share of the cost stack, not the packaging share.
+
+The number is not necessarily wrong — 20–40% may or may not be the right band
+for production — but the sentence explains it with the wrong basis, which is
+worse than an unexplained range: a reader who checks the reasoning finds a
+denominator that does not apply and cannot tell whether the range was computed
+correctly or merely labelled carelessly.
+
+**Bounded repair, Settings copy only.** Either name the share per category, or
+drop the parenthetical and let the range stand as approximate. Do not reopen
+BV-013 for it — the authority, the rate and the propagation behaviour are all
+settled and correct; this is the explanatory clause beside them.
+
+Found in the BV-013 operator walk, 2026-08-18. Edward's disposition: bank as a
+bounded Settings-copy repair.
