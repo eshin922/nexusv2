@@ -6,6 +6,7 @@ import {
   projectCommercial,
   verifyProjectionTotals,
 } from "../../src/lib/commercial-projection.ts";
+import type { QuoteCostingResult } from "../../src/lib/costing.ts";
 import type { HydrateSnapshot } from "../../src/lib/costing-store.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -44,6 +45,10 @@ function bundle(opts: {
 }): HydrateSnapshot {
   const [qa, qb] = opts.tierQty ?? [1000, 5000];
   const skuById = new Map(opts.skus.map((s) => [s.id, s]));
+  const costingTiers: QuoteCostingResult["tiers"] = [
+    { tierId: TIER_A, label: "Tier 1", qty: qa },
+    { tierId: TIER_B, label: "Tier 2", qty: qb },
+  ];
   return {
     markupDefaults: opts.markupDefaults ?? { Production: 0.4 },
     skus: opts.skus.map((s) => ({
@@ -55,10 +60,12 @@ function bundle(opts: {
     })),
     production: opts.production ?? [],
     costing: {
-      tiers: [
-        { id: TIER_A, label: "Tier 1", qty: qa },
-        { id: TIER_B, label: "Tier 2", qty: qb },
-      ],
+      // `tierId`, the engine's real key. Spelling this `id` is what the
+      // original fixture did, agreeing with a cast in the projection instead
+      // of with the engine — so eleven tests passed against a projection that
+      // priced nothing at all. The fixture is now typed against the real
+      // output shape below, which is what makes a repeat a compile error.
+      tiers: costingTiers,
       skuRollups: opts.rollups.map((r) => {
         const s = skuById.get(r.skuId)!;
         return {

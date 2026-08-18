@@ -2,6 +2,7 @@ import {
   PRODUCTION_MARKUP_CATEGORY,
   resolveMarkupStrict,
 } from "@/lib/costing";
+import type { QuoteCostingResult } from "@/lib/costing";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
 
@@ -113,28 +114,20 @@ function num(v: unknown): number | null {
 }
 
 export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection {
-  const costing = (bundle as unknown as { costing?: unknown }).costing as
-    | {
-        tiers: Array<{ id: string; label: string; qty: number | null }>;
-        skuRollups: Array<{
-          skuId: string;
-          canonicalQuoteLeafId?: string | null;
-          skuRole: string;
-          parentSkuId: string | null;
-          skuLabel: string;
-          productName: string;
-          qtyPerParent: string | null;
-          perTier: Array<{ tierId: string; requiredSellPerUnit: number; contributionCostPerUnit?: number }>;
-        }>;
-      }
-    | undefined;
-
-  if (!costing) {
-    return { tiers: [], lines: [], productionMarkupPct: null };
-  }
-
+  // Read straight off the snapshot. NOT a hand-written structural cast.
+  //
+  // It was a cast, and the cast named the tier key `id`. The engine emits
+  // `tierId`, so every per-tier lookup missed: every cell came back unpriced
+  // and every OTC line vanished — while the compiler stayed silent, because a
+  // cast is an assertion rather than a check. The unit fixture then encoded
+  // the same misreading and agreed with it, so eleven tests passed against a
+  // projection that priced nothing. Only running it against a real quote
+  // disagreed.
+  //
+  // `costing` was never optional; the cast invented the optionality along with
+  // the wrong field name.
+  const costing: QuoteCostingResult = bundle.costing;
   const tiers = costing.tiers;
-  const tierIndex = new Map(tiers.map((t, i) => [t.id, i] as const));
 
   // The SAME authority the engine priced production at — read, not restated,
   // so BV-013 moves both halves of the statement together.
@@ -166,7 +159,7 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
         : "direct_product";
 
     const cells: CommercialCell[] = tiers.map((t) => {
-      const pt = rollup.perTier.find((p) => p.tierId === t.id);
+      const pt = rollup.perTier.find((p) => p.tierId === t.tierId);
       const rate = pt?.requiredSellPerUnit ?? null;
       const cost = pt?.contributionCostPerUnit ?? 0;
       // The Slice 11 rule, preserved verbatim: zero revenue AND zero cost is
@@ -225,7 +218,7 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
       let anyBilled = false;
 
       for (const t of tiers) {
-        const row = byTier.get(t.id);
+        const row = byTier.get(t.tierId);
         const allocated = row?.allocateServiceFeesToCost ?? true;
         allocationByTier.push(row ? (allocated ? "allocated" : "separately_billed") : null);
 
@@ -284,7 +277,7 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
       else unitSubtotal += cell.lineAmount;
     }
     return {
-      tierId: t.id,
+      tierId: t.tierId,
       tierLabel: t.label,
       quantity: t.qty,
       unitSubtotal,
@@ -294,7 +287,6 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
     };
   });
 
-  void tierIndex;
   return { tiers: tierTotals, lines, productionMarkupPct };
 }
 

@@ -351,6 +351,13 @@ const classifiedIdentityFiles = new Set([
   // frozen line. It performs no lookup by it, and a frozen line is a record
   // of what was sold rather than a handle used to resolve anything later.
   "src/lib/commercial-freeze.ts",
+  // CLASSIFIED — read-only walk evidence, canonical identity only. All three
+  // read `quote_leaf_id` as the governed owner of a service-owned production
+  // row, or as the identity a frozen line records. None resolves the legacy
+  // junction and none writes outside a transaction it then rolls back.
+  "scripts/gate-1b/freeze-lifecycle-proof.ts",
+  "scripts/gate-1b/freeze-walk-candidates.ts",
+  "scripts/gate-1b/freeze-walk-inspect.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
