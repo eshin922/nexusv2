@@ -147,6 +147,16 @@ export type SkuRoleValue = "leaf" | "assembly";
 export type CostingSku = {
   id: string;
   canonicalQuoteLeafId?: string | null;
+  /**
+   * The governed service identity of the library leaf behind this row, when it
+   * has one. Carried, never read by the math: the commercial projection needs
+   * to record WHAT a frozen line is, and a service line classified as a product
+   * would make the frozen record's `line_kind` a guess.
+   *
+   * An input slot rather than new compute — the math layer stays model-agnostic
+   * per its load-bearing commitment.
+   */
+  serviceIdentity?: string | null;
   parentSkuId: string | null;
   qtyPerParent: number | null;
   skuRole: SkuRoleValue;

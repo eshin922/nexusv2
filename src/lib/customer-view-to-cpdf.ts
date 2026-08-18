@@ -126,7 +126,7 @@ export function customerViewToCpdf(
     sku_id: f.skuLabel,
     label: f.label,
     sub: f.sub,
-    amount: f.amount,
+    tier_amounts: f.tierAmounts,
     qty_label: f.qtyLabel,
   }));
 

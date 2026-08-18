@@ -28,6 +28,7 @@ import { desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
+import { projectCommercial } from "@/lib/commercial-projection";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
@@ -70,39 +71,20 @@ export type ResolveCustomerViewResult =
        * `view.tiers` intentionally strips margin/cost/status data
        * from the customer PDF projection). */
       quoteRollup: import("./costing").QuotePerTierRollup[];
+      /**
+       * The commercial projection this view was rendered FROM.
+       *
+       * Returned rather than recomputed so the send path freezes the same
+       * in-memory result the customer document was built from. Calling
+       * `projectCommercial` a second time at send would be a second
+       * construction, and "the frozen matrix matches the PDF" would go back to
+       * being a claim about two computations agreeing.
+       */
+      commercial: import("./commercial-projection").CommercialProjection;
     }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "bundle_error"; message: string };
 
-// Slice 11 Step 5.1 — service-fee copy hardcoded per column-type
-// (Q2 disposition). Firm-wide copy; refine via commit if wording
-// shifts. Same map used at both preview and sendQuote paths.
-const FEE_COPY = [
-  {
-    field: "setupFeeTotal" as const,
-    label: "Setup",
-    sub: "One-time setup — filling-line, dye-cuts, plates.",
-    qtyLabel: "1 (setup)",
-  },
-  {
-    field: "toolingArtworkTotal" as const,
-    label: "Tooling & artwork",
-    sub: "One-time tooling + artwork.",
-    qtyLabel: "1 (tooling)",
-  },
-  {
-    field: "rdTotal" as const,
-    label: "R&D",
-    sub: "One-time R&D work.",
-    qtyLabel: "1 (R&D)",
-  },
-  {
-    field: "otherServiceTotal" as const,
-    label: "Other services",
-    sub: "One-time other services.",
-    qtyLabel: "1 (services)",
-  },
-];
 
 export async function resolveCustomerView(args: {
   quoteId: string;
@@ -222,47 +204,42 @@ export async function resolveCustomerView(args: {
     quantity: t.qty,
   }));
 
-  const leafSkus = bundle.data.costing.skuRollups.filter(
-    (r) => r.skuRole === "leaf",
-  );
+  // ── THE SHARED COMMERCIAL PROJECTION ─────────────────────────────────
+  //
+  // Both halves of the customer-facing commercial statement — the priced unit
+  // lines and the separately billed one-time charges — come from
+  // `projectCommercial`, which the snapshot writer also consumes.
+  //
+  // This resolver used to build both itself. That is how the PDF and the
+  // Sales Order came to disagree about allocation-OFF fees while each stayed
+  // internally consistent: two correct constructions of two different
+  // statements. Reconstructing them separately and comparing afterwards
+  // cannot fix that, because the comparison is only ever as good as the pair
+  // of reconstructions. Sharing the producer makes the agreement structural.
+  const projection = projectCommercial(bundle.data);
+  const unitLines = projection.lines.filter((l) => l.kind !== "otc");
 
-  const skus: CustomerViewSku[] = leafSkus.map((rollup) => {
-    const tierPrices = tiers.map((t) => {
-      const pt = rollup.perTier.find((p) => p.tierId === t.id);
-      if (!pt) return null;
-      // Slice 11 Step 8 matrix smoke Cluster 2A fix (2026-07-27) —
-      // treat cells with zero revenue AND zero contribution cost as
-      // UNPRICED (null), not as "computed sell price = $0.00". The
-      // math layer returns numeric 0 when a leaf has no cost data;
-      // downstream render tree treats null as the "quote on request"
-      // / "from $X" / "total on request" signal per shape. Same
-      // isMissing check the pricing-classifier context already
-      // applies (see pricing-classifier-context.tsx:281-282). Both
-      // adapters must agree on what "unpriced" looks like or the
-      // customer PDF renders $0.00 where CD's placeholder should
-      // appear.
-      if (pt.requiredSellPerUnit === 0 && pt.contributionCostPerUnit === 0) {
-        return null;
-      }
-      return pt.requiredSellPerUnit;
-    });
+  const skus: CustomerViewSku[] = unitLines.map((line) => {
+    const tierPrices = line.cells.map((c) =>
+      c.state === "priced" ? c.unitRate : null,
+    );
     const allPriced = tierPrices.every((p) => p !== null);
-    const allEqual =
-      allPriced && tierPrices.every((p) => p === tierPrices[0]);
+    const allEqual = allPriced && tierPrices.every((p) => p === tierPrices[0]);
     const shape: CustomerViewSku["shape"] = !allPriced
       ? "partial"
       : allEqual
         ? "flat"
         : "step↓";
     return {
-      label: rollup.skuLabel,
-      name: rollup.productName,
+      label: line.displaySku ?? "",
+      name: line.displayName,
       pack: null,
       unitsPerPack: 1,
       tierPrices,
       shape,
     };
   });
+
 
   // Real recommendedTierIdx from quote_tiers.recommended (Step 4.3).
   const tierRecommendedRows =
@@ -294,107 +271,35 @@ export async function resolveCustomerView(args: {
     : -1;
   const recommendedTierIdx = idx === -1 ? null : idx;
 
-  // Service-fee projection (Step 5.1). #78 eligibility carve —
-  // COGS columns explicitly excluded.
-  const skuById = new Map(bundle.data.skus.map((s) => [s.id, s]));
-  const assemblyByLeafId = new Map<
-    string,
-    (typeof bundle.data.skus)[number]
-  >();
-  for (const s of bundle.data.skus) {
-    if (s.skuRole === "leaf" && s.parentSkuId) {
-      const asm = skuById.get(s.parentSkuId);
-      if (asm && asm.skuRole === "assembly") {
-        assemblyByLeafId.set(s.id, asm);
-      }
-    }
-  }
-  // Slice 11 matrix Fix 1b (2026-07-27) — aggregate across tier rows.
+  // ── SEPARATELY BILLED ONE-TIME CHARGES ───────────────────────────────
   //
-  // Prior behavior: `productionByAssembly.set(assembly.id, p)` with
-  // `if (!has)` guard kept ONLY the first tier row per assembly, then
-  // read fees + allocate policy from that arbitrary row. Bug:
-  // one-time fees (setup/tooling/rd/other) are semantically
-  // per-assembly, but the schema stores them per-tier row. PMs
-  // typing a fee on Tier 1 leaves Tier 2's row with null fees; if
-  // the resolver picked Tier 2, fees vanished from the render.
+  // Per tier, from the shared projection. Two folds are gone with it:
   //
-  // Fix: aggregate ALL tier rows for each assembly:
-  //   - `allocateServiceFeesToCost`: OR-aggregate — if ANY tier
-  //     says alloc=true (fold into cost), treat the assembly as
-  //     alloc=true. Safer against double-counting: the math layer
-  //     amortizes per-tier (each row's own alloc), so if any tier
-  //     is amortizing, showing the fees as separate line items
-  //     would present the fees twice on that tier's price.
-  //   - Fee fields: COALESCE MAX per fee across tier rows. Since
-  //     fees are conceptually per-assembly, whichever tier row
-  //     PM populated is authoritative. MAX handles the transient
-  //     state where a fresh tier row has null while a prior row
-  //     has the value.
+  //   • MAX-across-tiers on the AMOUNT. A fee entered against one tier was
+  //     billed at every tier. Invisible while fees were tier-invariant, and
+  //     wrong the moment a frozen line has to reconcile to an accepted total,
+  //     because the figure would be attributed to a tier that never produced
+  //     it.
   //
-  // Fix 1a in `assembly-production-inputs.ts` (INSERT branch policy
-  // inheritance) prevents future rows from having conflicting
-  // allocate policies. This resolver fix handles the current
-  // pre-fix bad state + guards against future adapter drift.
-  type ProdAggregate = {
-    allocateServiceFeesToCost: boolean;
-    setupFeeTotal: number | null;
-    toolingArtworkTotal: number | null;
-    rdTotal: number | null;
-    otherServiceTotal: number | null;
-  };
-  const maxNum = (a: number | null, b: number | null): number | null => {
-    if (a == null) return b;
-    if (b == null) return a;
-    return Math.max(a, b);
-  };
-  const aggByAssembly = new Map<string, ProdAggregate>();
-  for (const p of bundle.data.production) {
-    const assembly = assemblyByLeafId.get(p.quoteSkuId);
-    if (!assembly) continue;
-    const existing = aggByAssembly.get(assembly.id);
-    if (!existing) {
-      aggByAssembly.set(assembly.id, {
-        allocateServiceFeesToCost: p.allocateServiceFeesToCost,
-        setupFeeTotal: p.setupFeeTotal,
-        toolingArtworkTotal: p.toolingArtworkTotal,
-        rdTotal: p.rdTotal,
-        otherServiceTotal: p.otherServiceTotal,
-      });
-    } else {
-      existing.allocateServiceFeesToCost =
-        existing.allocateServiceFeesToCost || p.allocateServiceFeesToCost;
-      existing.setupFeeTotal = maxNum(existing.setupFeeTotal, p.setupFeeTotal);
-      existing.toolingArtworkTotal = maxNum(
-        existing.toolingArtworkTotal,
-        p.toolingArtworkTotal,
-      );
-      existing.rdTotal = maxNum(existing.rdTotal, p.rdTotal);
-      existing.otherServiceTotal = maxNum(
-        existing.otherServiceTotal,
-        p.otherServiceTotal,
-      );
-    }
-  }
-  const serviceFees: CustomerViewServiceFee[] = [];
-  for (const [assemblyId, agg] of aggByAssembly) {
-    if (agg.allocateServiceFeesToCost) continue;
-    const assembly = skuById.get(assemblyId);
-    if (!assembly) continue;
-    for (const spec of FEE_COPY) {
-      const value = agg[spec.field];
-      if (value == null || value <= 0) continue;
-      serviceFees.push({
-        id: `${assemblyId}::${spec.field}`,
-        scope: "sku",
-        skuLabel: assembly.skuLabel,
-        label: spec.label,
-        sub: spec.sub,
-        amount: value,
-        qtyLabel: spec.qtyLabel,
-      });
-    }
-  }
+  //   • OR-across-tiers on ALLOCATION. One allocated tier suppressed the fee
+  //     lines for all of them. The guard was against double-billing, which is
+  //     real — but it is a per-tier question, and answering it per tier
+  //     prevents the same double-count without silencing the tiers that
+  //     genuinely bill separately.
+  //
+  // The amounts also now carry the governed Production markup (BV-013);
+  // previously separately billed OTC left the firm at cost.
+  const serviceFees: CustomerViewServiceFee[] = projection.lines
+    .filter((l) => l.kind === "otc")
+    .map((l) => ({
+      id: l.key,
+      scope: "sku" as const,
+      skuLabel: l.displaySku ?? undefined,
+      label: l.displayName,
+      sub: l.displaySub ?? "",
+      tierAmounts: l.cells.map((c) => (c.state === "priced" ? c.lineAmount : null)),
+      qtyLabel: l.displayQtyLabel ?? "1",
+    }));
 
   // BV-009: freight remains in commercial costing. When bundled into unit
   // price it has no separate customer-facing line, avoiding double signaling.
@@ -459,5 +364,6 @@ export async function resolveCustomerView(args: {
     project,
     quote,
     quoteRollup: bundle.data.costing.quoteRollup,
+    commercial: projection,
   };
 }

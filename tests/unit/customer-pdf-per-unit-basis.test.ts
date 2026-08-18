@@ -135,7 +135,7 @@ test("6 · turnkey_only — same helper, fees folded into the all-in unit", () =
   // exactly what "blended all-in unit price" claims.
   const tiers = [tier(1000)];
   const fees: CpdfServiceFee[] = [
-    { id: "f1", scope: "project", label: "Setup", sub: "", amount: 2000, qty_label: "" },
+    { id: "f1", scope: "project", label: "Setup", sub: "", tier_amounts: [2000], qty_label: "" },
   ];
   const { total, perUnit } = assertBasis(
     [sku("a", 4), sku("b", 6), sku("c", 2)],
@@ -190,7 +190,7 @@ test("9 · no rows priced — stays null, never a governed $0.00", () => {
   // fees would print "from $0.00 /unit".
   const tiers = [tier(1000)];
   const fees: CpdfServiceFee[] = [
-    { id: "f1", scope: "project", label: "Setup", sub: "", amount: 2000, qty_label: "" },
+    { id: "f1", scope: "project", label: "Setup", sub: "", tier_amounts: [2000], qty_label: "" },
   ];
   const r = tierGrand([sku("a", null), sku("b", null)], tiers, 0, true, fees);
   assert.equal(r.hasUnpriced, true);

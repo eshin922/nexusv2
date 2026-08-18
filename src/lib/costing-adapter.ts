@@ -128,6 +128,8 @@ export type AdapterQuoteLeafAttachmentRow = {
   // From the joined leaves row:
   leafName: string;
   leafSku: string;
+  /** From the joined library leaf. NULL for a product. */
+  serviceIdentity?: string | null;
 };
 
 /**
@@ -316,6 +318,7 @@ export function buildQuoteCostingInputFromNewModel(
       skuLabel: al.leafSku,
       productName: al.leafName,
       sortOrder: al.position,
+      serviceIdentity: al.serviceIdentity ?? null,
       retailBenchmark: null,
     });
   }

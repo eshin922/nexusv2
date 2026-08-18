@@ -272,12 +272,22 @@ export function TabSalesOrder({
       .filter((l): l is OrderReceiptLine => l !== null);
   }, [view.skus, tierIdx, carriedTier]);
 
-  const oneTime: OrderReceiptOneTime[] = view.serviceFees.map((sf) => ({
-    id: sf.id,
-    label: sf.label,
-    sub: sf.sub,
-    amount: sf.amount,
-  }));
+  // The ACCEPTED tier's fee, not the largest one across tiers.
+  //
+  // `tierAmounts[tierIdx]` reads the column this order is actually for. A
+  // null means the fee is not separately billed at this tier — it is
+  // allocated into the unit prices above, so emitting it here as well would
+  // bill the same economics twice.
+  const oneTime: OrderReceiptOneTime[] =
+    tierIdx < 0
+      ? []
+      : view.serviceFees
+          .map((sf): OrderReceiptOneTime | null => {
+            const amount = sf.tierAmounts[tierIdx];
+            if (amount == null) return null;
+            return { id: sf.id, label: sf.label, sub: sf.sub, amount };
+          })
+          .filter((l): l is OrderReceiptOneTime => l !== null);
 
   // ── Real flag derivation ─────────────────────────────────────
   // R9 §6 LOAD-BEARING #9 — the flags are what make the receipt
