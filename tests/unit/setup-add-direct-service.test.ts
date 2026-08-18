@@ -54,8 +54,50 @@ test("service browse shows services, and product browse cannot show them", async
   const modal = await code("components/library/library-browse-modal.tsx");
   assert.match(
     modal,
-    /commercialKindFilter: mode === "service" \? "service" : "product"/,
+    /const commercialKindFilter = mode === "service" \? "service" : "product"/,
   );
+});
+
+test("EVERY browse fetch carries the kind filter — no call site can omit it", async () => {
+  // The walk finding. The search effect set the filter; three refresh paths —
+  // post-attach, post-restore, post-create/pull — each built their own query
+  // and left it out. So attaching a service succeeded and then re-listed all
+  // 1,087 PRODUCTS beneath a banner still reading "as a service line". The
+  // prohibition held at the write boundary; the surface stopped describing it.
+  //
+  // Asserted structurally rather than by counting correct call sites: a fifth
+  // one added later must be unable to reintroduce the divergence.
+  const modal = await code("components/library/library-browse-modal.tsx");
+
+  // Exactly one place calls the loader, and it forces both governed fields
+  // AFTER the caller's spread, so a caller cannot override them.
+  const calls = modal.match(/await fetchLibraryBrowse\(/g) ?? [];
+  assert.equal(calls.length, 0, "a call site bypasses the browse() path");
+  assert.match(
+    modal,
+    /fetchLibraryBrowse\(\{\s*\.\.\.args,\s*commercialKindFilter,\s*targetQuoteId: quoteId,/,
+  );
+
+  // The argument type is derived from the loader's own filter type, so the
+  // two fields this path owns are exactly the two a caller may not pass.
+  assert.match(
+    modal,
+    /Omit<LibraryBrowseFilters, "commercialKindFilter" \| "targetQuoteId">/,
+  );
+});
+
+test("service mode offers no create path, rather than a relabelled one", async () => {
+  // What "+ Create new product" opens is the PRODUCT create form. The five
+  // services are canonical launch records with a unique identity apiece, so
+  // there is nothing to create — and the disposition was to restrict the path,
+  // not make it smarter.
+  const modal = await code("components/library/library-browse-modal.tsx");
+  assert.match(modal, /const offersCreate = mode !== "service";/);
+  // Every create affordance is gated: header, library-empty, filtered-to-zero.
+  const gates = modal.match(/offersCreate && \(/g) ?? [];
+  assert.ok(gates.length >= 3, `only ${gates.length} create affordances gated`);
+  // And the empty-state copy does not advise minting a sixth service.
+  assert.match(modal, /None of the five services match/);
 });
 
 test("the kind filter is applied in SQL, not after the page is fetched", async () => {

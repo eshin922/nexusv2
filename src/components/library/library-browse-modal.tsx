@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { LibrarySpecModal } from "./library-spec-modal";
 import { useRouter } from "next/navigation";
 import { UNCLASSIFIED_SOURCE_TYPE } from "@/lib/library-source-type";
@@ -9,7 +9,10 @@ import { directServiceLabel } from "@/lib/product-structure/direct-service";
 /** B-11 · rows per page. Matches the loader default so the pager's arithmetic
  *  and the query agree without either having to know the other's number. */
 const PAGE_SIZE = 50;
-import type { LibraryBrowseRow } from "@/lib/library-browse-loader";
+import type {
+  LibraryBrowseFilters,
+  LibraryBrowseRow,
+} from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import {
   fetchHubspotProductTypes,
@@ -184,6 +187,38 @@ export function LibraryBrowseModal({
   const [toast, setToast] = useState<string | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── the one query path ────────────────────────────────────────────────
+  //
+  // `commercialKindFilter` is a GOVERNED STATEMENT about what this browse may
+  // offer (BV-012 §5.c), not a search convenience — so it has one place, and
+  // every fetch goes through it.
+  //
+  // It did not, and the walk caught it. The search effect set the filter;
+  // three refresh paths — post-attach, post-restore, post-create/pull — each
+  // built their own query and omitted it. So attaching a service succeeded and
+  // then re-listed all 1,087 PRODUCTS underneath a banner still reading
+  // "This quote — as a service line". The prohibition was intact at the write
+  // boundary; the surface had stopped describing it.
+  //
+  // Forcing the filter after the spread is the load-bearing detail: a caller
+  // cannot pass its own, so there is no way to reintroduce the divergence by
+  // adding a fifth call site.
+  const commercialKindFilter = mode === "service" ? "service" : "product";
+  //
+  // The argument type is DERIVED from the loader's own filter type rather
+  // than restated: restating a vocabulary is how the two drift, and the two
+  // fields this path owns are exactly the two it omits from what a caller
+  // may pass.
+  const browse = useCallback(
+    (args: Omit<LibraryBrowseFilters, "commercialKindFilter" | "targetQuoteId">) =>
+      fetchLibraryBrowse({
+        ...args,
+        commercialKindFilter,
+        targetQuoteId: quoteId,
+      }),
+    [commercialKindFilter, quoteId],
+  );
+
   // Governed HubSpot vocabulary for the type chips. Fetched, never listed
   // locally: a hard-coded copy drifts silently the moment an option is added.
   useEffect(() => {
@@ -212,16 +247,12 @@ export function LibraryBrowseModal({
     searchDebounceRef.current = setTimeout(() => {
       startTransition(async () => {
         setError(null);
-        const result = await fetchLibraryBrowse({
+        const result = await browse({
           search,
           offset,
           limit: PAGE_SIZE,
           sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
-          // BV-012 §5 — service browse shows services; the two product modes
-          // show products. Neither can offer the other by accident.
-          commercialKindFilter: mode === "service" ? "service" : "product",
-          targetQuoteId: quoteId,
         });
         if (!result.ok) {
           setError(result.error.message);
@@ -241,7 +272,7 @@ export function LibraryBrowseModal({
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId, offset]);
+  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId, offset, browse]);
 
   // Escape dismiss.
   useEffect(() => {
@@ -340,11 +371,7 @@ export function LibraryBrowseModal({
     setTypeFilter("");
     setScopeFilter("all");
     startTransition(async () => {
-      const refreshed = await fetchLibraryBrowse({
-        search,
-        scopeFilter: "all",
-        targetQuoteId: quoteId,
-      });
+      const refreshed = await browse({ search, scopeFilter: "all" });
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
@@ -369,6 +396,13 @@ export function LibraryBrowseModal({
   // target for the same reason `direct` does not — and gating it on an
   // assembly would be gating it on the one thing it may never be attached to.
   const isTopLevel = mode === "direct" || mode === "service";
+
+  // The five Direct Services are canonical launch records with a unique
+  // identity apiece, so there is nothing for an operator to create here — and
+  // what this button actually opens is the PRODUCT create form, which is the
+  // seam the disposition named. Restrict the path rather than make it smarter:
+  // in service mode the create affordances are absent, not relabelled.
+  const offersCreate = mode !== "service";
   const attachReady = isTopLevel || Boolean(targetAssemblyId);
 
   function handleAttach(row: LibraryBrowseRow) {
@@ -410,11 +444,10 @@ export function LibraryBrowseModal({
       setToast(`Attached "${row.name}" to ${targetSkuAtClick}.`);
       // Refresh the library data so the row flips to "✓ in scenario"
       // (and refresh the Setup tree behind the modal).
-      const refreshed = await fetchLibraryBrowse({
+      const refreshed = await browse({
         search,
         sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
-        targetQuoteId: quoteId,
       });
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
@@ -446,11 +479,10 @@ export function LibraryBrowseModal({
         return;
       }
       setToast(`Restored "${row.name}" to the library.`);
-      const refreshed = await fetchLibraryBrowse({
+      const refreshed = await browse({
         search,
         sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
-        targetQuoteId: quoteId,
       });
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
@@ -536,6 +568,7 @@ export function LibraryBrowseModal({
             </span>
           </div>
           <div className="head-actions">
+            {offersCreate && (
             <button
               type="button"
               className="a1v2-btn primary sm"
@@ -550,6 +583,7 @@ export function LibraryBrowseModal({
             >
               + Create new product
             </button>
+            )}
             {/* Subtle refresh — forensic affordance per CD §5. Same
                 permission gate + click handler as the Step 5
                 (predecessor slice) inline pull entry point; the
@@ -1009,6 +1043,7 @@ export function LibraryBrowseModal({
                     started.
                   </p>
                   <div className="cta-row">
+                    {offersCreate && (
                     <button
                       type="button"
                       className="lib-empty-cta primary"
@@ -1018,6 +1053,7 @@ export function LibraryBrowseModal({
                     >
                       + Create new product →
                     </button>
+                    )}
                     <button
                       type="button"
                       className="lib-empty-cta secondary"
@@ -1049,13 +1085,28 @@ export function LibraryBrowseModal({
                   <div className="glyph" aria-hidden="true">
                     ∅
                   </div>
-                  <h3>No components match</h3>
+                  <h3>
+                    {offersCreate ? "No components match" : "No services match"}
+                  </h3>
                   <p>
-                    Nothing in the library matches{" "}
-                    <span className="q">{search}</span>. Adjust the
-                    search, or create it as a new product.
+                    {offersCreate ? (
+                      <>
+                        Nothing in the library matches{" "}
+                        <span className="q">{search}</span>. Adjust the
+                        search, or create it as a new product.
+                      </>
+                    ) : (
+                      /* Not "create it as a new product": the five governed
+                         services ARE the complete set, so the honest advice is
+                         to widen the search, never to mint a sixth. */
+                      <>
+                        None of the five services match{" "}
+                        <span className="q">{search}</span>. Adjust the search.
+                      </>
+                    )}
                   </p>
                   <div className="cta-row">
+                    {offersCreate && (
                     <button
                       type="button"
                       className="lib-empty-cta primary"
@@ -1065,6 +1116,7 @@ export function LibraryBrowseModal({
                     >
                       + Create new product →
                     </button>
+                    )}
                     <button
                       type="button"
                       className="lib-empty-cta secondary"

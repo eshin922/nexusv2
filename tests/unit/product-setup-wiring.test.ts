@@ -883,7 +883,15 @@ test("B-10 · displayed type and readiness resolve from named authorities", asyn
   // assertion is that neither reads the retired Nexus taxonomy.
   const src = await code("src/lib/assembly-tree.ts");
   assert.match(src, /productType: typeValue/);
-  assert.match(src, /specCompleteness: computeSpecCompleteness\(schema/);
+  // Direct Services take the one documented exception: they carry no
+  // `hubspot_product_type` by design, so the generic path resolved them to
+  // `no_type` and demanded a Product Type nobody can supply. Everything else
+  // still resolves through the one computation.
+  assert.match(src, /computeSpecCompleteness\(schema, spec, typeMap\)/);
+  assert.match(
+    src,
+    /serviceLabel\s*\?\s*\{ kind: "no_schema", typeLabel: serviceLabel \}/,
+  );
   assert.doesNotMatch(src, /leaf\.productTypeId/);
 });
 

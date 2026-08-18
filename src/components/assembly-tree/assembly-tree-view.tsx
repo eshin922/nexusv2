@@ -26,7 +26,7 @@
 // Footer `.a1v2-library-affordance` block removed entirely
 // (Q2 — single entry point).
 
-import type { AssemblyTree } from "@/lib/assembly-tree";
+import type { AssemblyTree, SpecCompleteness } from "@/lib/assembly-tree";
 import { indexClientTargets, type ClientTargetRow } from "@/lib/client-target";
 import type { TargetTier } from "./client-target";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
@@ -78,16 +78,26 @@ export function AssemblyTreeView({
   // Per CD's tree summary: "X of Y products have complete specs". Counts BOTH
   // structures — a Direct Product's spec completeness matters exactly as much
   // as a grouped one's, and omitting it would overstate readiness.
-  const totalLeaves = tree.totalSkus;
-  const completeLeaves =
-    tree.assemblies.reduce(
-      (sum, a) =>
-        sum +
-        a.children.filter((c) => c.specCompleteness?.kind === "complete").length,
-      0,
-    ) +
-    tree.directProducts.filter((p) => p.specCompleteness?.kind === "complete")
-      .length;
+  //
+  // The DENOMINATOR is rows whose specs can actually be completed. `no_schema`
+  // means specifications intentionally do not apply — freight, one-time
+  // charges, and now Direct Services — so counting those rows makes "M of M"
+  // unreachable by construction, and a progress figure that can never
+  // complete stops being read as progress.
+  //
+  // Surfaced by the Direct Service walk, but not caused by it: any quote
+  // already carrying a freight or one-time-charge line had the same permanent
+  // shortfall. Services made a latent arithmetic defect a visible one.
+  const applies = (n: { specCompleteness: SpecCompleteness | null }) =>
+    n.specCompleteness?.kind !== "no_schema";
+  const specRows = [
+    ...tree.assemblies.flatMap((a) => a.children),
+    ...tree.directProducts,
+  ].filter(applies);
+  const totalLeaves = specRows.length;
+  const completeLeaves = specRows.filter(
+    (n) => n.specCompleteness?.kind === "complete",
+  ).length;
 
   // Indexed ONCE for the whole tree. Every row then resolves from the same
   // governed structure rather than filtering a flat list per row.
