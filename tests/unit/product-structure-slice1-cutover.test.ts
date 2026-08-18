@@ -358,6 +358,9 @@ const classifiedIdentityFiles = new Set([
   "scripts/gate-1b/freeze-lifecycle-proof.ts",
   "scripts/gate-1b/freeze-walk-candidates.ts",
   "scripts/gate-1b/freeze-walk-inspect.ts",
+  // CLASSIFIED — read-only survey. Counts a project's scenarios by shape,
+  // reading `quote_leaf_id` as the canonical attachment key. Writes nothing.
+  "scripts/gate-1b/freeze-walk-project-detail.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
