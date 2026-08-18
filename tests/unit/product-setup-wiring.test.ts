@@ -372,7 +372,7 @@ test("the gate blocks NEW attachment only — history stays readable", async () 
   assert.doesNotMatch(loader, /evaluateAttachmentEligibility/);
   assert.doesNotMatch(loader, /hasUsableSku/);
   // The row renders a placeholder rather than refusing to draw.
-  const row = await read("src/components/assembly-tree/direct-product-row.tsx");
+  const row = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.match(row, /product\.sku \?\? "—"/);
 });
 
@@ -509,12 +509,48 @@ test("healthy and archived rows keep their existing presentation", async () => {
 test("the spec action names the authority it edits", async () => {
   // Specs are library master data. "Edit specs", read from inside a quote,
   // invites the operator to believe it is quote-local. It is not.
+  //
+  // The label was "Edit product specs", which named the authority only
+  // INCIDENTALLY — "product" happened to mean "the library record" because a
+  // library record could only be a product. Stage 2 made that false, and the
+  // label then asserted a Direct Service was a product.
+  //
+  // "library" names the same authority DIRECTLY and is true of both, so the
+  // original requirement is strengthened rather than traded away: the word
+  // carrying it is now the word that means it.
   for (const f of [
     "src/components/assembly-tree/leaf-context-menu.tsx",
     "src/components/assembly-tree/direct-product-row.tsx",
+    // The item-group menu's disabled row is the same act, so the same label.
+    "src/components/assembly-tree/asy-context-menu.tsx",
   ]) {
-    assert.match(await read(f), /Edit product specs/);
+    const src = await read(f);
+    assert.match(src, /Edit library specs/, `${f} does not name the authority`);
+    // Bare "Edit specs" is the failure this test has always guarded against.
+    assert.doesNotMatch(src, />\s*Edit specs/, `${f} implies quote-local specs`);
   }
+});
+
+test("top-level rows describe themselves without a sellable-unit noun", async () => {
+  // A Direct Service is a top-level row and is not a product. Rather than
+  // branching every noun by row kind, the surface uses terms true of both.
+  // `code`, not `read`: the assertion is about RENDERED copy. The source
+  // comments quote the superseded wording on purpose, to record what changed
+  // and why, and a test that forbade the history from being written down would
+  // be enforcing amnesia rather than the rule.
+  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  assert.match(view, /"SKU" : "SKUs"/);
+  assert.match(view, /of \{totalLeaves\} specs complete/);
+  assert.doesNotMatch(view, /products have complete specs/);
+  assert.doesNotMatch(view, /\? "product" : "products"/);
+
+  const row = await read("src/components/assembly-tree/direct-product-row.tsx");
+  assert.match(row, /aria-label="Line actions"/);
+  assert.match(row, /<div className="header">Line actions<\/div>/);
+  // Item-group MEMBERS are a different component and keep "Leaf actions" — a
+  // member is not a quote line, so the neutral term there would be wrong.
+  const member = await code("src/components/assembly-tree/leaf-context-menu.tsx");
+  assert.match(member, /Leaf actions/);
 });
 
 test("usage is counted in QUOTES, not attachment rows", async () => {

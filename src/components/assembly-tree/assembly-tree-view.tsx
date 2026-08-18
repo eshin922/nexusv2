@@ -121,8 +121,16 @@ export function AssemblyTreeView({
               brief §5.2. Reads off the same totals the tree-summary
               header uses (totalSkus = leaf children across all
               assemblies; totalAssemblies = top-level ASY count). */}
-          <span className="meta" aria-label="product and item group count">
-            {tree.totalSkus} {tree.totalSkus === 1 ? "product" : "products"}
+          {/* "products" dates from 2f50d22, when a top-level row could only BE
+              a product. A Direct Service is a top-level row and is not one, so
+              the noun stopped being true rather than having been chosen against
+              services. SKU is the surface's own neutral term — it is this
+              card's title, it is what the caption's comment above already says,
+              and every row here has one whether it is packaging, a service, or
+              an item-group member. Neutral by vocabulary rather than by
+              branching the noun. */}
+          <span className="meta" aria-label="SKU and item group count">
+            {tree.totalSkus} {tree.totalSkus === 1 ? "SKU" : "SKUs"}
             {" · "}
             {tree.totalAssemblies}{" "}
             {tree.totalAssemblies === 1 ? "item group" : "item groups"}
@@ -186,7 +194,11 @@ export function AssemblyTreeView({
         <span className="pip empty" />{" "}
         <strong>{counts.empty}</strong> empty
         <span className="right">
-          {completeLeaves} of {totalLeaves} products have complete specs
+          {/* No noun at all, which is the most neutral form available: the
+              denominator is already defined as rows whose specs CAN be
+              completed, so naming what those rows are adds nothing and is the
+              part that kept going wrong. */}
+          {completeLeaves} of {totalLeaves} specs complete
         </span>
       </div>
 
