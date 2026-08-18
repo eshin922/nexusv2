@@ -122,7 +122,17 @@ function num(v: string | null | undefined): number | null {
 }
 
 /** A resolved markup rate, as the operator reads it: `32.0%`. */
-function fmtPct1(v: number): string {
+/**
+ * Exported so the Direct Service table formats the rate the SAME way, rather
+ * than restating the conversion.
+ *
+ * The node's value is a DECIMAL FRACTION (0.30), not a percentage. The service
+ * table first rendered `pct.toFixed(1) + "%"` and displayed "0.3%" against a
+ * 30% rate — a 100x error in a commercial figure, and a plausible-looking one.
+ * Sharing the formatter removes the second place that conversion can be got
+ * wrong.
+ */
+export function fmtPct1(v: number): string {
   return (v * 100).toFixed(1) + "%";
 }
 

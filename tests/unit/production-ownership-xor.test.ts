@@ -161,6 +161,11 @@ test("markup and category are READ, never restated", async () => {
   const drill = await code("src/components/costs/production-drilldown.tsx");
   assert.match(drill, /categoryLabel=\{PRODUCTION_MARKUP_CATEGORY\}/);
   assert.match(drill, /useProductionMarkup\(service\.quoteLeafId, tiers\)/);
+  // And formatted by the SAME function. The node value is a decimal fraction;
+  // the first cut rendered `pct.toFixed(1) + "%"` and showed 0.3% against a
+  // 30% rate — a 100x error, and a plausible-looking one.
+  assert.match(ui, /fmtPct1\(markupPct\)/);
+  assert.doesNotMatch(ui, /markupPct\.toFixed/);
 });
 
 test("a Direct Service is excluded from the Packaging list", async () => {

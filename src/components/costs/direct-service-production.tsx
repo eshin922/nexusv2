@@ -7,6 +7,10 @@ import {
   DIRECT_SERVICE_PRODUCTION_LABEL,
   type DirectServiceIdentity,
 } from "@/lib/product-structure/direct-service";
+// The canonical percent formatter, shared rather than restated — the node
+// value is a decimal fraction and converting it in a second place is how a
+// 30% rate renders as 0.3%.
+import { fmtPct1 } from "./production-drilldown";
 
 /**
  * A Direct Service's Production economics — the other branch of the Stage 3 A
@@ -250,7 +254,7 @@ export function DirectServiceProduction({
                 </div>
                 <div className="num">
                   <span className="markup">
-                    {markupPct === null ? "—" : `${markupPct.toFixed(1)}%`}
+                    {markupPct === null ? "—" : fmtPct1(markupPct)}
                   </span>
                 </div>
                 {tiers.map((t) => (
