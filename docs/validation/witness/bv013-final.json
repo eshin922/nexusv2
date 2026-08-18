@@ -1,7 +1,7 @@
 {
   "count": 75,
   "failed": 0,
-  "global": "81f1cfea5f03e52e7938ec7b5b438a93c2d17eea437422057b0d0fdec797d7fd",
+  "global": "7ce8577458555de4f31bf29c7c56d3b186ba213db2e63aef2aa943239ec84e4a",
   "productionDigest": "c2e196610f97f5522213d21c168d6a107fec23d30fd03733ce4914e6244b3d09",
   "quotesWithProduction": [
     "071486be-e1a6-4475-8df6-2a2b78a21b58",
@@ -134,7 +134,7 @@
       ]
     },
     "4781e4bb-0597-4044-a1ea-3ffc8c3be35a": {
-      "digest": "4a42511a2aca28dfe126f7c0c7ab0bbf9ca7f06e9717cd67873ce389bc9b1634",
+      "digest": "da782eb02de16ff72173eb6051620ee61b41ea99348215c0ac1266b8f373b4d0",
       "policySource": "live",
       "status": "draft",
       "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-pricing-authority",
