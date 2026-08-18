@@ -123,11 +123,73 @@ test("the writer refuses a product leaf with an operator sentence", async () => 
 
 test("the Direct Service surface renders ONE input, structurally", async () => {
   const ui = await code("src/components/costs/direct-service-production.tsx");
-  // One label from the map, one cell per tier. No iteration over a column set
-  // — a filtered table is a table that currently shows one thing.
+  // One label from the map, one row. No iteration over a column set — a
+  // filtered table is a table that currently shows one thing.
   assert.match(ui, /DIRECT_SERVICE_PRODUCTION_LABEL\[svc\.serviceIdentity\]/);
   assert.doesNotMatch(ui, /setupFeeTotal|toolingArtworkTotal|bulkRawCost|rdTotal/);
   assert.doesNotMatch(ui, /PRODUCTION_COLUMNS\.map|columns\.map/);
+});
+
+test("it uses the Production TABLE grammar, not a bespoke card", async () => {
+  // A second form language for economics that read identically everywhere else
+  // is a cost an operator pays on every visit. Same container classes, same
+  // column set, same cell shape as the Item Group table.
+  const ui = await code("src/components/costs/direct-service-production.tsx");
+  for (const cls of ["r6-dt prod", "r6-dt-head", "r6-dt-row", "r6-dt-foot"]) {
+    assert.ok(ui.includes(cls), `missing ${cls} — not the shared table grammar`);
+  }
+  for (const col of ["Service", "Category", "Source", "Kind", "Markup"]) {
+    assert.ok(ui.includes(`<span>${col}</span>`) || ui.includes(`>${col}<`), `no ${col} column`);
+  }
+});
+
+test("the Source column is honest, not a copied vendor picker", async () => {
+  // Packaging's control exists because packaging lines carry a pricing vendor.
+  // `assembly_production_inputs` carries none, so a vendor picker here would
+  // look like it sources a price and source nothing.
+  const ui = await code("src/components/costs/direct-service-production.tsx");
+  assert.doesNotMatch(ui, /Search HubSpot Vendors/);
+  assert.doesNotMatch(ui, /pricingVendor/);
+  assert.match(ui, /firm rate/);
+});
+
+test("markup and category are READ, never restated", async () => {
+  // What makes BV-013 automatic: neither surface carries its own copy of the
+  // rate or the category name.
+  const ui = await code("src/components/costs/direct-service-production.tsx");
+  assert.doesNotMatch(ui, /0\.4|40%|"Manufacturing"|"Production"/);
+  const drill = await code("src/components/costs/production-drilldown.tsx");
+  assert.match(drill, /categoryLabel=\{PRODUCTION_MARKUP_CATEGORY\}/);
+  assert.match(drill, /useProductionMarkup\(service\.quoteLeafId, tiers\)/);
+});
+
+test("a Direct Service is excluded from the Packaging list", async () => {
+  const page = await code("src/app/projects/[id]/quotes/[quoteId]/costs/page.tsx");
+  assert.match(page, /if \(leaf\.commercialKind === "service"\) continue;/);
+});
+
+test("the production read covers both owners — no inner join on assemblies", async () => {
+  // An inner join drops a service-owned row exactly as an IN list does: NULL
+  // matches nothing. The value round-trips to the database and vanishes on
+  // read, which is worse than being refused.
+  const page = await code("src/app/projects/[id]/quotes/[quoteId]/costs/page.tsx");
+  assert.doesNotMatch(
+    page,
+    /from\(assemblyProductionInputs\)\s*\.innerJoin/,
+    "the production query still inner-joins assemblies",
+  );
+  assert.match(page, /eq\(quoteLeaves\.quoteId, quote\.id\)/);
+});
+
+test("Item Group markup resolves on the ANCHOR LEAF, not the assembly id", async () => {
+  // #282 re-keyed the display to the assembly, correctly. The markup read kept
+  // resolving the old key, matched no node, and failed closed to an em-dash on
+  // every row — including rows the engine was actively marking up and carrying
+  // into quoted price.
+  const drill = await code("src/components/costs/production-drilldown.tsx");
+  assert.match(drill, /anchorLeafByAssembly/);
+  assert.match(drill, /useProductionMarkup\(markupNodeId, tiers\)/);
+  assert.doesNotMatch(drill, /useProductionMarkup\(sku\.id, tiers\)/);
 });
 
 test("the Item Group table never renders a service-owned row", async () => {

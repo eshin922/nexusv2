@@ -900,7 +900,10 @@ export type QuoteCostingResult = {
 // ---------- helpers ----------
 
 const FALLBACK_MARKUP = 0.3;
-const PRODUCTION_MARKUP_CATEGORY = "Manufacturing";
+// Exported so the Costs surface can LABEL the category it is priced at
+// rather than restating it. BV-013 renames this to "Production"; every
+// display reading it follows without being told.
+export const PRODUCTION_MARKUP_CATEGORY = "Manufacturing";
 const RAW_MARKUP_CATEGORY = "Raw ingredients"; // Slice 9 will likely add this; falls back to Other today
 
 // Phase 2 freight model cutover — diagnostic for the shadowing case.

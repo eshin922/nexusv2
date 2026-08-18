@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -221,14 +221,29 @@ export default async function CostBuildPage({
         asc(assemblyLeafInputs.lineGroupId),
         asc(assemblyLeafInputs.createdAt),
       ),
+    // Stage 3 A · BOTH owner branches. The inner join on `assemblies` was
+    // correct while assembly_id was NOT NULL and silently wrong the moment it
+    // was not: a service-owned row has assembly_id NULL, an inner join drops
+    // it, and the value round-trips to the database and then vanishes on read.
+    // Third instance of the same family in this slice — NULL matches nothing,
+    // whether in an IN list or a join predicate.
     db
       .select({ assembly_production_inputs: assemblyProductionInputs })
       .from(assemblyProductionInputs)
-      .innerJoin(
+      .leftJoin(
         assemblies,
         eq(assemblies.id, assemblyProductionInputs.assemblyId),
       )
-      .where(eq(assemblies.quoteId, quote.id)),
+      .leftJoin(
+        quoteLeaves,
+        eq(quoteLeaves.id, assemblyProductionInputs.quoteLeafId),
+      )
+      .where(
+        or(
+          eq(assemblies.quoteId, quote.id),
+          eq(quoteLeaves.quoteId, quote.id),
+        ),
+      ),
     db
       .select()
       .from(quoteTiers)
@@ -407,6 +422,17 @@ export default async function CostBuildPage({
   // — and `parentSkuId` stays null, which is what makes the row a quote-level
   // product rather than a member of anything.
   for (const { quote_leaves: ql, leaves: leaf } of newDirectProductRows) {
+    // Stage 3 A · a Direct Service is NOT a packaging line.
+    //
+    // This list feeds the Packaging table and the Item Group Production
+    // table, and a service belongs to neither: it owns exactly one governed
+    // Production input, on its own surface. Before this filter it rendered as
+    // a packaging component with a vendor picker and a markup cell, offering
+    // an operator cost authoring that BV-012 says a service does not have.
+    //
+    // Filtered on CLASSIFICATION rather than on "has no packaging rows",
+    // which would have let the surface appear the moment a stray row existed.
+    if (leaf.commercialKind === "service") continue;
     skus.push({
       id: ql.id,
       quoteLeafId: ql.id,
