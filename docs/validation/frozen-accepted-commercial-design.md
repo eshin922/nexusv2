@@ -33,7 +33,8 @@ rendered, alongside the `pdf_url` already persisted at this checkpoint.
 
 **At ACCEPT** the customer names a tier. `customer_accepted_tier_id` already
 exists on the accept freeze-list. The accepted commercial total is then not a
-new computation but a **selection** from the frozen matrix.
+new computation but a **selection** from the frozen matrix — the accepted
+tier's `tier_commercial_total`, unchanged from the moment it was offered.
 
 This falls out of existing lifecycle semantics rather than adding new ones:
 `quote_snapshots` is already per-send and per-`version_number`, so a revision
@@ -92,7 +93,23 @@ Nothing synthesises a zero.
 ### Per-tier totals, stored not derived
 
 On the snapshot, per tier: `unit_subtotal`, `otc_subtotal`,
-`accepted_commercial_total`, and **`total_is_provisional`**.
+**`tier_commercial_total`**, and **`total_is_provisional`**.
+
+**Not `accepted_commercial_total`.** At SEND nothing has been accepted — the
+matrix is what was OFFERED, across every tier. Naming a send-time column
+"accepted" would state a fact that is not yet true of any of them, and would
+still be untrue of three of the four after acceptance.
+
+The accepted total is not a stored column at all. It is a **selection**:
+
+```
+accepted_commercial_total := tier_commercial_total
+                             WHERE tier_id = quotes.customer_accepted_tier_id
+```
+
+SEND is "what we offered". ACCEPT is "which one the customer took". Keeping
+those in different words is what stops a later reader treating an offered
+figure as an agreed one.
 
 `total_is_provisional` reproduces the PDF's **"from"** semantics. It is stored
 rather than derived from "does any line have `quote_on_request`", because the
@@ -104,9 +121,15 @@ The three totals are stored so the identity is **checkable** rather than
 recomputed:
 
 ```
-accepted_commercial_total = unit_subtotal + otc_subtotal
-unit_subtotal             = Σ priced line_amount where line_kind <> 'otc'
-otc_subtotal              = Σ priced line_amount where line_kind  = 'otc'
+tier_commercial_total = unit_subtotal + otc_subtotal
+unit_subtotal         = Σ priced line_amount where line_kind <> 'otc'
+otc_subtotal          = Σ priced line_amount where line_kind  = 'otc'
+```
+
+and, once a tier is accepted,
+
+```
+accepted commercial total = the accepted tier's frozen tier_commercial_total
 ```
 
 Asserted at write time and re-assertable at push time. REG-4 then compares
