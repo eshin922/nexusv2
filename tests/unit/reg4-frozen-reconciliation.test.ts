@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { codeOnly } from "../support/code-only.ts";
+
 import {
   checkLinkA,
   checkLinkB,
@@ -200,20 +202,8 @@ test("intent and actual are separate columns, so a disagreement is visible", asy
 
 // ── every commercial line comes from the frozen matrix ───────────────────
 
-/**
- * Strip comments before asserting a token is ABSENT.
- *
- * Well-documented code explains the absence, so the prose contains the very
- * word the assertion forbids. This has now tripped three separate checks in
- * this slice — on `composition`, on `*`/`/`, and on `additionalLines` — each
- * time failing on correct code. A filter that cannot tell a mention from a use
- * measures nothing.
- */
-function codeOnly(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-}
+// `codeOnly` moved to tests/support so the cutover checks share one
+// definition of what counts as present in the code.
 
 test("there is no escape hatch for a second commercial line source", async () => {
   const src = codeOnly(

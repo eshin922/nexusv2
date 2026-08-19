@@ -231,7 +231,13 @@ test("markComplete emits Direct lines alongside groups, never dropping them", as
   // The grouped payload used to send `lines: []`, which silently removed every
   // Direct Product from a turnkey quote: the order would balance against its
   // own lines while omitting a product the customer had accepted.
-  assert.match(src, /lines: directLines/);
+  //
+  // F1/F4 widened what must survive the group branch, and widened it for the
+  // identical reason: an OTC or Direct Service line is expanded by no group
+  // either, so omitting it under-bills the order by exactly the fees. Both
+  // halves are asserted, because dropping either reproduces the same defect.
+  assert.match(src, /lines: \[\.\.\.directLines, \.\.\.accountingLines\]/);
+  assert.doesNotMatch(src, /lines: \[\],/);
   // Membership comes from the VERIFIED read-back, not the plan's intent.
   assert.match(src, /itemGroupDefinitions\.flatMap/);
   assert.match(src, /groupMemberItemIds: expandedMemberItemIds/);

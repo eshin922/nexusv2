@@ -78,6 +78,19 @@ import {
   projectGovernedCosts,
   type CostProjectionOutcome,
 } from "./cost-projection";
+// ── F1/F4 · the frozen accepted column as commercial authority ────────────
+import { buildFrozenSalesOrder } from "./frozen-sales-order";
+import type { FrozenSalesOrderLine } from "./frozen-sales-order";
+import { checkStructureAgreement } from "./frozen-order-assembly";
+import type { LiveStructureMember } from "./frozen-order-assembly";
+import { checkPostGroupingReg4 } from "./reg4-post-grouping";
+import type {
+  PostGroupingFlatLine,
+  PostGroupingGroup,
+} from "./reg4-post-grouping";
+import { recordPostingProvenance } from "./posting-provenance";
+import { decimalFromCents } from "./frozen-cents";
+import { describeBlockers } from "./projection-readiness";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -293,17 +306,29 @@ export async function runMarkComplete(
     );
   }
 
-  // Slice 12 Step 9 CB round-1 finding — round at the boundary.
-  // tierRollup.totalRevenue carries IEEE 754 residue in the general
-  // case; every downstream consumer of currentAmount is a boundary
-  // (HubSpot §7.2 patch, netsuite_so_pushes.amount_pushed audit
-  // column, audit_log's diff_json.amount_pushed, MarkCompleteResult
-  // return value). Rounding once at the source keeps them all in
-  // agreement + prevents float residue from crossing any external
-  // wire. NetSuite line rates use parseFloat(rate.toFixed(4))
-  // separately at build-sales-order-payload — same discipline,
-  // different precision for the line-level fields.
-  const currentAmount = Number(tierRollup.totalRevenue.toFixed(2));
+  // ── THE ORDER AMOUNT IS NO LONGER COMPUTED HERE ────────────────────────
+  //
+  // It used to be `Number(tierRollup.totalRevenue.toFixed(2))` — the LIVE
+  // costing rollup, recomputed at push time and therefore reproducing the
+  // accepted quote only for as long as draft-lock happened to hold every input
+  // still. That is a convention, and a convention is not an authority.
+  //
+  // `currentAmount` is now the frozen accepted tier's commercial total, taken
+  // at STEP 3.5 once the frozen order has been built and proved. It is
+  // declared here so its downstream consumers keep their existing positions:
+  // the HubSpot §7.2 patch, `netsuite_so_pushes.amount_pushed`, the audit
+  // row's `diff_json.amount_pushed`, the convergence gate's `acceptedTotal`,
+  // and the returned result. All of them now read one governed figure.
+  //
+  // The rounding note that stood here is obsolete rather than relocated: a
+  // frozen total is `numeric(14,2)`, so there is no IEEE residue to round off
+  // at the boundary. It is converted through integer cents, not through
+  // `toFixed`.
+  let currentAmount: number;
+
+  // `tierRollup` survives above for what it is still permitted to say — the
+  // margin verdicts guarding this push, and the per-unit cost basis. It no
+  // longer contributes a single commercial figure to the Sales Order.
 
   // ============================================================
   // STEP 2 — Resolve customer (customer-map lookup)
@@ -473,11 +498,168 @@ export async function runMarkComplete(
   }
   const resolutionError = formatResolutionErrors(resolutionResults);
   if (resolutionError) throw new Error(resolutionError);
-  // Build a sku → resolved id map from the "found" results.
-  const nsIdBySku = new Map<string, string>();
-  for (const r of resolutionResults) {
-    if (r.status === "found") nsIdBySku.set(r.sku, r.netsuiteItemId);
+  // The sku → item map that used to be built here is gone. Product lines now
+  // take their NetSuite item from `buildFrozenSalesOrder`, which resolves each
+  // frozen product SKU through `resolveSku` below — the same authority, reading
+  // the same results. Keeping a second map alive would leave two answers to
+  // "which item is this line", and a line resolved by one and posted by the
+  // other is how a REG-4-clean order reaches the wrong item.
+
+  // ============================================================
+  // STEP 3.5 — F1/F4 · the frozen accepted column becomes the
+  //            commercial authority for this Sales Order
+  // ============================================================
+  //
+  // Everything commercial on the order — quantity, sell rate, line amount,
+  // the OTC and Direct Service economics, and the accepted total — now comes
+  // from the matrix frozen when the customer was sent the quote they accepted.
+  // Nothing here recomputes a price.
+  //
+  // ── WHAT THIS REPLACES, AND WHY IT WAS NOT ALREADY SAFE ────────────────
+  //
+  // The order was previously assembled from a LIVE costing bundle fetched at
+  // push time. Every figure on it was therefore recomputed AFTER acceptance,
+  // and reproduced the accepted quote only because draft-lock stops cost edits
+  // and the commercial pin holds the rate. Those are conventions. A convention
+  // that has never been violated is indistinguishable from an invariant right
+  // up until it is, and there was nothing in the push that could tell the
+  // difference (Pattern 56).
+  //
+  // It also under-billed. No OTC and no Direct Service line was emitted at
+  // ALL, so a quote carrying separately billed fees posted an order short by
+  // exactly those fees — and the order still reconciled against its own
+  // remaining lines, because the total it was checked against was recomputed
+  // from the same incomplete set (Pattern 58's "exact reconciliation is
+  // necessary but not sufficient").
+  //
+  // ── THE DIVISION OF AUTHORITY ──────────────────────────────────────────
+  //
+  //   FROZEN governs WHAT WAS SOLD — quantity, rate, amount, total.
+  //   LIVE structure governs only HOW an already-frozen line is GROUPED:
+  //     Item Group membership, the group's SKU and name, qty-per-parent.
+  //   `unitCost` stays LIVE and stays non-commercial. It feeds
+  //     `custcol_dps_unit_cost` / `costEstimateRate`, an Accounting
+  //     cost-reporting basis, and never a sell rate, an amount, or REG-4.
+  //
+  // ── ORDER OF REFUSAL, ALL BEFORE ANY WRITE ─────────────────────────────
+  //
+  //   1  projection readiness, incl. provisional accepted tier   (here)
+  //   2  REG-4 link A — the frozen record agrees with itself     (here)
+  //   3  product SKU resolution                                  (here)
+  //   4  REG-4 link B — the COMPLETE emitted order sums frozen   (here)
+  //   5  live structure agrees with frozen structure             (here)
+  //   6  post-grouping REG-4, over what NetSuite will calculate  (STEP 7)
+  //
+  // Steps 1-5 run before the customer, Item Group or payload work; step 6 runs
+  // immediately before the POST, against the grouped representation NetSuite
+  // actually expands. No tolerance at any of them, and no rounding repair — a
+  // discrepancy refuses.
+
+  // Product SKU resolution reuses the results just obtained rather than issuing
+  // a second round of `resolveItem`. Same authority, memoised: a SKU resolved a
+  // moment ago cannot resolve differently now, and a frozen SKU absent from the
+  // live tree — the one case the loop above does not cover — still reaches the
+  // real resolver rather than being reported unresolved for want of a lookup.
+  const resolveSkuMemo = new Map<string, ResolveResult>();
+  for (const r of resolutionResults) resolveSkuMemo.set(r.sku, r);
+  const resolveSku = async (sku: string): Promise<ResolveResult> => {
+    const hit = resolveSkuMemo.get(sku);
+    if (hit) return hit;
+    const fresh = await netsuite.resolveItem(sku);
+    resolveSkuMemo.set(sku, fresh);
+    return fresh;
+  };
+
+  const frozenOrder = await buildFrozenSalesOrder(quoteId, { resolveSku });
+  if (!frozenOrder.ok) {
+    const reasons = [
+      ...describeBlockers(frozenOrder.blockers),
+      ...frozenOrder.reg4.map((f) => f.detail),
+    ];
+    throw new Error(
+      "Blocked — this Quote's Sales Order cannot be built from the column the customer " +
+        `accepted. ${reasons.join(" ")} Nothing was posted.`,
+    );
   }
+
+  // The LIVE structure, indexed by the canonical cost-input identity
+  // (`quote_leaves.id` — OD-017/OD-028; never `junctionId`, which lives in a
+  // different id space and matched 0/2 the last time a consumer used it).
+  //
+  // Services are excluded deliberately. A Direct Service is not product
+  // structure: it is never an Item Group member, it carries no qty-per-parent,
+  // and its economics come from the frozen matrix through the accounting-line
+  // emitter. Including one here would make it read as a live product line with
+  // no frozen counterpart and refuse a correct order.
+  type LiveStructureEntry = LiveStructureMember & {
+    assembly: AssemblyNode | null;
+    child: DirectProductNode;
+  };
+  const liveByLeafId = new Map<string, LiveStructureEntry>();
+  for (const leafRollup of bundle.data.costing.skuRollups) {
+    if (leafRollup.skuRole !== "leaf") continue;
+
+    const treeLeaf =
+      tree.assemblies
+        .flatMap((a) =>
+          a.children
+            .filter((c) => c.commercialKind !== "service")
+            .map((c) => ({
+              assembly: a as AssemblyNode | null,
+              child: c as DirectProductNode,
+            })),
+        )
+        .find(({ child }) => child.quoteLeafId === leafRollup.skuId) ??
+      directProductsOnly
+        .filter((d) => d.quoteLeafId === leafRollup.skuId)
+        .map((d) => ({ assembly: null as AssemblyNode | null, child: d }))[0];
+    if (!treeLeaf?.child.sku) continue;
+
+    const perTierRollup = leafRollup.perTier.find(
+      (pt) => pt.tierId === effectiveAcceptedTierId,
+    );
+    if (!perTierRollup) continue;
+
+    liveByLeafId.set(leafRollup.skuId, {
+      quoteLeafId: leafRollup.skuId,
+      sku: treeLeaf.child.sku,
+      assemblyId: treeLeaf.assembly?.id ?? null,
+      assemblySku: treeLeaf.assembly?.sku ?? null,
+      assemblyName: treeLeaf.assembly?.name ?? null,
+      // The Item Group DEFINITION multiplier — how many of this leaf ONE group
+      // contains, independent of how many groups the tier buys.
+      qtyPerParent: Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1)),
+      // Reporting basis only. Never reaches a rate, an amount or REG-4.
+      unitCost:
+        perTierRollup.contributionCostPerUnit != null
+          ? Number(perTierRollup.contributionCostPerUnit)
+          : null,
+      assembly: treeLeaf.assembly,
+      child: treeLeaf.child,
+    });
+  }
+
+  // Both directions, because each hides a different failure: a live product
+  // with no frozen line is a line ADDED after acceptance; a frozen product with
+  // no live structure is a line silently DROPPED, and the order would still
+  // reconcile against whatever remained if the total were recomputed rather
+  // than compared to the frozen one. A re-keyed identity appears as one of each.
+  const structureDisagreements = checkStructureAgreement({
+    frozenLines: frozenOrder.lines,
+    liveMembers: [...liveByLeafId.values()],
+    tierQty: tierRow.qty ?? 0,
+  });
+  if (structureDisagreements.length > 0) {
+    throw new Error(
+      "Blocked — the Quote's current structure no longer agrees with the accepted one. " +
+        `${structureDisagreements.map((d) => d.detail).join(" ")} Nothing was posted.`,
+    );
+  }
+
+  // THE order amount. One governed figure, parsed from the frozen decimal
+  // rather than divided out of cents, so every consumer downstream reads the
+  // same value the customer accepted.
+  currentAmount = Number(decimalFromCents(frozenOrder.totalCents));
 
   // ============================================================
   // STEP 4 — Resolve list-typed enum fields (block on fetch fail)
@@ -635,6 +817,11 @@ export async function runMarkComplete(
     | "failed"
     | "skipped_on_retry"
     | "backfilled_on_retry";
+  // What the frozen lines' posting provenance write did. `null` on the
+  // convergence-from-prior-success path, where a previous invocation already
+  // recorded it and this one posts nothing — distinct from `written: 0`, which
+  // would say the write ran and found nothing to record.
+  let provenanceOutcome: { written: number; error: string | null } | null = null;
 
   if (priorSuccess) {
     // Convergence path — retry sees prior success, skips SO create,
@@ -666,31 +853,30 @@ export async function runMarkComplete(
     // ============================================================
     // STEP 7 — Build SO payload + REST POST create
     // ============================================================
-    // Build per-line SO items: one line per assembly, referencing the
-    // Item Group internal id + tier qty + tier revenue-per-unit.
-    // Assemblies map to top-level skuRollups (NEW model — assemblies
-    // FLAT LINES per leaf — one SO line per leaf assembly-membership.
+    // Build per-line SO items by walking the FROZEN accepted order.
     //
-    // Nexus's assemblies (parent SKUs like "SMOKE-MC-…-0") don't
-    // exist as NetSuite items; only LEAVES resolve to NS items via
-    // SKU-match. So the SO cannot reference an assembly directly —
-    // each leaf becomes its own SO line at its per-tier rate.
+    // ── WHAT CHANGED, AND WHAT DID NOT ────────────────────────────────────
     //
-    // Rate + quantity source (SkuPerTierRollup on the leaf's
-    // skuRollup entry):
-    //   • quantity = tier.qty × leaf.qtyPerParent
-    //     (member count × tier order size — the "effective units"
-    //     for this leaf at this tier)
-    //   • rate     = leaf.perTier.requiredSellPerUnit
-    //     (the per-effective-unit sell price the math layer computes;
-    //     multiplied by qty = leaf's revenue contribution to the
-    //     assembly's tier total)
-    // Sum of all leaf-line amounts = tier's totalRevenue by
-    // construction, so accountingly the SO balances to Nexus's math.
-    const tierId = effectiveAcceptedTierId;
-    const leafRollups = bundle.data.costing.skuRollups.filter(
-      (r) => r.skuRole === "leaf",
-    );
+    // The iteration used to be over `bundle.data.costing.skuRollups` — the
+    // live math layer — taking `quantity = tier.qty × qtyPerParent` and
+    // `rate = perTier.requiredSellPerUnit` from it. Both are now read from the
+    // frozen accepted column instead; the loop below iterates
+    // `frozenOrder.lines`, which STEP 3.5 already proved reconciles to the
+    // frozen tier total exactly.
+    //
+    // The live tree is still consulted, for structure and cost only:
+    //   · which Item Group a member belongs to, and that group's identity
+    //   · `qtyPerParent`, the group DEFINITION multiplier
+    //   · `unitCost`, the Accounting cost-reporting basis
+    // Every one of those was proved to agree with the frozen set at STEP 3.5,
+    // so `liveByLeafId.get(...)` cannot miss here — the lookup is asserted
+    // rather than fallen back on, because a fallback is how a re-keyed
+    // identity gets silently absorbed.
+    //
+    // Nexus's assemblies (parent SKUs like "SMOKE-MC-…-0") still do not exist
+    // as NetSuite items; only leaves resolve by SKU-match, so the flat payload
+    // remains one line per leaf and the turnkey branch below swaps in the
+    // Item Group header lines exactly as before.
     const lines: SalesOrderLine[] = [];
     // The subset of `lines` belonging to Direct Products. Collected in the same
     // pass that builds `lines`, keyed by the attachment's own structure rather
@@ -698,90 +884,116 @@ export async function runMarkComplete(
     // be attached directly AND be a member of a group on one quote, so SKU is
     // not an identity here.
     const directLines: SalesOrderLine[] = [];
+    // The quantity-1 accounting half: separately billed OTC and Direct Service.
+    // Peer to `directLines` — never grouped, never expanded, and never absent,
+    // which is the whole of the under-billing defect this closes.
+    const accountingLines: SalesOrderLine[] = [];
+    // Every frozen line reaching the order, paired with the item it will post
+    // to, so the post-grouping REG-4 check and the provenance write both read
+    // what was actually sent rather than a second derivation of it.
+    const emitted: Array<{
+      frozen: FrozenSalesOrderLine;
+      soLine: SalesOrderLine;
+      /** The Item Group this line will be expanded by, or null if none does. */
+      assemblyId: string | null;
+      /** How many of this member ONE group contains. 1 for anything ungrouped. */
+      qtyPerGroup: number;
+    }> = [];
     // Track B §4 — assembly attribution, captured HERE rather than re-derived
     // later. Constraint 3: the plan is built from the same governed state as
     // the outgoing handoff, so the two cannot disagree.
     const planLines: PlanLineInput[] = [];
-    for (const leafRollup of leafRollups) {
-      // Locate the product's tree entry to get its SKU + name. Grouped members
-      // and Direct Products are searched in ONE space keyed by the canonical
-      // identity — a Direct Product differs only in having no assembly, which
-      // is carried as `assembly: null` rather than by being looked up elsewhere.
-      const treeLeaf =
-        tree.assemblies
-          .flatMap((a) =>
-            a.children.map((c) => ({
-              assembly: a as AssemblyNode | null,
-              child: c as DirectProductNode,
-            })),
-          )
-          // OD-028 — match on the CANONICAL cost-input identity. `skuRollups` are
-          // keyed by quote_leaf_id since OD-017; `junctionId` is the legacy
-          // assembly_leaf id and matched 0/2 on Order B, so every leaf was
-          // skipped and the empty-lines guard refused the push. Deliberately NO
-          // fallback to junctionId: a fallback would silently re-absorb the next
-          // re-key, which is exactly how this class keeps recurring.
-          .find(({ child }) => child.quoteLeafId === leafRollup.skuId) ??
-        tree.directProducts
-          .filter((d) => d.quoteLeafId === leafRollup.skuId)
-          .map((d) => ({ assembly: null as AssemblyNode | null, child: d }))[0];
-      if (!treeLeaf?.child.sku) continue; // no SKU → skipped upstream by resolver
-      const nsId = nsIdBySku.get(treeLeaf.child.sku);
-      if (!nsId) continue;
 
-      const perTierRollup = leafRollup.perTier.find((pt) => pt.tierId === tierId);
-      if (!perTierRollup) continue;
+    for (const frozenLine of frozenOrder.lines) {
+      const isProduct =
+        frozenLine.kind === "item_group_member" ||
+        frozenLine.kind === "direct_product";
 
-      // Effective qty for this leaf at this tier:
-      // tier.qty × qtyPerParent (leaves have qtyPerParent per math layer).
-      const qtyPerParent = Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1));
-      const effectiveQty = (tierRow.qty ?? 0) * qtyPerParent;
+      // FROZEN, all three. The rate is rendered at the transmitted precision
+      // (`numeric(14,4)`, which is what the payload builder emits) so the
+      // number checked by REG-4 is the number NetSuite receives.
+      const lineRate = Number(frozenLine.rate);
 
-      const lineRate = Number(perTierRollup.requiredSellPerUnit);
+      if (!isProduct) {
+        // OTC and Direct Service. Quantity 1 by construction — the emitter
+        // carries the frozen amount as the rate and multiplies by nothing.
+        const soLine: SalesOrderLine = {
+          netsuiteItemId: frozenLine.netsuiteItemId,
+          sku: frozenLine.sku ?? frozenLine.description,
+          description: frozenLine.description,
+          quantity: frozenLine.quantity,
+          rate: lineRate,
+          // A fee carries no product cost basis, and a zero here would assert
+          // that it is free. Silence is not a claim; zero is.
+          unitCost: null,
+        };
+        accountingLines.push(soLine);
+        emitted.push({ frozen: frozenLine, soLine, assemblyId: null, qtyPerGroup: 1 });
+        continue;
+      }
+
+      // Structure agreement already proved this resolves. Asserted, not
+      // defaulted — see the block comment above.
+      const live = frozenLine.quoteLeafId
+        ? liveByLeafId.get(frozenLine.quoteLeafId)
+        : undefined;
+      if (!live) {
+        throw new Error(
+          `[markComplete] frozen line "${frozenLine.description}" passed the structure ` +
+            "agreement guard but has no live structure entry. Refusing before CREATE.",
+        );
+      }
+
       const soLine: SalesOrderLine = {
-        netsuiteItemId: nsId,
-        sku: treeLeaf.child.sku,
+        netsuiteItemId: frozenLine.netsuiteItemId,
+        sku: live.child.sku as string,
         description:
-          treeLeaf.child.name ||
-          (treeLeaf.assembly
-            ? `${treeLeaf.assembly.name} — ${treeLeaf.child.sku}`
-            : treeLeaf.child.sku),
-        quantity: effectiveQty,
+          live.child.name ||
+          (live.assembly
+            ? `${live.assembly.name} — ${live.child.sku}`
+            : (live.child.sku as string)),
+        quantity: frozenLine.quantity,
         rate: lineRate,
-        unitCost:
-          perTierRollup.contributionCostPerUnit != null
-            ? Number(perTierRollup.contributionCostPerUnit)
-            : null,
+        unitCost: live.unitCost,
       };
       lines.push(soLine);
-      if (treeLeaf.assembly === null) directLines.push(soLine);
+      if (live.assembly === null) directLines.push(soLine);
+      emitted.push({
+        frozen: frozenLine,
+        soLine,
+        assemblyId: live.assemblyId,
+        qtyPerGroup: live.qtyPerParent,
+      });
       planLines.push({
         // NULL for a Direct Product. The plan records it as attributed to no
         // group, which is a positive fact the walk can assert — not an absence.
-        assemblyId: treeLeaf.assembly?.id ?? null,
-        assemblySku: treeLeaf.assembly?.sku ?? null,
-        assemblyName: treeLeaf.assembly?.name ?? null,
-        sku: treeLeaf.child.sku,
-        netsuiteItemId: nsId,
-        quantity: effectiveQty,
+        assemblyId: live.assemblyId,
+        assemblySku: live.assemblySku,
+        assemblyName: live.assemblyName,
+        sku: live.child.sku as string,
+        netsuiteItemId: frozenLine.netsuiteItemId,
+        quantity: frozenLine.quantity,
         // The Item Group DEFINITION multiplier — how many of this leaf one
         // group contains, independent of how many groups the tier buys.
-        qtyPerParent,
+        qtyPerParent: live.qtyPerParent,
         rate: lineRate,
         // Same expression as the flat line above, deliberately — one governed
         // source reaching both structures is the invariant this repair exists
         // to hold. Never re-derived from `rate`, the accepted total, freight,
         // duty or tariff.
-        unitCost:
-          perTierRollup.contributionCostPerUnit != null
-            ? Number(perTierRollup.contributionCostPerUnit)
-            : null,
+        unitCost: live.unitCost,
       });
     }
 
+    // The accounting half rides the flat line list. It is never a group member,
+    // so it cannot collide with an expanded member (the Probe 7a doubling the
+    // payload builder refuses); P1/SO2713 measured a group plus a flat line for
+    // an un-grouped item expanding exactly once.
+    lines.push(...accountingLines);
+
     if (lines.length === 0) {
       throw new Error(
-        "No SO lines built — every leaf failed to resolve or had no per-tier rollup. Cannot push.",
+        "No SO lines built — the frozen accepted column produced no postable line. Cannot push.",
       );
     }
 
@@ -833,7 +1045,13 @@ export async function runMarkComplete(
     // `assertIdentityMatchesPlan` proves the primitive returned that same
     // identity rather than one of its own.
     let payloadForSend = builtPayload;
-    if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+    // Named once, and used by BOTH the payload branch below and the
+    // post-grouping REG-4 check that follows it. Two spellings of the same
+    // condition is how a check ends up verifying a representation the order
+    // was not sent in.
+    const sendsGroupLines =
+      groupingPlan.groupingRequired && groupingPlan.groups.length > 0;
+    if (sendsGroupLines) {
       // Mixed structure was already refused at STEP 3, before any provider
       // call. Nothing carrying a Direct Product reaches this branch.
       if (!groupingPlan.derivable) {
@@ -941,6 +1159,11 @@ export async function runMarkComplete(
       // The mixed-structure refusal that stood here masked it; removing the
       // refusal without this would have exposed it.
       //
+      // The accounting half rides alongside for the same reason and would fail
+      // the same way: an OTC or Direct Service line is expanded by no group, so
+      // omitting it here would under-bill a turnkey order by exactly the fees —
+      // which is the defect this slice closes, reintroduced one branch later.
+      //
       // Member ids come from `itemGroupDefinitions`, which holds the membership
       // READ BACK from NetSuite and verified — what the groups will actually
       // expand, rather than what the plan intended them to.
@@ -949,10 +1172,78 @@ export async function runMarkComplete(
       );
       payloadForSend = buildSalesOrderPayload({
         ...soPayloadInput,
-        lines: directLines,
+        lines: [...directLines, ...accountingLines],
         groupLines: emittedGroupLines,
         groupMemberItemIds: expandedMemberItemIds,
       });
+    }
+
+    // ── POST-GROUPING REG-4 · over the order NetSuite will CALCULATE ───────
+    //
+    // The flat list checked at STEP 3.5 is not what gets posted. A turnkey
+    // order posts Item Group HEADER lines carrying a quantity and no rate;
+    // NetSuite expands each into its members, and the member rates arrive
+    // afterwards by PATCH. So the amounts that land are
+    //
+    //     member amount = (group quantity × member qty-per-group) × patched rate
+    //
+    // computed by NetSuite from an expansion never sent explicitly. Checking
+    // the intermediate would verify a representation that is not the order —
+    // exactly the "reconciles internally while being wrong" shape.
+    //
+    // The expansion is therefore reproduced here in integer cents and compared
+    // line by line against the frozen amounts, using the rates that will
+    // actually be transmitted. Runs immediately before the POST, after the
+    // Item Groups have been resolved and their membership read back, so the
+    // group quantities and qty-per-group are the real ones.
+    //
+    // Grouped and flat are partitioned on `assemblyId`, the same attribution
+    // the grouping plan was built from — not on item id, which is not an
+    // identity here (one product may legitimately be a group member on one
+    // line and attached directly on another). Every emitted line lands in
+    // exactly one half, so nothing can be checked twice or go unchecked.
+    const reg4Groups: PostGroupingGroup[] = sendsGroupLines
+      ? groupingPlan.groups.map((g) => ({
+          groupQuantity: groupingPlan.tierQty ?? 0,
+          members: emitted
+            .filter((e) => e.assemblyId !== null && e.assemblyId === g.assemblyId)
+            .map((e) => ({
+              sourceLineId: e.frozen.sourceLineId,
+              description: e.frozen.description,
+              netsuiteItemId: e.frozen.netsuiteItemId,
+              qtyPerGroup: e.qtyPerGroup,
+              // The transmitted rate, not the frozen string — `toFixed(4)`
+              // matches the payload builder exactly, so if that rendering ever
+              // lost precision the check refuses instead of the order quietly
+              // computing a different amount than the one proved at STEP 3.5.
+              rate: e.soLine.rate.toFixed(4),
+              frozenAmount: e.frozen.amount,
+            })),
+        }))
+      : [];
+    const groupedSourceLineIds = new Set(
+      reg4Groups.flatMap((g) => g.members.map((m) => m.sourceLineId)),
+    );
+    const reg4FlatLines: PostGroupingFlatLine[] = emitted
+      .filter((e) => !groupedSourceLineIds.has(e.frozen.sourceLineId))
+      .map((e) => ({
+        sourceLineId: e.frozen.sourceLineId,
+        description: e.frozen.description,
+        netsuiteItemId: e.frozen.netsuiteItemId,
+        quantity: e.soLine.quantity,
+        rate: e.soLine.rate.toFixed(4),
+        frozenAmount: e.frozen.amount,
+      }));
+    const postGroupingFailures = checkPostGroupingReg4({
+      groups: reg4Groups,
+      flatLines: reg4FlatLines,
+      frozenAcceptedTotal: decimalFromCents(frozenOrder.totalCents),
+    });
+    if (postGroupingFailures.length > 0) {
+      throw new Error(
+        "Blocked — the Sales Order NetSuite would calculate does not reproduce the accepted " +
+          `column. ${postGroupingFailures.map((f) => f.detail).join(" ")}`,
+      );
     }
 
     const builtPayloadWithPlan = attachGroupingPlan(payloadForSend, groupingPlan);
@@ -1323,16 +1614,26 @@ export async function runMarkComplete(
     // re-derived from that read, correct members are skipped, and only
     // mismatches are patched. A fully-correct order performs no commercial
     // mutation.
-    if (groupingPlan.groupingRequired && groupingPlan.groups.length > 0) {
+    if (sendsGroupLines) {
       try {
         const convergence = await runRateConvergence({
           soId: salesOrderInternalId,
           plannedGroups: groupingPlan.groups,
-          // The accepted Direct Products, so the gate can prove each one
-          // reached the order. Derived from the SAME `directLines` that built
-          // the payload — the gate must check what was actually required, not
-          // a second derivation that could agree with a wrong payload.
-          plannedDirectLines: directLines.map((l) => ({
+          // Every UNGROUPED line the accepted order requires, so the gate can
+          // prove each one reached the Sales Order. Derived from the SAME
+          // arrays that built the payload — the gate must check what was
+          // actually required, not a second derivation that could agree with a
+          // wrong payload.
+          //
+          // The accounting half is included for two reasons, both load-bearing.
+          // Presence: an OTC or Direct Service line dropped by NetSuite would
+          // otherwise pass unnoticed, which is precisely the under-billing this
+          // slice closes. Totals: `acceptedTotal` is now the FROZEN total,
+          // which includes those fees — so a gate told only about Direct
+          // Products would refuse a correct order for the amount of the fees,
+          // and the gate's own "unexpected ungrouped line" check would reject
+          // each of them by name.
+          plannedDirectLines: [...directLines, ...accountingLines].map((l) => ({
             sku: l.sku,
             netsuiteItemId: l.netsuiteItemId,
             quantity: l.quantity,
@@ -1441,6 +1742,39 @@ export async function runMarkComplete(
         }
         throw e;
       }
+    }
+
+    // ── POSTING PROVENANCE · what each frozen line ACTUALLY posted to ─────
+    //
+    // Runs after the order exists and, where grouping applies, after its
+    // member rates have converged — so it records a settled fact rather than
+    // an intention.
+    //
+    // Not a breach of the freeze. Pattern 52 makes the frozen COMMERCIAL
+    // columns immutable, and they stay that way: no amount, rate, quantity,
+    // pricing state or total is touched. `netsuite_item_id` is posting
+    // provenance, in the same family as `pdf_url` — a record of what happened
+    // to a line after it was frozen, written after the event it describes.
+    //
+    // NON-BLOCKING, deliberately and for the same reason the tranid fetch is:
+    // the Sales Order is created and commercially proved by this point, and
+    // refusing to complete a correct order because an audit column failed to
+    // write would trade a real outcome for a bookkeeping one. The failure is
+    // carried into the audit row instead of being swallowed.
+    try {
+      const written = await recordPostingProvenance(
+        db,
+        emitted.map((e) => ({
+          sourceLineId: e.frozen.sourceLineId,
+          postedNetsuiteItemId: e.frozen.netsuiteItemId,
+        })),
+      );
+      provenanceOutcome = { written: written.written, error: null };
+    } catch (e) {
+      provenanceOutcome = {
+        written: 0,
+        error: e instanceof Error ? e.message : String(e),
+      };
     }
 
     // Slice 12 Step 10 Q15 — post-create tranid fetch.
@@ -1624,6 +1958,15 @@ export async function runMarkComplete(
           // SO CREATE. Separate from item_groups, which records identity and
           // create-vs-reuse outcome rather than contents.
           item_group_definitions: itemGroupDefinitions,
+          // F1/F4 — the commercial authority this order was built from, stated
+          // rather than inferred from the absence of a contrary note. A reader
+          // asking "was this order priced from the accepted column or
+          // recomputed?" gets an answer from the audit row itself.
+          commercial_source: "frozen_accepted_tier",
+          frozen_accepted_total: decimalFromCents(frozenOrder.totalCents),
+          // Non-blocking by design (see the write site). Recorded so a failed
+          // provenance write is visible in audit rather than silent.
+          posting_provenance: provenanceOutcome,
         },
       },
     }, tx);

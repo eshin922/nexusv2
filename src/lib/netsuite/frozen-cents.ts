@@ -30,3 +30,24 @@ export function centsFromFrozen(value: string | null): number {
     BigInt(whole || "0") * 100n + BigInt((frac + "00").slice(0, 2) || "0");
   return Number(negative ? -cents : cents);
 }
+
+/**
+ * The inverse: integer cents as a 2-decimal string.
+ *
+ * String FORMATTING, not arithmetic — the integer is split, never divided, so
+ * the rendered value carries exactly the cents it was given.
+ *
+ * Lives beside `centsFromFrozen` so the pair is one module rather than a
+ * formatter re-implemented wherever a total has to be handed to something that
+ * speaks decimals. Two renderings of the same quantity is the shape this slice
+ * exists to remove; `centsFromFrozen(decimalFromCents(c)) === c` for every
+ * value either function accepts, and that round trip is what the post-grouping
+ * REG-4 check relies on when the frozen total reaches it as a string.
+ */
+export function decimalFromCents(cents: number): string {
+  const negative = cents < 0;
+  const abs = Math.abs(cents);
+  const whole = Math.trunc(abs / 100);
+  const frac = String(abs % 100).padStart(2, "0");
+  return `${negative ? "-" : ""}${whole}.${frac}`;
+}

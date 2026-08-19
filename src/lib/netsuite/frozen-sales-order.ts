@@ -7,7 +7,7 @@ import {
   quoteSnapshotTierTotals,
   quoteSnapshots,
 } from "@/db/schema";
-import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
+import { centsFromFrozen, decimalFromCents } from "@/lib/netsuite/frozen-cents";
 import { emitAccountingLines } from "@/lib/netsuite/accounting-line-emitter";
 import { assessProjectionReadiness } from "@/lib/netsuite/projection-readiness";
 import { checkLinkA, checkLinkB } from "@/lib/netsuite/reg4";
@@ -233,8 +233,8 @@ export async function buildFrozenSalesOrder(
       quantity: l.quantity,
       // Quantity is 1, so rate and amount are the same integer cents rendered
       // twice — neither derived from the other.
-      rate: centsToDecimal(l.rateCents),
-      amount: centsToDecimal(l.amountCents),
+      rate: decimalFromCents(l.rateCents),
+      amount: decimalFromCents(l.amountCents),
     }),
   );
 
@@ -257,13 +257,4 @@ export async function buildFrozenSalesOrder(
     totalCents: frozenSumCents,
     postedSourceLineIds: all.map((l) => l.sourceLineId),
   };
-}
-
-/** Integer cents as a 2-decimal string. String formatting, not arithmetic. */
-function centsToDecimal(cents: number): string {
-  const negative = cents < 0;
-  const abs = Math.abs(cents);
-  const whole = Math.trunc(abs / 100);
-  const frac = String(abs % 100).padStart(2, "0");
-  return `${negative ? "-" : ""}${whole}.${frac}`;
 }

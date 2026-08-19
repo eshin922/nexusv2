@@ -6,6 +6,7 @@ import {
   computeIdempotencyKey,
   type SalesOrderPayloadInput,
 } from "../../src/lib/netsuite/sales-orders.ts";
+import { codeOnly } from "../support/code-only.ts";
 
 const fullInput: SalesOrderPayloadInput = {
   netsuiteCustomerId: "customer-101",
@@ -198,21 +199,85 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   );
   const schema = readFileSync("src/db/schema.ts", "utf8");
 
+  // SKU resolution is still exact-match through the real resolver.
   assert.match(source, /resolutionResults\.push\(await netsuite\.resolveItem\(sku\)\)/);
+  // …and its results are still what the product item id comes from. The
+  // `nsIdBySku` map this used to assert on is gone: product lines now take
+  // their item from `buildFrozenSalesOrder`, which resolves each frozen SKU
+  // through `resolveSku` — the SAME results, memoised. Two maps would be two
+  // answers to "which item is this line".
+  assert.match(source, /const resolveSkuMemo = new Map<string, ResolveResult>\(\)/);
+  assert.match(source, /for \(const r of resolutionResults\) resolveSkuMemo\.set\(r\.sku, r\)/);
+  assert.match(source, /buildFrozenSalesOrder\(quoteId, \{ resolveSku \}\)/);
+  assert.doesNotMatch(codeOnly(source), /nsIdBySku/);
+
+  // The Item Group DEFINITION multiplier is still read from the math layer.
+  // It is STRUCTURE — how many of a leaf one group contains — and structure is
+  // the one thing the live tree is still permitted to say.
   assert.match(
     source,
-    /if \(r\.status === "found"\) nsIdBySku\.set\(r\.sku, r\.netsuiteItemId\)/,
+    /qtyPerParent: Math\.max\(1, Math\.round\(leafRollup\.qtyPerParent \?\? 1\)\)/,
   );
+
+  // ── F1/F4 · quantity and rate are FROZEN, not computed here ─────────────
+  //
+  // This block used to assert the opposite: `effectiveQty = (tierRow.qty ?? 0)
+  // × qtyPerParent` and `rate = perTierRollup.requiredSellPerUnit`, both
+  // recomputed from live costing at push time. That reproduced the accepted
+  // quote only for as long as draft-lock happened to hold every input still —
+  // a convention, not an authority.
+  //
+  // Both directions are asserted. The positive alone would pass while a stray
+  // live derivation survived somewhere else in the builder.
+  assert.match(source, /quantity: frozenLine\.quantity/);
+  assert.match(source, /const lineRate = Number\(frozenLine\.rate\)/);
+  assert.match(source, /netsuiteItemId: frozenLine\.netsuiteItemId/);
+  assert.doesNotMatch(codeOnly(source), /const effectiveQty/);
+  assert.doesNotMatch(codeOnly(source), /requiredSellPerUnit/);
+  // The live effective-quantity multiply, in ANY spelling — not just the
+  // `const effectiveQty` binding it used to live in.
+  //
+  // Found by falsification: replacing the PRODUCT line's `quantity:
+  // frozenLine.quantity` with `(tierRow.qty ?? 0) * live.qtyPerParent` left the
+  // suite fully green, because the positive assertion above was still satisfied
+  // by the ACCOUNTING line's identical text. A check that passes while the
+  // thing it names is broken measures nothing. `tierRow.qty` itself survives —
+  // the structure guard is handed it as `tierQty`, unmultiplied — so the
+  // forbidden token is the multiplication.
+  assert.doesNotMatch(codeOnly(source), /\(tierRow\.qty \?\? 0\) \*/);
+  assert.match(source, /tierQty: tierRow\.qty \?\? 0/);
+  // Narrow on purpose. `tierRollup.totalRevenue` survives ONE legitimate use —
+  // `fingerprintCommercialState`, which pins the state a below-floor
+  // authorization was granted against. That is a margin-guard input, not a
+  // figure on the Sales Order. What must never come back is the old order
+  // amount, so the forbidden token is that expression rather than the field.
+  assert.doesNotMatch(
+    codeOnly(source),
+    /Number\(tierRollup\.totalRevenue\.toFixed\(2\)\)/,
+  );
+  assert.match(source, /fingerprintCommercialState\(\{/);
+
+  // The order amount is the frozen accepted total, converted through integer
+  // cents rather than divided out of a float.
   assert.match(
     source,
-    /const qtyPerParent = Math\.max\(1, Math\.round\(leafRollup\.qtyPerParent \?\? 1\)\)/,
+    /currentAmount = Number\(decimalFromCents\(frozenOrder\.totalCents\)\)/,
   );
-  assert.match(
-    source,
-    /const effectiveQty = \(tierRow\.qty \?\? 0\) \* qtyPerParent/,
+
+  // Every refusal that must precede the POST is wired, in order.
+  assert.match(source, /checkStructureAgreement\(\{/);
+  assert.match(source, /checkPostGroupingReg4\(\{/);
+  assert.ok(
+    source.indexOf("checkPostGroupingReg4({") <
+      source.indexOf("await netsuite.createSalesOrder("),
+    "post-grouping REG-4 must run BEFORE the CREATE, not after it",
   );
-  assert.match(source, /netsuiteItemId: nsId/);
-  assert.match(source, /quantity: effectiveQty/);
+  // Provenance is written after the order exists, never before.
+  assert.ok(
+    source.indexOf("recordPostingProvenance(") >
+      source.indexOf("await netsuite.createSalesOrder("),
+    "posting provenance must be recorded AFTER the CREATE",
+  );
 
   // Step 2 extracted the payload input into `soPayloadInput` so the
   // turnkey_only branch can rebuild the SAME header with group lines swapped

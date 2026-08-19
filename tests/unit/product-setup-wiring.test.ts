@@ -384,8 +384,9 @@ test("mixed structure projects both, and drops neither", async () => {
   assert.doesNotMatch(src, /Projecting both structures into one Sales Order is not yet/);
   // What replaced it matters more than its removal: Direct lines are now
   // EMITTED alongside groups. The previous `lines: []` would have dropped them
-  // silently the moment the refusal lifted.
-  assert.match(src, /lines: directLines/);
+  // silently the moment the refusal lifted. F1/F4 added the quantity-1
+  // accounting half beside them, which fails the same way if dropped.
+  assert.match(src, /lines: \[\.\.\.directLines, \.\.\.accountingLines\]/);
   assert.match(src, /groupMemberItemIds: expandedMemberItemIds/);
 });
 
