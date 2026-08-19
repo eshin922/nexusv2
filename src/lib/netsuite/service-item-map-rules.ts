@@ -1,6 +1,10 @@
 import type { NetSuiteOperations } from "@/lib/integrations/netsuite-provider";
 import { ActionGuardError, ERR } from "@/lib/action-result";
 import {
+  SERVICE_IDENTITY_DESTINATION,
+  isPerLineDestination,
+} from "./bv011-destinations";
+import {
   DIRECT_SERVICE_LABELS,
   type DirectServiceIdentity,
 } from "@/lib/product-structure/direct-service";
@@ -221,10 +225,16 @@ export function describeUnusableMapping(
  * active. This does, so a mapping that has rotted since it was entered is
  * caught here rather than by NetSuite rejecting the CREATE.
  *
- * `other_service` is no longer blocked here. Its item is chosen per line and
- * frozen at send, so whether a given line HAS a selection is a fact about the
- * frozen row, which this gate cannot see and readiness can — and readiness
- * refuses it by name, pointing at Costs rather than at Settings.
+ * A PER-LINE destination is no longer blocked here — `other_service`, and since
+ * Decision 5 (Accounting, 2026-08-19) `otc_testing` as well. Their item is
+ * chosen per line and frozen at send, so whether a given line HAS a selection
+ * is a fact about the frozen row, which this gate cannot see and readiness can
+ * — and readiness refuses it by name, pointing at Costs rather than Settings.
+ *
+ * The exemption is keyed on the DESTINATION, not on the fixed/other identity
+ * split. The split was a working proxy while `other_service` was the only
+ * per-line destination; `testing_micros` is a FIXED identity with a per-line
+ * destination, so the proxy and the governance now disagree.
  */
 export type DirectServiceGateVerdict =
   | { blocked: false }
@@ -242,7 +252,25 @@ export function evaluateDirectServiceGate(input: {
   const known = serviceIdentities.filter(
     (id): id is DirectServiceIdentity => id !== null,
   );
-  const fixed = known.filter(isFixedServiceIdentity);
+  // PER-LINE destinations are exempt, and the test is the DESTINATION rather
+  // than the fixed/other split.
+  //
+  // The split was the right proxy while `other_service` was the only per-line
+  // destination. Decision 5 (Accounting, 2026-08-19) made `OTC - Testing`
+  // per-line too, and `testing_micros` IS a fixed identity — so the proxy
+  // started demanding a firm-wide mapping for a line whose item is chosen per
+  // line and frozen at send. It blocked CERT-303 on a mapping row that nothing
+  // would ever have read: readiness resolves this line from the frozen
+  // selection, and does so correctly.
+  //
+  // Satisfying it with a firm-wide row would have been worse than the block. It
+  // would create a SECOND answer to "which item does this line post to", sitting
+  // in Settings looking authoritative while the frozen per-line selection is
+  // what actually posts — the divergence Pattern 58 warns about, and the one the
+  // readiness resolver was deliberately written in a single pass to avoid.
+  const fixed = known
+    .filter(isFixedServiceIdentity)
+    .filter((id) => !isPerLineDestination(SERVICE_IDENTITY_DESTINATION[id]));
 
   const problems = fixed
     .map((id) => describeUnusableMapping(id, mapped.has(id) ? verdicts.get(id) : undefined))
