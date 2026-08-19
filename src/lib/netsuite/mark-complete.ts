@@ -38,6 +38,7 @@ import {
 } from "./item-groups";
 import { runRateConvergence } from "./rate-convergence";
 import { patchSalesOrderLine } from "./client";
+import { enforceNonTaxableLines } from "./tax-policy";
 import { reconcileBeforeCreate } from "./create-reconciliation";
 import {
   adaptPlannedGroup,
@@ -1120,7 +1121,10 @@ export async function runMarkComplete(
       netsuiteCustomerId: customer.netsuiteCustomerId,
       subsidiaryId: firm.netsuiteSubsidiaryId,
       orderStatusCode: firm.netsuiteSoOrderStatusCode,
-      taxCodeId: firm.netsuiteDefaultTaxCodeId,
+      // `taxCodeId` removed — every Nexus Sales Order is non-taxable by
+      // governed rule, so it is a constant in tax-policy.ts rather than a
+      // value this call site (or an admin) can supply. The firm_settings
+      // column remains in the schema, now unread.
       paymentTermsText: quote.paymentTermsSnapshot,
       hubspotDealId: projectRow.hubspotDealId,
       hubspotDealName: dealCache.dealName,
@@ -1717,6 +1721,9 @@ export async function runMarkComplete(
     let rateConvergenceSummary: { patched: number; alreadyCorrect: number } | null = null;
   // Reporting only — never a gate. See cost-projection.ts.
   let costProjectionSummary: CostProjectionOutcome | null = null;
+  // Reported like the others, but IS a gate — see the enforcement block below.
+  let taxEnforcementSummary: { patched: number; alreadyNonTaxable: number } | null =
+      null;
 
     // ── Step 3 — negotiated member-rate convergence + verification ────────
     //
@@ -1786,6 +1793,47 @@ export async function runMarkComplete(
           patched: convergence.patched.length,
           alreadyCorrect: convergence.alreadyCorrect,
         };
+
+        // ---- Governed tax policy → every line non-taxable ----
+        //
+        // AFTER convergence, because Item Group MEMBER lines do not exist until
+        // NetSuite has expanded the group — and the member is exactly the line
+        // that was taxable on SO2716 while the group header around it was not.
+        //
+        // UNLIKE the cost projection below, this is NOT best-effort. Cost is a
+        // reporting basis, so a commercially correct order must not be refused
+        // when it fails to write. Non-taxability is a governed commercial rule,
+        // so an order that stays taxable is not one to complete quietly. The
+        // Sales Order is retained and the push resumes against it, exactly as
+        // the convergence gate does.
+        {
+          const tax = await enforceNonTaxableLines({
+            readLines: async () =>
+              (await readSalesOrderLines(salesOrderInternalId!)).map((l) => ({
+                line: l.line,
+                taxCodeId: l.taxCodeId,
+              })),
+            patchLine: (address, taxCodeId) =>
+              patchSalesOrderLine(salesOrderInternalId!, address, { taxCodeId }),
+          });
+          taxEnforcementSummary = {
+            patched: tax.patched.length,
+            alreadyNonTaxable: tax.alreadyNonTaxable.length,
+          };
+          if (tax.residual.length > 0 || tax.failures.length > 0) {
+            throw new Error(
+              `Sales Order ${salesOrderTranid ?? salesOrderInternalId} was created but is not ` +
+                `tax-compliant. Every Nexus Sales Order must be non-taxable; line(s) ` +
+                `${tax.residual.join(", ") || "—"} still carry a taxable code` +
+                (tax.failures.length > 0
+                  ? `, and ${tax.failures.length} tax patch(es) failed: ` +
+                    tax.failures.map((f) => `line ${f.line}: ${f.message}`).join("; ")
+                  : "") +
+                `. The order is retained and this push can be safely retried — it will resume ` +
+                `against the same Sales Order rather than creating another.`,
+            );
+          }
+        }
 
         // ---- Governed cost → NetSuite Accounting basis (one-shot) ----
         //

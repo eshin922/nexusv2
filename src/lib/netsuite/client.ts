@@ -287,7 +287,7 @@ export async function getRecord<T = Record<string, unknown>>(
 export async function patchSalesOrderLine(
   soId: string,
   lineIdx: number,
-  patch: { rate?: number; unitCost?: number },
+  patch: { rate?: number; unitCost?: number; taxCodeId?: string },
   config?: NetsuiteConfig,
 ): Promise<void> {
   if (!Number.isInteger(lineIdx) || lineIdx < 0) {
@@ -305,9 +305,18 @@ export async function patchSalesOrderLine(
       `[netsuite] patchSalesOrderLine: unitCost must be finite (got ${String(patch.unitCost)})`,
     );
   }
-  if (patch.rate === undefined && patch.unitCost === undefined) {
+  if (patch.taxCodeId !== undefined && patch.taxCodeId.trim() === "") {
     throw new Error(
-      "[netsuite] patchSalesOrderLine: nothing to patch — supply rate, unitCost, or both",
+      "[netsuite] patchSalesOrderLine: taxCodeId must be a non-empty id when supplied",
+    );
+  }
+  if (
+    patch.rate === undefined &&
+    patch.unitCost === undefined &&
+    patch.taxCodeId === undefined
+  ) {
+    throw new Error(
+      "[netsuite] patchSalesOrderLine: nothing to patch — supply rate, unitCost, taxCodeId, or a combination",
     );
   }
 
@@ -351,6 +360,15 @@ export async function patchSalesOrderLine(
     // contribution cost; nothing here re-derives it from rate, amount or a
     // NetSuite default.
     body.custcol_dps_unit_cost = patch.unitCost;
+  }
+  if (patch.taxCodeId !== undefined) {
+    // The ONLY way to reach an Item Group member's tax code.
+    //
+    // Members are created by NetSuite's group expansion, so no CREATE payload
+    // can carry this — on SO2716 the group header and EndGroup were -8 while
+    // the member between them, the line actually carrying the money, was CA_CA.
+    // See tax-policy.ts.
+    body.taxCode = { id: patch.taxCodeId };
   }
 
   const response = await fetch(url, {

@@ -478,6 +478,8 @@ export async function readSalesOrderLines(soId: string): Promise<
     rate: number | null;
     amount: number | null;
     classId: string | null;
+    /** Read so tax enforcement can tell a corrected line from an unread one. */
+    taxCodeId: string | null;
   }>
 > {
   const collection = await nsRequest<{
@@ -503,6 +505,8 @@ export async function readSalesOrderLines(soId: string): Promise<
     rate: number | null;
     amount: number | null;
     classId: string | null;
+    /** Read so tax enforcement can tell a corrected line from an unread one. */
+    taxCodeId: string | null;
   }> = [];
 
   for (const address of addresses) {
@@ -513,6 +517,7 @@ export async function readSalesOrderLines(soId: string): Promise<
     const item = l.item as { id?: unknown } | undefined;
     const itemType = l.itemType as { id?: unknown; refName?: unknown } | string | undefined;
     const cls = l.class as { id?: unknown } | undefined;
+    const tax = l.taxCode as { id?: unknown } | undefined;
     lines.push({
       // Prefer the element's own `line`; fall back to the href it was fetched
       // by. Both were observed identical, and neither is an array position.
@@ -530,6 +535,7 @@ export async function readSalesOrderLines(soId: string): Promise<
       rate: typeof l.rate === "number" ? l.rate : null,
       amount: typeof l.amount === "number" ? l.amount : null,
       classId: cls?.id != null ? String(cls.id) : null,
+      taxCodeId: tax?.id != null ? String(tax.id) : null,
     });
   }
   return lines;

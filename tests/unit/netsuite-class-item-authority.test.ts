@@ -23,7 +23,6 @@ const base: SalesOrderPayloadInput = {
   netsuiteCustomerId: "72173",
   subsidiaryId: "2",
   orderStatusCode: "B",
-  taxCodeId: null,
   paymentTermsText: "Net 30",
   hubspotDealId: "58332160883",
   hubspotDealName: "Nemah",

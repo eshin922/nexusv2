@@ -217,9 +217,30 @@ test("the member PATCH writes BOTH cost columns from one governed value", async 
   // ...from the SAME argument. Two destinations, one source: a second source
   // could drift, and the two columns would then disagree about one product's
   // cost — which is exactly the state this repair exists to end.
+  //
+  // Scoped by NAMING the cost columns rather than by excluding `rate`. The
+  // exclusion form asserted something about every non-rate key in the function,
+  // so it failed the moment a non-cost field was added (the governed `taxCode`)
+  // — a true statement about cost expressed as a claim over the whole body.
+  //
+  // Naming them is also stricter here: a key appearing that is NOT in this set
+  // is caught by the complete-allowlist assertion in
+  // grouped-so-recovery-core.test.ts, which is the guard that owns "nothing
+  // unnamed reaches the wire".
+  const COST_KEYS = new Set([
+    "custcol_dps_unit_cost",
+    "costEstimateRate",
+    "costEstimateType",
+  ]);
   const unitCostAssignments = [...fn.matchAll(/body\.(\w+) = ([^;]+);/g)]
-    .filter(([, key]) => key !== "rate")
+    .filter(([, key]) => COST_KEYS.has(key))
     .map(([, , value]) => value.trim());
+  // A filter that matched nothing would pass the loop below vacuously.
+  assert.equal(
+    unitCostAssignments.length,
+    COST_KEYS.size,
+    "the cost-column filter did not match all three columns — it is measuring the wrong thing",
+  );
   for (const v of unitCostAssignments) {
     assert.ok(
       v === "patch.unitCost" || v === '{ id: "CUSTOM" }',
