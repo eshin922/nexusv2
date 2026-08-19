@@ -1,6 +1,8 @@
 import { requireAdminPage } from "@/lib/admin-guard";
 import { listServiceItemMappings } from "@/app/actions/netsuite-service-map";
+import { listDestinationMappings } from "@/app/actions/netsuite-destination-map";
 import { ServiceItemMapTable } from "./service-item-map-table";
+import { DestinationItemMapTable } from "./destination-item-map-table";
 
 /**
  * Settings → NetSuite. The integrations area the mapping disposition asked
@@ -21,6 +23,7 @@ import { ServiceItemMapTable } from "./service-item-map-table";
 export default async function NetsuiteAdminPage() {
   await requireAdminPage();
   const result = await listServiceItemMappings();
+  const destinations = await listDestinationMappings();
 
   return (
     <div>
@@ -32,8 +35,51 @@ export default async function NetsuiteAdminPage() {
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold text-slate-900">
-          Direct Service item mappings
+          BV-011 accounting destinations
         </h2>
+        <p className="mt-1 max-w-3xl text-sm text-slate-600">
+          Every one-time charge and Direct Service posts to a governed BV-011
+          destination. You map each destination to a NetSuite record here — you
+          do not choose which destination a fee belongs to. That is fixed by
+          BV-011, because it is what the fee <em>means</em> rather than where it
+          happens to be recorded.
+        </p>
+        <p className="mt-2 max-w-3xl text-sm text-slate-600">
+          Two fees can share one destination:{" "}
+          <strong className="font-medium text-slate-900">R&amp;D</strong> and the{" "}
+          <strong className="font-medium text-slate-900">Formulation</strong>{" "}
+          Direct Service both post to <code className="font-mono text-xs">OTC - Formulation</code>.
+          That is one row here, not two — which is the reason these are keyed by
+          destination rather than by the fee that produced them.
+        </p>
+        <p className="mt-2 max-w-3xl text-sm text-slate-600">
+          A frozen quote line whose destination is unmapped{" "}
+          <strong className="font-medium text-slate-900">blocks</strong> its
+          NetSuite push and names the destination, rather than being skipped.
+        </p>
+
+        {destinations.ok ? (
+          <DestinationItemMapTable rows={destinations.data.rows} />
+        ) : (
+          <p className="mt-6 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {destinations.error.message}
+          </p>
+        )}
+      </section>
+
+      <section className="mt-12">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Direct Service item mappings
+          <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 align-middle text-xs font-medium text-slate-600">
+            superseded
+          </span>
+        </h2>
+        <p className="mt-1 max-w-3xl text-sm text-slate-600">
+          Kept visible while the destination table above takes over. This one is
+          keyed by service identity, which needed a separate row per fee even
+          when two fees shared a NetSuite item. It is retired once every
+          consumer reads the destination map.
+        </p>
         <p className="mt-1 max-w-3xl text-sm text-slate-600">
           The four fixed Direct Services need a NetSuite item each. Their
           Nexus SKUs (<code className="font-mono text-xs">SVC-…</code>) are

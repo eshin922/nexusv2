@@ -95,6 +95,8 @@ const prod = (
   cmAssemblyTotal: 0,
   setupFeeTotal: setup,
   toolingArtworkTotal: 0,
+  toolingTotal: 0,
+  artworkTotal: 0,
   rdTotal: 0,
   otherServiceTotal: 0,
   bulkRawCost: null,

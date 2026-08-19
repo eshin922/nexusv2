@@ -86,7 +86,7 @@ export function costBaseFingerprint(input: QuoteCostingInput): string {
     `${a.quoteSkuId}${a.tierId}`.localeCompare(`${b.quoteSkuId}${b.tierId}`),
   )) {
     parts.push(
-      `prod:${pr.quoteSkuId}:${pr.tierId}:${q(pr.fillingBlendingCost)}:${q(pr.cmAssemblyTotal)}:${q(pr.setupFeeTotal)}:${q(pr.toolingArtworkTotal)}:${q(pr.rdTotal)}:${q(pr.otherServiceTotal)}:${q(pr.bulkRawCost)}:${q(pr.actualUnitsProduced)}:${pr.customerShipsRaws ? 1 : 0}:${pr.allocateServiceFeesToCost ? 1 : 0}`,
+      `prod:${pr.quoteSkuId}:${pr.tierId}:${q(pr.fillingBlendingCost)}:${q(pr.cmAssemblyTotal)}:${q(pr.setupFeeTotal)}:${q(pr.toolingArtworkTotal)}:${q(pr.toolingTotal)}:${q(pr.artworkTotal)}:${q(pr.rdTotal)}:${q(pr.otherServiceTotal)}:${q(pr.bulkRawCost)}:${q(pr.actualUnitsProduced)}:${pr.customerShipsRaws ? 1 : 0}:${pr.allocateServiceFeesToCost ? 1 : 0}`,
     );
   }
 

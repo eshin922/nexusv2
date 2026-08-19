@@ -366,6 +366,8 @@ export default async function CostBuildPage({
       cmAssemblyTotal: string | null;
       setupFeeTotal: string | null;
       toolingArtworkTotal: string | null;
+      toolingTotal: string | null;
+      artworkTotal: string | null;
       rdTotal: string | null;
       otherServiceTotal: string | null;
       bulkRawCost: string | null;
@@ -582,6 +584,8 @@ export default async function CostBuildPage({
         cmAssemblyTotal: api.cmAssemblyTotal,
         setupFeeTotal: api.setupFeeTotal,
         toolingArtworkTotal: api.toolingArtworkTotal,
+        toolingTotal: api.toolingTotal,
+        artworkTotal: api.artworkTotal,
         rdTotal: api.rdTotal,
         otherServiceTotal: api.otherServiceTotal,
         bulkRawCost: api.bulkRawCost,

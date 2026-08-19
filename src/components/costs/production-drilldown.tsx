@@ -62,6 +62,8 @@ type ProductionInputRow = {
     cmAssemblyTotal: string | null;
     setupFeeTotal: string | null;
     toolingArtworkTotal: string | null;
+    toolingTotal: string | null;
+    artworkTotal: string | null;
     rdTotal: string | null;
     otherServiceTotal: string | null;
     bulkRawCost: string | null;
@@ -76,6 +78,8 @@ type ProdRowForUI = {
   cmAssemblyTotal: string | null;
   setupFeeTotal: string | null;
   toolingArtworkTotal: string | null;
+  toolingTotal: string | null;
+  artworkTotal: string | null;
   rdTotal: string | null;
   otherServiceTotal: string | null;
   bulkRawCost: string | null;
@@ -93,6 +97,8 @@ type CostField =
   | "cmAssemblyTotal"
   | "setupFeeTotal"
   | "toolingArtworkTotal"
+  | "toolingTotal"
+  | "artworkTotal"
   | "rdTotal"
   | "otherServiceTotal"
   | "bulkRawCost";
@@ -102,13 +108,25 @@ type VirtualLine = {
   name: string;
   category: string;
   kind: "tier_total_cogs" | "one_time_fee";
+  /**
+   * A retired input, shown only where it already holds a value.
+   *
+   * Offering it on a fresh quote would let an operator create new unresolvable
+   * data — the exact state the split exists to stop producing.
+   */
+  legacy?: boolean;
 };
 
 const VIRTUAL_LINES: VirtualLine[] = [
   { field: "fillingBlendingCost", name: "Filling / blending tier total", category: "Manufacturing", kind: "tier_total_cogs" },
   { field: "cmAssemblyTotal", name: "CM assembly tier total", category: "Manufacturing", kind: "tier_total_cogs" },
   { field: "setupFeeTotal", name: "Setup fee total", category: "Tooling", kind: "one_time_fee" },
-  { field: "toolingArtworkTotal", name: "Tooling / artwork total", category: "Tooling", kind: "one_time_fee" },
+  // LEGACY. Rendered only when it already holds a value — see `visibleLines`.
+  // It is the charge as it was quoted, and it stays writable so an operator can
+  // clear it while moving the amount into the two governed rows below.
+  { field: "toolingArtworkTotal", name: "Tooling / artwork total", category: "Tooling", kind: "one_time_fee", legacy: true },
+  { field: "toolingTotal", name: "Tooling total", category: "Tooling", kind: "one_time_fee" },
+  { field: "artworkTotal", name: "Artwork total", category: "Tooling", kind: "one_time_fee" },
   { field: "rdTotal", name: "R&D fee total", category: "R&D", kind: "one_time_fee" },
   { field: "otherServiceTotal", name: "Other service fee total", category: "Other", kind: "one_time_fee" },
 ];
@@ -178,6 +196,8 @@ export function ProductionDrilldown({
       cmAssemblyTotal: row.cmAssemblyTotal,
       setupFeeTotal: row.setupFeeTotal,
       toolingArtworkTotal: row.toolingArtworkTotal,
+      toolingTotal: row.toolingTotal,
+      artworkTotal: row.artworkTotal,
       rdTotal: row.rdTotal,
       otherServiceTotal: row.otherServiceTotal,
       bulkRawCost: row.bulkRawCost,
@@ -315,9 +335,27 @@ export function ProductionDrilldown({
   const actualUnitsProduced = firstTierRow?.actualUnitsProduced ?? null;
   const yieldLocked = actualUnitsProduced !== null;
 
+  // A legacy input appears only where it already holds a value, on any tier of
+  // any assembly in this section. Offering it on a quote that has never used it
+  // would let an operator create fresh unresolvable data — the state the
+  // Tooling/Artwork split exists to stop producing — while hiding it from a
+  // quote that DOES carry one would strand the amount with no way to resolve it.
+  const legacyFieldsInUse = new Set<CostField>();
+  for (const byTier of rowsBySku.values()) {
+    for (const r of byTier.values()) {
+      for (const l of VIRTUAL_LINES) {
+        if (!l.legacy) continue;
+        const v = (r as unknown as Record<string, string | null>)[l.field];
+        if (v !== null && v !== undefined && v !== "" && Number(v) !== 0) {
+          legacyFieldsInUse.add(l.field);
+        }
+      }
+    }
+  }
+
   // Lines visible — bulk_raw_cost only when raws_mode = cm_sources
   const visibleLines: VirtualLine[] = [
-    ...VIRTUAL_LINES,
+    ...VIRTUAL_LINES.filter((l) => !l.legacy || legacyFieldsInUse.has(l.field)),
     ...(rawsMode === "cm_sources"
       ? [
           {
@@ -810,6 +848,8 @@ function ProductionTierCell({
     fd.set("cmAssemblyTotal", line.field === "cmAssemblyTotal" ? valueRef.current : (row?.cmAssemblyTotal ?? ""));
     fd.set("setupFeeTotal", line.field === "setupFeeTotal" ? valueRef.current : (row?.setupFeeTotal ?? ""));
     fd.set("toolingArtworkTotal", line.field === "toolingArtworkTotal" ? valueRef.current : (row?.toolingArtworkTotal ?? ""));
+    fd.set("toolingTotal", line.field === "toolingTotal" ? valueRef.current : (row?.toolingTotal ?? ""));
+    fd.set("artworkTotal", line.field === "artworkTotal" ? valueRef.current : (row?.artworkTotal ?? ""));
     fd.set("rdTotal", line.field === "rdTotal" ? valueRef.current : (row?.rdTotal ?? ""));
     fd.set("otherServiceTotal", line.field === "otherServiceTotal" ? valueRef.current : (row?.otherServiceTotal ?? ""));
     fd.set("bulkRawCost", line.field === "bulkRawCost" ? valueRef.current : (row?.bulkRawCost ?? ""));
