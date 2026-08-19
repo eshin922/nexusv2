@@ -258,6 +258,136 @@ the walked and verified orders.
 
 ---
 
+## 5.6 · DECISION RECORD — Case 0 dispositions
+
+**Settled 2026-08-19. Source: Edward, relaying Accounting's dispositions.**
+
+Recorded verbatim first, per §5.5. Interpretation appears only under an
+explicit *Paraphrase* or *Reading* heading; anything not so marked is the
+decision as given.
+
+---
+
+### Decision 1 — Fee/service cost basis: explicit CUSTOM cost
+
+> Fee/service cost basis — explicit CUSTOM cost.
+>
+> Nexus should send an explicit cost basis for OTC and Direct Service lines
+> rather than relying on ITEMDEFINED / LASTPURCHPRICE.
+>
+> Before adding any new operator field, trace whether the actual governed
+> underlying cost already exists in Nexus and can be carried into the
+> frozen/accounting representation. Reuse existing cost authority where
+> possible. Only propose a new cost input if the required cost genuinely does
+> not exist.
+>
+> Keep cost basis non-commercial: changing/reporting cost must not alter the
+> frozen customer sell amount or REG-4.
+
+**Classification: production-code change.**
+
+**Gate:** implementation impact must be established and returned **before any
+code is written** — specifically whether a governed cost authority already
+exists in Nexus. A new operator input is a proposal of last resort, not a
+starting assumption. See §5.7.
+
+---
+
+### Decision 2 — Tax: leave to NetSuite
+
+> Tax — leave to NetSuite.
+>
+> Do not add explicit Nexus tax-code logic for V1. Ship-to should flow/default
+> consistently with the HubSpot/customer lineage, and NetSuite remains
+> responsible for deriving applicable tax.
+
+**Classification: confirmation — no change to tax logic.**
+
+Current behaviour (omit `taxCode`, let NetSuite derive) is ratified as V1
+behaviour and needs no work.
+
+**One sub-item is NOT a confirmation and must be verified rather than assumed:**
+"Ship-to should flow/default consistently with the HubSpot/customer lineage."
+SO2716's ship-to read *"default address on file in NetSuite"* — i.e. it defaulted
+from the NetSuite customer record, which may or may not be what "flow from the
+HubSpot/customer lineage" means. Verified in §5.7.
+
+---
+
+### Decision 3 — Tooling: use the more-used code
+
+> Tooling — use the more-used code.
+>
+> Current evidence is:
+>
+> OTC-0005 — 23 lines
+> OTC-0046 — 15 lines
+>
+> Therefore map Tooling to OTC-0005 unless a final full-history count
+> materially contradicts the evidence already gathered. Record the measured
+> basis for the selection.
+
+**Classification: mapping-only.**
+
+**Conditional.** The disposition is explicitly contingent on a final
+full-history count. Measured basis recorded in §5.7 before the mapping is
+written.
+
+---
+
+### Decision 4 — Artwork: OTC-0001 approved
+
+> Artwork — OTC-0001 Art / Prep / Proof is approved.
+>
+> Use it as the governed Artwork mapping for V1. No additional Art/Prep/Proof
+> split is required.
+
+**Classification: mapping-only.** Unconditional; ready to apply.
+
+---
+
+### Decision 5 — Multi-meaning destinations: operator chooses per line
+
+> Multi-meaning destinations — operator chooses per line.
+>
+> Testing, Dies, Samples, Cartons and Print Plates should use per-line NetSuite
+> item selection.
+>
+> Extend the existing governed Other Service pattern rather than building five
+> independent mechanisms:
+>
+> operator selects the appropriate NetSuite item on the applicable Costs line;
+> selection is required before SEND when that line needs separate projection;
+> selected item is frozen with the commercial snapshot;
+> selection cannot change after SEND;
+> readiness refuses an unresolved required selection;
+> actual posted netsuite_item_id remains separate provenance.
+
+**Classification: production-code change — ONE governed extension.**
+
+Per §5.5's pre-disposition, this ships as a single slice covering all five
+destinations, not five slices. The six clauses above are the acceptance
+criteria, and each already has a counterpart in the certified
+`otc_other_service` path — which is what makes this an extension rather than a
+new mechanism.
+
+**Not authorized for implementation yet.** Edward authorized *mapping and
+fixture* work to proceed; this is neither.
+
+---
+
+### Disposition summary
+
+| # | decision | class | status |
+|---|---|---|---|
+| 1 | explicit CUSTOM cost basis | production-code | **impact analysis first** — §5.7 |
+| 2 | tax left to NetSuite | confirmation | no work; ship-to sub-item verified §5.7 |
+| 3 | Tooling → `OTC-0005` | mapping-only | conditional on full-history count |
+| 4 | Artwork → `OTC-0001` | mapping-only | ready |
+| 5 | per-line selection ×5 | production-code | one extension; awaiting authorization |
+
+---
+
 ## 6 · Sequence
 
 1. **Accounting reviews SO2716** against §1 and answers the two questions in §2.
