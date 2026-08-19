@@ -15,6 +15,7 @@ import {
   hubspotDealsCache,
   netsuiteSoPushes,
   auditLog,
+  assemblyProductionInputs,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
@@ -91,6 +92,8 @@ import type {
 import { recordPostingProvenance } from "./posting-provenance";
 import { decimalFromCents } from "./frozen-cents";
 import { describeBlockers } from "./projection-readiness";
+import { OTC_COLUMN_DESTINATION } from "./bv011-destinations";
+import type { OtcColumn } from "./bv011-destinations";
 
 // Slice 12 Step 8c-3 — markComplete orchestrator.
 //
@@ -666,6 +669,114 @@ export async function runMarkComplete(
   // same value the customer accepted.
   currentAmount = Number(decimalFromCents(frozenOrder.totalCents));
 
+  // ── ACCOUNTING COST BASIS · live, governed, non-commercial ──────────────
+  //
+  // Accounting's Case 0 disposition: send an explicit CUSTOM cost for OTC and
+  // Direct Service lines rather than letting NetSuite fall back to the item
+  // master's LASTPURCHPRICE or ITEMDEFINED. 98% of the account's existing fee
+  // lines carry an explicitly set cost; without this, ours were the 2%.
+  //
+  // ── NO NEW COST AUTHORITY IS CREATED HERE ──────────────────────────────
+  //
+  // Both figures already exist and already govern something:
+  //
+  //   direct_service   `contributionCostPerUnit` — the SAME math-layer field a
+  //                    product line already sends. A service is not a special
+  //                    case in the projection; it runs the same unit-line
+  //                    branch. It is absent from the order today only because
+  //                    the cutover set `unitCost: null` on every non-product
+  //                    line, which over-reached: excluding services from the
+  //                    STRUCTURE index was right for quantity and rate, and
+  //                    wrong for cost.
+  //
+  //   otc              the production fee column the sell price is COMPUTED
+  //                    from — `amount = raw × (1 + productionMarkupPct)`. The
+  //                    cost is not missing; it is the number the price was
+  //                    built on. Read live from `assembly_production_inputs`
+  //                    by (assembly, accepted tier), resolved through the
+  //                    governed `OTC_COLUMN_DESTINATION` map inverted.
+  //
+  // A new operator input would have been a SECOND authority for a number that
+  // already has one (Pattern 58). It was traced for, and not needed.
+  //
+  // ── ZERO IS A VALUE; NULL IS AN ABSENCE ────────────────────────────────
+  //
+  // Accounting settled this explicitly, and against my own initial caution.
+  // A governed cost of exactly 0 is a STATEMENT about cost, and suppressing it
+  // would substitute NetSuite's item-master guess for a fact Nexus holds. So 0
+  // is sent as CUSTOM 0. Only a genuine NULL — no governed cost available —
+  // sends nothing and leaves NetSuite's own default intact.
+  //
+  // ── AND IT IS NOT COMMERCIAL ───────────────────────────────────────────
+  //
+  // Nothing below reaches a quantity, a sell rate, a line amount, the accepted
+  // total, or REG-4. Those come from the frozen column and are already fixed
+  // by this point. Proved by perturbation rather than asserted — see
+  // `tests/unit/accounting-cost-basis.test.ts`.
+  //
+  // KNOWN BOUNDARY, recorded per the disposition: cost is read LIVE, so it is
+  // not part of the commercial freeze. A cost edited after SEND can move the
+  // margin basis shown on the eventual Sales Order while the accepted
+  // commercial statement stays exactly as accepted. Draft-lock keeps that
+  // window narrow. Historical quote-time cost reproduction is a separate
+  // future snapshot capability and is NOT established here.
+
+  // Direct Service cost, keyed by the canonical leaf identity. Deliberately a
+  // SEPARATE index from `liveByLeafId`: that one is structure, and a service
+  // must never enter it or it could acquire a product line's quantity or rate.
+  const serviceCostByLeafId = new Map<string, number | null>();
+  for (const rollup of bundle.data.costing.skuRollups) {
+    if (rollup.skuRole !== "leaf") continue;
+    const perTier = rollup.perTier.find((pt) => pt.tierId === effectiveAcceptedTierId);
+    if (!perTier) continue;
+    serviceCostByLeafId.set(
+      rollup.skuId,
+      perTier.contributionCostPerUnit != null
+        ? Number(perTier.contributionCostPerUnit)
+        : null,
+    );
+  }
+
+  // OTC cost, keyed by owning assembly, for the accepted tier only. One read of
+  // the governed table rather than the bundle's production array, because that
+  // array is anchor-leaf coerced (per-assembly values attached to the lowest
+  // child) and this needs the per-assembly row it was coerced from.
+  const otcCostRows = await db
+    .select({
+      assemblyId: assemblyProductionInputs.assemblyId,
+      setupFeeTotal: assemblyProductionInputs.setupFeeTotal,
+      toolingTotal: assemblyProductionInputs.toolingTotal,
+      artworkTotal: assemblyProductionInputs.artworkTotal,
+      rdTotal: assemblyProductionInputs.rdTotal,
+      otherServiceTotal: assemblyProductionInputs.otherServiceTotal,
+    })
+    .from(assemblyProductionInputs)
+    .where(eq(assemblyProductionInputs.tierId, effectiveAcceptedTierId));
+  const otcCostByAssembly = new Map(
+    otcCostRows.filter((r) => r.assemblyId !== null).map((r) => [r.assemblyId!, r] as const),
+  );
+
+  /**
+   * The governed live cost for one frozen accounting line, or null when none
+   * is available. Never invents, never falls back to a sibling figure.
+   */
+  function accountingCostFor(line: FrozenSalesOrderLine): number | null {
+    if (line.kind === "direct_service") {
+      return line.quoteLeafId ? (serviceCostByLeafId.get(line.quoteLeafId) ?? null) : null;
+    }
+    if (line.kind !== "otc" || line.destination === null) return null;
+    // Invert the governed column→destination map. Within `otc` this is
+    // injective, so the inversion is total rather than a guess.
+    const column = (Object.keys(OTC_COLUMN_DESTINATION) as OtcColumn[]).find(
+      (c) => OTC_COLUMN_DESTINATION[c] === line.destination,
+    );
+    if (!column || !line.owningAssemblyId) return null;
+    const row = otcCostByAssembly.get(line.owningAssemblyId);
+    const raw = row ? (row as Record<string, string | null>)[column] : null;
+    // `numeric` arrives as a string. "0.00" is a value; null is an absence.
+    return raw === null || raw === undefined || raw === "" ? null : Number(raw);
+  }
+
   // ============================================================
   // STEP 4 — Resolve list-typed enum fields (block on fetch fail)
   // ============================================================
@@ -928,9 +1039,9 @@ export async function runMarkComplete(
           description: frozenLine.description,
           quantity: frozenLine.quantity,
           rate: lineRate,
-          // A fee carries no product cost basis, and a zero here would assert
-          // that it is free. Silence is not a claim; zero is.
-          unitCost: null,
+          // The governed live cost — see the ACCOUNTING COST BASIS block at
+          // STEP 3.5. Zero is sent as a value; only NULL sends nothing.
+          unitCost: accountingCostFor(frozenLine),
         };
         accountingLines.push(soLine);
         emitted.push({ frozen: frozenLine, soLine, assemblyId: null, qtyPerGroup: 1 });

@@ -8,6 +8,7 @@ import type { DirectServiceIdentity } from "@/lib/product-structure/direct-servi
 import {
   LEGACY_COMBINED_OTC_COLUMN,
   OTC_COLUMN_DESTINATION,
+  isPerLineDestination,
   SERVICE_IDENTITY_DESTINATION,
 } from "@/lib/netsuite/bv011-destinations";
 import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
@@ -282,10 +283,17 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
         ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
         : null,
       legacyUnresolved: false,
-      selectedNetsuiteItem:
-        serviceIdentity === "other_service"
-          ? (otherServiceByLeaf.get(rollup.canonicalQuoteLeafId ?? "") ?? null)
-          : null,
+      // Ask the governed predicate rather than naming a destination. This read
+      // `serviceIdentity === "other_service"`, which is why Testing could not
+      // acquire a per-line selection even once its destination was declared
+      // per-line — the switch was in one place and the reader was in another.
+      selectedNetsuiteItem: (() => {
+        const dest = serviceIdentity
+          ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
+          : null;
+        if (dest === null || !isPerLineDestination(dest)) return null;
+        return otherServiceByLeaf.get(rollup.canonicalQuoteLeafId ?? "") ?? null;
+      })(),
       cells,
       allocationByTier: tiers.map(() => null),
     });

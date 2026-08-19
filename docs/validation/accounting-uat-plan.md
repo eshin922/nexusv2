@@ -448,6 +448,43 @@ read as establishing it.
 
 ---
 
+## 5.6c · OPEN QUESTION for Accounting — BV-011 item types vs mapped items
+
+**Raised 2026-08-19 while applying the settled mappings. Not acted on.**
+
+BV-011 declares an expected NetSuite item type per destination. For two
+destinations the declaration and the approved item disagree:
+
+| destination | BV-011 says | mapped item | item actually is |
+|---|---|---|---|
+| `otc_tooling` | **Inventory** | `OTC-0005` (4077) | **NonInvtPart** |
+| `otc_filling` | **Inventory** | `BLD-FILL` (14525) | **NonInvtPart** |
+
+`otc_filling` is **pre-existing** — it was mapped before this workstream and has
+been in use since. So this is not something the Case 0 mappings introduced; it
+is something they made visible.
+
+**Nothing enforces the declaration.** `netsuite-destination-map.ts` records
+`governed_item_type` into the audit `diff_json` but never compares it to the
+resolved item's real type, so a mismatch saves silently. The mappings were
+applied as authorized and **neither the mapping nor BV-011 was changed**.
+
+Item type is one of the UAT validation dimensions — *"Inventory / Non-inventory
+/ Other Charge / Service — correct for what the line means?"* — so this is
+Accounting's to settle, not engineering's to reconcile.
+
+**The question:** are the NetSuite item types correct and BV-011 should be
+amended, or are these the wrong NetSuite items?
+
+A third possibility worth naming: the BV-011 `itemType` field may be
+*descriptive of the accounting treatment* rather than a claim about the NetSuite
+record's type, in which case nothing is wrong and the field is misnamed. That
+would also be an answer.
+
+---
+
+---
+
 ## 5.7 · Verifications behind the dispositions
 
 **Decision 3 — the conditional count.** Measured 2026-08-19 over full history,

@@ -21,6 +21,8 @@ const frozen = (over: Partial<FrozenSalesOrderLine> = {}): FrozenSalesOrderLine 
   quoteLeafId: "leaf-1",
   owningAssemblyId: "asm-1",
   netsuiteItemId: "500",
+  // A product carries no BV-011 destination — it resolves by SKU.
+  destination: null,
   quantity: 1000,
   rate: "2.9000",
   amount: "2900.00",
