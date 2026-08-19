@@ -82,7 +82,7 @@ Status reflects what actually exists today, verified by
 | 2 | Turnkey Item Group | Group header, NetSuite expansion, member-rate PATCH | ✅ SO2716 | none | **covered** |
 | 3 | Direct Service | quantity-1 top-level accounting line | ✅ SO2716 | `otc_formulation` ✅ | **covered** |
 | 4 | Item Group + separately billed OTC | OD-006 — fee inside the group's SO structure, still quantity 1 | ✅ SO2716 | `otc_setup` ✅ | **covered** |
-| 5 | Tooling / Artwork split | two governed destinations, distinct item types; legacy combined charge refused | CERT-302 is a **stub** — carries no tooling or artwork line | `otc_tooling` ❌ ambiguous · `otc_artwork` ❌ **no candidate** | **blocked** |
+| 5 | Tooling / Artwork split | two governed destinations, distinct item types; legacy combined charge refused | CERT-302 is a **stub** — carries no tooling or artwork line | `otc_tooling` ⚠ ambiguous · `otc_artwork` ⚠ ambiguous | **blocked on an Accounting choice** |
 | 6 | Mixed commercial structure | Direct Product beside an Item Group on one order (P1/SO2713 proved no duplication) | **needs building** | none | ready to build |
 | 7 | Freight / logistics | freight legs, duty, tariff, customs reaching the order | **needs building** | `otc_freight_duties_tariffs` ❌ · `otc_customs` ❌ | blocked on mappings |
 
@@ -94,9 +94,19 @@ a fixture.
 
 Worse, the destination it is meant to exercise has nowhere to post:
 
-- **`otc_artwork` has no OTC-coded item in the sandbox at all.** The only match
-  for "ARTWORK" is an unrelated inventory product. Accounting must either name
-  an existing item or create one.
+- **`otc_artwork` — CORRECTED 2026-08-19.** An earlier revision of this document
+  claimed no OTC-coded artwork item existed and that Accounting would have to
+  create one. **That was wrong**, and the error is instructive: the search used
+  the single term `ARTWORK`, while the item is named
+  **`OTC-0001` "OTC - Art / Prep / Proof"** (id 11012) — 29 transaction lines,
+  Dec 2023 through Jul 2026, actively used. A single-term search returning
+  nothing is evidence about one word, not evidence of absence (OD-027). The
+  multi-term probe in `scripts/gate-1b/accounting-decision-evidence.ts` now runs
+  six independent terms behind a control for exactly this reason.
+
+  The real question is therefore a choice, not a creation: `OTC-0001` covers
+  art, prep AND proof, while `OTC-0030` "OTC - Hard Proof" (2 lines, last used
+  Oct 2025) is a narrower sibling.
 - **`otc_tooling` is ambiguous** — `OTC-0005` and `OTC-0046` are *both* named
   literally "OTC - Tooling". Their names cannot discriminate; usage history can,
   the way `OTC-0050` was chosen over `OTC-0018` for Formulation.
@@ -122,8 +132,8 @@ The remaining twelve are unmapped. Candidates per destination:
 
 | destination | candidates | note |
 |---|---|---|
-| `otc_tooling` | OTC-0005 (4077), OTC-0046 (54062) | **identical names** — settle by usage |
-| `otc_artwork` | none | **must be named or created** |
+| `otc_tooling` | OTC-0005 (4077, 23 lines, to Mar 2026), OTC-0046 (54062, 15 lines, to Mar 2026) | **identical names, BOTH current** — usage does not settle it |
+| `otc_artwork` | OTC-0001 Art/Prep/Proof (11012, 29 lines), OTC-0030 Hard Proof (35159, 2 lines) | **corrected** — an earlier revision wrongly reported none |
 | `otc_freight_duties_tariffs` | OTC-0012 (21447) | single clean match |
 | `otc_customs` | OTC-0036 (19840) | single clean match |
 | `otc_testing` | OTC-0010, OTC-0016, OTC-0031, OTC-0055 … | 13 OTC-coded; needs a rule, not a pick |
