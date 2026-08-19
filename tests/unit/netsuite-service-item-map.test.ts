@@ -22,7 +22,6 @@ import {
   isFixedServiceIdentity,
   describeUnusableMapping,
   evaluateDirectServiceGate,
-  PROJECTION_NOT_ENABLED,
   requireFixedServiceIdentity,
   validateServiceItemMappings,
   type MappingVerdict,
@@ -199,17 +198,24 @@ test("a service never enters the SKU-resolution loop", async () => {
   );
 });
 
-test("the projection block is reachable from mark-complete", async () => {
-  // SUPERSEDED as a string search: the message moved into the extracted gate,
-  // where "a fully mapped, usable service STILL blocks" now proves it
-  // BEHAVIOURALLY rather than by grepping a literal. What remains here is the
-  // wiring — that mark-complete actually consults the gate and throws its
-  // reason, rather than reaching its own conclusion.
+test("the projection refusal is GONE, and what replaced it is wired", async () => {
+  // F1/F4. The gate no longer blocks a fully mapped service, because the thing
+  // the refusal stood in for — projecting a service onto a Sales Order — is
+  // built. What must remain wired is the mapping-usability check and the frozen
+  // projection path, so this asserts both rather than merely asserting absence.
   const mc = await code("lib/netsuite/mark-complete.ts");
-  assert.match(mc, /const gate = evaluateDirectServiceGate\(/);
-  assert.match(mc, /throw new Error\(gate\.reason\)/);
   const rules = await code("lib/netsuite/service-item-map-rules.ts");
-  assert.match(rules, /Direct Service Sales Order projection is not enabled/);
+
+  assert.doesNotMatch(rules, /Direct Service Sales Order projection is not enabled/);
+  assert.doesNotMatch(rules, /kind: "projection"/);
+
+  // Still consulted, and its reason still thrown verbatim rather than restated.
+  assert.match(mc, /const gate = evaluateDirectServiceGate\(/);
+  assert.match(mc, /if \(gate\.blocked\) throw new Error\(gate\.reason\)/);
+
+  // The replacement: a service's item and amount come from the frozen column.
+  assert.match(mc, /buildFrozenSalesOrder\(quoteId, \{ resolveSku \}\)/);
+  assert.match(mc, /checkPostGroupingReg4\(\{/);
 });
 
 test("the gate, not mark-complete, decides how other_service is refused", async () => {
@@ -359,9 +365,11 @@ test("an UNMAPPED service gives the actionable, Settings-facing refusal", () => 
   assert.equal(g.blocked && g.kind, "mapping");
   assert.match(g.blocked ? g.reason : "", /Settings/);
   assert.match(g.blocked ? g.reason : "", /Filling \/ Blending/);
-  // NOT the projection message — that would send an admin to wait for a
-  // feature instead of to Settings.
-  assert.doesNotMatch(g.blocked ? g.reason : "", new RegExp(PROJECTION_NOT_ENABLED));
+  // The refusal names the mapping and points at Settings. There is no longer a
+  // competing "projection is not enabled" message to be confused with — it was
+  // removed with the block — so the risk this line guarded against is that the
+  // refusal becomes generic, not that it picks the wrong one of two.
+  assert.doesNotMatch(g.blocked ? g.reason : "", /not enabled|not certified/);
 });
 
 test("a STALE mapping is actionable too, and names why", () => {
@@ -392,10 +400,10 @@ test("indeterminate blocks WITHOUT telling anyone to change a correct mapping", 
   assert.doesNotMatch(g.blocked ? g.reason : "", /re-map/i);
 });
 
-test("RELEASE-CRITICAL · a fully mapped, usable service STILL blocks", () => {
-  // The one that matters. Mapping removes the accidental block; if this ever
-  // returns proceed, a service is emitted as a flat Direct-Product-shaped SO
-  // line at whatever quantity and rate that path computes, unreviewed.
+test("RELEASE-CRITICAL · a fully mapped, usable service now PROCEEDS", async () => {
+  // The inversion of the test that used to stand here. What makes it safe to
+  // invert is NOT that the gate got more permissive — it is that the thing the
+  // gate stood in for now exists.
   const g = evaluateDirectServiceGate({
     serviceIdentities: ["filling_blending"],
     mapped: new Set(["filling_blending" as const]),
@@ -403,42 +411,72 @@ test("RELEASE-CRITICAL · a fully mapped, usable service STILL blocks", () => {
       ["filling_blending" as const, { state: "usable" as const, itemCode: "BLD-FILL" }],
     ]),
   });
-  assert.equal(g.blocked, true);
-  assert.equal(g.blocked && g.kind, "projection");
-  assert.match(g.blocked ? g.reason : "", new RegExp(PROJECTION_NOT_ENABLED));
-  assert.match(g.blocked ? g.reason : "", /Nothing was pushed/);
+  assert.deepEqual(g, { blocked: false });
+
+  // What the old refusal actually protected — "a service must never be emitted
+  // as a flat Direct-Product-shaped line at whatever quantity and rate that
+  // path computes" — is asserted HERE rather than left to the absent refusal.
+  // A removed guard whose replacement goes unasserted is just a removed guard.
+  const mc = await code("lib/netsuite/mark-complete.ts");
+  //   the SKU loop takes the products-only partition
+  assert.match(mc, /\.\.\.directProductsOnly,/);
+  //   a service never enters the live structure index, so it cannot acquire a
+  //   product line's quantity or rate
+  assert.match(mc, /\.filter\(\(c\) => c\.commercialKind !== "service"\)/);
+  //   its quantity is 1 and its amount is frozen — the emitter's line, not the
+  //   product path's
+  assert.match(mc, /accountingLines\.push\(soLine\)/);
 });
 
-test("EVERY combination of service state blocks — none proceeds", () => {
-  // Exhaustive over the verdict space rather than the three cases above, so a
-  // new verdict state cannot quietly acquire a proceed path.
-  const verdictSpace = [
+test("EVERY unusable verdict blocks; only a usable mapping proceeds", () => {
+  // Exhaustive over the verdict space, so a new verdict state cannot quietly
+  // acquire a proceed path it was never given.
+  const unusable = [
     undefined,
-    { state: "usable" as const, itemCode: "X" },
     { state: "gone" as const },
     { state: "inactive" as const, itemCode: "X" },
     { state: "indeterminate" as const, reason: "r" },
   ];
-  for (const id of [...FIXED_SERVICE_IDENTITIES, "other_service" as const]) {
-    for (const v of verdictSpace) {
+  for (const id of FIXED_SERVICE_IDENTITIES) {
+    for (const v of unusable) {
       const g = evaluateDirectServiceGate({
         serviceIdentities: [id],
         mapped: v ? new Set([id as never]) : new Set<never>(),
         verdicts: v ? new Map([[id as never, v]]) : new Map(),
       });
       assert.equal(g.blocked, true, `${id} with ${v?.state ?? "unmapped"} did not block`);
+      assert.equal(g.blocked && g.kind, "mapping");
     }
+    const ok = evaluateDirectServiceGate({
+      serviceIdentities: [id],
+      mapped: new Set([id as never]),
+      verdicts: new Map([[id as never, { state: "usable" as const, itemCode: "X" }]]),
+    });
+    assert.deepEqual(ok, { blocked: false }, `${id} with a usable mapping must proceed`);
   }
 });
 
-test("other_service on a quote is refused for its OWN reason", () => {
+test("other_service is no longer the GATE's refusal — readiness owns it", async () => {
+  // The gate sees identities, not frozen rows, so it cannot tell an Other
+  // Service line that HAS a per-line item from one that does not. It used to
+  // refuse both, with "that selection is not available yet" — a sentence that
+  // is now false and would refuse every correctly configured Other Service
+  // quote.
   const g = evaluateDirectServiceGate({
     serviceIdentities: ["other_service"],
     ...NO_MAPPINGS,
   });
-  assert.equal(g.blocked && g.kind, "mapping");
-  assert.match(g.blocked ? g.reason : "", /no firm-wide NetSuite item/);
-  assert.match(g.blocked ? g.reason : "", /chosen per line/);
+  assert.deepEqual(g, { blocked: false });
+  const rules = await code("lib/netsuite/service-item-map-rules.ts");
+  assert.doesNotMatch(rules, /not available yet/);
+
+  // Readiness refuses it instead, from the FROZEN row, and points at Costs
+  // rather than Settings — the schema forbids a firm-wide row for this
+  // destination, so sending an admin there would be a dead end.
+  const readiness = await code("lib/netsuite/projection-readiness.ts");
+  assert.match(readiness, /kind: "per_line_destination_unresolved"/);
+  assert.match(readiness, /chosen per line rather than firm-wide/);
+  assert.match(readiness, /Choose its item on Costs/);
 });
 
 test("mark-complete throws the gate's reason BEFORE building any SO payload", async () => {
@@ -455,7 +493,10 @@ test("mark-complete throws the gate's reason BEFORE building any SO payload", as
   assert.ok(gateIdx < skuIdx, "the gate runs after SKU resolution");
   assert.ok(payloadIdx > -1, "buildSalesOrderPayload is never called — check the pattern");
   assert.ok(gateIdx < payloadIdx, "the gate runs after payload construction");
-  // And a "proceed" from the gate with services present is itself an error,
-  // rather than silently falling through into the product path.
-  assert.match(mc, /if \(!gate\.blocked\) \{[\s\S]{0,200}?throw new Error/);
+  // A "proceed" from the gate is now a legitimate outcome, so the assertion
+  // that used to stand here — that proceeding was itself an error — is gone
+  // with the block it belonged to. What must still hold is that a BLOCKED gate
+  // throws its own reason rather than one restated at the call site.
+  assert.match(mc, /if \(gate\.blocked\) throw new Error\(gate\.reason\);/);
+  assert.doesNotMatch(mc, /Direct Service gate returned proceed/);
 });

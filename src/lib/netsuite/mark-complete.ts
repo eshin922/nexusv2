@@ -407,11 +407,10 @@ export async function runMarkComplete(
   // already expands. That is the condition Probe 7a actually established, and
   // it remains true.
 
-  // ── DIRECT SERVICES ARE NOT SKU-RESOLVED, AND DO NOT PROJECT YET ────────
+  // ── DIRECT SERVICES ARE NOT SKU-RESOLVED, AND NOW DO PROJECT ────────────
   //
   // `tree.directProducts` holds every top-level row, and since Stage 2 that
-  // includes Direct Services. Two things follow, and the second is the one
-  // that is easy to lose.
+  // includes Direct Services. Two things follow.
   //
   // 1. A service must NEVER enter the SKU-match loop. Its `SVC-*` SKU is a
   //    Nexus-invented identifier that nothing put in NetSuite, so the match
@@ -419,19 +418,33 @@ export async function runMarkComplete(
   //    SOMETHING, an unrelated item an admin happened to create with that
   //    code. A wrong item on a Sales Order is worse than a blocked push.
   //    Services are partitioned out by their `commercialKind`, never by
-  //    inspecting the SKU string.
+  //    inspecting the SKU string. Unchanged, and permanent.
   //
-  // 2. Before this change a service quote was blocked here BY ACCIDENT: the
-  //    unresolvable SKU threw. That was real protection — Direct Service SO
-  //    projection is not certified — arrived at for an unrelated reason.
-  //    Removing the accidental block without replacing it would let a mapped
-  //    service fall straight through and be emitted as a flat
-  //    Direct-Product-shaped line, at whatever quantity and rate that path
-  //    computes, unreviewed. Pattern 56: a guarantee supplied for free by an
-  //    unrelated failure, removed by fixing the unrelated failure.
+  // 2. The blanket projection refusal that stood here is REMOVED (F1/F4).
+  //    Before Stage 2 a service quote was blocked BY ACCIDENT — its
+  //    unresolvable SKU threw — and Stage 2 made that accident deliberate so
+  //    that supplying a mapping could not silently remove it (Pattern 56). It
+  //    stood for "projecting a service onto a Sales Order is not certified",
+  //    and that is what has now been built:
   //
-  // So the block is now DELIBERATE and stated, below. It is removed by the
-  // slice that certifies Direct Service projection, and by nothing else.
+  //      · the line's economics come from the frozen accepted column, through
+  //        `assessProjectionReadiness` and the quantity-1 accounting emitter;
+  //      · its item comes from its governed BV-011 destination, resolved once,
+  //        in one place;
+  //      · the COMPLETE emitted order — products, services and fees — must
+  //        reconcile to the frozen tier total exactly, twice: before the
+  //        payload is built, and again against the expansion NetSuite will
+  //        calculate, immediately before the POST.
+  //
+  //    So a service can no longer be emitted at "whatever quantity and rate
+  //    that path computes": there is no such path left for it to fall into.
+  //    The quantity is 1 and the amount is frozen.
+  //
+  // What SURVIVES here is the mapping-usability check, which is not redundant
+  // with readiness. Readiness refuses an unmapped destination by the ABSENCE of
+  // a mapping row; this asks NetSuite whether the mapped item still exists and
+  // is active, so a mapping that rotted after it was entered is caught before
+  // the CREATE rather than by NetSuite rejecting it.
   const directServices = tree.directProducts.filter(
     (p) => p.commercialKind === "service",
   );
@@ -468,15 +481,7 @@ export async function runMarkComplete(
       mapped: new Set(stored.keys()),
       verdicts,
     });
-    // Unreachable while services are present, and asserted rather than assumed
-    // — if the gate ever returns "proceed" here, a service falls through into
-    // the SKU loop and gets emitted as a Direct-Product-shaped line.
-    if (!gate.blocked) {
-      throw new Error(
-        "[mark-complete] Direct Service gate returned proceed with services present.",
-      );
-    }
-    throw new Error(gate.reason);
+    if (gate.blocked) throw new Error(gate.reason);
   }
 
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND
