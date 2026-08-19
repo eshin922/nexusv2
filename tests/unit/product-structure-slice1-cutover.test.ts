@@ -323,6 +323,10 @@ const classifiedIdentityFiles = new Set([
   // Production surface addresses its rows by `quote_leaf_id`, the governed
   // owner of a service-owned production row, and resolves no junction.
   "src/components/costs/direct-service-production.tsx",
+  // CLASSIFIED — canonical identity only. The picker addresses its line by
+  // assembly id or by `quoteLeafId`, the governed attachment, and resolves no
+  // junction. Which of the two it sends is decided by the caller, not looked up.
+  "src/components/costs/other-service-item-picker.tsx",
   // CLASSIFIED — type declaration only. `SkuRow.quoteLeafId` carries the
   // CANONICAL id alongside the junction `id`, so consumers that must key on
   // the canonical one (the production markup node) can. Declares, resolves

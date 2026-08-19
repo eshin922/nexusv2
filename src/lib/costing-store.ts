@@ -1029,6 +1029,9 @@ export function makeCostingStore(initial: HydrateSnapshot) {
  * rather than deriving them — see docs/gate-1b-canonical-node-tree.md.
  */
 export const selectGraph = (s: CostingStoreState) => s.costing.graph;
+/** Per-line Other Service selections. Derived from the store, not an RSC prop. */
+export const selectOtherServiceItems = (s: CostingStoreState) =>
+  s.otherServiceItems;
 
 export const selectQuoteRollup = (s: CostingStoreState) =>
   s.costing.quoteRollup;

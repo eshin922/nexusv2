@@ -238,7 +238,13 @@ test("an unmapped destination BLOCKS rather than being skipped", async () => {
   const src = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
   // The dangerous alternative is a `continue` that omits the line: the order
   // would then be short AND reconcile to its own short sum.
-  assert.match(src, /if \(!mapped\.has\(destination\)\) \{[\s\S]{0,200}blockers\.push/);
+  // The dangerous alternative is falling through and emitting the line
+  // anyway: the order would be short AND reconcile to its own short sum. So
+  // the branch must both RECORD a blocker and STOP.
+  assert.match(
+    src,
+    /if \(!mapping\) \{[\s\S]{0,400}blockers\.push\(\{[\s\S]{0,400}continue;/,
+  );
 });
 
 test("the admin surface cannot store a firm-wide record for a per-line destination", async () => {
@@ -340,8 +346,12 @@ test("readiness accepts a frozen selection and refuses its absence", async () =>
   // the push refused even after an operator chose an item.
   assert.match(
     src,
-    /if \(\(line\.selectedItemId \?\? ""\)\.trim\(\) === ""\) \{[\s\S]{0,300}per_line_destination_unresolved/,
+    /const selected = [\s\S]{0,120}if \(selected === ""\) \{[\s\S]{0,500}per_line_destination_unresolved/,
   );
+  // …and RESOLVES when one is present, rather than blocking unconditionally.
+  // An earlier version refused every per-line destination outright, which kept
+  // the push blocked even after an operator had chosen an item.
+  assert.match(src, /netsuiteItemId: selected,/);
 });
 
 test("the selection is draft-only, because it is frozen at send", async () => {
