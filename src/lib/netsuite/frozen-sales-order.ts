@@ -230,7 +230,7 @@ export async function buildFrozenSalesOrder(
 
   if (blockers.length > 0) return { ok: false, blockers, reg4: [] };
 
-  // ── 4 · emit the quantity-1 half ───────────────────────────────────────
+  // ── 4 · emit the accounting half ───────────────────────────────────────
   const byId = new Map(frozen.map((r) => [r.sourceLineId, r] as const));
   const accounting: FrozenSalesOrderLine[] = emitAccountingLines(readiness.lines).map(
     (l) => ({
@@ -245,9 +245,10 @@ export async function buildFrozenSalesOrder(
       destination: byId.get(l.sourceLineId)?.destination ?? null,
       netsuiteItemId: l.netsuiteItemId,
       quantity: l.quantity,
-      // Quantity is 1, so rate and amount are the same integer cents rendered
-      // twice — neither derived from the other.
-      rate: decimalFromCents(l.rateCents),
+      // Both CARRIED from the frozen row, neither derived from the other. A
+      // Direct Service brings its own quantity and unit rate; an OTC charge is
+      // 1 × its amount. See `accounting-line-emitter` for why the shapes split.
+      rate: l.rate,
       amount: decimalFromCents(l.amountCents),
     }),
   );

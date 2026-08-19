@@ -1,25 +1,53 @@
 import type { ResolvedAccountingLine } from "@/lib/netsuite/projection-readiness";
+import { decimalFromCents } from "@/lib/netsuite/frozen-cents";
 
 /**
- * The shared quantity-1 accounting-line emitter.
+ * The accounting-line emitter — ONE resolution path, TWO line shapes.
  *
- * ONE emitter for both a Direct Service and a separately billed Item Group
- * OTC charge. They are the same kind of thing — a one-time charge whose amount
- * IS its own line — and they differ only in where the association points, which
- * is data on the line rather than a branch in here.
+ * ── WHAT CHANGED, AND WHY ────────────────────────────────────────────────
  *
- * ── WHAT THIS DELIBERATELY CANNOT DO ─────────────────────────────────────
+ * This emitter used to hardcode `quantity: 1` for everything it produced, on
+ * the premise that a Direct Service and a separately billed Item Group OTC
+ * charge are "the same kind of thing — a one-time charge whose amount IS its
+ * own line."
  *
- * It is a PURE function of already-resolved frozen lines. It takes no quote id,
- * touches no database, and imports nothing from the costing tree. So it cannot:
+ * That premise was serviceable while every Direct Service was in fact a
+ * one-time fee. It is not true of a Direct Service priced per unit across a
+ * tier quantity, and SO2717 is what it cost: a line the accepted statement
+ * describes as **2,000 units at $2.24** reached NetSuite as **1 at $4,480**.
  *
- *   · consult live costing — the amount is the frozen one or nothing;
- *   · recompute `rate × qty` — quantity is 1 and the amount is carried, not
- *     derived, which is what makes REG-4 an integer-cent comparison rather
- *     than a float tolerance;
+ * REG-4 did not catch it and could not — `1 × 4480` and `2000 × 2.24` are the
+ * same total, so reconciliation was EXACT while the unit economics were
+ * misstated. Exact reconciliation is necessary but not sufficient.
+ *
+ * ── THE SHAPING RULE (Edward's disposition, 2026-08-19) ──────────────────
+ *
+ * The FROZEN commercial line shape is authoritative.
+ *
+ *   Direct Service        quantity = frozen quantity
+ *                         rate     = frozen unit rate
+ *                         amount   = frozen line amount
+ *
+ *   Separately billed OTC quantity = 1
+ *                         rate     = frozen line amount
+ *                         amount   = frozen line amount
+ *
+ * Only the COMMERCIAL SHAPE splits. Destination resolution, item resolution,
+ * provenance and tax enforcement stay shared — they were never what differed.
+ *
+ * ── WHAT THIS STILL DELIBERATELY CANNOT DO ───────────────────────────────
+ *
+ * It remains a PURE function of already-resolved frozen lines. It takes no
+ * quote id, touches no database, and imports nothing from the costing tree. So
+ * it cannot:
+ *
+ *   · consult live costing — every figure is the frozen one or nothing;
+ *   · derive amount from `rate × quantity` — the amount is CARRIED, which is
+ *     what keeps REG-4 an integer-cent comparison rather than a float
+ *     tolerance. The frozen row already guarantees the identity by CHECK;
+ *     recomputing it here would add a second authority for one number;
  *   · choose an item type — BV-011 governs what a destination should be and
- *     the resolved NetSuite record is what it is. A third opinion here could
- *     disagree with both.
+ *     the resolved NetSuite record is what it is.
  *
  * Those are not conventions. There is no parameter through which a caller
  * could supply live costing, and nothing to import it from.
@@ -37,10 +65,23 @@ export type EmittedAccountingLine = {
   sourceLineId: string;
   netsuiteItemId: string;
   netsuiteItemCode: string | null;
-  /** Always exactly 1. A one-time charge is its own line. */
-  quantity: 1;
-  /** Integer cents. Equal to `amountCents` — quantity is 1. */
-  rateCents: number;
+  /**
+   * The frozen quantity for a Direct Service; exactly 1 for an OTC charge.
+   *
+   * No longer the literal type `1` — that type WAS the defect, in the sense
+   * that it made the wrong shape unrepresentable-as-wrong.
+   */
+  quantity: number;
+  /**
+   * Decimal string, carried.
+   *
+   * A Direct Service carries the frozen `unit_rate` VERBATIM rather than
+   * round-tripping through cents: the column is numeric(14,4) and a rate like
+   * `0.1234` does not survive a cent representation. An OTC charge has no unit
+   * rate of its own, so its rate is its amount rendered from integer cents.
+   */
+  rate: string;
+  /** Integer cents, carried from the frozen line amount. REG-4's basis. */
   amountCents: number;
   description: string;
   /**
@@ -56,7 +97,7 @@ export type EmittedAccountingLine = {
 };
 
 /**
- * Emit one accounting line per resolved frozen line.
+ * Emit one accounting line per resolved frozen line, shaped by kind.
  *
  * Order is preserved from the input, which is frozen `position` order, so the
  * emitted set reads in the same order as the document the customer received.
@@ -64,19 +105,51 @@ export type EmittedAccountingLine = {
 export function emitAccountingLines(
   resolved: ReadonlyArray<ResolvedAccountingLine>,
 ): EmittedAccountingLine[] {
-  return resolved.map((line) => ({
-    sourceLineId: line.sourceLineId,
-    netsuiteItemId: line.netsuiteItemId,
-    netsuiteItemCode: line.netsuiteItemCode,
-    quantity: 1 as const,
-    // Carried, never recomputed. `rate` and `amount` are the same number
-    // because the quantity is 1; deriving one from the other through a
-    // multiplication would reintroduce exactly the rounding REG-4 excludes.
-    rateCents: line.amountCents,
-    amountCents: line.amountCents,
-    description: line.displayName,
-    owningAssemblyId: line.owningAssemblyId,
-  }));
+  return resolved.map((line) => {
+    const common = {
+      sourceLineId: line.sourceLineId,
+      netsuiteItemId: line.netsuiteItemId,
+      netsuiteItemCode: line.netsuiteItemCode,
+      amountCents: line.amountCents,
+      description: line.displayName,
+      owningAssemblyId: line.owningAssemblyId,
+    };
+
+    if (line.kind === "direct_service") {
+      // A unit-priced service posts at ITS OWN quantity and rate.
+      //
+      // Refused rather than defaulted when either is missing. Falling back to
+      // the charge shape is precisely the silent mis-shaping this split
+      // exists to end, and it would look like success. A priced frozen row
+      // always carries both — a DB CHECK ties `unit_rate` and `line_amount`
+      // to `pricing_state`, and readiness only resolves priced rows — so
+      // reaching this throw means an invariant broke upstream and the right
+      // response is to stop, not to guess.
+      if (line.quantity === null || line.unitRate === null) {
+        throw new Error(
+          `[accounting-line-emitter] Direct Service line ${line.sourceLineId} ` +
+            `("${line.displayName}") is missing its frozen quantity or unit rate ` +
+            `(quantity=${String(line.quantity)}, unitRate=${String(line.unitRate)}). ` +
+            `Refusing to emit it as a quantity-1 charge — that would post a ` +
+            `different commercial statement than the one that was accepted.`,
+        );
+      }
+      return {
+        ...common,
+        quantity: line.quantity,
+        rate: line.unitRate,
+      };
+    }
+
+    // A separately billed one-time charge IS its own line: quantity 1, and the
+    // rate is the amount. Rendered from the same integer cents, so the two are
+    // one number written twice rather than one derived from the other.
+    return {
+      ...common,
+      quantity: 1,
+      rate: decimalFromCents(line.amountCents),
+    };
+  });
 }
 
 /** Σ emitted amounts, in integer cents. The left-hand side of REG-4 link B. */

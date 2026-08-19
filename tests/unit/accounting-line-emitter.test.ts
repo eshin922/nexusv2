@@ -27,6 +27,10 @@ const line = (over: Partial<ResolvedAccountingLine> = {}): ResolvedAccountingLin
   netsuiteItemId: "5001",
   netsuiteItemCode: "OTC-SETUP",
   amountCents: 140_00,
+  // A one-time charge has no unit rate of its own. A Direct Service test
+  // overrides both — see the shaping tests below.
+  quantity: null,
+  unitRate: null,
   ...over,
 });
 
@@ -61,13 +65,13 @@ test("a long run of awkward values sums exactly", () => {
 
 // ── the emitted shape ────────────────────────────────────────────────────
 
-test("quantity is always 1 and the amount is carried, never recomputed", () => {
+test("an OTC charge is 1 x its amount, carried and never recomputed", () => {
   const [emitted] = emitAccountingLines([line({ amountCents: 140_00 })]);
   assert.equal(emitted.quantity, 1);
   assert.equal(emitted.amountCents, 14000);
   assert.equal(
-    emitted.rateCents,
-    emitted.amountCents,
+    emitted.rate,
+    "140.00",
     "rate equals amount because quantity is 1 — neither derived from the other",
   );
 });
@@ -81,24 +85,42 @@ test("an Item Group OTC line keeps its owner; a Direct Service is top-level", ()
       owningAssemblyId: null,
       displayName: "Formulation",
       destination: "otc_formulation",
+      // A Direct Service now carries its own frozen shape. Without it the
+      // emitter refuses rather than silently posting a quantity-1 charge.
+      quantity: 1,
+      unitRate: "140.0000",
     }),
   ]);
   assert.equal(emitted[0].owningAssemblyId, "asm-1", "OD-006 association");
   assert.equal(emitted[1].owningAssemblyId, null, "BV-012 §5.c top-level");
 });
 
-test("both kinds go through the SAME emitter with no branch between them", async () => {
-  const src = await readFile("src/lib/netsuite/accounting-line-emitter.ts", "utf8");
-  // A branch on kind would be the seam where the two drift apart. They differ
-  // only in where the association points, which is data on the line.
-  assert.doesNotMatch(src, /kind === "otc"|kind === "direct_service"/);
-
-  const emitted = emitAccountingLines([
+test("the two kinds SHARE resolution and provenance, and split only on shape", () => {
+  // This test used to assert the OPPOSITE — that no branch on kind existed —
+  // on the premise that a Direct Service and a one-time charge were the same
+  // kind of thing. SO2717 is what that premise cost: a service accepted as
+  // 2,000 x $2.24 posted as 1 x $4,480.
+  //
+  // What must still NOT diverge is everything else, so that is what is asserted
+  // now: same item, same code, same amount, same provenance.
+  const [otc, svc] = emitAccountingLines([
     line({ kind: "otc", amountCents: 500 }),
-    line({ sourceLineId: "b", kind: "direct_service", owningAssemblyId: null, amountCents: 500 }),
+    line({
+      sourceLineId: "b",
+      kind: "direct_service",
+      owningAssemblyId: null,
+      amountCents: 500,
+      quantity: 100,
+      unitRate: "0.0500",
+    }),
   ]);
-  assert.equal(emitted[0].quantity, emitted[1].quantity);
-  assert.equal(emitted[0].rateCents, emitted[1].rateCents);
+  assert.equal(otc.netsuiteItemId, svc.netsuiteItemId);
+  assert.equal(otc.netsuiteItemCode, svc.netsuiteItemCode);
+  assert.equal(otc.amountCents, svc.amountCents, "the money does not depend on the shape");
+
+  // …and the shape DOES differ, which is the point.
+  assert.equal(otc.quantity, 1);
+  assert.equal(svc.quantity, 100);
 });
 
 test("emitted order follows frozen position, so it reads like the document", () => {
@@ -132,11 +154,25 @@ test("the total is an integer-cent sum — the left side of REG-4 link B", () =>
 test("the emitter cannot reach live costing, by construction", async () => {
   const src = await readFile("src/lib/netsuite/accounting-line-emitter.ts", "utf8");
   assert.doesNotMatch(src, /getCostingBundle|computeQuoteCosting|@\/db|drizzle/);
-  // Its only import is the resolved-line TYPE. There is no parameter through
-  // which live costing could be supplied and nothing to import it from.
-  const imports = [...src.matchAll(/^import .*$/gm)].map((m) => m[0]);
-  assert.equal(imports.length, 1, imports.join(" | "));
-  assert.match(imports[0], /import type \{ ResolvedAccountingLine \}/);
+  // The guard is an ALLOWLIST, not a count.
+  //
+  // It used to assert exactly one import, which broke the moment the OTC shape
+  // needed `decimalFromCents` — a pure integer-to-decimal formatter that
+  // touches nothing. A count is only a proxy for "cannot reach live costing";
+  // naming the permitted imports asserts it directly, and the count would have
+  // passed equally had that one import been the costing tree itself.
+  const imports = [...src.matchAll(/^import .*$/gm)].map((m) => m[0].trim());
+  const ALLOWED = [
+    /^import type \{ ResolvedAccountingLine \} from "@\/lib\/netsuite\/projection-readiness";$/,
+    /^import \{ decimalFromCents \} from "@\/lib\/netsuite\/frozen-cents";$/,
+  ];
+  for (const imp of imports) {
+    assert.ok(
+      ALLOWED.some((re) => re.test(imp)),
+      `emitter acquired an import outside the allowlist: ${imp}`,
+    );
+  }
+  assert.equal(imports.length, ALLOWED.length, imports.join(" | "));
 });
 
 test("the emitter names no item type — that belongs to the resolved record", async () => {
