@@ -280,3 +280,129 @@ test("the emitted order is in frozen position order", async () => {
   assert.match(src, /const position = new Map\(frozen\.map\(\(r, i\) => \[r\.sourceLineId, i\]/);
   assert.match(src, /\.sort\(/);
 });
+
+// ── REG-4 over the order NetSuite actually calculates ────────────────────
+
+import { checkPostGroupingReg4 } from "../../src/lib/netsuite/reg4-post-grouping.ts";
+
+test("a grouped order reconciles on the EXPANDED member quantities", () => {
+  // 1,000 groups, each containing 2 bottles at $2.90 → 2,000 × 2.90 = $5,800.
+  // Checking the pre-group representation would have compared 1,000 × 2.90.
+  const failures = checkPostGroupingReg4({
+    groups: [
+      {
+        groupQuantity: 1000,
+        members: [
+          {
+            sourceLineId: "m1",
+            description: "Bottle",
+            netsuiteItemId: "1",
+            qtyPerGroup: 2,
+            rate: "2.9000",
+            frozenAmount: "5800.00",
+          },
+        ],
+      },
+    ],
+    flatLines: [],
+    frozenAcceptedTotal: "5800.00",
+  });
+  assert.deepEqual(failures, []);
+});
+
+test("a member priced as if the group were NOT expanded is refused", () => {
+  // The failure a pre-group check cannot see: the frozen amount is for 1,000
+  // units but NetSuite will expand to 2,000 and bill twice.
+  const [f] = checkPostGroupingReg4({
+    groups: [
+      {
+        groupQuantity: 1000,
+        members: [
+          {
+            sourceLineId: "m1",
+            description: "Bottle",
+            netsuiteItemId: "1",
+            qtyPerGroup: 2,
+            rate: "2.9000",
+            frozenAmount: "2900.00",
+          },
+        ],
+      },
+    ],
+    flatLines: [],
+    frozenAcceptedTotal: "2900.00",
+  });
+  assert.equal(f.kind, "rate_times_quantity_inexact");
+  assert.match(f.detail, /1000 × 2 = 2000 units/);
+});
+
+test("groups, Direct Products and quantity-1 charges all reach the total", () => {
+  const failures = checkPostGroupingReg4({
+    groups: [
+      {
+        groupQuantity: 1000,
+        members: [
+          { sourceLineId: "m1", description: "Bottle", netsuiteItemId: "1", qtyPerGroup: 1, rate: "2.9000", frozenAmount: "2900.00" },
+        ],
+      },
+    ],
+    flatLines: [
+      { sourceLineId: "d1", description: "Direct Product", netsuiteItemId: "2", quantity: 1000, rate: "1.0000", frozenAmount: "1000.00" },
+      { sourceLineId: "s1", description: "Formulation", netsuiteItemId: "3", quantity: 1, rate: "4200.00", frozenAmount: "4200.00" },
+      { sourceLineId: "o1", description: "Setup", netsuiteItemId: "4", quantity: 1, rate: "140.00", frozenAmount: "140.00" },
+    ],
+    frozenAcceptedTotal: "8240.00",
+  });
+  assert.deepEqual(failures, []);
+});
+
+test("a missing OTC line shows up as a total mismatch, not a silent pass", () => {
+  // Drop the $140 Setup from the emitted set. Every remaining line is
+  // internally correct — only the comparison against the FROZEN total catches
+  // it. This is the F1/F4 defect, expressed post-grouping.
+  const [f] = checkPostGroupingReg4({
+    groups: [
+      {
+        groupQuantity: 1000,
+        members: [
+          { sourceLineId: "m1", description: "Bottle", netsuiteItemId: "1", qtyPerGroup: 1, rate: "2.9000", frozenAmount: "2900.00" },
+        ],
+      },
+    ],
+    flatLines: [],
+    frozenAcceptedTotal: "3040.00",
+  });
+  assert.equal(f.kind, "link_b_mismatch");
+  assert.match(f.detail, /Difference -\$140\.00/);
+  assert.match(f.detail, /nothing was posted/);
+});
+
+test("ONE CENT post-grouping is a failure too", () => {
+  const [f] = checkPostGroupingReg4({
+    groups: [],
+    flatLines: [
+      { sourceLineId: "a", description: "X", netsuiteItemId: "1", quantity: 1, rate: "0.99", frozenAmount: "0.99" },
+    ],
+    frozenAcceptedTotal: "1.00",
+  });
+  assert.equal(f.kind, "link_b_mismatch");
+});
+
+test("an expansion landing on a fraction of a cent refuses rather than rounding", () => {
+  // 3 groups × 1 member at 0.3333 = 0.9999. NetSuite would round to $1.00 and
+  // the order would drift from the frozen record by a cent per line.
+  const [f] = checkPostGroupingReg4({
+    groups: [
+      {
+        groupQuantity: 3,
+        members: [
+          { sourceLineId: "m1", description: "Odd", netsuiteItemId: "1", qtyPerGroup: 1, rate: "0.3333", frozenAmount: "1.00" },
+        ],
+      },
+    ],
+    flatLines: [],
+    frozenAcceptedTotal: "1.00",
+  });
+  assert.equal(f.kind, "rate_times_quantity_inexact");
+  assert.match(f.detail, /a fraction of a cent/);
+});

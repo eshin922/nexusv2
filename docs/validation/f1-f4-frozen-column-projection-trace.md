@@ -233,6 +233,36 @@ verdict continues to route operators to Settings.
   have, or is refused.
 - No new allocation authoring model (out of scope per the #300 close).
 
+## Frozen line quantity — corrected 2026-08-19
+
+**A frozen line's `quantity` is the quantity of THAT COMMERCIAL LINE.**
+
+| line kind | quantity |
+|---|---|
+| `item_group_member`, `direct_product` | tier order quantity × qty-per-parent |
+| `direct_service`, `otc` | **1** — a one-time charge is charged once |
+
+The tier's own order quantity remains separately stored on
+`quote_snapshot_tier_totals.quantity`, which is where a reader should look for
+it.
+
+`unit_rate × quantity === line_amount` therefore holds by construction. That is
+what lets REG-4 check the multiplication **NetSuite performs on its own** —
+`SalesOrderLine` sends quantity and rate and no amount.
+
+**What was wrong before.** The freeze stored the TIER's quantity on every line,
+so a one-time $140 Setup charge was recorded as 1,000 units and `quantity ×
+rate` read $140,000. The commercial statement — amount, tier total, what the
+customer saw — was correct throughout; only the descriptive quantity was
+describing something else. Product lines happened to look right because every
+member on the certification quote is qty-per-parent 1.
+
+**CERT-300's existing snapshot is left untouched.** It is historical evidence of
+what the system froze before the correction, and its commercial figures were
+never in doubt. The F1/F4 walk re-sends the certification quote through the
+corrected operator path; that new snapshot becomes the current certification
+artifact.
+
 ## Settled after review (2026-08-19)
 
 Both questions this trace left open are closed, and the consequences are worked
