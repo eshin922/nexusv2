@@ -14,6 +14,8 @@
  */
 import { and, eq, isNull } from "drizzle-orm";
 
+import { assessProjectionReadiness, describeBlockers } from "@/lib/netsuite/projection-readiness";
+
 import { db } from "@/db";
 import {
   quoteSnapshotLineTiers,
@@ -56,7 +58,11 @@ console.log("── tiers ──────────────────
 console.table(tiers);
 
 const [snapshot] = await db
-  .select({ id: quoteSnapshots.id, sentAt: quoteSnapshots.createdAt })
+  .select({
+    id: quoteSnapshots.id,
+    sentAt: quoteSnapshots.createdAt,
+    detailLevel: quoteSnapshots.detailLevel,
+  })
   .from(quoteSnapshots)
   .where(and(eq(quoteSnapshots.quoteId, QUOTE_ID), isNull(quoteSnapshots.supersededAt)));
 
@@ -163,5 +169,38 @@ console.log(
     ? "→ nothing blocks the re-send; firm mappings can follow it."
     : "→ choose these items on Costs BEFORE re-sending, or the new snapshot is born un-pushable.",
 );
+
+// ── condition 4 · the REAL gate, not an eyeball ──────────────────────────
+//
+// Readiness is what actually refuses the push, so it is what gets asked. A
+// hand-check of the columns above could agree with itself while the gate
+// disagreed for a reason the columns do not show.
+console.log("\n── projection readiness (the gate itself) ────────────");
+const readiness = await assessProjectionReadiness(QUOTE_ID);
+if (readiness.ready) {
+  console.log("READY · acceptedTier", readiness.acceptedTierId, "· total", readiness.tierCommercialTotal);
+  console.table(
+    readiness.lines.map((l) => ({
+      kind: l.kind,
+      name: l.displayName.slice(0, 28),
+      destination: l.destination,
+      nsItemId: l.netsuiteItemId,
+      nsItemCode: l.netsuiteItemCode,
+      amountCents: l.amountCents,
+      owningAssembly: l.owningAssemblyId ? l.owningAssemblyId.slice(0, 8) : null,
+    })),
+  );
+} else {
+  console.log("NOT READY · blockers:");
+  for (const b of readiness.blockers) console.log("  ·", b.kind);
+  for (const line of describeBlockers(readiness.blockers)) console.log("    ", line);
+  const kinds = new Set(readiness.blockers.map((b) => b.kind));
+  const onlyExpected = [...kinds].every((k) => k === "no_accepted_tier");
+  console.log(
+    onlyExpected
+      ? "-> EXPECTED: the only blocker is the deliberately unaccepted tier state."
+      : "-> STOP: a blocker beyond the unaccepted-tier state is present.",
+  );
+}
 
 process.exit(0);
