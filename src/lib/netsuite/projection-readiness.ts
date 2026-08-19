@@ -10,6 +10,7 @@ import {
 } from "@/db/schema";
 import { db } from "@/db";
 import {
+  SERVICE_IDENTITY_DESTINATION,
   bv011Label,
   isPerLineDestination,
 } from "@/lib/netsuite/bv011-destinations";
@@ -53,6 +54,13 @@ export type ProjectionBlocker =
       remediation: string;
     }
   | {
+      /** Frozen before destinations were recorded. Not a legacy combined charge. */
+      kind: "destination_not_recorded";
+      lineId: string;
+      displayName: string;
+      remediation: string;
+    }
+  | {
       kind: "provisional_tier";
       tierLabel: string;
       remediation: string;
@@ -64,10 +72,21 @@ export type ProjectionReadiness =
   | { ready: true; acceptedTierId: string; tierCommercialTotal: string }
   | { ready: false; blockers: ProjectionBlocker[] };
 
+/**
+ * The executor to read through.
+ *
+ * Defaults to the global client, but the push path will call this INSIDE the
+ * transaction that creates the Sales Order — a readiness answer taken outside
+ * that transaction is an answer about a different moment, and the gap is
+ * exactly where a concurrent edit would slip through.
+ */
+type Exec = Pick<typeof db, "select">;
+
 export async function assessProjectionReadiness(
   quoteId: string,
+  exec: Exec = db,
 ): Promise<ProjectionReadiness> {
-  const [quote] = await db
+  const [quote] = await exec
     .select({ acceptedTierId: quotes.customerAcceptedTierId })
     .from(quotes)
     .where(eq(quotes.id, quoteId));
@@ -85,7 +104,7 @@ export async function assessProjectionReadiness(
     };
   }
 
-  const [snapshot] = await db
+  const [snapshot] = await exec
     .select({ id: quoteSnapshots.id })
     .from(quoteSnapshots)
     .where(
@@ -111,7 +130,7 @@ export async function assessProjectionReadiness(
     };
   }
 
-  const [tierTotal] = await db
+  const [tierTotal] = await exec
     .select({
       tierLabel: quoteSnapshotTierTotals.tierLabel,
       total: quoteSnapshotTierTotals.tierCommercialTotal,
@@ -153,12 +172,14 @@ export async function assessProjectionReadiness(
   // Only PRICED cells at the accepted tier can produce a Sales Order line. An
   // unpriced cell has no amount to post; an allocated OTC cell is already
   // inside the unit prices.
-  const lines = await db
+  const lines = await exec
     .select({
       id: quoteSnapshotLines.id,
       kind: quoteSnapshotLines.lineKind,
       displayName: quoteSnapshotLines.displayName,
       destination: quoteSnapshotLines.bv011Destination,
+      serviceIdentity: quoteSnapshotLines.serviceIdentity,
+      legacyUnresolved: quoteSnapshotLines.legacyUnresolved,
       amount: quoteSnapshotLineTiers.lineAmount,
     })
     .from(quoteSnapshotLines)
@@ -174,7 +195,7 @@ export async function assessProjectionReadiness(
       ),
     );
 
-  const mappings = await db
+  const mappings = await exec
     .select({
       destination: netsuiteDestinationItemMap.destination,
       internalId: netsuiteDestinationItemMap.netsuiteInternalId,
@@ -193,11 +214,9 @@ export async function assessProjectionReadiness(
       continue;
     }
 
-    if (line.destination === null) {
-      // The only way a priced non-product line carries no destination is the
-      // legacy combined Tooling/Artwork charge. Named explicitly rather than
-      // reported as a generic missing mapping, because the remediation is
-      // completely different: no admin can fix this from Settings.
+    // The legacy combined charge says so on the row. Checked BEFORE the null
+    // test, because a null destination alone describes two unrelated states.
+    if (line.legacyUnresolved) {
       blockers.push({
         kind: "legacy_combined_otc",
         lineId: line.id,
@@ -208,30 +227,54 @@ export async function assessProjectionReadiness(
       continue;
     }
 
-    if (isPerLineDestination(line.destination)) {
+    // A Direct Service frozen before the destination column existed still
+    // carries its governed IDENTITY, and BV-011 fixes the identity's
+    // destination. Deriving it is reading the same governed map the freeze
+    // would have used — not a guess, and not string-matching a display name.
+    const destination =
+      line.destination ??
+      (line.serviceIdentity
+        ? SERVICE_IDENTITY_DESTINATION[line.serviceIdentity]
+        : null);
+
+    if (destination === null) {
+      // Frozen before destinations were recorded, with nothing on the row to
+      // derive one from. Distinct from the legacy combined charge: this line's
+      // accounting meaning is knowable, it simply was not captured, and a
+      // re-send captures it.
+      blockers.push({
+        kind: "destination_not_recorded",
+        lineId: line.id,
+        displayName: line.displayName,
+        remediation: `"${line.displayName}" was frozen before accounting destinations were recorded on quote lines. Revise and re-send so the line records its destination, then push.`,
+      });
+      continue;
+    }
+
+    if (isPerLineDestination(destination)) {
       // `OTC - Other Service` has no firm-level record by design; its item is
       // chosen per line. Until that selection exists, say so — reporting it as
       // an unmapped destination would send an admin to Settings to add a row
       // the schema forbids.
       blockers.push({
         kind: "per_line_destination_unresolved",
-        destination: line.destination,
-        destinationLabel: bv011Label(line.destination),
+        destination,
+        destinationLabel: bv011Label(destination),
         lineId: line.id,
         displayName: line.displayName,
-        remediation: `"${line.displayName}" posts to ${bv011Label(line.destination)}, whose NetSuite item is chosen per line rather than firm-wide. That selection is not available yet.`,
+        remediation: `"${line.displayName}" posts to ${bv011Label(destination)}, whose NetSuite item is chosen per line rather than firm-wide. That selection is not available yet.`,
       });
       continue;
     }
 
-    if (!mapped.has(line.destination)) {
+    if (!mapped.has(destination)) {
       blockers.push({
         kind: "unmapped_destination",
-        destination: line.destination,
-        destinationLabel: bv011Label(line.destination),
+        destination,
+        destinationLabel: bv011Label(destination),
         lineId: line.id,
         displayName: line.displayName,
-        remediation: `${bv011Label(line.destination)} has no NetSuite item mapped. Add it in Settings → NetSuite, then push again.`,
+        remediation: `${bv011Label(destination)} has no NetSuite item mapped. Add it in Settings → NetSuite, then push again.`,
       });
     }
   }

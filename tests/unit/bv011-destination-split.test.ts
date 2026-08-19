@@ -238,7 +238,7 @@ test("an unmapped destination BLOCKS rather than being skipped", async () => {
   const src = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
   // The dangerous alternative is a `continue` that omits the line: the order
   // would then be short AND reconcile to its own short sum.
-  assert.match(src, /if \(!mapped\.has\(line\.destination\)\) \{[\s\S]{0,200}blockers\.push/);
+  assert.match(src, /if \(!mapped\.has\(destination\)\) \{[\s\S]{0,200}blockers\.push/);
 });
 
 test("the admin surface cannot store a firm-wide record for a per-line destination", async () => {
@@ -247,4 +247,51 @@ test("the admin surface cannot store a firm-wide record for a per-line destinati
   // Refused, not accepted-and-ignored: a stored default would silently win over
   // the per-line selection.
   assert.match(src, /no firm-wide NetSuite item by design/);
+});
+
+// ── a null destination means two different things ────────────────────────
+
+test("only the legacy combined line is marked legacyUnresolved", () => {
+  const p = projectCommercial(
+    bundle([
+      prod(TIER_A, { toolingArtworkTotal: 100, toolingTotal: 200, setupFeeTotal: 50 }),
+    ]),
+  );
+  const flagged = p.lines.filter((l) => l.legacyUnresolved);
+  assert.equal(flagged.length, 1);
+  assert.equal(flagged[0].displayName, "Tooling & artwork");
+  // Every other OTC line has a destination AND is not legacy.
+  for (const l of p.lines.filter((x) => x.kind === "otc" && !x.legacyUnresolved)) {
+    assert.notEqual(l.bv011Destination, null, `${l.displayName} must carry a destination`);
+  }
+});
+
+test("readiness distinguishes legacy-combined from destination-not-recorded", async () => {
+  const src = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
+
+  // The defect this guards: every frozen line predating the destination column
+  // has a null destination, so keying "legacy" off null told an operator to
+  // resolve a Direct Service into Tooling and Artwork inputs.
+  assert.match(
+    src,
+    /if \(line\.legacyUnresolved\) \{/,
+    "legacy is read from the row's own statement, not inferred from a null",
+  );
+  assert.match(src, /kind: "destination_not_recorded"/);
+
+  // And the legacy branch must be tested BEFORE the null branch, or a legacy
+  // line with a null destination falls into the wrong one.
+  assert.ok(
+    src.indexOf("if (line.legacyUnresolved)") <
+      src.indexOf("if (destination === null)"),
+    "the explicit statement is checked before the ambiguous null",
+  );
+});
+
+test("a Direct Service frozen without a destination derives one from its identity", async () => {
+  const src = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
+  // Its identity is governed and frozen on the row, and BV-011 fixes the
+  // identity's destination — so deriving is reading the same governed map,
+  // not guessing. Blocking it instead would strand a resolvable line.
+  assert.match(src, /line\.destination \?\?[\s\S]{0,120}SERVICE_IDENTITY_DESTINATION\[line\.serviceIdentity\]/);
 });

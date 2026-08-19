@@ -3773,6 +3773,16 @@ export const quoteSnapshotLines = pgTable(
      * copy change would then silently repoint an accounting destination.
      */
     bv011Destination: bv011Destination("bv011_destination"),
+    /**
+     * TRUE only for the legacy combined Tooling/Artwork charge.
+     *
+     * A null `bv011Destination` alone could not carry this: it also describes a
+     * line frozen before the column existed, and conflating the two made the
+     * readiness check tell an operator to resolve a Formulation service into
+     * Tooling and Artwork. Same discipline as `pricingState` — an ambiguous
+     * null replaced by an explicit statement.
+     */
+    legacyUnresolved: boolean("legacy_unresolved").notNull().default(false),
     /** Resolved NetSuite item, written back at push. Posting provenance, not a commercial term. */
     netsuiteItemId: text("netsuite_item_id"),
     position: integer("position").notNull(),

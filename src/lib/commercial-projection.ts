@@ -79,6 +79,15 @@ export type CommercialLine = {
    * the line: the customer was quoted this charge and still is.
    */
   bv011Destination: Bv011Destination | null;
+  /**
+   * True only for the legacy combined Tooling/Artwork charge.
+   *
+   * Stated rather than inferred from a null destination, because null also
+   * describes a line frozen before destinations were recorded at all — and
+   * treating those as legacy told operators to resolve a Direct Service into
+   * Tooling and Artwork.
+   */
+  legacyUnresolved: boolean;
   /** Aligned to `tiers`, index for index. */
   cells: CommercialCell[];
   /**
@@ -219,6 +228,7 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
       bv011Destination: serviceIdentity
         ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
         : null,
+      legacyUnresolved: false,
       cells,
       allocationByTier: tiers.map(() => null),
     });
@@ -297,6 +307,7 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
           (OTC_COLUMN_DESTINATION as Record<string, Bv011Destination>)[
             fee.field
           ] ?? null,
+        legacyUnresolved: fee.field === LEGACY_COMBINED_OTC_COLUMN,
         cells,
         allocationByTier,
       });
