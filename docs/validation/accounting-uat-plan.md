@@ -117,12 +117,14 @@ correct behaviour, not a defect.
 
 ---
 
-## 4 · Mapping state — 3 of 16 destinations mapped
+## 4 · Mapping state — 5 of 16 destinations mapped
 
 | destination | item | id |
 |---|---|---|
 | `otc_filling` | BLD-FILL | 14525 |
 | `otc_setup` | OTC-0024 OTC - Setup Charge | 26348 |
+| `otc_artwork` | OTC-0001 OTC - Art / Prep / Proof | 11012 |
+| `otc_tooling` | OTC-0005 OTC - Tooling | 4077 |
 | `otc_formulation` | OTC-0050 OTC - Formulation Services | 59157 |
 
 `otc_other_service` is per-line by design and is never mapped firm-wide.
@@ -384,7 +386,7 @@ fixture* work to proceed; this is neither.
 | 2 | tax left to NetSuite | confirmation | no work; ship-to sub-item verified §5.7 |
 | 3 | Tooling → `OTC-0005` | mapping-only | **confirmed** — full-history rule; 12-mo tie does not change it |
 | 4 | Artwork → `OTC-0001` | mapping-only | ready |
-| 5 | per-line selection ×5 | production-code | **authorized** — trace smallest shared mechanism first |
+| 5 | per-line selection ×5 | production-code | **traced** — 4 of 5 destinations unreachable; see decision-5-per-line-trace.md |
 
 ---
 
