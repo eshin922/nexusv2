@@ -121,3 +121,24 @@ test("quoteForAssembly and quoteForQuoteLeaf remain lifecycle-agnostic", async (
   assert.ok(forAssembly.length > 0, "quoteForAssembly not found");
   assert.doesNotMatch(forAssembly, /assertDraft\(/);
 });
+
+// ── the Direct-Service-only Production surface ───────────────────────────
+
+test("a quote with a Direct Service and NO Item Group can still author production", async () => {
+  const src = await readFile(
+    "src/components/costs/production-drilldown.tsx",
+    "utf8",
+  );
+  // The empty state fired on `assemblies.length === 0` alone, which returns
+  // BEFORE the Direct Service tables render — so a service-only quote showed
+  // "no item groups yet" and its economics were unauthorable, and the per-line
+  // picker was unreachable.
+  //
+  // Same shape as #298: an absence test matching more than the thing it names.
+  assert.match(src, /assemblies\.length === 0 && directServices\.length === 0/);
+  assert.doesNotMatch(
+    codeOnly(src),
+    /if \(assemblies\.length === 0\) \{/,
+    "the empty state again returns on assemblies alone, hiding Direct Services",
+  );
+});
