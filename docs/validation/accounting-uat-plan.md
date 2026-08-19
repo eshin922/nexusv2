@@ -436,9 +436,32 @@ Cost is read **live at push**, so it is not part of the commercial freeze.
 > sell rate, line amount, accepted total — remains exactly as the customer
 > accepted it.
 
-This is a deliberate, bounded consequence of Option A, not a defect. Draft-lock
+This is a deliberate consequence of Option A.
+
+**CORRECTION, 2026-08-19.** When this was recorded I wrote that *"draft-lock
 means production inputs cannot normally change after send, so the window is
-narrow; but it is real and is written down rather than discovered later.
+narrow"*. **That is wrong, and the window is not narrow.**
+
+Neither cost-input action carries a server-side guard:
+
+| action | writes | `assertDraft` / `assertNotFrozen`? |
+|---|---|---|
+| `updateDirectServiceProduction` | `assembly_production_inputs` (service cost) | **none** |
+| `assembly-production-inputs.ts` writers | `assembly_production_inputs` (OTC fee cost) | **none** |
+
+The only protection is the Costs surface's `editable = quote.status === "draft"`,
+which disables the inputs **client-side**. That is an affordance, not a
+boundary — and the project's own standing rule is the opposite: *"the action
+layer still validates server-side (defense in depth — UI state can be stale)"*.
+
+So a live cost can be changed at any point in the quote's life, including after
+`complete`. Nothing already posted moves — cost is read AT push, so a later edit
+cannot reach an existing Sales Order — but the margin basis a FUTURE push would
+send is unguarded, and so is the reporting basis if anything re-reads it.
+
+**Not fixed in this slice, deliberately.** Adding a guard is a cost-governance
+change, and cost governance must not arrive under an Accounting UAT ticket
+(§5.5). Raised here as its own item.
 
 **Historical quote-time cost-basis reproduction is explicitly out of scope** and
 remains a separate future snapshot capability. Nothing in this change may be
