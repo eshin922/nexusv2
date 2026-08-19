@@ -66,6 +66,8 @@ export type FrozenSalesOrderLine = Reg4Line & {
   netsuiteItemId: string;
   /** The Nexus SKU, for the round-trip breadcrumb. Null on a fee line. */
   sku: string | null;
+  /** The governed commercial identity. Null on a fee line, which owns no leaf. */
+  quoteLeafId: string | null;
   /** OD-006 — the owning Item Group, or null for a top-level line. */
   owningAssemblyId: string | null;
 };
@@ -128,6 +130,7 @@ export async function buildFrozenSalesOrder(
     .select({
       sourceLineId: quoteSnapshotLines.id,
       kind: quoteSnapshotLines.lineKind,
+      quoteLeafId: quoteSnapshotLines.quoteLeafId,
       description: quoteSnapshotLines.displayName,
       sku: quoteSnapshotLines.displaySku,
       owningAssemblyId: quoteSnapshotLines.owningAssemblyId,
@@ -201,6 +204,7 @@ export async function buildFrozenSalesOrder(
       kind: row.kind,
       description: row.description,
       sku,
+      quoteLeafId: row.quoteLeafId,
       owningAssemblyId: row.owningAssemblyId,
       netsuiteItemId: resolution.netsuiteItemId,
       // Frozen, all three. The quantity and rate are what NetSuite multiplies;
@@ -223,6 +227,7 @@ export async function buildFrozenSalesOrder(
         : "otc") as "direct_service" | "otc",
       description: l.description,
       sku: byId.get(l.sourceLineId)?.sku ?? null,
+      quoteLeafId: byId.get(l.sourceLineId)?.quoteLeafId ?? null,
       owningAssemblyId: l.owningAssemblyId,
       netsuiteItemId: l.netsuiteItemId,
       quantity: l.quantity,

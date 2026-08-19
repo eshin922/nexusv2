@@ -342,6 +342,12 @@ const classifiedIdentityFiles = new Set([
   // is owned by an assembly XOR a `quote_leaf_id`, the governed attachment.
   // It resolves no legacy junction and cannot: the XOR is enforced by the DB.
   "src/app/actions/other-service-item.ts",
+  // CLASSIFIED — canonical identity only, as recorded EVIDENCE. Both read
+  // `quoteLeafId` off the frozen line to match a commercial line against the
+  // live grouping structure. Neither resolves a legacy junction; the frozen
+  // record cannot contain one, because the freeze writes only the canonical id.
+  "src/lib/netsuite/frozen-order-assembly.ts",
+  "src/lib/netsuite/frozen-sales-order.ts",
   // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
   // what the V1 freight distribution policy moved across the S-7 basket before
   // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment
