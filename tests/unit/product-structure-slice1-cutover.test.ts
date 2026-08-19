@@ -355,6 +355,10 @@ const classifiedIdentityFiles = new Set([
   // read `quote_leaf_id` as the governed owner of a service-owned production
   // row, or as the identity a frozen line records. None resolves the legacy
   // junction and none writes outside a transaction it then rolls back.
+  // CLASSIFIED — read-only census, canonical identity only. Counts which
+  // BV-011 destinations the population reaches, joining `quote_leaves` to the
+  // library by `leaf_id` for the service identity. Writes nothing.
+  "scripts/gate-1b/bv011-representation-census.ts",
   "scripts/gate-1b/freeze-lifecycle-proof.ts",
   "scripts/gate-1b/freeze-walk-candidates.ts",
   "scripts/gate-1b/freeze-walk-inspect.ts",

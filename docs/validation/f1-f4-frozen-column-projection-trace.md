@@ -233,13 +233,20 @@ verdict continues to route operators to Settings.
   have, or is refused.
 - No new allocation authoring model (out of scope per the #300 close).
 
-## Open before implementation
+## Settled after review (2026-08-19)
 
-- **Do OTC destinations need per-firm mapping, or is one destination per fee
-  column enough?** BV-011 implies the latter — `Setup → OTC - Setup` is
-  one-to-one. If so the mapping surface is a small static table, not a
-  per-identity admin flow, and §3's prerequisite is much smaller than it looks.
-- **Item Group OTC on the SO: line under the group, or sibling of it?** §1
-  settles the association and the hash exclusion, but not whether NetSuite wants
-  the charge inside the group's line structure or beside it. This depends on
-  OD-006 (NetSuite assembly structure), which is open.
+Both questions this trace left open are closed, and the consequences are worked
+through in [the mapping-surface plan](f1-f4-mapping-surface-plan.md):
+
+- **OTC destinations are fixed by BV-011, not per-firm.** Admins map each
+  governed destination to a NetSuite record; they do not configure what a fee
+  means. Scope is every frozen line whose destination has a valid mapping at
+  push time — never a hard-coded list.
+- **Item Group OTC sits inside the owning group's SO structure**, associated by
+  `owning_assembly_id` and excluded from `composition_hash`.
+
+One blocker surfaced while scoping the surface: `tooling_artwork_total` is a
+single Nexus input against two governed destinations with **different item
+types** (`OTC - Tooling` Inventory, `OTC - Artwork` Non-inventory). It cannot be
+resolved by admin configuration, and ten live rows are affected. See the plan
+§2.
