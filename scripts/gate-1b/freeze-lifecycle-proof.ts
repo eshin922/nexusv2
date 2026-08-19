@@ -175,7 +175,7 @@ const after = await inRollback(async (tx) => {
   await tx.execute(sql`update quotes set global_price_adj_pct = coalesce(global_price_adj_pct,0) + 0.25,
                                           target_margin_pct = 0.99
                         where id = ${quoteId}::uuid`);
-  await tx.execute(sql`update markup_defaults set markup_pct = 0.9 where category = 'Production'`);
+  await tx.execute(sql`update markup_defaults set default_markup_pct = 0.9 where category = 'Production'`);
   const [moved] = rows<{ n: number }>(await tx.execute(
     sql`select count(*)::int as n from assembly_leaf_inputs ali
           join quote_tiers t on t.id = ali.tier_id
