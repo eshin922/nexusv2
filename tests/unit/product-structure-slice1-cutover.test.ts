@@ -391,10 +391,6 @@ const classifiedIdentityFiles = new Set([
   // `assembly_leaves`, resolves nothing through the legacy junction, and writes
   // nothing.
   "scripts/gate-1b/testing-walk-preflight.ts",
-  // CLASSIFIED — read-only gate analysis, canonical identity only. Counts
-  // `quote_leaves` per quote to separate current-model quotes from
-  // pre-ASY/LEAF rows. Never queries `assembly_leaves`, writes nothing.
-  "scripts/gate-1b/send-gate-blocker.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
