@@ -295,3 +295,61 @@ test("a Direct Service frozen without a destination derives one from its identit
   // not guessing. Blocking it instead would strand a resolvable line.
   assert.match(src, /line\.destination \?\?[\s\S]{0,120}SERVICE_IDENTITY_DESTINATION\[line\.serviceIdentity\]/);
 });
+
+// ── per-line Other Service selection ─────────────────────────────────────
+
+test("an Other Service line carries its per-line selection; nothing else does", () => {
+  const withSelection = {
+    ...bundle([prod(TIER_A, { otherServiceTotal: 500, setupFeeTotal: 100 })]),
+    otherServiceItems: [
+      {
+        assemblyId: "asm",
+        quoteLeafId: null,
+        netsuiteItemCode: "SVC-MISC",
+        netsuiteInternalId: "9911",
+      },
+    ],
+  } as unknown as HydrateSnapshot;
+  const p = projectCommercial(withSelection);
+
+  const other = p.lines.find((l) => l.bv011Destination === "otc_other_service")!;
+  assert.deepEqual(other.selectedNetsuiteItem, {
+    code: "SVC-MISC",
+    internalId: "9911",
+  });
+
+  // Every other destination resolves from the FIRM mapping at push, so a
+  // per-line selection on one would be a second, competing source.
+  const setup = p.lines.find((l) => l.bv011Destination === "otc_setup")!;
+  assert.equal(setup.selectedNetsuiteItem, null);
+});
+
+test("with no selection the Other Service line is present but unresolved", () => {
+  const p = projectCommercial(bundle([prod(TIER_A, { otherServiceTotal: 500 })]));
+  const other = p.lines.find((l) => l.bv011Destination === "otc_other_service")!;
+  // Present and priced — the customer is charged either way. Only the
+  // ACCOUNTING destination is unresolved, which is what blocks the push.
+  assert.equal(other.cells[0].state, "priced");
+  assert.equal(other.selectedNetsuiteItem, null);
+});
+
+test("readiness accepts a frozen selection and refuses its absence", async () => {
+  const src = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
+  // Blocks only when the FROZEN selection is missing — an earlier version
+  // blocked every per-line destination unconditionally, which would have kept
+  // the push refused even after an operator chose an item.
+  assert.match(
+    src,
+    /if \(\(line\.selectedItemId \?\? ""\)\.trim\(\) === ""\) \{[\s\S]{0,300}per_line_destination_unresolved/,
+  );
+});
+
+test("the selection is draft-only, because it is frozen at send", async () => {
+  const src = await readFile("src/app/actions/other-service-item.ts", "utf8");
+  assert.match(src, /status !== "draft"/);
+  assert.match(src, /frozen at send/);
+  // And it resolves through the SAME resolver the admin surface uses. A second
+  // resolver would be a second answer to "which item is this" (Pattern 58).
+  assert.match(src, /netsuite\.resolveItem\(itemCode\)/);
+  assert.match(src, /status === "ambiguous"/);
+});

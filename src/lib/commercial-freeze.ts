@@ -68,6 +68,11 @@ export async function freezeCommercialLineSet(
         // change would then silently repoint an accounting destination.
         bv011Destination: line.bv011Destination,
         legacyUnresolved: line.legacyUnresolved,
+        // The per-line choice is frozen because for this destination the
+        // operator's choice IS the governance — a commercial decision about
+        // this quote, not firm configuration that can be corrected later.
+        selectedNetsuiteItemId: line.selectedNetsuiteItem?.internalId ?? null,
+        selectedNetsuiteItemCode: line.selectedNetsuiteItem?.code ?? null,
         // Left NULL here. Destination identity is resolved by the projection
         // slice that owns NetSuite mapping; inventing one at freeze time
         // would record a guess as a governed fact.

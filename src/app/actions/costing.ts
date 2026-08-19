@@ -31,6 +31,7 @@ import {
   quoteSnapshots,
   quoteTiers,
   quoteWarnings,
+  quoteOtherServiceItems,
 } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -1857,6 +1858,22 @@ export async function getCostingBundle(
         ),
       );
 
+    // Per-line `OTC - Other Service` item selections. A separate read rather
+    // than a join: it is a small per-quote table and folding it into the
+    // 8-wide bundle burst would add a query to a fan-out already documented as
+    // the pool's limit.
+    const otherServiceItemRows = (
+      await db
+        .select({
+          assemblyId: quoteOtherServiceItems.assemblyId,
+          quoteLeafId: quoteOtherServiceItems.quoteLeafId,
+          netsuiteItemCode: quoteOtherServiceItems.netsuiteItemCode,
+          netsuiteInternalId: quoteOtherServiceItems.netsuiteInternalId,
+        })
+        .from(quoteOtherServiceItems)
+        .where(eq(quoteOtherServiceItems.quoteId, quoteId))
+    );
+
     const persistedWarnings = persistedWarningRows.map((w) => ({
       id: w.id,
       quoteId: w.quoteId,
@@ -1879,6 +1896,10 @@ export async function getCostingBundle(
       targetMarginPct: numOrNull(quote.targetMarginPct),
       firmSettings: input.firmSettings,
       markupDefaults: markupMap,
+      // Per-line Other Service selections. Carried on the bundle so the
+      // commercial projection stays a pure function of it — a lookup inside
+      // the projection would be a second source of truth for the same line.
+      otherServiceItems: otherServiceItemRows,
       skus: skuList,
       tiers: tierList,
       packaging: packagingList,

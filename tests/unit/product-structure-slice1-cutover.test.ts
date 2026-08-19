@@ -334,6 +334,10 @@ const classifiedIdentityFiles = new Set([
   // writes the legacy junction, and it cannot, because the column it targets
   // is derived from the leaf's service identity rather than supplied.
   "src/app/actions/direct-service-production.ts",
+  // CLASSIFIED — canonical identity only. The per-line Other Service selection
+  // is owned by an assembly XOR a `quote_leaf_id`, the governed attachment.
+  // It resolves no legacy junction and cannot: the XOR is enforced by the DB.
+  "src/app/actions/other-service-item.ts",
   // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
   // what the V1 freight distribution policy moved across the S-7 basket before
   // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment

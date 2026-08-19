@@ -178,6 +178,7 @@ export async function assessProjectionReadiness(
       kind: quoteSnapshotLines.lineKind,
       displayName: quoteSnapshotLines.displayName,
       destination: quoteSnapshotLines.bv011Destination,
+      selectedItemId: quoteSnapshotLines.selectedNetsuiteItemId,
       serviceIdentity: quoteSnapshotLines.serviceIdentity,
       legacyUnresolved: quoteSnapshotLines.legacyUnresolved,
       amount: quoteSnapshotLineTiers.lineAmount,
@@ -253,17 +254,22 @@ export async function assessProjectionReadiness(
 
     if (isPerLineDestination(destination)) {
       // `OTC - Other Service` has no firm-level record by design; its item is
-      // chosen per line. Until that selection exists, say so — reporting it as
-      // an unmapped destination would send an admin to Settings to add a row
-      // the schema forbids.
-      blockers.push({
-        kind: "per_line_destination_unresolved",
-        destination,
-        destinationLabel: bv011Label(destination),
-        lineId: line.id,
-        displayName: line.displayName,
-        remediation: `"${line.displayName}" posts to ${bv011Label(destination)}, whose NetSuite item is chosen per line rather than firm-wide. That selection is not available yet.`,
-      });
+      // chosen per line and FROZEN at send, because for this destination the
+      // operator's choice is the governance.
+      //
+      // A frozen selection satisfies the line. Its absence is reported as
+      // its own state rather than as an unmapped destination — the latter
+      // would send an admin to Settings to add a row the schema forbids.
+      if ((line.selectedItemId ?? "").trim() === "") {
+        blockers.push({
+          kind: "per_line_destination_unresolved",
+          destination,
+          destinationLabel: bv011Label(destination),
+          lineId: line.id,
+          displayName: line.displayName,
+          remediation: `"${line.displayName}" posts to ${bv011Label(destination)}, whose NetSuite item is chosen per line rather than firm-wide. Choose its item on Costs, then revise and re-send.`,
+        });
+      }
       continue;
     }
 

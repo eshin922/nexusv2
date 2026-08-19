@@ -3783,6 +3783,16 @@ export const quoteSnapshotLines = pgTable(
      * null replaced by an explicit statement.
      */
     legacyUnresolved: boolean("legacy_unresolved").notNull().default(false),
+    /**
+     * The frozen per-line item selection, for `OTC - Other Service` only.
+     *
+     * Distinct from `netsuiteItemId`, and the distinction is load-bearing:
+     * this is what the operator CHOSE and it is frozen at send; that is what
+     * was actually POSTED and it is written at push. They should agree, and
+     * keeping both means a disagreement is detectable rather than absorbed.
+     */
+    selectedNetsuiteItemId: text("selected_netsuite_item_id"),
+    selectedNetsuiteItemCode: text("selected_netsuite_item_code"),
     /** Resolved NetSuite item, written back at push. Posting provenance, not a commercial term. */
     netsuiteItemId: text("netsuite_item_id"),
     position: integer("position").notNull(),
@@ -3890,4 +3900,50 @@ export const netsuiteDestinationItemMap = pgTable(
       .notNull()
       .defaultNow(),
   },
+);
+
+/**
+ * Per-line NetSuite item for `OTC - Other Service` (migration 0090).
+ *
+ * The one BV-011 destination with no firm-wide record: it is the catch-all, so
+ * two quotes can use it for unrelated charges and 0081 refuses it a firm row by
+ * CHECK. The operator's choice IS the governance for the line, which makes it a
+ * commercial decision about this quote and therefore frozen at send.
+ */
+export const quoteOtherServiceItems = pgTable(
+  "quote_other_service_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    /** The Item Group whose `other_service_total` this is for. */
+    assemblyId: uuid("assembly_id").references(() => assemblies.id, {
+      onDelete: "cascade",
+    }),
+    /** The Direct Service leaf, when its identity is `other_service`. */
+    quoteLeafId: uuid("quote_leaf_id").references(() => quoteLeaves.id, {
+      onDelete: "cascade",
+    }),
+    /**
+     * Both NOT NULL: a selection naming no item is not a selection. The absence
+     * of the ROW is how "not chosen yet" is represented, so a half-filled row
+     * would be a third state nothing needs.
+     */
+    netsuiteItemCode: text("netsuite_item_code").notNull(),
+    netsuiteInternalId: text("netsuite_internal_id").notNull(),
+    selectedAt: timestamp("selected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    selectedByUserId: uuid("selected_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    index("qosi_quote_idx").on(t.quoteId),
+    check(
+      "qosi_owner_xor",
+      sql`(${t.assemblyId} IS NOT NULL) <> (${t.quoteLeafId} IS NOT NULL)`,
+    ),
+  ],
 );

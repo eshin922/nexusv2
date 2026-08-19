@@ -158,6 +158,7 @@ function snapshot(): HydrateSnapshot {
     // property here is that the client reconstruction equals the server input
     // KEY FOR KEY, and a key nobody states is a key nobody compares.
     lifts: [],
+  otherServiceItems: [],
     costing: computeQuoteCosting(input),
     persistedWarnings: [],
   };

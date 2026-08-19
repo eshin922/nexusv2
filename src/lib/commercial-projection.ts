@@ -35,6 +35,14 @@ import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
  * separately billed OTC.
  */
 
+/** A per-line Other Service selection, as the bundle carries it. */
+export type OtherServiceSelection = {
+  assemblyId: string | null;
+  quoteLeafId: string | null;
+  netsuiteItemCode: string;
+  netsuiteInternalId: string;
+};
+
 export type CommercialLineKind =
   | "item_group_member"
   | "direct_product"
@@ -88,6 +96,12 @@ export type CommercialLine = {
    * Tooling and Artwork.
    */
   legacyUnresolved: boolean;
+  /**
+   * The per-line NetSuite item chosen for `OTC - Other Service`, the one
+   * destination with no firm-wide record. NULL everywhere else, where the
+   * record is resolved at push from the governed mapping.
+   */
+  selectedNetsuiteItem: { code: string; internalId: string } | null;
   /** Aligned to `tiers`, index for index. */
   cells: CommercialCell[];
   /**
@@ -178,6 +192,24 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
   }).value;
 
   const skuById = new Map(bundle.skus.map((s) => [s.id, s] as const));
+
+  // Per-line Other Service selections, carried on the bundle. Absent on a
+  // bundle that predates them, which reads as "not chosen" — the same state as
+  // no row, and the state readiness refuses.
+  const selections =
+    (bundle as { otherServiceItems?: OtherServiceSelection[] })
+      .otherServiceItems ?? [];
+  const otherServiceByAssembly = new Map(
+    selections
+      .filter((x) => x.assemblyId !== null)
+      .map((x) => [x.assemblyId!, { code: x.netsuiteItemCode, internalId: x.netsuiteInternalId }] as const),
+  );
+  const otherServiceByLeaf = new Map(
+    selections
+      .filter((x) => x.quoteLeafId !== null)
+      .map((x) => [x.quoteLeafId!, { code: x.netsuiteItemCode, internalId: x.netsuiteInternalId }] as const),
+  );
+
   const lines: CommercialLine[] = [];
 
   // ── unit lines ─────────────────────────────────────────────────────────
@@ -229,6 +261,10 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
         ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
         : null,
       legacyUnresolved: false,
+      selectedNetsuiteItem:
+        serviceIdentity === "other_service"
+          ? (otherServiceByLeaf.get(rollup.canonicalQuoteLeafId ?? "") ?? null)
+          : null,
       cells,
       allocationByTier: tiers.map(() => null),
     });
@@ -308,6 +344,10 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
             fee.field
           ] ?? null,
         legacyUnresolved: fee.field === LEGACY_COMBINED_OTC_COLUMN,
+        selectedNetsuiteItem:
+          fee.field === "otherServiceTotal"
+            ? (otherServiceByAssembly.get(assemblyId) ?? null)
+            : null,
         cells,
         allocationByTier,
       });
