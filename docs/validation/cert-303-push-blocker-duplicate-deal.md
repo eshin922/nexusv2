@@ -103,3 +103,55 @@ second deal). It is not documented as a decision anywhere, which is the gap.
 Option 1 with an existing disposable deal needs no HubSpot write and is the
 smallest step. It still needs a decision about which deal, because the result
 becomes the permanent pure Direct Service certification witness.
+
+---
+
+## RESOLVED — the V1 operational rule, now explicit
+
+**Recorded 2026-08-19 per Edward's disposition. It was previously implicit in
+the provider's UserEvent and in Nexus's reconciliation refusal; neither is a
+place a rule should live only.**
+
+> **One HubSpot deal may produce at most one Nexus-created NetSuite Sales
+> Order.**
+>
+> A deal may contain multiple quote scenarios. Once one scenario completes to
+> NetSuite, a sibling scenario must not create or adopt another Sales Order on
+> that same deal.
+
+Both guards stay unchanged. They are the enforcement:
+
+- **NetSuite** refuses the second CREATE via the duplicate-deal UserEvent.
+- **Nexus** refuses to ADOPT the existing order when it belongs to a sibling
+  quote, rather than rewriting a completed order's commercial terms. The
+  attempt parks at `needs_reconciliation` with `soId` NULL, which is what
+  prevents a blind retry issuing a second CREATE.
+
+Neither was weakened to unblock certification, and the rule is not a workaround
+for the block — it is the statement of what the system already does.
+
+### What was provisioned
+
+A clean permanent certification lineage, because the alternatives were all
+worse: SO2716 is the F1/F4 terminal witness and must not be cancelled, the
+F1/F4 deal cannot be reused, and a `DELETE-ME` smoke deal is not a permanent
+witness.
+
+| | |
+|---|---|
+| HubSpot deal | **64184909493** — "ZZ-VALIDATION — Nexus Certification Lineage II (Direct Service)" |
+| pipeline / stage | Sales · **New (Acquiring Info)** (`195274338`, displayOrder 0) |
+| company | `57628110136` — the existing ZZ-VALIDATION certification customer |
+| Nexus project | `264d6160-e1fa-49ef-9b38-7140bf283c3c` |
+
+Every property was mirrored from the existing ZZ-VALIDATION witness rather than
+invented (Pattern 53). The stage matters most: `195607084 "Won - In
+production"` is the stage that enrols the production workflow
+`NETSUITE: Auto create NetSuite sales order from won deal`, which creates a
+**production** Sales Order. The provisioning script refused to run if the
+configured stage equalled that id — a guard, not a comment, because the
+distance between the safe stage and the dangerous one is four list positions.
+
+`client_name` resolved through the company association to "ZZ-VALIDATION —
+Nexus Certification Customer" on import, so the lineage reads from source
+rather than carrying a fabricated customer name.
