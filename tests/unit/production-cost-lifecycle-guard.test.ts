@@ -142,3 +142,28 @@ test("a quote with a Direct Service and NO Item Group can still author productio
     "the empty state again returns on assemblies alone, hiding Direct Services",
   );
 });
+
+test("the Production drilldown survives ZERO Item Groups", async () => {
+  const src = await readFile(
+    "src/components/costs/production-drilldown.tsx",
+    "utf8",
+  );
+  // Loosening the empty state made this region reachable with no Item Group,
+  // where `assemblies[0].id` threw "Cannot read properties of undefined".
+  // Both derefs are section-level summaries OF the Item Groups, so with none
+  // present the honest value is absent rather than a fabricated first row.
+  //
+  // Asserting the GUARD, not the absence of the deref. My first draft forbade
+  // `policyBySku.get(firstAssembly.id)` outright — but the guarded form still
+  // CONTAINS that substring, inside the ternary, so the check failed against
+  // the fix it was written for.
+  assert.match(src, /const firstAssembly = assemblies\[0\] \?\? null;/);
+  assert.match(
+    codeOnly(src),
+    /firstAssembly \? policyBySku\.get\(firstAssembly\.id\) : undefined/,
+  );
+  assert.match(
+    codeOnly(src),
+    /firstAssembly \? rowsBySku\.get\(firstAssembly\.id\) : undefined/,
+  );
+});
