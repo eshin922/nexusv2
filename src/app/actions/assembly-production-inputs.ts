@@ -46,6 +46,8 @@ export type ProductionCellSnapshot = {
   cmAssemblyTotal: string | null;
   setupFeeTotal: string | null;
   toolingArtworkTotal: string | null;
+  toolingTotal: string | null;
+  artworkTotal: string | null;
   rdTotal: string | null;
   otherServiceTotal: string | null;
   bulkRawCost: string | null;
@@ -117,6 +119,8 @@ export async function upsertAssemblyProductionInputs(
       "cmAssemblyTotal",
       "setupFeeTotal",
       "toolingArtworkTotal",
+      "toolingTotal",
+      "artworkTotal",
       "rdTotal",
       "otherServiceTotal",
       "bulkRawCost",
@@ -150,10 +154,24 @@ export async function upsertAssemblyProductionInputs(
         "setupFeeTotal",
         "Setup fee total",
       ),
+      // LEGACY. Still writable so an operator can clear it while resolving the
+      // amount into the two governed inputs below — the resolution path needs
+      // to zero the combined value, and a read-only column could not be
+      // resolved at all.
       toolingArtworkTotal: parseMoneyTotal(
         formData.get("toolingArtworkTotal"),
         "toolingArtworkTotal",
-        "Tooling / artwork fee total",
+        "Tooling / artwork fee total (legacy)",
+      ),
+      toolingTotal: parseMoneyTotal(
+        formData.get("toolingTotal"),
+        "toolingTotal",
+        "Tooling fee total",
+      ),
+      artworkTotal: parseMoneyTotal(
+        formData.get("artworkTotal"),
+        "artworkTotal",
+        "Artwork fee total",
       ),
       rdTotal: parseMoneyTotal(
         formData.get("rdTotal"),
@@ -244,6 +262,8 @@ export async function upsertAssemblyProductionInputs(
         cmAssemblyTotal: inserted.cmAssemblyTotal,
         setupFeeTotal: inserted.setupFeeTotal,
         toolingArtworkTotal: inserted.toolingArtworkTotal,
+        toolingTotal: inserted.toolingTotal,
+        artworkTotal: inserted.artworkTotal,
         rdTotal: inserted.rdTotal,
         otherServiceTotal: inserted.otherServiceTotal,
         bulkRawCost: inserted.bulkRawCost,
@@ -273,6 +293,8 @@ export async function upsertAssemblyProductionInputs(
       cmAssemblyTotal: row.cmAssemblyTotal,
       setupFeeTotal: row.setupFeeTotal,
       toolingArtworkTotal: row.toolingArtworkTotal,
+      toolingTotal: row.toolingTotal,
+      artworkTotal: row.artworkTotal,
       rdTotal: row.rdTotal,
       otherServiceTotal: row.otherServiceTotal,
       bulkRawCost: row.bulkRawCost,
@@ -290,6 +312,8 @@ export async function upsertAssemblyProductionInputs(
       "cmAssemblyTotal",
       "setupFeeTotal",
       "toolingArtworkTotal",
+      "toolingTotal",
+      "artworkTotal",
       "rdTotal",
       "otherServiceTotal",
       "bulkRawCost",
@@ -321,6 +345,8 @@ export async function upsertAssemblyProductionInputs(
       cmAssemblyTotal: persisted.cmAssemblyTotal,
       setupFeeTotal: persisted.setupFeeTotal,
       toolingArtworkTotal: persisted.toolingArtworkTotal,
+      toolingTotal: persisted.toolingTotal,
+      artworkTotal: persisted.artworkTotal,
       rdTotal: persisted.rdTotal,
       otherServiceTotal: persisted.otherServiceTotal,
       bulkRawCost: persisted.bulkRawCost,

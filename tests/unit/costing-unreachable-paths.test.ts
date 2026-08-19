@@ -90,6 +90,8 @@ function prod(over: Partial<CostingProductionInput> = {}): CostingProductionInpu
     cmAssemblyTotal: 0,
     setupFeeTotal: 0,
     toolingArtworkTotal: 0,
+    toolingTotal: 0,
+    artworkTotal: 0,
     rdTotal: 0,
     otherServiceTotal: 0,
     bulkRawCost: null,

@@ -148,6 +148,25 @@ export const leafCommercialKind = pgEnum("leaf_commercial_kind", [
  * The identity also determines which Production input the Costs surface
  * exposes: a Filling service exposes filling, not formulation.
  */
+export const bv011Destination = pgEnum("bv011_destination", [
+  "otc_filling",
+  "otc_packout",
+  "otc_raws",
+  "otc_freight_duties_tariffs",
+  "otc_customs",
+  "otc_setup",
+  "otc_artwork",
+  "otc_tooling",
+  "otc_formulation",
+  "otc_testing",
+  "otc_other_service",
+  "otc_dies",
+  "otc_print_plates",
+  "otc_samples",
+  "otc_processing_fee",
+  "otc_cartons",
+]);
+
 export const directServiceIdentity = pgEnum("direct_service_identity", [
   "formulation",
   "filling_blending",
@@ -3153,10 +3172,23 @@ export const assemblyProductionInputs = pgTable(
     }),
     cmAssemblyTotal: numeric("cm_assembly_total", { precision: 12, scale: 2 }),
     setupFeeTotal: numeric("setup_fee_total", { precision: 12, scale: 2 }),
+    /**
+     * LEGACY, unresolved. Predates the BV-011 Tooling/Artwork split.
+     *
+     * Never backfilled: no rule can say whether a combined amount is Tooling,
+     * Artwork, or both, so any split would be fabricated. It still contributes
+     * to unit economics exactly as before — but a separately-billed value here
+     * BLOCKS NetSuite projection with a named remediation rather than being
+     * guessed or skipped.
+     */
     toolingArtworkTotal: numeric("tooling_artwork_total", {
       precision: 12,
       scale: 2,
     }),
+    /** BV-011 `OTC - Tooling` — Inventory Item. */
+    toolingTotal: numeric("tooling_total", { precision: 12, scale: 2 }),
+    /** BV-011 `OTC - Artwork` — Non-inventory Item. */
+    artworkTotal: numeric("artwork_total", { precision: 12, scale: 2 }),
     rdTotal: numeric("rd_total", { precision: 12, scale: 2 }),
     // Migration 0083. Its own column rather than a reuse of otherServiceTotal:
     // BV-011 maps Testing and Other to DIFFERENT accounting destinations, and
@@ -3729,7 +3761,19 @@ export const quoteSnapshotLines = pgTable(
     displayName: text("display_name").notNull(),
     displaySku: text("display_sku"),
     serviceIdentity: directServiceIdentity("service_identity"),
-    /** Destination identity where already governed; NULL is not a defect. */
+    /**
+     * The governed BV-011 destination for this line, fixed by the input it came
+     * from. NULL means different things per kind, which is why it is nullable:
+     * a product line resolves by SKU and has no destination at all, whereas an
+     * OTC line with NULL here is the LEGACY combined Tooling/Artwork charge —
+     * the state that blocks projection.
+     *
+     * Persisted rather than re-derived, so the frozen row is self-describing.
+     * Re-deriving would mean string-matching `displayName` at push time, and a
+     * copy change would then silently repoint an accounting destination.
+     */
+    bv011Destination: bv011Destination("bv011_destination"),
+    /** Resolved NetSuite item, written back at push. Posting provenance, not a commercial term. */
     netsuiteItemId: text("netsuite_item_id"),
     position: integer("position").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -3797,4 +3841,43 @@ export const quoteSnapshotTierTotals = pgTable(
     totalIsProvisional: boolean("total_is_provisional").notNull(),
   },
   (t) => [unique("qstt_snapshot_tier_unique").on(t.quoteSnapshotId, t.tierId)],
+);
+
+// ═══════════════════════════════════════════════════════════════════════
+// BV-011 DESTINATION → NETSUITE ITEM  (migration 0088)
+//
+// Keyed on the DESTINATION, not on the economic source.
+//
+// `netsuiteServiceItemMap` keyed on `service_identity`, which conflated what a
+// fee MEANS (BV-011, fixed in code) with which record it POSTS TO (admin-
+// governed). The conflation was already biting: `rd_total` and the
+// `formulation` Direct Service both resolve to `OTC - Formulation`, so
+// identity-keying needed two rows for one NetSuite item and they were free to
+// drift apart. Destination-keying makes that one row, structurally.
+//
+// Admins configure the NetSuite record here. They do not configure the
+// accounting meaning of a fee — that is `src/lib/netsuite/bv011-destinations.ts`.
+// ═══════════════════════════════════════════════════════════════════════
+
+
+export const netsuiteDestinationItemMap = pgTable(
+  "netsuite_destination_item_map",
+  {
+    destination: bv011Destination("destination").primaryKey(),
+    netsuiteItemCode: text("netsuite_item_code"),
+    netsuiteInternalId: text("netsuite_internal_id"),
+    /**
+     * Last SUCCESSFUL resolution against NetSuite. NULL means never verified,
+     * which is distinct from verified-and-missing (recorded by clearing the
+     * ids). A transient NetSuite failure must leave both untouched:
+     * indeterminate is not unmapped (#291 disposition).
+     */
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
 );

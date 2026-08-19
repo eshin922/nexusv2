@@ -181,6 +181,8 @@ export type AdapterAssemblyProductionInputRow = {
   cmAssemblyTotal: string | null;
   setupFeeTotal: string | null;
   toolingArtworkTotal: string | null;
+  toolingTotal: string | null;
+  artworkTotal: string | null;
   rdTotal: string | null;
   otherServiceTotal: string | null;
   bulkRawCost: string | null;
@@ -412,6 +414,8 @@ export function buildQuoteCostingInputFromNewModel(
       cmAssemblyTotal: numOrNull(api.cmAssemblyTotal),
       setupFeeTotal: numOrNull(api.setupFeeTotal),
       toolingArtworkTotal: numOrNull(api.toolingArtworkTotal),
+      toolingTotal: numOrNull(api.toolingTotal),
+      artworkTotal: numOrNull(api.artworkTotal),
       rdTotal: numOrNull(api.rdTotal),
       otherServiceTotal: numOrNull(api.otherServiceTotal),
       bulkRawCost: numOrNull(api.bulkRawCost),

@@ -113,6 +113,8 @@ const prod = (
   cmAssemblyTotal: 1200,
   setupFeeTotal: 800,
   toolingArtworkTotal: 900,
+  toolingTotal: 0,
+  artworkTotal: 0,
   rdTotal: 250,
   otherServiceTotal: 50,
   bulkRawCost: 4000,
