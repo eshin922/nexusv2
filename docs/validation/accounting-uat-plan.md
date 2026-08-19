@@ -388,6 +388,44 @@ fixture* work to proceed; this is neither.
 
 ---
 
+## 5.7 · Verifications behind the dispositions
+
+**Decision 3 — the conditional count.** Measured 2026-08-19 over full history,
+three bases, plus a control confirming both item records are reachable:
+
+| basis | `OTC-0005` (4077) | `OTC-0046` (54062) | leader |
+|---|---|---|---|
+| A · all transaction lines | **23** | 15 | OTC-0005 |
+| B · distinct transactions | **18** | 10 | OTC-0005 |
+| C · by record type | 23, all `salesorder` | 15, all `salesorder` | OTC-0005 |
+| recency · last 12 months | 5 | 5 | **tied** |
+
+All three full-history bases agree, and basis C establishes the count is not
+contaminated by purchase orders or invoices — both items appear only on Sales
+Orders. **No material contradiction; the disposition stands.** Tooling maps to
+`OTC-0005` (internal id 4077).
+
+Recorded alongside it, because it is true and the disposition did not ask about
+it: the lead is **historical, not current**. Over the last twelve months the two
+items are used equally (5 and 5). If Accounting's intent was "the one we use
+now" rather than "the one we have used most", that is worth one more word from
+them — the mapping is trivially changed.
+
+Re-runnable: `scripts/gate-1b/tooling-full-history.ts`.
+
+**Decision 2 — the ship-to sub-item.** Verified rather than assumed. Nexus sends
+**no ship-to field at all** — `buildSalesOrderPayload` contains no shipping
+address, only `shipDate`. NetSuite defaults the address from the customer
+record, and that customer was resolved from the HubSpot company through the
+governed customer map. So ship-to does flow from the HubSpot/customer lineage,
+indirectly and by omission rather than by transmission. **Consistent with the
+disposition; no work.** Worth stating explicitly so nobody later assumes Nexus
+transmits an address it does not.
+
+---
+
+---
+
 ## 6 · Sequence
 
 1. **Accounting reviews SO2716** against §1 and answers the two questions in §2.
