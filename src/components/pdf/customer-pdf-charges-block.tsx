@@ -40,6 +40,12 @@ export function ChargesBlock({
   // nothing about which one to buy.
   const basisIdx = recommendedTierIdx ?? 0;
   const basisTier = tiers[basisIdx];
+  // One column of a matrix is being printed. Where the columns agree that is
+  // the whole story and saying so would be noise; where they do not, printing
+  // one figure unqualified would state a fee the other tiers do not carry.
+  const feesVaryByTier = serviceFees.some((sf) =>
+    sf.tier_amounts.some((a) => a !== sf.tier_amounts[basisIdx])
+  );
   return (
     <View style={styles.charges} wrap={false}>
       <Text style={styles.eyebrow}>{"Additional charges".toUpperCase()}</Text>
@@ -69,6 +75,12 @@ export function ChargesBlock({
           <Text style={styles.chargeGroupLabel}>
             {"Project & SKU fees · one-time".toUpperCase()}
           </Text>
+          {feesVaryByTier && (
+            <Text style={styles.chargeSub}>
+              Fees shown for {basisTier.full} ({qtyK(basisTier.quantity)} units).
+              Per-tier amounts available on request.
+            </Text>
+          )}
           {serviceFees.map((sf) => (
             <View key={sf.id} style={styles.chargeRow}>
               <View style={styles.cLabel}>
@@ -76,7 +88,9 @@ export function ChargesBlock({
                 <Text style={styles.cLabelS}>{sf.sub}</Text>
               </View>
               <Text style={styles.cQty}>{sf.qty_label}</Text>
-              <Text style={styles.cAmt}>{money(sf.amount)}</Text>
+              {/* Shown for the same basis tier the freight amounts use, and
+                  named in the subtitle below when tiers differ. */}
+              <Text style={styles.cAmt}>{money(sf.tier_amounts[basisIdx] ?? 0)}</Text>
             </View>
           ))}
         </>

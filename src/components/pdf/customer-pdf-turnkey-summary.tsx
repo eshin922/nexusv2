@@ -50,6 +50,9 @@ export function TurnkeySummary({
   lede?: string;
 }) {
   const isSingle = layout === "single_tier";
+  // The tier the "what this includes" list speaks for. Same basis the
+  // single-tier layout renders and the charges block quotes freight against.
+  const basisIdx = recommendedTierIdx ?? 0;
 
   // Included block (CD `pdf-render.jsx:188-202`)
   const Included = (
@@ -80,14 +83,14 @@ export function TurnkeySummary({
             Project setup {"&"} tooling — included in the unit price.
           </Text>
         )}
-        {foldFees && serviceFeesTotal(serviceFees) > 0 && (
+        {foldFees && serviceFeesTotal(serviceFees, basisIdx) > 0 && (
           // Slice 11 Step 8 matrix smoke Cluster 2B fix (2026-07-27):
           // gate on real fee total, not just `foldFees`. See
           // GrandTotalRow's matching fix for full rationale.
           <Text style={styles.tkIncl}>
             <Text style={styles.tkInclTick}>→</Text>
             {"  "}
-            One-time project {"&"} SKU fees ({money(serviceFeesTotal(serviceFees))})
+            One-time project {"&"} SKU fees ({money(serviceFeesTotal(serviceFees, basisIdx))})
             — folded into the total.
           </Text>
         )}

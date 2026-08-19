@@ -59,6 +59,13 @@ export function GrandTotalRow({
     rec: !isSingle && tier.recommended === true,
   }));
   const anyUnpriced = colData.some((c) => c.hasUnpriced);
+  // The notes column sits under the WHOLE row, so a fee figure printed here
+  // speaks for every column shown. State one only where every displayed tier
+  // folds the same amount; where they differ, say that fees are folded and
+  // let the itemized block below carry the per-tier figures.
+  const foldedByCol = colData.map((c) => serviceFeesTotal(serviceFees, c.ti));
+  const foldedTotal = foldedByCol[0] ?? 0;
+  const foldedUniform = foldedByCol.every((v) => v === foldedTotal);
   // Named from the quote, not from the prototype. The literal that stood here
   // ("CAP-60 · Tier 1") named a mock SKU to every customer whose quote had a
   // pending line, while their actual pending line went unnamed.
@@ -138,7 +145,7 @@ export function GrandTotalRow({
             price shown — the total is what you pay.
           </Text>
         )}
-        {foldFees && serviceFeesTotal(serviceFees) > 0 && (
+        {foldFees && foldedByCol.some((v) => v > 0) && (
           // Slice 11 Step 8 matrix smoke Cluster 2B fix (2026-07-27):
           // gate on real fee total, not just `foldFees` (which is
           // `hasCharges = serviceFees.length > 0 || freightLines.length > 0`).
@@ -148,11 +155,18 @@ export function GrandTotalRow({
           // the total" when in fact there were none.
           <Text style={styles.grandNote}>
             <Text style={styles.grandNoteK}>{"Includes   ".toUpperCase()}</Text>
-            One-time project {"&"} SKU fees of{" "}
-            <Text style={styles.grandNoteAmt}>
-              {money(serviceFeesTotal(serviceFees))}
-            </Text>
-            , folded into the total above and itemized below.
+            {foldedUniform ? (
+              <>
+                One-time project {"&"} SKU fees of{" "}
+                <Text style={styles.grandNoteAmt}>{money(foldedTotal)}</Text>,
+                folded into the total above and itemized below.
+              </>
+            ) : (
+              <>
+                One-time project {"&"} SKU fees are folded into each total
+                above and itemized below.
+              </>
+            )}
           </Text>
         )}
         {freightAtCost && (

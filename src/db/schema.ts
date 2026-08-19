@@ -14,6 +14,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   varchar,
@@ -3675,4 +3676,125 @@ export const netsuiteServiceItemMap = pgTable(
       sql`${t.serviceIdentity} <> 'other_service'`,
     ),
   ],
+);
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE FROZEN COMMERCIAL LINE SET  (migration 0087)
+//
+// What a quote actually offered, per line and per tier, recorded at send.
+//
+// Before this, nothing priced was frozen. `quote_snapshots` held the
+// commercial terms and the PDF axes; every figure NetSuite received was
+// RECOMPUTED at push time from a live costing bundle, and reproduced the
+// accepted quote only because draft-lock stops cost edits and the commercial
+// pin holds the rate. That is a convention — REG-4's "lines sum exactly to
+// the accepted commercial total" was a claim about a recomputation rather
+// than about a record.
+//
+// SEND freezes the whole line × tier matrix; ACCEPT selects a column. So the
+// accepted commercial total is a SELECTION, never a second stored number:
+//
+//   tier_commercial_total WHERE tier_id = quotes.customer_accepted_tier_id
+// ═══════════════════════════════════════════════════════════════════════
+
+export const commercialLineKind = pgEnum("commercial_line_kind", [
+  "item_group_member",
+  "direct_product",
+  "direct_service",
+  "otc",
+]);
+
+export const commercialPricingState = pgEnum("commercial_pricing_state", [
+  "priced",
+  "quote_on_request",
+]);
+
+export const commercialAllocationState = pgEnum("commercial_allocation_state", [
+  "allocated",
+  "separately_billed",
+]);
+
+export const quoteSnapshotLines = pgTable(
+  "quote_snapshot_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    lineKind: commercialLineKind("line_kind").notNull(),
+    /** The Item Group this line belongs to. NULL for top-level lines. */
+    owningAssemblyId: uuid("owning_assembly_id"),
+    quoteLeafId: uuid("quote_leaf_id"),
+    /** AS PRINTED. A library rename must not change what a sent quote says. */
+    displayName: text("display_name").notNull(),
+    displaySku: text("display_sku"),
+    serviceIdentity: directServiceIdentity("service_identity"),
+    /** Destination identity where already governed; NULL is not a defect. */
+    netsuiteItemId: text("netsuite_item_id"),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("qsl_snapshot_idx").on(t.quoteSnapshotId, t.position)],
+);
+
+export const quoteSnapshotLineTiers = pgTable(
+  "quote_snapshot_line_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotLineId: uuid("quote_snapshot_line_id")
+      .notNull()
+      .references(() => quoteSnapshotLines.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id").notNull(),
+    tierLabel: text("tier_label").notNull(),
+    quantity: integer("quantity"),
+    /**
+     * Priced or not, STATED.
+     *
+     * A nullable rate alone would repeat the OD-027 ambiguity — "no price"
+     * and "we failed to compute one" would be the same value. A DB CHECK
+     * ties this to the nullity of both amount columns, so an unpriced cell
+     * is a statement and a priced one cannot be half-written.
+     */
+    pricingState: commercialPricingState("pricing_state").notNull(),
+    unitRate: numeric("unit_rate", { precision: 14, scale: 4 }),
+    lineAmount: numeric("line_amount", { precision: 14, scale: 2 }),
+    allocationState: commercialAllocationState("allocation_state"),
+  },
+  (t) => [
+    index("qslt_by_line").on(t.quoteSnapshotLineId),
+    unique("qslt_line_tier_unique").on(t.quoteSnapshotLineId, t.tierId),
+  ],
+);
+
+export const quoteSnapshotTierTotals = pgTable(
+  "quote_snapshot_tier_totals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id").notNull(),
+    tierLabel: text("tier_label").notNull(),
+    quantity: integer("quantity"),
+    unitSubtotal: numeric("unit_subtotal", { precision: 14, scale: 2 }).notNull(),
+    otcSubtotal: numeric("otc_subtotal", { precision: 14, scale: 2 }).notNull(),
+    /**
+     * What was OFFERED at this tier. NOT the accepted total — at send nothing
+     * is accepted, and after acceptance three of four tiers still are not.
+     */
+    tierCommercialTotal: numeric("tier_commercial_total", {
+      precision: 14,
+      scale: 2,
+    }).notNull(),
+    /**
+     * The PDF's "from" semantics. STORED, not derived: the rule deciding when
+     * a total is provisional is presentation policy and may change, and the
+     * artifact must reproduce what the customer was shown rather than what a
+     * later rule would produce from the same lines.
+     */
+    totalIsProvisional: boolean("total_is_provisional").notNull(),
+  },
+  (t) => [unique("qstt_snapshot_tier_unique").on(t.quoteSnapshotId, t.tierId)],
 );

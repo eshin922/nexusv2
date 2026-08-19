@@ -856,6 +856,61 @@ own missing input.
 layer, and that repair changed no costing or send economics — which is what let
 it ship on targeted verification alone.
 
+### CERT-1 · lifecycle SEND certification requires production-system customer lineage
+
+**Owner:** Edward · **Blocks:** any lifecycle certification that must SEND —
+#300 today, and every future SEND / ACCEPT / NetSuite walk · **Raised:**
+2026-08-18, while certifying the frozen commercial line set.
+
+**No synthetic Nexus project can exercise SEND.** `sendQuote` calls
+`resolveGovernedPaymentTerms(project.hubspotDealId)` and fails closed unless it
+returns `governed`. That resolution walks
+
+    HubSpot deal → associated company → verified NetSuite customer → Terms
+
+and every synthetic project fails at the **first** hop, `no_company`, which is
+decided from the local `hubspot_deals_cache` before NetSuite is contacted at
+all. A fabricated deal id has no cached company, so the lineage cannot start:
+
+    NO-COMPANY   PSR Smoke Test                (PSR-SMOKE-FIXTURE)
+    NO-COMPANY   SAMPLE — Aurora Botanica      (SAMPLE-ORDER-AURORA-BOTANICA)
+    NO-COMPANY   SMOKE-CB-* ×3
+    lineage-ok   12 real client projects
+
+**This is a testability and governance constraint, not a defect.** The gate is
+correct: a quote whose payment terms cannot be traced to a governed customer
+record must not be sent, and BV-authority says so. The consequence is that the
+send path can only be exercised against **real client work** — the certification
+either contaminates a client project with a validation quote, a consumed
+firm-wide quote number and a stored PDF, or it does not run.
+
+**Do not close this by pointing a fixture project at a real deal.** The frozen
+snapshot records the customer relationship it was sent under; borrowing a
+client's lineage would make that record state a relationship that does not
+exist. That is worse than the inconvenience it removes, and it would corrupt
+exactly the artifact the certification is supposed to prove.
+
+**Direction (Edward, 2026-08-18): build one durable validation lineage** —
+a clearly named validation HubSpot company and deal, a Nexus project tied to
+that deal, and a valid NetSuite customer mapping with governed Terms. Retained
+permanently as certification infrastructure rather than deleted after a walk.
+
+**Blocked on a scope grant.** Neither HubSpot token can create a company:
+
+    HUBSPOT_ACCESS_TOKEN        companies.read  YES   companies.write  no
+    HUBSPOT_WRITE_ACCESS_TOKEN  companies.read  no    companies.write  no
+                                deals.write     YES
+
+So the company must be created by a human in the HubSpot UI, or
+`crm.objects.companies.write` must be added to the private app. Everything
+downstream — the deal, the NetSuite sandbox customer, the mapping, the project
+import — is reachable from existing scopes and existing operator surfaces.
+
+**What "done" looks like.** A permanent, unmistakably named lineage that any
+future lifecycle walk can send from, so that certification never again has to
+choose between contaminating client work and not running. The build and verify
+procedure is [`validation/certification-customer-lineage.md`](validation/certification-customer-lineage.md).
+
 ### OBS-1 · production artifact identity is not provable
 
 **Owner:** Edward · **Blocks:** nothing today · **Raised:** 2026-08-14, during

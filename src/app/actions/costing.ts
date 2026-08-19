@@ -827,6 +827,7 @@ export async function getQuoteCosting(
           position: al.position,
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
+          serviceIdentity: lib?.serviceIdentity ?? null,
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
@@ -1412,6 +1413,7 @@ export async function applyClientTargetSolveTierAdj(
           position: al.position,
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
+          serviceIdentity: lib?.serviceIdentity ?? null,
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
@@ -1738,6 +1740,7 @@ export async function getCostingBundle(
           position: al.position,
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
+          serviceIdentity: lib?.serviceIdentity ?? null,
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({

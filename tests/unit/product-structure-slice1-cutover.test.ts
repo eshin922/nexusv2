@@ -340,6 +340,27 @@ const classifiedIdentityFiles = new Set([
   // membership key the policy distributes across. It writes nothing and
   // resolves no legacy junction.
   "scripts/gate-1b/pre-refresh-isolation.ts",
+  // CLASSIFIED — canonical identity only, carried as EVIDENCE. The commercial
+  // projection reads `canonicalQuoteLeafId` off the rollup and passes it
+  // through onto the line; it resolves nothing with it and reaches no table.
+  // It cannot touch the junction: its only structural input is the costing
+  // bundle, which was already canonicalised upstream.
+  "src/lib/commercial-projection.ts",
+  // CLASSIFIED — canonical identity only, write-through. The freeze persists
+  // the `quoteLeafId` the projection recorded, verbatim, as part of the
+  // frozen line. It performs no lookup by it, and a frozen line is a record
+  // of what was sold rather than a handle used to resolve anything later.
+  "src/lib/commercial-freeze.ts",
+  // CLASSIFIED — read-only walk evidence, canonical identity only. All three
+  // read `quote_leaf_id` as the governed owner of a service-owned production
+  // row, or as the identity a frozen line records. None resolves the legacy
+  // junction and none writes outside a transaction it then rolls back.
+  "scripts/gate-1b/freeze-lifecycle-proof.ts",
+  "scripts/gate-1b/freeze-walk-candidates.ts",
+  "scripts/gate-1b/freeze-walk-inspect.ts",
+  // CLASSIFIED — read-only survey. Counts a project's scenarios by shape,
+  // reading `quote_leaf_id` as the canonical attachment key. Writes nothing.
+  "scripts/gate-1b/freeze-walk-project-detail.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

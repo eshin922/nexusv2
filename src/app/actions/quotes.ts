@@ -64,6 +64,7 @@ import {
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
+import { freezeCommercialLineSet } from "@/lib/commercial-freeze";
 import {
   searchProducts,
   type ProductSummary,
@@ -1860,6 +1861,13 @@ export async function sendQuote(
         addendumData: snapshotRepresentation.addendumData,
         structure: snapshotRepresentation.structure,
       });
+
+      // THE COMMERCIAL LINE SET, frozen from the projection the customer
+      // document was rendered from — the same in-memory result, not a second
+      // construction of it. Inside the send transaction: a snapshot without
+      // its line set would be a version whose commercial content has to be
+      // recomputed to be known, which is the state this replaces.
+      await freezeCommercialLineSet(tx, snapshot.id, resolved.commercial);
 
       // Phase 2 worksheet freight is frozen inside the same transaction as
       // the Quote snapshot. The one-to-one snapshot FK is the durable

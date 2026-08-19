@@ -90,7 +90,8 @@ export type CpdfServiceFee = {
   sku_id?: string;
   label: string;
   sub: string;
-  amount: number;
+  /** Per tier, aligned to `tiers`. NULL = not separately billed at this tier. */
+  tier_amounts: ReadonlyArray<number | null>;
   qty_label: string;
 };
 

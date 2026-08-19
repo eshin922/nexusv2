@@ -61,11 +61,18 @@ export function longDate(s: string | null | undefined): string {
   });
 }
 
-/** Σ service_fees[i].amount. CD `pdf-render.jsx:12`. */
+/** Σ the fees separately billed AT TIER `ti`. CD `pdf-render.jsx:12`.
+ *
+ * Was tier-agnostic (`Σ f.amount`), which folded the same fee total into every
+ * tier's grand total. Fees are stored per (assembly, tier) and are billed per
+ * tier, so the sum is taken down one column — a NULL entry meaning the fee is
+ * allocated into that tier's unit prices and must not be added again.
+ */
 export function serviceFeesTotal(
-  serviceFees: ReadonlyArray<CpdfServiceFee>
+  serviceFees: ReadonlyArray<CpdfServiceFee>,
+  ti: number
 ): number {
-  return serviceFees.reduce((a, f) => a + f.amount, 0);
+  return serviceFees.reduce((a, f) => a + (f.tier_amounts[ti] ?? 0), 0);
 }
 
 /** price × tiers[ti].quantity; null-safe. CD `pdf-render.jsx:27`. */
@@ -104,7 +111,7 @@ export function tierGrand(
       pricedCount++;
     }
   });
-  const total = priced + (foldFees ? serviceFeesTotal(serviceFees) : 0);
+  const total = priced + (foldFees ? serviceFeesTotal(serviceFees, ti) : 0);
 
   // T-1 repair (2026-08-11). Was `pricedCount * tiers[ti].quantity`.
   //

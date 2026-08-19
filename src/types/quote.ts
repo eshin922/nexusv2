@@ -141,7 +141,16 @@ export type CustomerViewServiceFee = {
   skuLabel?: string;
   label: string;
   sub: string;
-  amount: number;
+  /**
+   * Per tier, aligned to `CustomerView.tiers`. NULL = not billed at this tier
+   * (allocated into unit price, or no fee entered).
+   *
+   * Was a single `amount`, which made "the fee is the same at every tier" a
+   * property of the TYPE rather than of the data. A fee entered against one
+   * tier was then billed at all of them. Same per-tier shape as
+   * `CustomerViewFreightLine.tierAmounts`.
+   */
+  tierAmounts: ReadonlyArray<number | null>;
   qtyLabel: string;
 };
 
