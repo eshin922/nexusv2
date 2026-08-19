@@ -99,3 +99,60 @@ to `195607084 Won - In production`, which enrols the production SO workflow.
   member PATCH.
 - **Four operational fields** — Sales Rep, Customer PO Number, Estimated Invoice
   Date, Segment. Authority traces not yet done.
+
+---
+
+## TERMINAL INTEGRATION witness — SO2721
+
+Lineage IV · deal `64198590286` · project `1f0aa7c5` · quote `ee09b4fc` ·
+**DPS-1058** · NetSuite **SO2721** (internal `362741`).
+
+The proof that all five mechanisms coexist in **one real `markComplete`
+transaction** — non-taxable enforcement, the frozen Direct Service line shape,
+CUSTOM cost basis, per-line item selection, and Custom price level. Each had
+been proven individually; none had run together until this order.
+
+```
+FROZEN   SVC-TESTING-MICROS  direct_service  otc_testing
+         qty 2000 · unitRate 2.2400 · amount 4480.00 · selected 15323
+
+POSTED   OTC-0016 OTC - Micro Testing (15323)
+         qty 2000 · rate 2.24 · amount 4480 · priceLevel -1
+         taxCode -Not Taxable- · CUSTOM · costEstimateRate 1.6 · custcol 1.6
+         subtotal 4480 · total 4480 · taxTotal 0
+```
+
+| | |
+|---|---|
+| quantity = 2,000 | PASS |
+| rate = $2.24 | PASS |
+| amount = $4,480.00 | PASS |
+| cost type = CUSTOM | PASS |
+| cost rate = $1.60 | PASS |
+| tax code = -8 | PASS |
+| tax total = $0 | PASS |
+| item = OTC-0016 / 15323 | PASS |
+| selected intent = posted provenance | PASS |
+| REG-4 exact | PASS (448000c) |
+| **price level = -1 / Custom** | **PASS** |
+| subtotal / total = $4,480.00 | PASS |
+| **provider qty/rate match frozen qty/rate** | **PASS** |
+
+**13 of 13.** The last row remains asserted independently of REG-4, and the tax
+proof remains non-vacuous — customer 388800 still carries `taxable: true`.
+
+Grouped-order price level was **not** re-proven end-to-end here, per
+disposition: the member PATCH was measured directly on SO2715 with SO2714 as an
+untouched control, rate, amount and both subtotals unchanged.
+
+## Lineage inventory (final)
+
+| lineage | deal | Sales Order | role |
+|---|---|---|---|
+| ZZ-VALIDATION | `64142757296` | SO2716 | F1/F4 terminal witness |
+| II | `64184909493` | SO2717 | **negative** — REG-4 passes, shape wrong |
+| III | `64189597288` | SO2718 | pure Direct Service, 11/11 |
+| IV | `64198590286` | **SO2721** | **terminal integration, 13/13** |
+
+Probe artifacts, not witnesses: **SO2720** (disposable CREATE probe, no deal id)
+and **SO2715** (member line left at price level -1).

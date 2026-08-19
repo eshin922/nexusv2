@@ -41,7 +41,7 @@ for (const ln of so.item?.items ?? []) {
   posted.push({ item: ln.item?.refName, id: ln.item?.id, qty: ln.quantity, rate: ln.rate,
     amount: ln.amount, taxCode: ln.taxCode?.refName, costType: ln.costEstimateType?.id,
     costRate: ln.costEstimateRate, unitCostCol: ln.custcol_dps_unit_cost,
-    priceLevel: pl?.refName ?? (pl?.links?.[0]?.href?.split("/").pop() ?? null) });
+    priceLevel: pl?.id ?? pl?.links?.[0]?.href?.split("/").pop() ?? null });
 }
 console.table(posted);
 console.log(`header subtotal=${so.subtotal} total=${so.total} taxTotal=${so.taxTotal}`);
@@ -62,6 +62,8 @@ check("selected intent = posted provenance",
   f.selected === f.posted && String(f.posted) === String(p.id), `${f.selected} -> ${f.posted} -> ${p.id}`);
 const fc = Math.round(Number(at.tierCommercialTotal) * 100), pc = Math.round(Number(so.subtotal) * 100);
 check("REG-4 exact", fc === pc, `${fc}c vs ${pc}c`);
+check("price level = -1 (Custom)", String(p.priceLevel) === "-1", p.priceLevel);
+check("subtotal = total = 4,480.00", Number(so.subtotal) === 4480 && Number(so.total) === 4480, `${so.subtotal} / ${so.total}`);
 check("posted qty/rate match FROZEN shape",
   p.qty === f.qty && Number(p.rate) === Number(f.unitRate),
   `frozen ${f.qty} x ${f.unitRate}  posted ${p.qty} x ${p.rate}`);
