@@ -1,8 +1,22 @@
 # F1/F4 — BV-011 destination mapping surface · bounded implementation plan
 
 Companion to [the projection trace](f1-f4-frozen-column-projection-trace.md),
-written against the six decisions closing it. Plan only; no projection code is
-opened until the blocker in §2 is dispositioned.
+written against the six decisions closing it.
+
+> **STATUS — IMPLEMENTED by [#302](pr-302-tooling-split-walk.md), 2026-08-19.**
+>
+> Steps 0–5 and 10 of §5 have shipped: the destination catalogue, the
+> destination-keyed mapping table and its Settings surface, the Tooling/Artwork
+> split, legacy blocking, and the readiness predicate. §2's blocker was
+> dispositioned as **option (a), split the input**, and built.
+>
+> **The reasoning below is retained rather than rewritten.** The measurements
+> that produced these decisions — one governed destination of sixteen, the
+> `rd_total`/`formulation` collision that made destination-keying correct, the
+> item-type conflict that forced the split — are why the implementation looks
+> the way it does. Deleting them would leave the shape without its argument.
+>
+> What remains is the projection itself: §5 steps 6–9 and 11.
 
 ## 1 · What V1 actually reaches — measured, not assumed
 
@@ -33,6 +47,12 @@ one-time fee columns above. Their economics already reach the Sales Order inside
 the per-leaf unit rate. Counting them as OTC destinations would double-bill.
 
 ## 2 · BLOCKER — one Nexus column, two governed destinations, different item types
+
+> **SETTLED — option (a), and shipped in #302.** `tooling_total` and
+> `artwork_total` are distinct inputs with their own Costs rows. Existing
+> combined values are NOT split: retained as legacy unresolved data that blocks
+> projection with a named remediation rather than being guessed. The analysis
+> below stands as the reason.
 
 `tooling_artwork_total` is a single input. BV-011 §1.b governs two destinations
 for it:
@@ -132,6 +152,13 @@ an input is added.
 | 9 | refuse `total_is_provisional = true` | reachable today — the certification quote's Tier 3 |
 | 10 | correct `composition-hash.ts:23-24` | same slice, per decision 2 |
 | 11 | **remove the #293 block — last** | on the five conditions in the trace §6 |
+
+**Shipped in #302:** 1, 2, 3, 4, 10, and the readiness predicate that step 9
+consumes. Step 1's disposition is recorded in §2 above.
+
+**Remaining for the projection slice:** 5 (per-line Other Service), 6 (the
+shared emit path), 7 (resolve at push + provenance), 8 (REG-4 links), 9
+(provisional refusal), 11 (remove the block, last).
 
 ## 6 · Falsifications the slice must carry
 

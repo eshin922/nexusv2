@@ -245,6 +245,14 @@ through in [the mapping-surface plan](f1-f4-mapping-surface-plan.md):
 - **Item Group OTC sits inside the owning group's SO structure**, associated by
   `owning_assembly_id` and excluded from `composition_hash`.
 
+**OD-006 settled 2026-08-19**, which the trace had left open. An Item Group OTC
+line belongs INSIDE its owning group's Sales Order structure: it keeps
+`owning_assembly_id`, is emitted in association with that group, remains a
+separate quantity-1 accounting line, and does not participate in
+`composition_hash` — so it cannot change deterministic Item Group identity or
+break reuse. A Direct Service stays top-level and uses the same quantity-1
+emitter with no Item Group owner.
+
 One blocker surfaced while scoping the surface: `tooling_artwork_total` is a
 single Nexus input against two governed destinations with **different item
 types** (`OTC - Tooling` Inventory, `OTC - Artwork` Non-inventory). It cannot be
