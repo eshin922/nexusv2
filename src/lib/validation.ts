@@ -111,6 +111,8 @@ export function validateQuote(
 const SERVICE_FEE_COLUMNS = [
   "setupFeeTotal",
   "toolingArtworkTotal",
+  "toolingTotal",
+  "artworkTotal",
   "rdTotal",
   "otherServiceTotal",
   "cmAssemblyTotal",
@@ -122,7 +124,9 @@ type ServiceFeeColumn = (typeof SERVICE_FEE_COLUMNS)[number];
 // Drizzle schema's JS-side property names).
 const SERVICE_FEE_LABELS: Record<ServiceFeeColumn, string> = {
   setupFeeTotal: "Setup fee",
-  toolingArtworkTotal: "Tooling/artwork",
+  toolingArtworkTotal: "Tooling/artwork (legacy)",
+  toolingTotal: "Tooling",
+  artworkTotal: "Artwork",
   rdTotal: "R&D charge",
   otherServiceTotal: "Other service fee",
   cmAssemblyTotal: "CM assembly fee",
@@ -188,6 +192,10 @@ function checkQuoteLevelCompleteness(
         p.cmAssemblyTotal,
         p.setupFeeTotal,
         p.toolingArtworkTotal,
+      p.toolingTotal,
+      p.artworkTotal,
+        p.toolingTotal,
+        p.artworkTotal,
         p.rdTotal,
         p.otherServiceTotal,
         p.bulkRawCost,

@@ -63,6 +63,11 @@ export async function freezeCommercialLineSet(
         displayName: line.displayName,
         displaySku: line.displaySku,
         serviceIdentity: line.serviceIdentity,
+        // Persisted so the frozen row is self-describing. Re-deriving it at
+        // push time would mean string-matching `displayName`, and a copy
+        // change would then silently repoint an accounting destination.
+        bv011Destination: line.bv011Destination,
+        legacyUnresolved: line.legacyUnresolved,
         // Left NULL here. Destination identity is resolved by the projection
         // slice that owns NetSuite mapping; inventing one at freeze time
         // would record a guess as a governed fact.

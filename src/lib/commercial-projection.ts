@@ -5,6 +5,12 @@ import {
 import type { QuoteCostingResult } from "@/lib/costing";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
+import {
+  LEGACY_COMBINED_OTC_COLUMN,
+  OTC_COLUMN_DESTINATION,
+  SERVICE_IDENTITY_DESTINATION,
+} from "@/lib/netsuite/bv011-destinations";
+import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
 
 /**
  * THE commercial projection — one governed boundary, two consumers.
@@ -61,6 +67,27 @@ export type CommercialLine = {
   /** Customer-facing quantity copy, e.g. "1 (setup)". Null on unit lines. */
   displayQtyLabel: string | null;
   serviceIdentity: DirectServiceIdentity | null;
+  /**
+   * The governed BV-011 destination, or null.
+   *
+   * Null means different things by kind, and the difference matters:
+   *   · product lines have no destination — they resolve by SKU;
+   *   · an OTC line with null is the LEGACY combined Tooling/Artwork charge,
+   *     which no rule can assign to either destination.
+   *
+   * The second case is what blocks NetSuite projection. It does NOT suppress
+   * the line: the customer was quoted this charge and still is.
+   */
+  bv011Destination: Bv011Destination | null;
+  /**
+   * True only for the legacy combined Tooling/Artwork charge.
+   *
+   * Stated rather than inferred from a null destination, because null also
+   * describes a line frozen before destinations were recorded at all — and
+   * treating those as legacy told operators to resolve a Direct Service into
+   * Tooling and Artwork.
+   */
+  legacyUnresolved: boolean;
   /** Aligned to `tiers`, index for index. */
   cells: CommercialCell[];
   /**
@@ -97,10 +124,24 @@ export type CommercialProjection = {
   productionMarkupPct: number | null;
 };
 
-/** The four fee columns that can be separately billed, with their copy. */
+/**
+ * The fee columns that can be separately billed, with their copy.
+ *
+ * `toolingArtworkTotal` is the LEGACY combined column and is listed alongside
+ * its two governed successors on purpose. It must keep producing its customer
+ * line — the charge was quoted and removing it would silently change what a
+ * draft quote prices — while carrying no destination, which is what blocks the
+ * accounting projection until an operator resolves it.
+ *
+ * Its copy is unchanged for the same reason: this is the same charge it always
+ * was, and re-wording it would move customer-facing text for an accounting
+ * change.
+ */
 const OTC_FEES = [
   { field: "setupFeeTotal", label: "Setup", sub: "One-time setup — filling-line, dye-cuts, plates.", qtyLabel: "1 (setup)" },
-  { field: "toolingArtworkTotal", label: "Tooling & artwork", sub: "One-time tooling + artwork.", qtyLabel: "1 (tooling)" },
+  { field: LEGACY_COMBINED_OTC_COLUMN, label: "Tooling & artwork", sub: "One-time tooling + artwork.", qtyLabel: "1 (tooling)" },
+  { field: "toolingTotal", label: "Tooling", sub: "One-time tooling.", qtyLabel: "1 (tooling)" },
+  { field: "artworkTotal", label: "Artwork", sub: "One-time artwork.", qtyLabel: "1 (artwork)" },
   { field: "rdTotal", label: "R&D", sub: "One-time R&D work.", qtyLabel: "1 (R&D)" },
   { field: "otherServiceTotal", label: "Other services", sub: "One-time other services.", qtyLabel: "1 (services)" },
 ] as const;
@@ -182,6 +223,12 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
       displaySub: null,
       displayQtyLabel: null,
       serviceIdentity,
+      // A product resolves by SKU and has no BV-011 destination; a service's
+      // destination is governed by its identity.
+      bv011Destination: serviceIdentity
+        ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
+        : null,
+      legacyUnresolved: false,
       cells,
       allocationByTier: tiers.map(() => null),
     });
@@ -253,6 +300,14 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
         displaySub: fee.sub,
         displayQtyLabel: fee.qtyLabel,
         serviceIdentity: null,
+        // Undefined for the legacy combined column, and that is the point —
+        // BV-011 governs its two halves as different destinations with
+        // different item types, so no entry can be correct for it.
+        bv011Destination:
+          (OTC_COLUMN_DESTINATION as Record<string, Bv011Destination>)[
+            fee.field
+          ] ?? null,
+        legacyUnresolved: fee.field === LEGACY_COMBINED_OTC_COLUMN,
         cells,
         allocationByTier,
       });

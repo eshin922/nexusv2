@@ -206,7 +206,16 @@ export type CostingProductionInput = {
   fillingBlendingCost: number | null;
   cmAssemblyTotal: number | null;
   setupFeeTotal: number | null;
+  /**
+   * LEGACY combined Tooling+Artwork. Retained, never split — no rule can say
+   * which half a historical amount is. Contributes to economics exactly as
+   * before; blocks NetSuite projection when separately billed.
+   */
   toolingArtworkTotal: number | null;
+  /** BV-011 `OTC - Tooling`. */
+  toolingTotal: number | null;
+  /** BV-011 `OTC - Artwork`. */
+  artworkTotal: number | null;
   rdTotal: number | null;
   otherServiceTotal: number | null;
   bulkRawCost: number | null;
@@ -1799,9 +1808,15 @@ function computeLeafPerTier(args: {
   // divisions below.
   internalProductionCogsTotal =
     num(production?.fillingBlendingCost) + num(production?.cmAssemblyTotal);
+  // The legacy combined column and the two split columns all land in the SAME
+  // total. Splitting the INPUT does not change what a fee costs — it changes
+  // which accounting destination it posts to. Existing rows carry only the
+  // legacy column and their economics are therefore bit-identical.
   oneTimeServiceFeeTotal =
     num(production?.setupFeeTotal) +
     num(production?.toolingArtworkTotal) +
+    num(production?.toolingTotal) +
+    num(production?.artworkTotal) +
     num(production?.rdTotal) +
     num(production?.otherServiceTotal);
   if (production && tierQty > 0) {
@@ -1908,10 +1923,16 @@ function computeLeafPerTier(args: {
       label: "One-time services",
       value: oneTimeServiceFeeTotal,
       unit: "usd",
-      op: "setup + tooling + R&D + other",
+      op: "setup + tooling(legacy) + tooling + artwork + R&D + other",
       operands: [
         originNode(nodeKey(prodBase, "services", "setup"), "Setup", num(production?.setupFeeTotal)),
+        // The legacy combined origin KEEPS its key and its label. Re-labelling
+        // or re-keying it would move every existing quote's graph for a change
+        // that alters no economics — and the key is what a witness diff
+        // compares. Its two governed successors are siblings, not replacements.
         originNode(nodeKey(prodBase, "services", "tooling"), "Tooling + artwork", num(production?.toolingArtworkTotal)),
+        originNode(nodeKey(prodBase, "services", "tooling_only"), "Tooling", num(production?.toolingTotal)),
+        originNode(nodeKey(prodBase, "services", "artwork"), "Artwork", num(production?.artworkTotal)),
         originNode(nodeKey(prodBase, "services", "rd"), "R&D", num(production?.rdTotal)),
         originNode(nodeKey(prodBase, "services", "other"), "Other services", num(production?.otherServiceTotal)),
       ],
