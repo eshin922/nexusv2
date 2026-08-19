@@ -1221,7 +1221,7 @@ This is external to Nexus. No amount of Nexus-side work closes it.
 
 ---
 
-### OD-006 · NetSuite assembly structure
+### OD-006 · NetSuite assembly structure — **OTC PLACEMENT SETTLED 2026-08-19**
 
 **Owner:** Edward + Accounting · **Blocks:** Sales Order push design
 
@@ -1236,6 +1236,61 @@ Three discovery questions, answerable in parallel with other work:
 
 Together these decide whether the Sales Order push sends assemblies, leaves, or
 both.
+
+**The OTC placement half is settled** (Edward, 2026-08-19), which is what F1/F4
+needed. An Item Group OTC line belongs **inside** its owning Item Group's Sales
+Order structure. It:
+
+- retains `owning_assembly_id` as the association;
+- is emitted in association with that Item Group;
+- remains a separate **quantity-1** accounting line;
+- does **not** participate in `composition_hash`, and therefore cannot change
+  deterministic Item Group identity or break group reuse.
+
+A Direct Service stays **top-level** and uses the same quantity-1 accounting-line
+emitter with no Item Group owner.
+
+The three discovery questions above remain open for the ASSEMBLY question —
+whether the push sends assemblies, leaves, or both. They do not block F1/F4,
+which projects from the frozen line set and emits per line.
+
+---
+
+### HARNESS-1 · the committed gate-1b costing baseline is stale
+
+**Owner:** Edward · **Blocks:** nothing today · **Class:** validation
+infrastructure · **Raised:** 2026-08-19, during #302.
+
+`npm run gate1b:verify-preserved` reports **8 failures on unmodified `main`**.
+All four affected quotes are DRAFTS, last edited between 2026-07-15 and
+2026-08-17:
+
+```
+27581262  SAMPLE — Aurora Botanica · SAMPLE TEST 3 - ED
+2f29af72  Smart Pressed Juice · Primary
+f5f5ac14  Nemah 30ml · Rendered coverage fixture (do not quote)
+f88c22e3  Nemah 30ml · Ed's Test Scenario
+```
+
+**Benign.** The baseline records VALUES, and a draft is meant to change. The
+instrument is a snapshot-in-time comparison, not a permanent reference, so it
+goes stale whenever draft cost data moves.
+
+**Do NOT rebaseline mutable drafts to make the old instrument green**, and
+certainly not inside a feature slice — re-baselining is a governance act that
+erases the drift record, and doing it as a side effect of unrelated work hides
+what changed and when.
+
+**How a slice proves preservation in the meantime:** capture a baseline on
+`main` first, then verify branch code against THAT. #302 did exactly this and
+got 34/34 with freight conserved. This is also the standing rule already banked
+in CLAUDE.md — *"run the governed command on `main` first; a branch comparison
+against an unverified baseline is not evidence."*
+
+**What settles it:** the regression/release harness rejuvenation in the
+post-F1/F4 V1 sweep. Candidate fix is to baseline only immutable quotes (sent,
+accepted, complete) and treat drafts as out of scope, which would make the
+instrument durable rather than needing periodic refresh.
 
 ---
 
