@@ -525,3 +525,77 @@ test("7b · the freeze refuses to persist a matrix that disagrees with itself", 
   );
   assert.equal(bad[0].tierId, TIER_A);
 });
+
+// ── a line's quantity is its own, not the tier's ─────────────────────────
+
+test("unitRate × quantity === lineAmount on every priced cell", () => {
+  const p = projectCommercial(
+    bundle({
+      skus: [
+        { id: "asm", parentSkuId: null, skuRole: "assembly", skuLabel: "IG", productName: "G" },
+        { id: "leaf", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L", productName: "Leaf", qtyPerParent: "2" },
+      ],
+      rollups: [{ skuId: "leaf", perTier: [priced(TIER_A, 3), priced(TIER_B, 2)] }],
+      production: [
+        { quoteSkuId: "leaf", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
+      ],
+    }),
+  );
+  for (const line of p.lines) {
+    line.cells.forEach((c, i) => {
+      if (c.state !== "priced") return;
+      assert.equal(
+        c.unitRate * c.quantity,
+        c.lineAmount,
+        `${line.displayName} @ tier ${i}: rate × quantity must be the amount`,
+      );
+    });
+  }
+});
+
+test("a one-time charge is quantity 1, not the tier's unit count", () => {
+  const p = projectCommercial(
+    bundle({
+      skus: [
+        { id: "asm", parentSkuId: null, skuRole: "assembly", skuLabel: "IG", productName: "G" },
+        { id: "leaf", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L", productName: "Leaf", qtyPerParent: "1" },
+      ],
+      rollups: [{ skuId: "leaf", perTier: [priced(TIER_A, 1), priced(TIER_B, 1)] }],
+      production: [
+        { quoteSkuId: "leaf", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
+      ],
+    }),
+  );
+  const otc = p.lines.find((l) => l.kind === "otc")!;
+  const cell = otc.cells[0];
+  assert.equal(cell.state, "priced");
+  if (cell.state !== "priced") return;
+  // The tier ships 1,000 units. The fee is charged once. Storing the tier's
+  // quantity here made `quantity × rate` read $140,000 for a $140 charge.
+  assert.equal(cell.quantity, 1);
+  assert.equal(cell.unitRate, cell.lineAmount);
+});
+
+test("a member's quantity expands by qty-per-parent, and the amount follows", () => {
+  const p = projectCommercial(
+    bundle({
+      skus: [
+        { id: "asm", parentSkuId: null, skuRole: "assembly", skuLabel: "IG", productName: "G" },
+        { id: "leaf", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L", productName: "Leaf", qtyPerParent: "3" },
+      ],
+      rollups: [{ skuId: "leaf", perTier: [priced(TIER_A, 2), priced(TIER_B, 2)] }],
+      tierQty: [1000, 5000],
+    }),
+  );
+  const member = p.lines.find((l) => l.kind === "item_group_member")!;
+  const cell = member.cells[0];
+  if (cell.state !== "priced") throw new Error("expected priced");
+  // Three of this component per finished unit, 1,000 units ordered.
+  assert.equal(cell.quantity, 3000);
+  assert.equal(cell.lineAmount, 6000);
+});
+
+test("the freeze writes the line quantity, not the tier's", async () => {
+  const src = await readFile("src/lib/commercial-freeze.ts", "utf8");
+  assert.match(src, /quantity: cell\.state === "priced" \? cell\.quantity : tier\.quantity/);
+});

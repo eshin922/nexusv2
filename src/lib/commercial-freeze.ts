@@ -87,7 +87,10 @@ export async function freezeCommercialLineSet(
         quoteSnapshotLineId: row.id,
         tierId: tier.tierId,
         tierLabel: tier.tierLabel,
-        quantity: tier.quantity,
+        // The LINE's quantity, not the tier's. Storing the tier's put a
+        // one-time $140 charge on record as 1,000 units — the amount was
+        // right, but anything multiplying the row got 1000x the fee.
+        quantity: cell.state === "priced" ? cell.quantity : tier.quantity,
         pricingState: cell.state === "priced" ? "priced" : "quote_on_request",
         unitRate: cell.state === "priced" ? cell.unitRate.toFixed(4) : null,
         lineAmount: cell.state === "priced" ? cell.lineAmount.toFixed(2) : null,

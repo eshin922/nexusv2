@@ -3812,6 +3812,14 @@ export const quoteSnapshotLineTiers = pgTable(
       .references(() => quoteSnapshotLines.id, { onDelete: "cascade" }),
     tierId: uuid("tier_id").notNull(),
     tierLabel: text("tier_label").notNull(),
+    /**
+     * THIS LINE's quantity at this tier — not the tier's own, which lives on
+     * `quoteSnapshotTierTotals`. A one-time fee is quantity 1 at every tier;
+     * storing the tier's put a $140 charge on record as 1,000 units.
+     *
+     * `unitRate × quantity === lineAmount` holds by construction, which is what
+     * lets REG-4 check the multiplication NetSuite performs on its own.
+     */
     quantity: integer("quantity"),
     /**
      * Priced or not, STATED.
