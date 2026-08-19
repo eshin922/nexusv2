@@ -185,6 +185,79 @@ emitted representation. *Owner: engineering, UI.*
 
 ---
 
+## 5.5 · How Accounting's answers get handled
+
+**Standing protocol, set 2026-08-19 before the answers arrived** — deliberately,
+so it governs the responses rather than being reconstructed around them.
+
+### Freeze while Case 0 is under review
+
+No fixtures built, no destinations mapped, no production code changed while
+Accounting is reviewing. The packet is a question; acting before the answer
+would make it a rhetorical one.
+
+### The packet separates three kinds of statement, and so must the answers
+
+| kind | who owns it | example from Case 0 |
+|---|---|---|
+| **engineering-certified behaviour** | engineering, already proved | the order reconciles to the accepted total exactly |
+| **observed NetSuite history** | neither — it is a fact | 1,276 OTC lines carry `CUSTOM` cost |
+| **Accounting policy decision** | Accounting | whether fee lines should carry an explicit cost |
+
+An answer that reads as policy but is really a request to change certified
+behaviour gets flagged as such rather than absorbed.
+
+### Record each decision verbatim
+
+When a response arrives it is written into this document **word for word**,
+attributed and dated, before any interpretation. Paraphrase happens in a
+separate line underneath, marked as such. A decision summarised into the shape
+the implementer expected is the failure mode this exists to prevent.
+
+### Classify each decision
+
+Every recorded decision carries exactly one classification:
+
+| class | means | example |
+|---|---|---|
+| **mapping-only** | a row in the destination map; no code, no fixture | confirming `OTC-0012` for freight |
+| **fixture-only** | a test order to build; no code change | Direct Product case |
+| **production-code change** | Nexus behaviour changes | sending an explicit fee-line cost |
+| **NetSuite master-data cleanup** | the item catalog changes | consolidating duplicate Tooling items |
+
+### Reconcile before implementing
+
+**Decisions sharing an architecture are implemented together, never
+piecemeal.** A class of change split across slices produces N partial designs
+converging on nothing.
+
+Two cases are pre-dispositioned because they are already foreseeable:
+
+**If Accounting chooses per-line selection for Testing / Dies / Samples /
+Cartons / Print Plates** — that is **one governed extension of the existing
+`otc_other_service` pattern**, not five feature slices. The per-line mechanism
+exists and is certified; what changes is which destinations are declared
+per-line, plus the Settings surface that stops presenting them as firm-wide
+rows. One slice, one design, five destinations.
+
+**If Accounting chooses an explicit fee-line cost basis** — **stop, and design
+it separately before touching the Sales Order emitter.** The commercial freeze
+is closed. Fee lines carry no unit cost in the quote today, so this is not a
+mapping or a payload tweak: it needs a governed input, a decision about whether
+that input is frozen at send like every other commercial figure, and an answer
+to whether a cost basis is even commercial. Cost-basis governance must not be
+smuggled in under an Accounting UAT ticket — that is exactly how a second
+authority for a number gets established without anyone deciding to establish
+one (Pattern 58).
+
+### Then, and only then
+
+The remaining matrix walks. The full V1 sweep and harness rejuvenation stay
+queued behind a **green Accounting matrix** — not behind the decisions, behind
+the walked and verified orders.
+
+---
+
 ## 6 · Sequence
 
 1. **Accounting reviews SO2716** against §1 and answers the two questions in §2.
