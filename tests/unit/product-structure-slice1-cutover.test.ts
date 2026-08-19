@@ -379,6 +379,12 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — read-only survey. Counts a project's scenarios by shape,
   // reading `quote_leaf_id` as the canonical attachment key. Writes nothing.
   "scripts/gate-1b/freeze-walk-project-detail.ts",
+  // CLASSIFIED — read-only UAT readiness survey, canonical identity only. Joins
+  // `quote_leaves` to the library on `leaf_id` for each leaf's sku and name, and
+  // reads `quote_leaves.assembly_id` directly to separate grouped from direct.
+  // It resolves nothing through the legacy junction — `assembly_leaves` is not
+  // queried at all — and writes nothing.
+  "scripts/gate-1b/uat-readiness.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
