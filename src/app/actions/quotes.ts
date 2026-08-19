@@ -97,6 +97,7 @@ import {
   type ScenarioCopyPickerRow,
 } from "@/lib/scenario-copy-loader";
 import { requireRevisable } from "@/lib/quote-guards";
+import { hasSendableCommercialStructure } from "@/lib/send-gate";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
 
@@ -1431,10 +1432,12 @@ export async function sendQuote(
             sql`${quoteTiers.qty} IS NOT NULL`,
           ),
         ),
+      // Commercial LINES, not Item Groups. See
+      // `hasSendableCommercialStructure` for what this replaced and why.
       db
         .select({ n: sql<number>`count(*)::int` })
-        .from(assemblies)
-        .where(eq(assemblies.quoteId, quoteId)),
+        .from(quoteLeaves)
+        .where(eq(quoteLeaves.quoteId, quoteId)),
     ]);
     if ((tierCount[0]?.n ?? 0) === 0) {
       throw new ActionGuardError(
@@ -1442,10 +1445,10 @@ export async function sendQuote(
         "Quote needs at least one tier with a quantity before it can be sent.",
       );
     }
-    if ((skuCount[0]?.n ?? 0) === 0) {
+    if (!hasSendableCommercialStructure({ commercialLines: skuCount[0]?.n ?? 0 })) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        "Quote needs at least one SKU before it can be sent.",
+        "Quote needs at least one product or service before it can be sent.",
       );
     }
 
