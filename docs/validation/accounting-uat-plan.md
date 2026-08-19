@@ -508,6 +508,76 @@ would also be an answer.
 
 ---
 
+## 5.8 · BLOCKER — SEND refuses any quote with no Item Group
+
+**Found 2026-08-19 during the CERT-303 Testing walk. Reported, not worked
+around, per Edward's instruction.**
+
+`sendQuote`'s second sanity gate is:
+
+```ts
+db.select({ n: count() }).from(assemblies).where(eq(assemblies.quoteId, quoteId))
+...
+"Quote needs at least one SKU before it can be sent."
+```
+
+**The message says SKU. The query counts Item Groups.** A quote's SKUs live in
+`quote_leaves`; `assemblies` is the Item Group table. So the gate refuses any
+quote whose structure carries no Item Group, however many SKUs it has.
+
+### Two shapes are unsendable, not one
+
+| shape | leaves | assemblies | sendable |
+|---|---|---|---|
+| Item Group (± Direct Service) | ≥1 | ≥1 | yes — every certified quote so far |
+| **Direct Service only** | ≥1 | **0** | **refused** — CERT-303 |
+| **Direct Product only** | ≥1 | **0** | **refused** — UAT matrix case 1 |
+
+This is **not service-specific.** Matrix case 1 (Direct Product) hits the
+identical condition, so the blocker is wider than the walk that found it.
+
+### Falsified, and the first falsifier was wrong
+
+Asking "has any quote reached sent with zero assemblies?" returned **four** —
+apparently refuting the reading. All four also had **zero `quote_leaves`**:
+April-2026 rows from before the ASY/LEAF migration, when structure lived in the
+`quote_skus` tables Slice 11.5.1 dropped; three carry no `sent_at` at all. They
+were sent by different code against a different model and say nothing about
+this gate.
+
+The predicate that actually tests it is a CURRENT-model quote — structure
+present, no Item Group. **Zero of those have ever been sent**, across 26
+sent/accepted/complete quotes. The reading stands.
+
+Worth keeping: the first falsifier was not merely unhelpful, it pointed the
+wrong way. A counterexample that does not satisfy the premise is not a
+counterexample.
+
+Re-runnable: `scripts/gate-1b/send-gate-blocker.ts`.
+
+### Why it has never surfaced
+
+Every quote certified so far carries an Item Group. CERT-300 has one plus a
+Direct Service, so it passes. The standalone-service and standalone-product
+shapes had simply never been sent.
+
+### Not fixed here
+
+Edward: *"If SEND's existing 'at least one SKU' gate refuses a service-only
+quote, stop and report that as a separate V1 blocker. Do not bypass it by adding
+a Product merely to complete certification."* CERT-303 stays a pure Direct
+Service fixture and is left at draft.
+
+The fix is small — count postable structure rather than Item Groups — but it
+changes what SEND permits, which is a governed decision rather than a walk
+convenience. It also needs a question answered: **is an empty quote still to be
+refused, and by what measure?** Counting `quote_leaves` would be the obvious
+replacement, and the message would finally match the query.
+
+---
+
+---
+
 ## 5.7 · Verifications behind the dispositions
 
 **Decision 3 — the conditional count.** Measured 2026-08-19 over full history,
