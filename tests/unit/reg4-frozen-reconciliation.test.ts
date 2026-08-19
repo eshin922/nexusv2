@@ -197,3 +197,86 @@ test("intent and actual are separate columns, so a disagreement is visible", asy
   // produce noise on every push.
   assert.match(src, /\(r\.selected \?\? ""\)\.trim\(\) !== ""/);
 });
+
+// ── every commercial line comes from the frozen matrix ───────────────────
+
+/**
+ * Strip comments before asserting a token is ABSENT.
+ *
+ * Well-documented code explains the absence, so the prose contains the very
+ * word the assertion forbids. This has now tripped three separate checks in
+ * this slice — on `composition`, on `*`/`/`, and on `additionalLines` — each
+ * time failing on correct code. A filter that cannot tell a mention from a use
+ * measures nothing.
+ */
+function codeOnly(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+test("there is no escape hatch for a second commercial line source", async () => {
+  const src = codeOnly(
+    await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8"),
+  );
+
+  // `additionalLines` existed here briefly and was removed. A reconciliation is
+  // only as exact as its least-controlled half, so an order taking service
+  // lines from the frozen column and product lines from a caller would
+  // reconcile against whichever half the check happened to cover — the shape
+  // that let the OTC gap survive in the first place.
+  assert.doesNotMatch(src, /additionalLines/);
+
+  // The only inputs are a quote id, an executor, and a SKU resolver. None of
+  // them can carry an amount.
+  const signature = src.slice(
+    src.indexOf("export async function buildFrozenSalesOrder"),
+    src.indexOf("): Promise<FrozenSalesOrder>"),
+  );
+  assert.match(signature, /quoteId: string/);
+  assert.match(signature, /exec\?: Exec; resolveSku: SkuResolver/);
+  assert.doesNotMatch(signature, /amount|line|Line/);
+});
+
+test("product amounts come from the frozen row, never from live costing", async () => {
+  const src = await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8");
+  // The product branch reads quantity, rate and amount off the frozen row.
+  assert.match(src, /quantity: row\.quantity \?\? 1,/);
+  assert.match(src, /rate: row\.rate \?\? "0",/);
+  assert.match(src, /amount: row\.amount \?\? "0",/);
+  // And the module cannot reach the costing tree at all.
+  assert.doesNotMatch(src, /getCostingBundle|computeQuoteCosting|skuRollups|costing-adapter/);
+});
+
+test("a product line is resolved by SKU-match, and refuses rather than guessing", async () => {
+  const src = await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8");
+  assert.match(src, /await opts\.resolveSku\(sku\)/);
+  // Ambiguity is a catalog problem. Picking a match would post the wrong item
+  // silently, which is worse than a blocked push.
+  assert.match(src, /kind: "product_item_unresolved"/);
+  assert.match(src, /Ambiguity is a catalog problem/);
+  assert.doesNotMatch(src, /matches\[0\]|\.matches\.find/);
+});
+
+test("every line kind has exactly one resolver, and the sets are disjoint", async () => {
+  const builder = await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8");
+  const readiness = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
+
+  // Products resolve in the builder (a NetSuite round trip); services and fees
+  // resolve in readiness (DB-decidable). Neither resolves the other's kinds.
+  assert.match(builder, /row\.kind !== "item_group_member" && row\.kind !== "direct_product"/);
+  assert.doesNotMatch(builder, /netsuiteDestinationItemMap/);
+  assert.doesNotMatch(readiness, /resolveSku|resolveItem/);
+
+  // Readiness skips products explicitly rather than by omission.
+  assert.match(readiness, /line\.kind === "item_group_member" \|\| line\.kind === "direct_product"/);
+});
+
+test("the emitted order is in frozen position order", async () => {
+  const src = await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8");
+  // Products and fees resolve on different paths, so without a re-sort the
+  // order would read grouped by how Nexus resolves rather than like the
+  // document the customer received.
+  assert.match(src, /const position = new Map\(frozen\.map\(\(r, i\) => \[r\.sourceLineId, i\]/);
+  assert.match(src, /\.sort\(/);
+});

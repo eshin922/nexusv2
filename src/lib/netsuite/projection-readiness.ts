@@ -55,6 +55,25 @@ export type ProjectionBlocker =
       remediation: string;
     }
   | {
+      /**
+       * A frozen product line with no SKU. Its NetSuite item is matched by SKU,
+       * so there is nothing to match on — distinct from a SKU that simply does
+       * not resolve, which is a catalog problem rather than a quote one.
+       */
+      kind: "product_sku_missing";
+      lineId: string;
+      displayName: string;
+      remediation: string;
+    }
+  | {
+      /** A frozen product SKU that does not resolve, or resolves ambiguously. */
+      kind: "product_item_unresolved";
+      lineId: string;
+      displayName: string;
+      sku: string;
+      remediation: string;
+    }
+  | {
       /** Frozen before destinations were recorded. Not a legacy combined charge. */
       kind: "destination_not_recorded";
       lineId: string;

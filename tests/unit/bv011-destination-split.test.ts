@@ -201,7 +201,13 @@ test("the freeze persists the destination rather than re-deriving it later", asy
 });
 
 test("readiness names a remediation for every blocker kind it can return", async () => {
-  const src = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
+  // Declarations live in `projection-readiness`; the two product kinds are
+  // CONSTRUCTED in `frozen-sales-order`, where SKU resolution happens. The
+  // union is deliberately shared, so scanning one file would report a real
+  // construction as a dead state.
+  const readiness = await readFile("src/lib/netsuite/projection-readiness.ts", "utf8");
+  const builder = await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8");
+  const src = readiness + "\n" + builder;
 
   // Declared kinds and constructed kinds are counted SEPARATELY. A single
   // regex over both conflates the type union with the object literals — and
