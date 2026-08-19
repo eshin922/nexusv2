@@ -385,6 +385,12 @@ const classifiedIdentityFiles = new Set([
   // It resolves nothing through the legacy junction — `assembly_leaves` is not
   // queried at all — and writes nothing.
   "scripts/gate-1b/uat-readiness.ts",
+  // CLASSIFIED — read-only walk pre-flight, canonical identity only. Joins
+  // `quote_leaves` to the library on `leaf_id` to find service attachments, and
+  // reports `quote_leaves.id` as the picker's owner key. Never queries
+  // `assembly_leaves`, resolves nothing through the legacy junction, and writes
+  // nothing.
+  "scripts/gate-1b/testing-walk-preflight.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
