@@ -15,6 +15,7 @@ import {
   ERR,
   runAction,
   type ActionResult,
+  assertDraft,
 } from "@/lib/action-result";
 import { quoteForQuoteLeaf } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
@@ -61,8 +62,16 @@ type ServiceLeafContext = {
 async function requireDirectServiceLeaf(
   quoteLeafId: string,
 ): Promise<ServiceLeafContext> {
-  // Draft-state and ownership come from the governed guard, not re-derived.
+  // Ownership comes from the governed guard. Draft-state did NOT, despite this
+  // comment previously saying it did — `quoteForQuoteLeaf` resolves the quote
+  // but asserts nothing about its lifecycle, so a direct action POST could
+  // rewrite a service's cost on a sent, accepted or completed quote. The
+  // Costs surface disables the input, which is an affordance, not a boundary.
+  //
+  // A comment that claims a guard is the reason nobody looks for it (Pattern
+  // 54). The assertion is now here, and the comment describes what happens.
   const { quote, quoteLeaf } = await quoteForQuoteLeaf(quoteLeafId);
+  assertDraft(quote);
 
   const [leaf] = await db
     .select({

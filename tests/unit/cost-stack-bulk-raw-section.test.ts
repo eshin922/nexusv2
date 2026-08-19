@@ -116,6 +116,7 @@ const prod = (
   toolingTotal: 0,
   artworkTotal: 0,
   rdTotal: 250,
+  testingMicrosTotal: 0,
   otherServiceTotal: 50,
   bulkRawCost: 4000,
   actualUnitsProduced: null,

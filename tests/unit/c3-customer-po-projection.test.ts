@@ -24,7 +24,6 @@ const base: SalesOrderPayloadInput = {
   netsuiteCustomerId: "customer-101",
   subsidiaryId: "subsidiary-2",
   orderStatusCode: "B",
-  taxCodeId: null,
   paymentTermsText: "Net 30",
   hubspotDealId: "deal-1",
   hubspotDealName: "C.3",

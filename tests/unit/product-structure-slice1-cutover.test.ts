@@ -373,6 +373,17 @@ const classifiedIdentityFiles = new Set([
   // BV-011 destinations the population reaches, joining `quote_leaves` to the
   // library by `leaf_id` for the service identity. Writes nothing.
   "scripts/gate-1b/bv011-representation-census.ts",
+  // CLASSIFIED — read-only CERT-303 walk evidence, canonical identity only.
+  // Reads the frozen snapshot line set and its per-tier rows, and the live
+  // per-line NetSuite selection keyed on `quote_leaf_id`. Resolves nothing
+  // through the legacy junction — `assembly_leaves` is never queried — and
+  // writes nothing.
+  "scripts/gate-1b/cert303-frozen.ts",
+  // CLASSIFIED — read-only lifecycle-guard proof, canonical identity only.
+  // Loads the real quote rows and runs `assertDraft` against them, with a
+  // draft quote as control; reads service-owned production rows by
+  // `quote_leaf_id`. Writes nothing.
+  "scripts/gate-1b/cert303-server-refusal.ts",
   "scripts/gate-1b/freeze-lifecycle-proof.ts",
   "scripts/gate-1b/freeze-walk-candidates.ts",
   "scripts/gate-1b/freeze-walk-inspect.ts",
@@ -385,6 +396,12 @@ const classifiedIdentityFiles = new Set([
   // It resolves nothing through the legacy junction — `assembly_leaves` is not
   // queried at all — and writes nothing.
   "scripts/gate-1b/uat-readiness.ts",
+  // CLASSIFIED — read-only walk pre-flight, canonical identity only. Joins
+  // `quote_leaves` to the library on `leaf_id` to find service attachments, and
+  // reports `quote_leaves.id` as the picker's owner key. Never queries
+  // `assembly_leaves`, resolves nothing through the legacy junction, and writes
+  // nothing.
+  "scripts/gate-1b/testing-walk-preflight.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

@@ -146,7 +146,14 @@ test("section-level reads re-point to the first Item Group", async () => {
   // Forced by the re-key: these read rows that are no longer leaf-keyed.
   // Section-level semantics are unchanged; only the key is.
   const src = await code(DRILL);
-  assert.match(src, /const firstAssembly = assemblies\[0\];/);
+  // The invariant is WHICH KEY these section-level reads use — the first Item
+  // Group, not the first leaf. That is unchanged.
+  //
+  // The deref became OPTIONAL when the empty state was loosened so a Direct
+  // Service could author production with no Item Group at all: this point is
+  // now reachable with `assemblies` empty, where the unguarded form threw.
+  // `assemblies[0]` is still the key; it is simply allowed to be absent.
+  assert.match(src, /const firstAssembly = assemblies\[0\] \?\? null;/);
   assert.match(src, /rowsBySku\.get\(firstAssembly\.id\)/);
   assert.doesNotMatch(src, /firstLeaf/);
 });

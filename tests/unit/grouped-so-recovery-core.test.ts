@@ -206,8 +206,15 @@ test("9 · patchSalesOrderLine uses the Probe 7d single-line shape", () => {
       "costEstimateRate",
       "costEstimateType",
       "rate",
+      // The governed non-taxable code. Members are created by NetSuite's group
+      // expansion, so this PATCH is the only way to reach their tax code —
+      // see tax-policy.ts.
+      "taxCode",
+      // The governed Custom price level, for the same reason. Guarded so it
+      // can never be written without the rate — see price-policy.ts.
+      "price",
     ].sort(),
-    "exactly the four governed scalar keys — nothing else may be written",
+    "exactly the six governed scalar keys — nothing else may be written",
   );
   // Never assembled from the argument object.
   assert.doesNotMatch(fn, /\.\.\.patch/, "body is not spread from the argument");

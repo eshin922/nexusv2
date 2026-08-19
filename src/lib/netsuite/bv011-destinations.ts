@@ -125,7 +125,42 @@ export const SERVICE_IDENTITY_DESTINATION = {
   other_service: "otc_other_service",
 } as const satisfies Record<DirectServiceIdentity, Bv011Destination>;
 
+/**
+ * Destinations whose NetSuite record is chosen PER LINE rather than per firm.
+ *
+ * `otc_other_service` is per-line because it is the catch-all — two quotes can
+ * use it for unrelated charges, so migration 0081 refuses it a firm row by
+ * CHECK. `otc_testing` is per-line for a different reason, settled by
+ * Accounting in Case 0: the account carries several genuinely distinct testing
+ * items in concurrent use (Micro Testing, HRIPT, Re-Test), and one firm-wide
+ * mapping would collapse a distinction Accounting keeps.
+ *
+ * ── THIS SET IS THE WHOLE SWITCH ─────────────────────────────────────────
+ *
+ * Freeze, readiness and posted-provenance are already destination-driven and
+ * read this predicate; none of them names a destination. Adding one here is
+ * what makes it per-line everywhere, which is why Case 0 was implemented as one
+ * governed extension rather than five selectors.
+ *
+ * ── THE KEYING TRIPWIRE ──────────────────────────────────────────────────
+ *
+ * `quote_other_service_items` is keyed by OWNER — (quote, assembly XOR leaf) —
+ * with no destination discriminator. That holds only while at most ONE
+ * per-line destination can attach to a given owner.
+ *
+ * A Direct Service leaf carries exactly one service identity and therefore
+ * exactly one destination, so `otc_testing` via the service path is safe. The
+ * moment a per-line destination arrives as an OTC FEE COLUMN, one assembly
+ * could need two selections and the key admits one — that needs a `destination`
+ * column, a new unique key, and a backfill. Do not add such a destination here
+ * without doing that first.
+ */
+const PER_LINE_DESTINATIONS = new Set<Bv011Destination>([
+  "otc_other_service",
+  "otc_testing",
+]);
+
 /** True when this destination's NetSuite record is chosen per line, not per firm. */
 export function isPerLineDestination(key: Bv011Destination): boolean {
-  return key === "otc_other_service";
+  return PER_LINE_DESTINATIONS.has(key);
 }

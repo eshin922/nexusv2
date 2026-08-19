@@ -1,6 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { createRecord, getRecord, type NetsuiteConfig } from "./client";
+import { NON_TAXABLE_TAX_CODE_ID } from "./tax-policy";
+import { CUSTOM_PRICE_LEVEL_ID } from "./price-policy";
 
 // Slice 12 Step 8c-3 — Sales Order payload builder + REST create.
 //
@@ -19,15 +21,16 @@ import { createRecord, getRecord, type NetsuiteConfig } from "./client";
 //                        hubspot_deals_cache.deal_folder_url)
 //   • custbody_dps_project_source, project_service_s, ...
 //                      — field-fill from 8c-2's expanded cache columns
-//   • class            — NetSuite class ref (business segment id;
-//                        NetSuite resolves)
+//   • class            — NOT SENT. See the note by `cseg_dps_bus_seg` below;
+//                        observed orders carry class = null.
 //   • item[]           — SO line items (physical + OTC in one list)
 //
 // Per-line shape (verified via SO2646/item/1):
 //   • item             — { id: <ns_item_internal_id> } (an Item Group
 //                        or a physical/OTC item)
 //   • quantity, rate, amount, description
-//   • taxCode          — { id: firm_settings.netsuite_default_tax_code_id }
+//   • taxCode          — ALWAYS { id: "-8" } (-Not Taxable-), governed rule
+//   • price            — ALWAYS { id: "-1" } (Custom), governed rule
 //   • custcol_dps_sku  — leaf's Nexus SKU (round-trip breadcrumb)
 //   • custcol_dps_unit_cost — leaf's per-unit cost from ASY/LEAF adapter
 
@@ -45,12 +48,17 @@ export interface SalesOrderPayloadInput {
   netsuiteCustomerId: string;
   subsidiaryId: string;
   orderStatusCode: string;         // e.g. 'B' Pending Fulfillment
-  // Q4 REVISED (CA 2026-07-28): null means "let NetSuite's tax engine
-  // derive per-line tax from customer + ship-to". Only populate when
-  // firm_settings.netsuite_default_tax_code_id is set as an admin
-  // override. Hardcoding a value overrides correct behavior on lines
-  // most likely to need it (OTC/tooling for out-of-state customers).
-  taxCodeId: string | null;
+  // Tax is NOT an input.
+  //
+  // It was `taxCodeId: string | null`, sourced from
+  // firm_settings.netsuite_default_tax_code_id, where null meant "let NetSuite
+  // derive per-line tax from customer + ship-to" (Q4 REVISED, CA 2026-07-28).
+  // It was null in practice, which is why SO2716 came back carrying $1,030.50
+  // of tax derived from a customer flagged taxable.
+  //
+  // Every Nexus-created Sales Order is non-taxable by governed business rule,
+  // so tax is no longer a parameter a caller can get wrong or an admin can
+  // silently flip. See tax-policy.ts for the measured cause and the lever.
   // Free-text terms from send-time snapshot
   paymentTermsText: string | null;
   // Provenance / audit fields
@@ -153,9 +161,18 @@ export function buildSalesOrderPayload(
   // per SO field-parity probe vs reference SO2646 (2026-07-29):
   //   1. custbody_sharepoint_link mirrors custbody_dps_accounting_files.
   //      Both hold the SharePoint URL; ref SO carries both simultaneously.
-  //   2. cseg_dps_bus_seg mirrors class from businessSegmentId. class is
-  //      the NS classification taxonomy; cseg is the parallel custom
-  //      segment taxonomy — ref carries the same segment id in both.
+  //   2. cseg_dps_bus_seg, from businessSegmentId.
+  //
+  //      This used to read "cseg_dps_bus_seg MIRRORS class … ref carries the
+  //      same segment id in both". `class` was never assigned — a grep for
+  //      `body.class` returns nothing — and on SO2701 / SO2704 / SO2707 /
+  //      SO2709 `class` is null while `cseg_dps_bus_seg` is 3. The comment
+  //      described a parity mapping that was not implemented, which is a
+  //      worse state than an unimplemented one: it reads as done.
+  //
+  //      Corrected rather than implemented (Edward, 2026-08-19). Whether
+  //      `class` should also be written is an Accounting question; the
+  //      reference order carrying both is evidence, not a decision.
   //   3. shipDate mirrors custbody_dps_pp_production_ship_date. NS uses
   //      the standard shipDate field; the custom body field is retained
   //      as a Nexus round-trip breadcrumb, but the standard field must
@@ -248,9 +265,9 @@ export function buildSalesOrderPayload(
   // full context on why. This ships correct pricing (Aisha stops
   // retyping) while leaving her invoice-side wrap step in place.
   //
-  // taxCode omitted per Q4 REVISED — NetSuite derives per-line tax
-  // from customer + ship-to. Only sent when firm_settings admin
-  // override is set (currently NULL by default).
+  // taxCode is sent on EVERY line, always -8 (-Not Taxable-). This reverses
+  // Q4 REVISED, which delegated tax to NetSuite and produced $1,030.50 of tax
+  // on SO2716 from a customer flagged taxable.
   //
   // rate + amount sent as NUMBERS not strings — sandbox probe
   // 2026-07-28 confirmed NetSuite REST rejects strings with
@@ -296,9 +313,18 @@ export function buildSalesOrderPayload(
   // BARE group lines: item + quantity only. No rate (ignored on the group
   // header), no amount, no per-line custom columns — the members NetSuite
   // expands carry their own, and Step 3 patches their rates.
+  // `taxCode` IS sent on the group header even though NetSuite already defaults
+  // it to -8. Relying on that default would make compliance with a governed
+  // rule depend on a NetSuite behaviour nobody here controls; stating it costs
+  // one field.
+  //
+  // It cannot be sent on EndGroup — NetSuite creates that line itself and Nexus
+  // never emits it. Observed as -8 on SO2716; the post-create pass corrects it
+  // if it is ever anything else.
   const groupItems = groupLines.map((g) => ({
     item: { id: g.netsuiteItemId },
     quantity: g.quantity,
+    taxCode: { id: NON_TAXABLE_TAX_CODE_ID },
   }));
 
   const flatItems = input.lines.map((line) => ({
@@ -306,7 +332,12 @@ export function buildSalesOrderPayload(
       quantity: line.quantity,
       rate: parseFloat(line.rate.toFixed(4)),
       description: line.description,
-      ...(input.taxCodeId ? { taxCode: { id: input.taxCodeId } } : {}),
+      // Unconditional, not conditional on a setting. See tax-policy.ts.
+      taxCode: { id: NON_TAXABLE_TAX_CODE_ID },
+      // Nexus supplies the rate, so the line is CUSTOM-priced rather than
+      // sourced from the item master's base price. Sent WITH `rate` above —
+      // never without it. See price-policy.ts.
+      price: { id: CUSTOM_PRICE_LEVEL_ID },
       custcol_dps_sku: line.sku,
       // GOVERNED PRODUCT COST → two destinations, one source.
       //

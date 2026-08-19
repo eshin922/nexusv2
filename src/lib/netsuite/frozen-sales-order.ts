@@ -14,6 +14,7 @@ import { checkLinkA, checkLinkB } from "@/lib/netsuite/reg4";
 import type { Reg4Failure, Reg4Line } from "@/lib/netsuite/reg4";
 import type { ProjectionBlocker } from "@/lib/netsuite/projection-readiness";
 import type { ResolveResult } from "@/lib/netsuite/item-resolver-types";
+import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
 
 /**
  * Build a complete Sales Order from the frozen accepted column, or refuse.
@@ -70,6 +71,15 @@ export type FrozenSalesOrderLine = Reg4Line & {
   quoteLeafId: string | null;
   /** OD-006 — the owning Item Group, or null for a top-level line. */
   owningAssemblyId: string | null;
+  /**
+   * The frozen BV-011 destination. Null on a product line, which resolves by
+   * SKU and has no destination at all.
+   *
+   * Carried so a caller can resolve the line's LIVE cost source without
+   * re-deriving which fee produced it. It is a frozen attribute — the column
+   * is on the snapshot row — so carrying it here mixes nothing.
+   */
+  destination: Bv011Destination | null;
 };
 
 export type FrozenSalesOrder =
@@ -134,6 +144,7 @@ export async function buildFrozenSalesOrder(
       description: quoteSnapshotLines.displayName,
       sku: quoteSnapshotLines.displaySku,
       owningAssemblyId: quoteSnapshotLines.owningAssemblyId,
+      destination: quoteSnapshotLines.bv011Destination,
       quantity: quoteSnapshotLineTiers.quantity,
       rate: quoteSnapshotLineTiers.unitRate,
       amount: quoteSnapshotLineTiers.lineAmount,
@@ -206,6 +217,8 @@ export async function buildFrozenSalesOrder(
       sku,
       quoteLeafId: row.quoteLeafId,
       owningAssemblyId: row.owningAssemblyId,
+      // A product has no destination by construction — it resolves by SKU.
+      destination: null,
       netsuiteItemId: resolution.netsuiteItemId,
       // Frozen, all three. The quantity and rate are what NetSuite multiplies;
       // the amount is what that product must reproduce.
@@ -217,7 +230,7 @@ export async function buildFrozenSalesOrder(
 
   if (blockers.length > 0) return { ok: false, blockers, reg4: [] };
 
-  // ── 4 · emit the quantity-1 half ───────────────────────────────────────
+  // ── 4 · emit the accounting half ───────────────────────────────────────
   const byId = new Map(frozen.map((r) => [r.sourceLineId, r] as const));
   const accounting: FrozenSalesOrderLine[] = emitAccountingLines(readiness.lines).map(
     (l) => ({
@@ -229,11 +242,13 @@ export async function buildFrozenSalesOrder(
       sku: byId.get(l.sourceLineId)?.sku ?? null,
       quoteLeafId: byId.get(l.sourceLineId)?.quoteLeafId ?? null,
       owningAssemblyId: l.owningAssemblyId,
+      destination: byId.get(l.sourceLineId)?.destination ?? null,
       netsuiteItemId: l.netsuiteItemId,
       quantity: l.quantity,
-      // Quantity is 1, so rate and amount are the same integer cents rendered
-      // twice — neither derived from the other.
-      rate: decimalFromCents(l.rateCents),
+      // Both CARRIED from the frozen row, neither derived from the other. A
+      // Direct Service brings its own quantity and unit rate; an OTC charge is
+      // 1 × its amount. See `accounting-line-emitter` for why the shapes split.
+      rate: l.rate,
       amount: decimalFromCents(l.amountCents),
     }),
   );

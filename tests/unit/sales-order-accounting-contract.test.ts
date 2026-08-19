@@ -12,7 +12,6 @@ const fullInput: SalesOrderPayloadInput = {
   netsuiteCustomerId: "customer-101",
   subsidiaryId: "subsidiary-2",
   orderStatusCode: "B",
-  taxCodeId: "tax-7",
   paymentTermsText: "  50% deposit, balance on shipment  ",
   hubspotDealId: "deal-40412634025",
   hubspotDealName: "Accounting Contract",
@@ -107,7 +106,8 @@ test("maps the verified required and optional Sales Order accounting fields", ()
           quantity: 250,
           rate: 1.2346,
           description: "Exact resolved leaf",
-          taxCode: { id: "tax-7" },
+          taxCode: { id: "-8" },
+          price: { id: "-1" },
           custcol_dps_sku: "SKU-EXACT-123",
           custcol_dps_unit_cost: 0.9877,
           // Governed product cost reaches NetSuite's STANDARD cost basis, not
@@ -128,7 +128,6 @@ test("maps the verified required and optional Sales Order accounting fields", ()
 test("omits optional, standard-terms, historical, derived, and unknown fields", () => {
   const payload = buildSalesOrderPayload({
     ...fullInput,
-    taxCodeId: null,
     paymentTermsText: "   ",
     dealFolderUrl: null,
     projectServiceS: null,
@@ -152,7 +151,15 @@ test("omits optional, standard-terms, historical, derived, and unknown fields", 
   }
   assert.equal(own(payload, "custbody_dps_payment_terms_text"), false);
   assert.equal(own(payload, "custbody_project_manager"), false);
-  assert.equal(own(line, "taxCode"), false);
+  // taxCode is NOT optional any more, so it does not belong in this test's
+  // omission set — it is asserted PRESENT here on purpose. Every Nexus Sales
+  // Order is non-taxable by governed rule, and this case (every optional field
+  // stripped) is precisely where a conditional emitter would drop it.
+  assert.deepEqual(line.taxCode, { id: "-8" });
+  // Price level is not optional either — a Nexus-priced line is CUSTOM, and
+  // this case (every optional field stripped) is where a conditional emitter
+  // would drop it.
+  assert.deepEqual(line.price, { id: "-1" });
   assert.equal(own(line, "custcol_dps_unit_cost"), false);
   // A null governed cost must leave NetSuite's own default intact rather than
   // assert a zero. A zero claims the product is free; silence claims nothing.

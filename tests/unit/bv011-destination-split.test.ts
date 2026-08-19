@@ -103,9 +103,34 @@ test("rd_total and the formulation service resolve to the SAME destination", () 
   assert.equal(SERVICE_IDENTITY_DESTINATION.formulation, "otc_formulation");
 });
 
-test("Other Service is per-line and no other destination is", () => {
+test("per-line is a closed, governed allowlist — currently Other Service and Testing", () => {
   const perLine = BV011_DESTINATIONS.filter((d) => isPerLineDestination(d.key));
-  assert.deepEqual(perLine.map((d) => d.key), ["otc_other_service"]);
+  // Exact, not a superset check. A destination becoming per-line is an
+  // Accounting disposition, so it must never happen as a side effect.
+  assert.deepEqual(perLine.map((d) => d.key), ["otc_testing", "otc_other_service"]);
+});
+
+test("a per-line destination reachable as an OTC FEE COLUMN would break the keying", () => {
+  // `quote_other_service_items` is keyed by owner — (quote, assembly XOR leaf)
+  // — with no destination discriminator, so one owner can hold ONE selection.
+  //
+  // A Direct Service leaf carries exactly one identity and therefore exactly
+  // one destination, so a per-line destination reached that way is safe. A
+  // per-line destination reached as an OTC fee column is NOT: one assembly
+  // could carry two per-line fees and need two rows.
+  //
+  // This asserts the currently-safe state rather than the intention. If it
+  // fails, the migration described in `bv011-destinations.ts` is due BEFORE
+  // the destination is added to the set.
+  const perLineOtcColumns = (
+    Object.keys(OTC_COLUMN_DESTINATION) as Array<keyof typeof OTC_COLUMN_DESTINATION>
+  ).filter((c) => isPerLineDestination(OTC_COLUMN_DESTINATION[c]));
+  assert.deepEqual(
+    perLineOtcColumns,
+    ["otherServiceTotal"],
+    "more than one per-line OTC fee column means one assembly can need two " +
+      "selections; quote_other_service_items needs a destination column first",
+  );
 });
 
 // ── the projection ───────────────────────────────────────────────────────
@@ -368,4 +393,34 @@ test("the selection is draft-only, because it is frozen at send", async () => {
   // resolver would be a second answer to "which item is this" (Pattern 58).
   assert.match(src, /netsuite\.resolveItem\(itemCode\)/);
   assert.match(src, /status === "ambiguous"/);
+});
+
+// ── the Costs picker gate (Case 0, Decision 5) ───────────────────────────
+
+test("the Direct Service picker is gated on the PREDICATE, not an identity literal", async () => {
+  const src = await readFile(
+    "src/components/costs/direct-service-production.tsx",
+    "utf8",
+  );
+  // The control must be offered exactly where the push will REQUIRE a
+  // selection. Keying it on anything but the governed predicate lets the two
+  // drift — offering a selection the push ignores, or withholding one it needs.
+  assert.match(
+    src,
+    /isPerLineDestination\(\s*SERVICE_IDENTITY_DESTINATION\[svc\.serviceIdentity\],?\s*\)/,
+  );
+  assert.doesNotMatch(src, /serviceIdentity === "other_service"/);
+  assert.doesNotMatch(src, /serviceIdentity === "testing_micros"/);
+  // Draft-only: the picker is disabled the moment the quote leaves draft.
+  assert.match(src, /disabled=\{!editable\}/);
+});
+
+test("the picker is NOT generalized to destinations that cannot originate a line", async () => {
+  // Dies, Samples, Cartons and Print Plates have no fee column and no service
+  // identity, so no quote line can carry them. A selector for them would be a
+  // control over nothing, and this fails if one appears before the economics do.
+  const unreachable = ["otc_dies", "otc_samples", "otc_cartons", "otc_print_plates"] as const;
+  for (const d of unreachable) {
+    assert.equal(isPerLineDestination(d), false, `${d} became per-line without quote-line economics`);
+  }
 });

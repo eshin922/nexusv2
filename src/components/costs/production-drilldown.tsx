@@ -300,10 +300,21 @@ export function ProductionDrilldown({
     );
   }
 
-  if (assemblies.length === 0) {
+  if (assemblies.length === 0 && directServices.length === 0) {
     // BV-012 §1.b — no Item Group, no Production economics. A quote of Direct
     // Products has nothing to author here, and says so rather than showing an
     // empty table it would silently refuse to save.
+    //
+    // `directServices.length === 0` is part of the condition, not decoration.
+    // This used to return on `assemblies.length === 0` alone, which fired
+    // BEFORE the Direct Service tables rendered below — so a quote carrying a
+    // service and no Item Group showed "no item groups yet" and its service
+    // economics were unauthorable. The comment was right about Direct
+    // PRODUCTS and was applied to services too.
+    //
+    // Same shape as #298, where a production loader inner-joined `assemblies`
+    // and silently dropped a service's cost: an absence test that matches more
+    // than the thing it names.
     return (
       <div className="r6-empty-drawer">
         <div className="glyph">∅</div>
@@ -316,8 +327,16 @@ export function ProductionDrilldown({
     );
   }
 
-  const firstAssembly = assemblies[0];
-  const sectionPolicy = policyBySku.get(firstAssembly.id) ?? {
+  // OPTIONAL, because this point is now reachable with zero Item Groups.
+  //
+  // Loosening the empty state above so a Direct Service can author its
+  // production let a service-only quote fall through to here, where
+  // `assemblies[0].id` threw "Cannot read properties of undefined". Both
+  // derefs below are section-level summaries OF THE ITEM GROUPS, so with no
+  // Item Group the honest value is "nothing to summarise" rather than a
+  // fabricated first row.
+  const firstAssembly = assemblies[0] ?? null;
+  const sectionPolicy = (firstAssembly ? policyBySku.get(firstAssembly.id) : undefined) ?? {
     customerShipsRaws: false,
     allocateServiceFeesToCost: true,
     notes: null,
@@ -332,7 +351,7 @@ export function ProductionDrilldown({
   // Section-wide actuals — first ITEM GROUP's first tier. Re-pointed from the
   // first leaf as a necessary consequence of the display re-key: the rows this
   // reads are no longer keyed by leaf. Section-level semantics are unchanged.
-  const firstSkuRows = rowsBySku.get(firstAssembly.id);
+  const firstSkuRows = firstAssembly ? rowsBySku.get(firstAssembly.id) : undefined;
   const firstTierRow = firstSkuRows?.values().next().value;
   const actualUnitsProduced = firstTierRow?.actualUnitsProduced ?? null;
   const yieldLocked = actualUnitsProduced !== null;

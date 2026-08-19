@@ -82,7 +82,7 @@ Status reflects what actually exists today, verified by
 | 2 | Turnkey Item Group | Group header, NetSuite expansion, member-rate PATCH | ✅ SO2716 | none | **covered** |
 | 3 | Direct Service | quantity-1 top-level accounting line | ✅ SO2716 | `otc_formulation` ✅ | **covered** |
 | 4 | Item Group + separately billed OTC | OD-006 — fee inside the group's SO structure, still quantity 1 | ✅ SO2716 | `otc_setup` ✅ | **covered** |
-| 5 | Tooling / Artwork split | two governed destinations, distinct item types; legacy combined charge refused | CERT-302 is a **stub** — carries no tooling or artwork line | `otc_tooling` ❌ ambiguous · `otc_artwork` ❌ **no candidate** | **blocked** |
+| 5 | Tooling / Artwork split | two governed destinations, distinct item types; legacy combined charge refused | CERT-302 is a **stub** — carries no tooling or artwork line | `otc_tooling` ⚠ ambiguous · `otc_artwork` ⚠ ambiguous | **blocked on an Accounting choice** |
 | 6 | Mixed commercial structure | Direct Product beside an Item Group on one order (P1/SO2713 proved no duplication) | **needs building** | none | ready to build |
 | 7 | Freight / logistics | freight legs, duty, tariff, customs reaching the order | **needs building** | `otc_freight_duties_tariffs` ❌ · `otc_customs` ❌ | blocked on mappings |
 
@@ -94,9 +94,19 @@ a fixture.
 
 Worse, the destination it is meant to exercise has nowhere to post:
 
-- **`otc_artwork` has no OTC-coded item in the sandbox at all.** The only match
-  for "ARTWORK" is an unrelated inventory product. Accounting must either name
-  an existing item or create one.
+- **`otc_artwork` — CORRECTED 2026-08-19.** An earlier revision of this document
+  claimed no OTC-coded artwork item existed and that Accounting would have to
+  create one. **That was wrong**, and the error is instructive: the search used
+  the single term `ARTWORK`, while the item is named
+  **`OTC-0001` "OTC - Art / Prep / Proof"** (id 11012) — 29 transaction lines,
+  Dec 2023 through Jul 2026, actively used. A single-term search returning
+  nothing is evidence about one word, not evidence of absence (OD-027). The
+  multi-term probe in `scripts/gate-1b/accounting-decision-evidence.ts` now runs
+  six independent terms behind a control for exactly this reason.
+
+  The real question is therefore a choice, not a creation: `OTC-0001` covers
+  art, prep AND proof, while `OTC-0030` "OTC - Hard Proof" (2 lines, last used
+  Oct 2025) is a narrower sibling.
 - **`otc_tooling` is ambiguous** — `OTC-0005` and `OTC-0046` are *both* named
   literally "OTC - Tooling". Their names cannot discriminate; usage history can,
   the way `OTC-0050` was chosen over `OTC-0018` for Formulation.
@@ -107,12 +117,14 @@ correct behaviour, not a defect.
 
 ---
 
-## 4 · Mapping state — 3 of 16 destinations mapped
+## 4 · Mapping state — 5 of 16 destinations mapped
 
 | destination | item | id |
 |---|---|---|
 | `otc_filling` | BLD-FILL | 14525 |
 | `otc_setup` | OTC-0024 OTC - Setup Charge | 26348 |
+| `otc_artwork` | OTC-0001 OTC - Art / Prep / Proof | 11012 |
+| `otc_tooling` | OTC-0005 OTC - Tooling | 4077 |
 | `otc_formulation` | OTC-0050 OTC - Formulation Services | 59157 |
 
 `otc_other_service` is per-line by design and is never mapped firm-wide.
@@ -122,8 +134,8 @@ The remaining twelve are unmapped. Candidates per destination:
 
 | destination | candidates | note |
 |---|---|---|
-| `otc_tooling` | OTC-0005 (4077), OTC-0046 (54062) | **identical names** — settle by usage |
-| `otc_artwork` | none | **must be named or created** |
+| `otc_tooling` | OTC-0005 (4077, 23 lines, to Mar 2026), OTC-0046 (54062, 15 lines, to Mar 2026) | **identical names, BOTH current** — usage does not settle it |
+| `otc_artwork` | OTC-0001 Art/Prep/Proof (11012, 29 lines), OTC-0030 Hard Proof (35159, 2 lines) | **corrected** — an earlier revision wrongly reported none |
 | `otc_freight_duties_tariffs` | OTC-0012 (21447) | single clean match |
 | `otc_customs` | OTC-0036 (19840) | single clean match |
 | `otc_testing` | OTC-0010, OTC-0016, OTC-0031, OTC-0055 … | 13 OTC-coded; needs a rule, not a pick |
@@ -172,6 +184,435 @@ renders a Direct Service in its *frozen* shape (`5,000 × $1.12`) while the orde
 posts it in its *emitted* shape (`1 × $5,600`). Same money, different line; the
 operator reviews something other than what posts. Align the review to the
 emitted representation. *Owner: engineering, UI.*
+
+---
+
+## 5.5 · How Accounting's answers get handled
+
+**Standing protocol, set 2026-08-19 before the answers arrived** — deliberately,
+so it governs the responses rather than being reconstructed around them.
+
+### Freeze while Case 0 is under review
+
+No fixtures built, no destinations mapped, no production code changed while
+Accounting is reviewing. The packet is a question; acting before the answer
+would make it a rhetorical one.
+
+### The packet separates three kinds of statement, and so must the answers
+
+| kind | who owns it | example from Case 0 |
+|---|---|---|
+| **engineering-certified behaviour** | engineering, already proved | the order reconciles to the accepted total exactly |
+| **observed NetSuite history** | neither — it is a fact | 1,276 OTC lines carry `CUSTOM` cost |
+| **Accounting policy decision** | Accounting | whether fee lines should carry an explicit cost |
+
+An answer that reads as policy but is really a request to change certified
+behaviour gets flagged as such rather than absorbed.
+
+### Record each decision verbatim
+
+When a response arrives it is written into this document **word for word**,
+attributed and dated, before any interpretation. Paraphrase happens in a
+separate line underneath, marked as such. A decision summarised into the shape
+the implementer expected is the failure mode this exists to prevent.
+
+### Classify each decision
+
+Every recorded decision carries exactly one classification:
+
+| class | means | example |
+|---|---|---|
+| **mapping-only** | a row in the destination map; no code, no fixture | confirming `OTC-0012` for freight |
+| **fixture-only** | a test order to build; no code change | Direct Product case |
+| **production-code change** | Nexus behaviour changes | sending an explicit fee-line cost |
+| **NetSuite master-data cleanup** | the item catalog changes | consolidating duplicate Tooling items |
+
+### Reconcile before implementing
+
+**Decisions sharing an architecture are implemented together, never
+piecemeal.** A class of change split across slices produces N partial designs
+converging on nothing.
+
+Two cases are pre-dispositioned because they are already foreseeable:
+
+**If Accounting chooses per-line selection for Testing / Dies / Samples /
+Cartons / Print Plates** — that is **one governed extension of the existing
+`otc_other_service` pattern**, not five feature slices. The per-line mechanism
+exists and is certified; what changes is which destinations are declared
+per-line, plus the Settings surface that stops presenting them as firm-wide
+rows. One slice, one design, five destinations.
+
+**If Accounting chooses an explicit fee-line cost basis** — **stop, and design
+it separately before touching the Sales Order emitter.** The commercial freeze
+is closed. Fee lines carry no unit cost in the quote today, so this is not a
+mapping or a payload tweak: it needs a governed input, a decision about whether
+that input is frozen at send like every other commercial figure, and an answer
+to whether a cost basis is even commercial. Cost-basis governance must not be
+smuggled in under an Accounting UAT ticket — that is exactly how a second
+authority for a number gets established without anyone deciding to establish
+one (Pattern 58).
+
+### Then, and only then
+
+The remaining matrix walks. The full V1 sweep and harness rejuvenation stay
+queued behind a **green Accounting matrix** — not behind the decisions, behind
+the walked and verified orders.
+
+---
+
+## 5.6 · DECISION RECORD — Case 0 dispositions
+
+**Settled 2026-08-19. Source: Edward, relaying Accounting's dispositions.**
+
+Recorded verbatim first, per §5.5. Interpretation appears only under an
+explicit *Paraphrase* or *Reading* heading; anything not so marked is the
+decision as given.
+
+---
+
+### Decision 1 — Fee/service cost basis: explicit CUSTOM cost
+
+> Fee/service cost basis — explicit CUSTOM cost.
+>
+> Nexus should send an explicit cost basis for OTC and Direct Service lines
+> rather than relying on ITEMDEFINED / LASTPURCHPRICE.
+>
+> Before adding any new operator field, trace whether the actual governed
+> underlying cost already exists in Nexus and can be carried into the
+> frozen/accounting representation. Reuse existing cost authority where
+> possible. Only propose a new cost input if the required cost genuinely does
+> not exist.
+>
+> Keep cost basis non-commercial: changing/reporting cost must not alter the
+> frozen customer sell amount or REG-4.
+
+**Classification: production-code change.**
+
+**Gate:** implementation impact must be established and returned **before any
+code is written** — specifically whether a governed cost authority already
+exists in Nexus. A new operator input is a proposal of last resort, not a
+starting assumption. See §5.7.
+
+---
+
+### Decision 2 — Tax: leave to NetSuite
+
+> Tax — leave to NetSuite.
+>
+> Do not add explicit Nexus tax-code logic for V1. Ship-to should flow/default
+> consistently with the HubSpot/customer lineage, and NetSuite remains
+> responsible for deriving applicable tax.
+
+**Classification: confirmation — no change to tax logic.**
+
+Current behaviour (omit `taxCode`, let NetSuite derive) is ratified as V1
+behaviour and needs no work.
+
+**One sub-item is NOT a confirmation and must be verified rather than assumed:**
+"Ship-to should flow/default consistently with the HubSpot/customer lineage."
+SO2716's ship-to read *"default address on file in NetSuite"* — i.e. it defaulted
+from the NetSuite customer record, which may or may not be what "flow from the
+HubSpot/customer lineage" means. Verified in §5.7.
+
+---
+
+### Decision 3 — Tooling: use the more-used code
+
+> Tooling — use the more-used code.
+>
+> Current evidence is:
+>
+> OTC-0005 — 23 lines
+> OTC-0046 — 15 lines
+>
+> Therefore map Tooling to OTC-0005 unless a final full-history count
+> materially contradicts the evidence already gathered. Record the measured
+> basis for the selection.
+
+**Classification: mapping-only.**
+
+**Conditional.** The disposition is explicitly contingent on a final
+full-history count. Measured basis recorded in §5.7 before the mapping is
+written.
+
+---
+
+### Decision 4 — Artwork: OTC-0001 approved
+
+> Artwork — OTC-0001 Art / Prep / Proof is approved.
+>
+> Use it as the governed Artwork mapping for V1. No additional Art/Prep/Proof
+> split is required.
+
+**Classification: mapping-only.** Unconditional; ready to apply.
+
+---
+
+### Decision 5 — Multi-meaning destinations: operator chooses per line
+
+> Multi-meaning destinations — operator chooses per line.
+>
+> Testing, Dies, Samples, Cartons and Print Plates should use per-line NetSuite
+> item selection.
+>
+> Extend the existing governed Other Service pattern rather than building five
+> independent mechanisms:
+>
+> operator selects the appropriate NetSuite item on the applicable Costs line;
+> selection is required before SEND when that line needs separate projection;
+> selected item is frozen with the commercial snapshot;
+> selection cannot change after SEND;
+> readiness refuses an unresolved required selection;
+> actual posted netsuite_item_id remains separate provenance.
+
+**Classification: production-code change — ONE governed extension.**
+
+Per §5.5's pre-disposition, this ships as a single slice covering all five
+destinations, not five slices. The six clauses above are the acceptance
+criteria, and each already has a counterpart in the certified
+`otc_other_service` path — which is what makes this an extension rather than a
+new mechanism.
+
+**Not authorized for implementation yet.** Edward authorized *mapping and
+fixture* work to proceed; this is neither.
+
+---
+
+### Disposition summary
+
+| # | decision | class | status |
+|---|---|---|---|
+| 1 | explicit CUSTOM cost basis | production-code | **fully dispositioned** — §5.6b · live cost, 0 sent, no schema |
+| 2 | tax left to NetSuite | confirmation | no work; ship-to sub-item verified §5.7 |
+| 3 | Tooling → `OTC-0005` | mapping-only | **confirmed** — full-history rule; 12-mo tie does not change it |
+| 4 | Artwork → `OTC-0001` | mapping-only | ready |
+| 5 | per-line selection ×5 | production-code | **traced** — 4 of 5 destinations unreachable; see decision-5-per-line-trace.md |
+
+---
+
+## 5.6b · DECISION RECORD — Decision 1 final disposition
+
+**Settled 2026-08-19. Source: Edward, relaying Accounting.** Verbatim.
+
+> **Zero vs NULL**
+>
+> 0 is a valid explicit CUSTOM cost and must be sent as such.
+> NULL means no governed cost is available.
+> Do not treat zero as missing and do not substitute an item-master fallback
+> when Nexus explicitly knows the cost is zero.
+>
+> **Cost timing**
+>
+> Use the live governed cost at SO push for V1, matching the certified product
+> unitCost boundary.
+>
+> Product cost remains live as today.
+> Direct Service cost = live contributionCostPerUnit.
+> OTC cost = the governed underlying Production/fee cost already used as the
+> economic source.
+> Send CUSTOM whenever that governed cost is non-NULL, including explicit zero.
+> Cost must not affect frozen quantity, sell rate, line amount, accepted total,
+> or REG-4.
+>
+> Record the known boundary: a post-SEND cost change may change the accounting
+> margin basis shown on the eventual SO while leaving the accepted commercial
+> statement unchanged. Historical quote-time cost-basis reproduction is a
+> separate future snapshot capability, not part of this UAT change.
+>
+> No schema and no new operator cost input are authorized.
+
+**Classification: production-code change.** Option A from the impact analysis,
+with the zero/NULL rule resolved against my recommendation to treat zero
+cautiously — Accounting is right, and the reason is worth keeping: a governed
+zero is a **statement about cost**, and suppressing it would substitute
+NetSuite's item-master guess for a fact Nexus holds.
+
+### The known boundary, recorded as instructed
+
+Cost is read **live at push**, so it is not part of the commercial freeze.
+
+> A cost edited after SEND may change the accounting margin basis shown on the
+> eventual Sales Order, while the accepted commercial statement — quantity,
+> sell rate, line amount, accepted total — remains exactly as the customer
+> accepted it.
+
+This is a deliberate consequence of Option A.
+
+**CORRECTION, 2026-08-19.** When this was recorded I wrote that *"draft-lock
+means production inputs cannot normally change after send, so the window is
+narrow"*. **That is wrong, and the window is not narrow.**
+
+Neither cost-input action carries a server-side guard:
+
+| action | writes | `assertDraft` / `assertNotFrozen`? |
+|---|---|---|
+| `updateDirectServiceProduction` | `assembly_production_inputs` (service cost) | **none** |
+| `assembly-production-inputs.ts` writers | `assembly_production_inputs` (OTC fee cost) | **none** |
+
+The only protection is the Costs surface's `editable = quote.status === "draft"`,
+which disables the inputs **client-side**. That is an affordance, not a
+boundary — and the project's own standing rule is the opposite: *"the action
+layer still validates server-side (defense in depth — UI state can be stale)"*.
+
+So a live cost can be changed at any point in the quote's life, including after
+`complete`. Nothing already posted moves — cost is read AT push, so a later edit
+cannot reach an existing Sales Order — but the margin basis a FUTURE push would
+send is unguarded, and so is the reporting basis if anything re-reads it.
+
+**Not fixed in this slice, deliberately.** Adding a guard is a cost-governance
+change, and cost governance must not arrive under an Accounting UAT ticket
+(§5.5). Raised here as its own item.
+
+**Historical quote-time cost-basis reproduction is explicitly out of scope** and
+remains a separate future snapshot capability. Nothing in this change may be
+read as establishing it.
+
+---
+
+---
+
+## 5.6c · OPEN QUESTION for Accounting — BV-011 item types vs mapped items
+
+**Raised 2026-08-19 while applying the settled mappings. Not acted on.**
+
+BV-011 declares an expected NetSuite item type per destination. For two
+destinations the declaration and the approved item disagree:
+
+| destination | BV-011 says | mapped item | item actually is |
+|---|---|---|---|
+| `otc_tooling` | **Inventory** | `OTC-0005` (4077) | **NonInvtPart** |
+| `otc_filling` | **Inventory** | `BLD-FILL` (14525) | **NonInvtPart** |
+
+`otc_filling` is **pre-existing** — it was mapped before this workstream and has
+been in use since. So this is not something the Case 0 mappings introduced; it
+is something they made visible.
+
+**Nothing enforces the declaration.** `netsuite-destination-map.ts` records
+`governed_item_type` into the audit `diff_json` but never compares it to the
+resolved item's real type, so a mismatch saves silently. The mappings were
+applied as authorized and **neither the mapping nor BV-011 was changed**.
+
+Item type is one of the UAT validation dimensions — *"Inventory / Non-inventory
+/ Other Charge / Service — correct for what the line means?"* — so this is
+Accounting's to settle, not engineering's to reconcile.
+
+**The question:** are the NetSuite item types correct and BV-011 should be
+amended, or are these the wrong NetSuite items?
+
+A third possibility worth naming: the BV-011 `itemType` field may be
+*descriptive of the accounting treatment* rather than a claim about the NetSuite
+record's type, in which case nothing is wrong and the field is misnamed. That
+would also be an answer.
+
+---
+
+---
+
+## 5.8 · BLOCKER — SEND refuses any quote with no Item Group
+
+**Found 2026-08-19 during the CERT-303 Testing walk. Reported, not worked
+around, per Edward's instruction.**
+
+`sendQuote`'s second sanity gate is:
+
+```ts
+db.select({ n: count() }).from(assemblies).where(eq(assemblies.quoteId, quoteId))
+...
+"Quote needs at least one SKU before it can be sent."
+```
+
+**The message says SKU. The query counts Item Groups.** A quote's SKUs live in
+`quote_leaves`; `assemblies` is the Item Group table. So the gate refuses any
+quote whose structure carries no Item Group, however many SKUs it has.
+
+### Two shapes are unsendable, not one
+
+| shape | leaves | assemblies | sendable |
+|---|---|---|---|
+| Item Group (± Direct Service) | ≥1 | ≥1 | yes — every certified quote so far |
+| **Direct Service only** | ≥1 | **0** | **refused** — CERT-303 |
+| **Direct Product only** | ≥1 | **0** | **refused** — UAT matrix case 1 |
+
+This is **not service-specific.** Matrix case 1 (Direct Product) hits the
+identical condition, so the blocker is wider than the walk that found it.
+
+### Falsified, and the first falsifier was wrong
+
+Asking "has any quote reached sent with zero assemblies?" returned **four** —
+apparently refuting the reading. All four also had **zero `quote_leaves`**:
+April-2026 rows from before the ASY/LEAF migration, when structure lived in the
+`quote_skus` tables Slice 11.5.1 dropped; three carry no `sent_at` at all. They
+were sent by different code against a different model and say nothing about
+this gate.
+
+The predicate that actually tests it is a CURRENT-model quote — structure
+present, no Item Group. **Zero of those have ever been sent**, across 26
+sent/accepted/complete quotes. The reading stands.
+
+Worth keeping: the first falsifier was not merely unhelpful, it pointed the
+wrong way. A counterexample that does not satisfy the premise is not a
+counterexample.
+
+Re-runnable: `scripts/gate-1b/send-gate-blocker.ts`.
+
+### Why it has never surfaced
+
+Every quote certified so far carries an Item Group. CERT-300 has one plus a
+Direct Service, so it passes. The standalone-service and standalone-product
+shapes had simply never been sent.
+
+### Not fixed here
+
+Edward: *"If SEND's existing 'at least one SKU' gate refuses a service-only
+quote, stop and report that as a separate V1 blocker. Do not bypass it by adding
+a Product merely to complete certification."* CERT-303 stays a pure Direct
+Service fixture and is left at draft.
+
+The fix is small — count postable structure rather than Item Groups — but it
+changes what SEND permits, which is a governed decision rather than a walk
+convenience. It also needs a question answered: **is an empty quote still to be
+refused, and by what measure?** Counting `quote_leaves` would be the obvious
+replacement, and the message would finally match the query.
+
+---
+
+---
+
+## 5.7 · Verifications behind the dispositions
+
+**Decision 3 — the conditional count.** Measured 2026-08-19 over full history,
+three bases, plus a control confirming both item records are reachable:
+
+| basis | `OTC-0005` (4077) | `OTC-0046` (54062) | leader |
+|---|---|---|---|
+| A · all transaction lines | **23** | 15 | OTC-0005 |
+| B · distinct transactions | **18** | 10 | OTC-0005 |
+| C · by record type | 23, all `salesorder` | 15, all `salesorder` | OTC-0005 |
+| recency · last 12 months | 5 | 5 | **tied** |
+
+All three full-history bases agree, and basis C establishes the count is not
+contaminated by purchase orders or invoices — both items appear only on Sales
+Orders. **No material contradiction; the disposition stands.** Tooling maps to
+`OTC-0005` (internal id 4077).
+
+Recorded alongside it, because it is true and the disposition did not ask about
+it: the lead is **historical, not current**. Over the last twelve months the two
+items are used equally (5 and 5). If Accounting's intent was "the one we use
+now" rather than "the one we have used most", that is worth one more word from
+them — the mapping is trivially changed.
+
+Re-runnable: `scripts/gate-1b/tooling-full-history.ts`.
+
+**Decision 2 — the ship-to sub-item.** Verified rather than assumed. Nexus sends
+**no ship-to field at all** — `buildSalesOrderPayload` contains no shipping
+address, only `shipDate`. NetSuite defaults the address from the customer
+record, and that customer was resolved from the HubSpot company through the
+governed customer map. So ship-to does flow from the HubSpot/customer lineage,
+indirectly and by omission rather than by transmission. **Consistent with the
+disposition; no work.** Worth stating explicitly so nobody later assumes Nexus
+transmits an address it does not.
+
+---
 
 ---
 

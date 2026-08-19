@@ -24,6 +24,7 @@
 // SuiteQL/B3 remains valuable as INDEPENDENT verification evidence. It is
 // never cross-correlated with REST rows to manufacture an address.
 
+import { CUSTOM_PRICE_LEVEL_ID } from "./price-policy";
 import type { PlannedGroup } from "./grouping-plan";
 import {
   evaluateSuccessGate,
@@ -52,7 +53,7 @@ export interface ProviderLine {
 export interface ConvergenceProvider {
   readLines(soId: string): Promise<ProviderLine[]>;
   readHeader(soId: string): Promise<ObservedHeader>;
-  patchLine(soId: string, address: number, patch: { rate: number }): Promise<void>;
+  patchLine(soId: string, address: number, patch: { rate: number; priceLevelId?: string }): Promise<void>;
 }
 
 /** NetSuite line kinds that are structure or system, not commercial members. */
@@ -144,7 +145,18 @@ export async function runRateConvergence(args: {
   if (plan.blockers.length === 0) {
     // 6-7 · patch each mismatch at ITS OWN observed provider address.
     for (const p of plan.patches) {
-      await provider.patchLine(soId, p.address, { rate: p.desiredRate });
+      // The price level rides the rate PATCH rather than a pass of its own.
+      //
+      // A member line does not exist until NetSuite expands the group, so this
+      // is the only place it can be set — and NetSuite refuses a price level
+      // sent without an amount, so it could not be a separate pass even if one
+      // were wanted. Measured on SO2715 with SO2714 as an untouched control:
+      // rate, line amount and both order totals were identical afterwards.
+      // See price-policy.ts.
+      await provider.patchLine(soId, p.address, {
+        rate: p.desiredRate,
+        priceLevelId: CUSTOM_PRICE_LEVEL_ID,
+      });
       patched.push({ address: p.address, netsuiteItemId: p.netsuiteItemId, rate: p.desiredRate });
     }
   }

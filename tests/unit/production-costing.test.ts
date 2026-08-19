@@ -56,6 +56,7 @@ function input(overrides: Partial<QuoteCostingInput["production"][number]> = {})
         toolingTotal: 0,
         artworkTotal: 0,
         rdTotal: 10,
+        testingMicrosTotal: 0,
         otherServiceTotal: 10,
         bulkRawCost: 200,
         actualUnitsProduced: null,

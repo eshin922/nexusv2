@@ -106,6 +106,20 @@ export type ResolvedAccountingLine = {
   netsuiteItemCode: string | null;
   /** Integer cents, parsed from the frozen decimal without a float. */
   amountCents: number;
+  /**
+   * THIS LINE's frozen quantity and unit rate at the accepted tier.
+   *
+   * Carried because the two kinds no longer share a line shape: a unit-priced
+   * Direct Service posts at its own quantity and rate, while a separately
+   * billed OTC charge posts as 1 × its amount. See `accounting-line-emitter`.
+   *
+   * `unitRate` stays a DECIMAL STRING, not cents. The frozen column is
+   * numeric(14,4) and a cent-based round trip would quietly truncate a
+   * four-decimal rate — the amount is what REG-4 compares, and it stays in
+   * integer cents above.
+   */
+  quantity: number | null;
+  unitRate: string | null;
 };
 
 export type ProjectionReadiness =
@@ -231,6 +245,8 @@ export async function assessProjectionReadiness(
       serviceIdentity: quoteSnapshotLines.serviceIdentity,
       legacyUnresolved: quoteSnapshotLines.legacyUnresolved,
       amount: quoteSnapshotLineTiers.lineAmount,
+      quantity: quoteSnapshotLineTiers.quantity,
+      unitRate: quoteSnapshotLineTiers.unitRate,
     })
     .from(quoteSnapshotLines)
     .innerJoin(
@@ -341,6 +357,8 @@ export async function assessProjectionReadiness(
         netsuiteItemId: selected,
         netsuiteItemCode: line.selectedItemCode ?? null,
         amountCents: centsFromFrozen(line.amount),
+      quantity: line.quantity,
+      unitRate: line.unitRate,
       });
       continue;
     }
@@ -369,6 +387,8 @@ export async function assessProjectionReadiness(
       netsuiteItemId: mapping.internalId!,
       netsuiteItemCode: mapping.code ?? null,
       amountCents: centsFromFrozen(line.amount),
+      quantity: line.quantity,
+      unitRate: line.unitRate,
     });
   }
 

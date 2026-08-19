@@ -15,6 +15,7 @@ import {
   ERR,
   runAction,
   type ActionResult,
+  assertDraft,
 } from "@/lib/action-result";
 import { quoteForAssembly } from "@/lib/quote-guards";
 import {
@@ -111,7 +112,10 @@ export async function upsertAssemblyProductionInputs(
     if (!tierId) throw new ActionGuardError(ERR.VALIDATION, "tierId required");
 
     const user = await ensureUser();
-    await quoteForAssembly(assemblyId);
+    // Lifecycle, not just ownership. Economics are authored in draft; the
+    // governed way to change them after a send is revise-to-draft, which
+    // supersedes the frozen matrix rather than editing underneath it.
+    assertDraft((await quoteForAssembly(assemblyId)).quote);
 
     const changedFieldRaw = String(formData.get("changedField") ?? "").trim();
     const editableFields = [
@@ -387,6 +391,9 @@ export async function updateAssemblyProductionPolicy(
 
     const user = await ensureUser();
     const { quote } = await quoteForAssembly(assemblyId);
+    // Same lifecycle rule as the cost cells above: allocation policy decides
+    // whether a fee is billed separately, which is an economic statement.
+    assertDraft(quote);
 
     const newCustomerShipsRaws = parseBool(formData.get("customerShipsRaws"));
     const newAllocate = parseBool(formData.get("allocateServiceFeesToCost"));

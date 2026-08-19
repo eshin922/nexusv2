@@ -27,6 +27,10 @@ import {
   type MappingVerdict,
 } from "../../src/lib/netsuite/service-item-map-rules.ts";
 import { DIRECT_SERVICE_IDENTITIES } from "../../src/lib/product-structure/direct-service.ts";
+import {
+  SERVICE_IDENTITY_DESTINATION,
+  isPerLineDestination,
+} from "../../src/lib/netsuite/bv011-destinations.ts";
 
 const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
 async function code(rel: string): Promise<string> {
@@ -437,7 +441,18 @@ test("EVERY unusable verdict blocks; only a usable mapping proceeds", () => {
     { state: "inactive" as const, itemCode: "X" },
     { state: "indeterminate" as const, reason: "r" },
   ];
-  for (const id of FIXED_SERVICE_IDENTITIES) {
+  // Scoped to the identities this gate OWNS: fixed AND firm-wide-mapped. A
+  // fixed identity whose destination is per-line is exempt by design — see the
+  // dedicated test below — so including it here would assert the opposite of
+  // the governance.
+  const firmWide = FIXED_SERVICE_IDENTITIES.filter(
+    (id) => !isPerLineDestination(SERVICE_IDENTITY_DESTINATION[id]),
+  );
+  assert.ok(
+    firmWide.length > 0 && firmWide.length < FIXED_SERVICE_IDENTITIES.length,
+    "the firm-wide filter matched all or nothing — it is measuring the wrong thing",
+  );
+  for (const id of firmWide) {
     for (const v of unusable) {
       const g = evaluateDirectServiceGate({
         serviceIdentities: [id],
@@ -499,4 +514,59 @@ test("mark-complete throws the gate's reason BEFORE building any SO payload", as
   // throws its own reason rather than one restated at the call site.
   assert.match(mc, /if \(gate\.blocked\) throw new Error\(gate\.reason\);/);
   assert.doesNotMatch(mc, /Direct Service gate returned proceed/);
+});
+
+test("a fixed identity with a PER-LINE destination is exempt from the firm-wide gate", () => {
+  // Decision 5 (Accounting, 2026-08-19) made `OTC - Testing` per-line. But
+  // `testing_micros` is a FIXED identity, and the gate keyed its exemption on
+  // the fixed/other split — a proxy that was correct only while `other_service`
+  // was the only per-line destination.
+  //
+  // The consequence was measured, not theorised: CERT-303's push was refused
+  // with "Testing / Micros has no NetSuite item mapping", pointing an operator
+  // at Settings to add a row that nothing would ever read. Readiness resolves
+  // this line from its FROZEN per-line selection and had already done so.
+  //
+  // Satisfying the gate with a firm-wide row would have been worse than the
+  // block: a second answer to "which item does this line post to", sitting in
+  // Settings looking authoritative while the frozen selection is what posts.
+  const gate = evaluateDirectServiceGate({
+    serviceIdentities: ["testing_micros"],
+    mapped: new Set<never>(),
+    verdicts: new Map(),
+  });
+  assert.deepEqual(
+    gate,
+    { blocked: false },
+    "a per-line destination must not be blocked for lacking a firm-wide mapping",
+  );
+
+  // The exemption is keyed on the DESTINATION, so it must not have leaked into
+  // identities the gate still owns.
+  const stillOwned = evaluateDirectServiceGate({
+    serviceIdentities: ["formulation"],
+    mapped: new Set<never>(),
+    verdicts: new Map(),
+  });
+  assert.equal(stillOwned.blocked, true, "the firm-wide requirement was lost entirely");
+});
+
+test("the per-line exemption tracks BV-011, not a hardcoded identity list", () => {
+  // If a future disposition moves a destination on or off per-line, the gate
+  // must follow it without being edited. Asserted by deriving the expected
+  // exemption set from the destination map rather than restating it.
+  const exempt = FIXED_SERVICE_IDENTITIES.filter((id) =>
+    isPerLineDestination(SERVICE_IDENTITY_DESTINATION[id]),
+  );
+  for (const id of exempt) {
+    assert.deepEqual(
+      evaluateDirectServiceGate({
+        serviceIdentities: [id],
+        mapped: new Set<never>(),
+        verdicts: new Map(),
+      }),
+      { blocked: false },
+      `${id} has a per-line destination but the gate still demands a firm-wide mapping`,
+    );
+  }
 });
