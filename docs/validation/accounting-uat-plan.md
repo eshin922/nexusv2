@@ -380,11 +380,69 @@ fixture* work to proceed; this is neither.
 
 | # | decision | class | status |
 |---|---|---|---|
-| 1 | explicit CUSTOM cost basis | production-code | **impact analysis first** — §5.7 |
+| 1 | explicit CUSTOM cost basis | production-code | **fully dispositioned** — §5.6b · live cost, 0 sent, no schema |
 | 2 | tax left to NetSuite | confirmation | no work; ship-to sub-item verified §5.7 |
-| 3 | Tooling → `OTC-0005` | mapping-only | conditional on full-history count |
+| 3 | Tooling → `OTC-0005` | mapping-only | **confirmed** — full-history rule; 12-mo tie does not change it |
 | 4 | Artwork → `OTC-0001` | mapping-only | ready |
-| 5 | per-line selection ×5 | production-code | one extension; awaiting authorization |
+| 5 | per-line selection ×5 | production-code | **authorized** — trace smallest shared mechanism first |
+
+---
+
+## 5.6b · DECISION RECORD — Decision 1 final disposition
+
+**Settled 2026-08-19. Source: Edward, relaying Accounting.** Verbatim.
+
+> **Zero vs NULL**
+>
+> 0 is a valid explicit CUSTOM cost and must be sent as such.
+> NULL means no governed cost is available.
+> Do not treat zero as missing and do not substitute an item-master fallback
+> when Nexus explicitly knows the cost is zero.
+>
+> **Cost timing**
+>
+> Use the live governed cost at SO push for V1, matching the certified product
+> unitCost boundary.
+>
+> Product cost remains live as today.
+> Direct Service cost = live contributionCostPerUnit.
+> OTC cost = the governed underlying Production/fee cost already used as the
+> economic source.
+> Send CUSTOM whenever that governed cost is non-NULL, including explicit zero.
+> Cost must not affect frozen quantity, sell rate, line amount, accepted total,
+> or REG-4.
+>
+> Record the known boundary: a post-SEND cost change may change the accounting
+> margin basis shown on the eventual SO while leaving the accepted commercial
+> statement unchanged. Historical quote-time cost-basis reproduction is a
+> separate future snapshot capability, not part of this UAT change.
+>
+> No schema and no new operator cost input are authorized.
+
+**Classification: production-code change.** Option A from the impact analysis,
+with the zero/NULL rule resolved against my recommendation to treat zero
+cautiously — Accounting is right, and the reason is worth keeping: a governed
+zero is a **statement about cost**, and suppressing it would substitute
+NetSuite's item-master guess for a fact Nexus holds.
+
+### The known boundary, recorded as instructed
+
+Cost is read **live at push**, so it is not part of the commercial freeze.
+
+> A cost edited after SEND may change the accounting margin basis shown on the
+> eventual Sales Order, while the accepted commercial statement — quantity,
+> sell rate, line amount, accepted total — remains exactly as the customer
+> accepted it.
+
+This is a deliberate, bounded consequence of Option A, not a defect. Draft-lock
+means production inputs cannot normally change after send, so the window is
+narrow; but it is real and is written down rather than discovered later.
+
+**Historical quote-time cost-basis reproduction is explicitly out of scope** and
+remains a separate future snapshot capability. Nothing in this change may be
+read as establishing it.
+
+---
 
 ---
 
