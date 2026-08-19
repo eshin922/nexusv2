@@ -394,3 +394,33 @@ test("the selection is draft-only, because it is frozen at send", async () => {
   assert.match(src, /netsuite\.resolveItem\(itemCode\)/);
   assert.match(src, /status === "ambiguous"/);
 });
+
+// ── the Costs picker gate (Case 0, Decision 5) ───────────────────────────
+
+test("the Direct Service picker is gated on the PREDICATE, not an identity literal", async () => {
+  const src = await readFile(
+    "src/components/costs/direct-service-production.tsx",
+    "utf8",
+  );
+  // The control must be offered exactly where the push will REQUIRE a
+  // selection. Keying it on anything but the governed predicate lets the two
+  // drift — offering a selection the push ignores, or withholding one it needs.
+  assert.match(
+    src,
+    /isPerLineDestination\(\s*SERVICE_IDENTITY_DESTINATION\[svc\.serviceIdentity\],?\s*\)/,
+  );
+  assert.doesNotMatch(src, /serviceIdentity === "other_service"/);
+  assert.doesNotMatch(src, /serviceIdentity === "testing_micros"/);
+  // Draft-only: the picker is disabled the moment the quote leaves draft.
+  assert.match(src, /disabled=\{!editable\}/);
+});
+
+test("the picker is NOT generalized to destinations that cannot originate a line", async () => {
+  // Dies, Samples, Cartons and Print Plates have no fee column and no service
+  // identity, so no quote line can carry them. A selector for them would be a
+  // control over nothing, and this fails if one appears before the economics do.
+  const unreachable = ["otc_dies", "otc_samples", "otc_cartons", "otc_print_plates"] as const;
+  for (const d of unreachable) {
+    assert.equal(isPerLineDestination(d), false, `${d} became per-line without quote-line economics`);
+  }
+});

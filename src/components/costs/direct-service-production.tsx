@@ -7,6 +7,14 @@ import {
   DIRECT_SERVICE_PRODUCTION_LABEL,
   type DirectServiceIdentity,
 } from "@/lib/product-structure/direct-service";
+import {
+  isPerLineDestination,
+  SERVICE_IDENTITY_DESTINATION,
+} from "@/lib/netsuite/bv011-destinations";
+import { useCostingStore } from "@/components/costing-store-provider";
+import { selectOtherServiceItems } from "@/lib/costing-store";
+import type { OtherServiceSelection } from "@/lib/commercial-projection";
+import { OtherServiceItemPicker } from "@/components/costs/other-service-item-picker";
 // The canonical percent formatter, shared rather than restated — the node
 // value is a decimal fraction and converting it in a second place is how a
 // 30% rate renders as 0.3%.
@@ -158,6 +166,22 @@ export function DirectServiceProduction({
   /** The firm-wide Production rate, READ. Null renders an em-dash. */
   markupPct: number | null;
 }) {
+  // Read from the STORE, not a prop (Pattern 41): an RSC snapshot prop is
+  // frozen at render and would not reflect a save until a full page round
+  // trip, so a just-chosen item would appear to vanish.
+  const selections = useCostingStore(selectOtherServiceItems);
+  const selectionByLeaf = new Map<string, { code: string; internalId: string }>(
+    selections
+      .filter((x: OtherServiceSelection) => x.quoteLeafId !== null)
+      .map(
+        (x: OtherServiceSelection) =>
+          [
+            x.quoteLeafId as string,
+            { code: x.netsuiteItemCode, internalId: x.netsuiteInternalId },
+          ] as [string, { code: string; internalId: string }],
+      ),
+  );
+
   if (services.length === 0) return null;
 
   return (
@@ -242,6 +266,30 @@ export function DirectServiceProduction({
                   <span className="sub">
                     tier total · allocated across quoted units
                   </span>
+                  {/*
+                    PER-LINE NetSuite item, for the destinations Accounting
+                    settled as operator-chosen in Case 0.
+
+                    Gated on the governed predicate, never on an identity
+                    literal: `isPerLineDestination` is the single switch that
+                    also drives freeze, readiness and provenance, so a control
+                    keyed on anything else could offer a selection the push
+                    would not require, or withhold one it does.
+
+                    Today that means Other Service and Testing. Dies, Samples,
+                    Cartons and Print Plates are deliberately NOT here — they
+                    cannot originate a quote line at all, so a selector for
+                    them would be a control over nothing.
+                  */}
+                  {isPerLineDestination(
+                    SERVICE_IDENTITY_DESTINATION[svc.serviceIdentity],
+                  ) && (
+                    <OtherServiceItemPicker
+                      quoteLeafId={svc.quoteLeafId}
+                      selected={selectionByLeaf.get(svc.quoteLeafId) ?? null}
+                      disabled={!editable}
+                    />
+                  )}
                 </div>
                 <div className="cat">{categoryLabel}</div>
                 {/* Production has no per-line pricing source. Named rather
