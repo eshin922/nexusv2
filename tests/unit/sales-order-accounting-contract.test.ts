@@ -107,6 +107,7 @@ test("maps the verified required and optional Sales Order accounting fields", ()
           rate: 1.2346,
           description: "Exact resolved leaf",
           taxCode: { id: "-8" },
+          price: { id: "-1" },
           custcol_dps_sku: "SKU-EXACT-123",
           custcol_dps_unit_cost: 0.9877,
           // Governed product cost reaches NetSuite's STANDARD cost basis, not
@@ -155,6 +156,10 @@ test("omits optional, standard-terms, historical, derived, and unknown fields", 
   // Order is non-taxable by governed rule, and this case (every optional field
   // stripped) is precisely where a conditional emitter would drop it.
   assert.deepEqual(line.taxCode, { id: "-8" });
+  // Price level is not optional either — a Nexus-priced line is CUSTOM, and
+  // this case (every optional field stripped) is where a conditional emitter
+  // would drop it.
+  assert.deepEqual(line.price, { id: "-1" });
   assert.equal(own(line, "custcol_dps_unit_cost"), false);
   // A null governed cost must leave NetSuite's own default intact rather than
   // assert a zero. A zero claims the product is free; silence claims nothing.

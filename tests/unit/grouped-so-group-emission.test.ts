@@ -395,9 +395,14 @@ test("16 · member-rate PATCH is reached only THROUGH the convergence executor",
   const direct = markComplete.match(/await patchSalesOrderLine\(/g) ?? [];
   assert.equal(direct.length, 0, "no direct awaited PATCH outside the executor");
   // It is passed as the executor's provider dependency, not called inline.
+  // The adapter now also carries the governed price level, so the signature is
+  // matched with `priceLevelId` optional. What the assertion protects is
+  // unchanged: the adapter PASSES ITS PATCH THROUGH verbatim — it does not
+  // construct one — so the executor remains the only thing deciding what a
+  // member line is written with.
   assert.match(
     markComplete,
-    /patchLine: \(id: string, address: number, patch: \{ rate: number \}\) =>\s*patchSalesOrderLine\(id, address, patch\)/,
+    /patchLine: \(id: string, address: number, patch: \{ rate: number; priceLevelId\?: string \}\) =>\s*patchSalesOrderLine\(id, address, patch\)/,
   );
 });
 

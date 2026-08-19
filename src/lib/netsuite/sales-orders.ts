@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { createRecord, getRecord, type NetsuiteConfig } from "./client";
 import { NON_TAXABLE_TAX_CODE_ID } from "./tax-policy";
+import { CUSTOM_PRICE_LEVEL_ID } from "./price-policy";
 
 // Slice 12 Step 8c-3 — Sales Order payload builder + REST create.
 //
@@ -20,8 +21,8 @@ import { NON_TAXABLE_TAX_CODE_ID } from "./tax-policy";
 //                        hubspot_deals_cache.deal_folder_url)
 //   • custbody_dps_project_source, project_service_s, ...
 //                      — field-fill from 8c-2's expanded cache columns
-//   • class            — NetSuite class ref (business segment id;
-//                        NetSuite resolves)
+//   • class            — NOT SENT. See the note by `cseg_dps_bus_seg` below;
+//                        observed orders carry class = null.
 //   • item[]           — SO line items (physical + OTC in one list)
 //
 // Per-line shape (verified via SO2646/item/1):
@@ -29,6 +30,7 @@ import { NON_TAXABLE_TAX_CODE_ID } from "./tax-policy";
 //                        or a physical/OTC item)
 //   • quantity, rate, amount, description
 //   • taxCode          — ALWAYS { id: "-8" } (-Not Taxable-), governed rule
+//   • price            — ALWAYS { id: "-1" } (Custom), governed rule
 //   • custcol_dps_sku  — leaf's Nexus SKU (round-trip breadcrumb)
 //   • custcol_dps_unit_cost — leaf's per-unit cost from ASY/LEAF adapter
 
@@ -159,9 +161,18 @@ export function buildSalesOrderPayload(
   // per SO field-parity probe vs reference SO2646 (2026-07-29):
   //   1. custbody_sharepoint_link mirrors custbody_dps_accounting_files.
   //      Both hold the SharePoint URL; ref SO carries both simultaneously.
-  //   2. cseg_dps_bus_seg mirrors class from businessSegmentId. class is
-  //      the NS classification taxonomy; cseg is the parallel custom
-  //      segment taxonomy — ref carries the same segment id in both.
+  //   2. cseg_dps_bus_seg, from businessSegmentId.
+  //
+  //      This used to read "cseg_dps_bus_seg MIRRORS class … ref carries the
+  //      same segment id in both". `class` was never assigned — a grep for
+  //      `body.class` returns nothing — and on SO2701 / SO2704 / SO2707 /
+  //      SO2709 `class` is null while `cseg_dps_bus_seg` is 3. The comment
+  //      described a parity mapping that was not implemented, which is a
+  //      worse state than an unimplemented one: it reads as done.
+  //
+  //      Corrected rather than implemented (Edward, 2026-08-19). Whether
+  //      `class` should also be written is an Accounting question; the
+  //      reference order carrying both is evidence, not a decision.
   //   3. shipDate mirrors custbody_dps_pp_production_ship_date. NS uses
   //      the standard shipDate field; the custom body field is retained
   //      as a Nexus round-trip breadcrumb, but the standard field must
@@ -323,6 +334,10 @@ export function buildSalesOrderPayload(
       description: line.description,
       // Unconditional, not conditional on a setting. See tax-policy.ts.
       taxCode: { id: NON_TAXABLE_TAX_CODE_ID },
+      // Nexus supplies the rate, so the line is CUSTOM-priced rather than
+      // sourced from the item master's base price. Sent WITH `rate` above —
+      // never without it. See price-policy.ts.
+      price: { id: CUSTOM_PRICE_LEVEL_ID },
       custcol_dps_sku: line.sku,
       // GOVERNED PRODUCT COST → two destinations, one source.
       //

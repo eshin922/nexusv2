@@ -142,3 +142,70 @@ is `3`. The comment describes a parity mapping that was never implemented.
 Whether `class` should also be written is an Accounting question — the comment
 asserts the reference order carries both, which is evidence but not a decision.
 Recorded rather than fixed.
+
+---
+
+# DISPOSITIONS APPLIED — 2026-08-19
+
+## Price level — CREATE probe green, Custom implemented
+
+The remaining unknown was CREATE. Probed on a disposable order carrying **no
+`custbody_dps_deal_id`**, so it sits outside the duplicate-deal rule and could
+not collide with any lineage.
+
+```
+SO2720   7 × 123.45 with price -1   →  ACCEPTED
+         priceLevel -1 · rate 123.45 · qty 7 · amount 864.15 · subtotal 864.15 · tax 0
+```
+
+Every check passed: level Custom, rate unchanged, quantity unchanged,
+amount = qty × rate exactly, tax 0.
+
+**Implemented:**
+
+| where | what |
+|---|---|
+| flat lines at CREATE | `price: { id: "-1" }` beside the governed rate |
+| Item Group members | `priceLevelId` on the existing rate PATCH |
+| Item Group header / EndGroup | **not sent** — neither carries a rate |
+| `patchSalesOrderLine` | **throws** if `priceLevelId` arrives without `rate` |
+
+That last row is the rule the PATCH refusal implies. NetSuite rejects a
+price-only write today, so the guard is belt-and-braces — it exists because a
+future version that accepted it would be free to source the rate itself, which
+is the outcome Custom exists to prevent.
+
+**Falsification:**
+
+```
+flat lines revert to NetSuite-chosen level    caught (5)
+member PATCH drops the price level            caught (1)
+price level allowed without the rate          caught (1)
+group HEADER acquires a price level           caught (1)
+```
+
+## Sales Rep — NetSuite-derived for V1
+
+No change. Nexus holds a HubSpot **owner**; `salesRep` wants a NetSuite
+**employee**; no governed mapping exists, and employee verification is blocked
+(`403`, `Lists → Employee Record`, against a succeeding control read). No
+email/id mapping was invented and no unverifiable reference is sent.
+
+## Customer PO · Estimated Invoice Date · Segment — no change
+
+All three already wired and observed populated on real orders.
+
+## `class` — comment corrected, field still not sent
+
+`body.class` remains unassigned. Two stale comments claimed otherwise and were
+corrected:
+
+- the field-surface header listed `class — NetSuite class ref (business segment
+  id; NetSuite resolves)`;
+- the parity note claimed `cseg_dps_bus_seg` **mirrors** `class`, citing
+  reference SO2646.
+
+Neither was true. Observed orders carry `class = null` with `cseg_dps_bus_seg`
+populated. A comment describing an unimplemented mapping is worse than no
+comment: it reads as done. Whether `class` should be written stays an
+Accounting question.

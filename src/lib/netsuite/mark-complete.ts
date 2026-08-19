@@ -1774,7 +1774,7 @@ export async function runMarkComplete(
           provider: {
             readLines: (id: string) => readSalesOrderLines(id),
             readHeader: (id: string) => readSalesOrderHeader(id),
-            patchLine: (id: string, address: number, patch: { rate: number }) =>
+            patchLine: (id: string, address: number, patch: { rate: number; priceLevelId?: string }) =>
               patchSalesOrderLine(id, address, patch),
           },
         });
