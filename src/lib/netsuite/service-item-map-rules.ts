@@ -179,38 +179,57 @@ export function describeUnusableMapping(
 }
 
 /**
- * The Direct Service completion gate.
+ * The Direct Service completion gate — MAPPING USABILITY ONLY.
  *
  * Extracted from `mark-complete` so it can be EXERCISED rather than only
  * code-asserted. Driving a real quote to `accepted` to test this would fire the
  * production HubSpot deal-stage push, so the decision has to be provable
- * without the transition — and a decision this consequential should not rest
- * on a grep for a string literal.
+ * without the transition.
  *
- * ── WHY IT NEVER RETURNS "PROCEED" WHILE SERVICES ARE PRESENT ─────────────
+ * ── THE PROJECTION REFUSAL IS GONE (F1/F4) ────────────────────────────────
  *
- * Before Stage 2 a service quote was blocked BY ACCIDENT: its Nexus-invented
- * `SVC-*` SKU could not resolve, so completion threw. That accident was real
- * protection — Direct Service Sales Order projection is not certified.
- * Supplying a mapping removes the accident, so the protection has to become
- * deliberate or it simply disappears. Pattern 56.
+ * This gate used to block EVERY service quote, even a fully mapped one, on the
+ * grounds that projecting a service onto a Sales Order was not certified. That
+ * was correct while it was true. It is no longer true: a Direct Service line's
+ * economics now come from the frozen accepted column through
+ * `assessProjectionReadiness` and the quantity-1 accounting emitter, its item
+ * from its governed BV-011 destination, and the complete order reconciles to
+ * the frozen tier total exactly before anything is posted.
  *
- * Hence: any service on the quote blocks. What varies is WHOSE problem it is.
+ * The original protection is NOT lost with it, because the protection was never
+ * really this refusal. It was "a service must never be emitted as a flat
+ * Direct-Product-shaped line at whatever quantity and rate the SKU path
+ * computes" — and that is now held structurally, in three places that do not
+ * depend on anyone remembering:
  *
- * ── WHY THE MAPPING CHECK COMES FIRST ─────────────────────────────────────
+ *   · services are partitioned out of the SKU loop by `commercialKind`, so the
+ *     `SVC-*` identifier is never matched against a NetSuite item code;
+ *   · services are excluded from the live structure index, so no service can
+ *     acquire a product line's quantity or rate;
+ *   · a service line's item and amount come from the frozen matrix, and REG-4
+ *     refuses the order if the emitted set does not reproduce the accepted
+ *     total exactly.
  *
- * Telling an operator "projection is not enabled" when their actual problem is
- * an unmapped service sends them to wait for a feature instead of to Settings.
- * The actionable refusal wins whenever both apply.
+ * Pattern 56 in the other direction: the accident became deliberate so it could
+ * be removed deliberately, once what it stood in for was actually built.
+ *
+ * ── WHAT STILL BLOCKS, AND WHY IT IS NOT REDUNDANT ────────────────────────
+ *
+ * An unusable mapping — absent, deleted, inactive, or unconfirmable. Readiness
+ * also refuses an unmapped destination, but only by the ABSENCE of a mapping
+ * row; it does not ask NetSuite whether the mapped item still exists and is
+ * active. This does, so a mapping that has rotted since it was entered is
+ * caught here rather than by NetSuite rejecting the CREATE.
+ *
+ * `other_service` is no longer blocked here. Its item is chosen per line and
+ * frozen at send, so whether a given line HAS a selection is a fact about the
+ * frozen row, which this gate cannot see and readiness can — and readiness
+ * refuses it by name, pointing at Costs rather than at Settings.
  */
 export type DirectServiceGateVerdict =
   | { blocked: false }
   /** The operator (or an admin) can clear this. */
-  | { blocked: true; kind: "mapping"; reason: string }
-  /** Ours, not theirs. Removed by the slice that certifies projection. */
-  | { blocked: true; kind: "projection"; reason: string };
-
-export const PROJECTION_NOT_ENABLED = "Direct Service Sales Order projection is not enabled";
+  | { blocked: true; kind: "mapping"; reason: string };
 
 export function evaluateDirectServiceGate(input: {
   serviceIdentities: ReadonlyArray<DirectServiceIdentity | null>;
@@ -224,31 +243,14 @@ export function evaluateDirectServiceGate(input: {
     (id): id is DirectServiceIdentity => id !== null,
   );
   const fixed = known.filter(isFixedServiceIdentity);
-  const perUse = known.filter((id) => !isFixedServiceIdentity(id));
 
   const problems = fixed
     .map((id) => describeUnusableMapping(id, mapped.has(id) ? verdicts.get(id) : undefined))
     .filter((m): m is string => m !== null);
 
-  // `other_service` has no firm mapping BY DESIGN. Named separately so it does
-  // not read as a missing admin mapping someone could go and add — the schema
-  // refuses that row.
-  if (perUse.length > 0) {
-    problems.push(
-      `This quote has ${perUse.length} Other Service line(s). Other Service has no firm-wide NetSuite item — its item is chosen per line, and that selection is not available yet.`,
-    );
-  }
-
   if (problems.length > 0) {
     return { blocked: true, kind: "mapping", reason: problems.join(" ") };
   }
 
-  return {
-    blocked: true,
-    kind: "projection",
-    reason:
-      `${PROJECTION_NOT_ENABLED}. This quote carries ${serviceIdentities.length} service line(s) ` +
-      "whose NetSuite items are mapped and usable, but projecting a service onto a Sales Order " +
-      "has not been certified. Nothing was pushed.",
-  };
+  return { blocked: false };
 }

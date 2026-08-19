@@ -79,9 +79,14 @@ CREATE TABLE "quote_snapshot_line_tiers" (
   "quote_snapshot_line_id" uuid NOT NULL
     REFERENCES "quote_snapshot_lines"("id") ON DELETE CASCADE,
   "tier_id" uuid NOT NULL,
-  -- Label and quantity as shown, for the same reason display_name is stored:
-  -- a later tier edit must not rewrite what the customer was quoted.
+  -- Label as shown, for the same reason display_name is stored: a later tier
+  -- edit must not rewrite what the customer was quoted.
   "tier_label" text NOT NULL,
+  -- THIS LINE's quantity at this tier, not the tier's own — the tier's lives on
+  -- quote_snapshot_tier_totals. They differ: a one-time fee is quantity 1 at
+  -- every tier, and storing the tier's put a $140 charge on record as 1,000
+  -- units. unit_rate x quantity = line_amount holds by construction, which is
+  -- what lets REG-4 check NetSuite's own multiplication.
   "quantity" integer,
   "pricing_state" "commercial_pricing_state" NOT NULL,
   "unit_rate" numeric(14, 4),

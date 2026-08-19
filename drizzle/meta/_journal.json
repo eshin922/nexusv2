@@ -617,6 +617,13 @@
       "when": 1786320048000,
       "tag": "0089_frozen_line_legacy_unresolved",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1786320060000,
+      "tag": "0090_per_line_other_service_item",
+      "breakpoints": true
     }
   ]
 }

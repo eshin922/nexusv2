@@ -1,4 +1,5 @@
 import { createStore } from "zustand";
+import type { OtherServiceSelection } from "./commercial-projection";
 import {
   computeQuoteCosting,
   type CostingCellOverride,
@@ -173,6 +174,14 @@ export type CostingStoreState = {
    * lift lands on the wrong commercial line.
    */
   lifts: CostingLift[];
+  /**
+   * Per-line `OTC - Other Service` item selections for this quote.
+   *
+   * Carried on the bundle so the commercial projection can attach them without
+   * a second query — the projection is a pure function of the bundle, and a
+   * lookup inside it would be a second source of truth for the same line.
+   */
+  otherServiceItems: OtherServiceSelection[];
 
   // Slice 9.4a — VIEW STATE (not a costing input). The currently-active
   // tier on the Pricing. Determines which tier's per-SKU summary
@@ -394,6 +403,14 @@ export type HydrateSnapshot = {
    * canonical attachment; the staging layer seeds its committed set from these.
    */
   lifts: CostingLift[];
+  /**
+   * Per-line `OTC - Other Service` item selections for this quote.
+   *
+   * Carried on the bundle so the commercial projection can attach them without
+   * a second query — the projection is a pure function of the bundle, and a
+   * lookup inside it would be a second source of truth for the same line.
+   */
+  otherServiceItems: OtherServiceSelection[];
   costing: QuoteCostingResult; // pre-computed on the server side
   // Slice 9.5 — persisted warnings on this quote (active + accepted).
   // Used to attach DB ids onto client-computed engine specs by
@@ -656,6 +673,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
     lifts: initial.lifts,
+    otherServiceItems: initial.otherServiceItems,
     // Slice 9.4a — view-state. Defaults to null on store creation;
     // <ActiveTierUrlSync> sets it on mount from URL `?tier=` (or
     // first tier in sort_order if URL absent/invalid). Hydrate /
@@ -1011,6 +1029,9 @@ export function makeCostingStore(initial: HydrateSnapshot) {
  * rather than deriving them — see docs/gate-1b-canonical-node-tree.md.
  */
 export const selectGraph = (s: CostingStoreState) => s.costing.graph;
+/** Per-line Other Service selections. Derived from the store, not an RSC prop. */
+export const selectOtherServiceItems = (s: CostingStoreState) =>
+  s.otherServiceItems;
 
 export const selectQuoteRollup = (s: CostingStoreState) =>
   s.costing.quoteRollup;

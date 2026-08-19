@@ -35,6 +35,14 @@ import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
  * separately billed OTC.
  */
 
+/** A per-line Other Service selection, as the bundle carries it. */
+export type OtherServiceSelection = {
+  assemblyId: string | null;
+  quoteLeafId: string | null;
+  netsuiteItemCode: string;
+  netsuiteInternalId: string;
+};
+
 export type CommercialLineKind =
   | "item_group_member"
   | "direct_product"
@@ -50,7 +58,26 @@ export type CommercialLineKind =
  * PDF's "quote on request" and the frozen matrix both need.
  */
 export type CommercialCell =
-  | { state: "priced"; unitRate: number; lineAmount: number }
+  | {
+      state: "priced";
+      unitRate: number;
+      /**
+       * The quantity of THIS LINE at this tier — not the tier's own quantity.
+       *
+       * They differ, and conflating them writes a false statement into a
+       * durable record: a one-time $140 Setup charge stored against the tier's
+       * 1,000 units reads as `quantity × rate = $140,000`. The amount was
+       * always right; the quantity was describing something else.
+       *
+       * The tier's quantity lives on `quote_snapshot_tier_totals`, which is
+       * where a reader should look for it.
+       *
+       * `unitRate × quantity === lineAmount` holds by construction, which is
+       * what lets REG-4 compare against NetSuite's own multiplication.
+       */
+      quantity: number;
+      lineAmount: number;
+    }
   | { state: "quote_on_request" };
 
 export type CommercialLine = {
@@ -88,6 +115,12 @@ export type CommercialLine = {
    * Tooling and Artwork.
    */
   legacyUnresolved: boolean;
+  /**
+   * The per-line NetSuite item chosen for `OTC - Other Service`, the one
+   * destination with no firm-wide record. NULL everywhere else, where the
+   * record is resolved at push from the governed mapping.
+   */
+  selectedNetsuiteItem: { code: string; internalId: string } | null;
   /** Aligned to `tiers`, index for index. */
   cells: CommercialCell[];
   /**
@@ -178,6 +211,24 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
   }).value;
 
   const skuById = new Map(bundle.skus.map((s) => [s.id, s] as const));
+
+  // Per-line Other Service selections, carried on the bundle. Absent on a
+  // bundle that predates them, which reads as "not chosen" — the same state as
+  // no row, and the state readiness refuses.
+  const selections =
+    (bundle as { otherServiceItems?: OtherServiceSelection[] })
+      .otherServiceItems ?? [];
+  const otherServiceByAssembly = new Map(
+    selections
+      .filter((x) => x.assemblyId !== null)
+      .map((x) => [x.assemblyId!, { code: x.netsuiteItemCode, internalId: x.netsuiteInternalId }] as const),
+  );
+  const otherServiceByLeaf = new Map(
+    selections
+      .filter((x) => x.quoteLeafId !== null)
+      .map((x) => [x.quoteLeafId!, { code: x.netsuiteItemCode, internalId: x.netsuiteInternalId }] as const),
+  );
+
   const lines: CommercialLine[] = [];
 
   // ── unit lines ─────────────────────────────────────────────────────────
@@ -209,8 +260,10 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
       if (rate === null || (rate === 0 && cost === 0)) {
         return { state: "quote_on_request" };
       }
+      // The line's own units: the tier's order size times how many of this
+      // component go into one finished unit.
       const qty = (t.qty ?? 0) * Number(rollup.qtyPerParent ?? 1);
-      return { state: "priced", unitRate: rate, lineAmount: rate * qty };
+      return { state: "priced", unitRate: rate, quantity: qty, lineAmount: rate * qty };
     });
 
     lines.push({
@@ -229,6 +282,10 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
         ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
         : null,
       legacyUnresolved: false,
+      selectedNetsuiteItem:
+        serviceIdentity === "other_service"
+          ? (otherServiceByLeaf.get(rollup.canonicalQuoteLeafId ?? "") ?? null)
+          : null,
       cells,
       allocationByTier: tiers.map(() => null),
     });
@@ -284,8 +341,13 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
         }
         anyBilled = true;
         const amount = raw * (1 + productionMarkupPct);
-        // A one-time charge: the amount IS the line, quantity 1.
-        cells.push({ state: "priced", unitRate: amount, lineAmount: amount });
+        // A one-time charge: quantity 1, and the amount IS the line.
+        cells.push({
+          state: "priced",
+          unitRate: amount,
+          quantity: 1,
+          lineAmount: amount,
+        });
       }
 
       if (!anyBilled) continue;
@@ -308,6 +370,10 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
             fee.field
           ] ?? null,
         legacyUnresolved: fee.field === LEGACY_COMBINED_OTC_COLUMN,
+        selectedNetsuiteItem:
+          fee.field === "otherServiceTotal"
+            ? (otherServiceByAssembly.get(assemblyId) ?? null)
+            : null,
         cells,
         allocationByTier,
       });

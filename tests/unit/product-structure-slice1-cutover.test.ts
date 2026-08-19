@@ -323,6 +323,10 @@ const classifiedIdentityFiles = new Set([
   // Production surface addresses its rows by `quote_leaf_id`, the governed
   // owner of a service-owned production row, and resolves no junction.
   "src/components/costs/direct-service-production.tsx",
+  // CLASSIFIED — canonical identity only. The picker addresses its line by
+  // assembly id or by `quoteLeafId`, the governed attachment, and resolves no
+  // junction. Which of the two it sends is decided by the caller, not looked up.
+  "src/components/costs/other-service-item-picker.tsx",
   // CLASSIFIED — type declaration only. `SkuRow.quoteLeafId` carries the
   // CANONICAL id alongside the junction `id`, so consumers that must key on
   // the canonical one (the production markup node) can. Declares, resolves
@@ -334,6 +338,16 @@ const classifiedIdentityFiles = new Set([
   // writes the legacy junction, and it cannot, because the column it targets
   // is derived from the leaf's service identity rather than supplied.
   "src/app/actions/direct-service-production.ts",
+  // CLASSIFIED — canonical identity only. The per-line Other Service selection
+  // is owned by an assembly XOR a `quote_leaf_id`, the governed attachment.
+  // It resolves no legacy junction and cannot: the XOR is enforced by the DB.
+  "src/app/actions/other-service-item.ts",
+  // CLASSIFIED — canonical identity only, as recorded EVIDENCE. Both read
+  // `quoteLeafId` off the frozen line to match a commercial line against the
+  // live grouping structure. Neither resolves a legacy junction; the frozen
+  // record cannot contain one, because the freeze writes only the canonical id.
+  "src/lib/netsuite/frozen-order-assembly.ts",
+  "src/lib/netsuite/frozen-sales-order.ts",
   // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
   // what the V1 freight distribution policy moved across the S-7 basket before
   // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment

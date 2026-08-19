@@ -68,6 +68,11 @@ export async function freezeCommercialLineSet(
         // change would then silently repoint an accounting destination.
         bv011Destination: line.bv011Destination,
         legacyUnresolved: line.legacyUnresolved,
+        // The per-line choice is frozen because for this destination the
+        // operator's choice IS the governance — a commercial decision about
+        // this quote, not firm configuration that can be corrected later.
+        selectedNetsuiteItemId: line.selectedNetsuiteItem?.internalId ?? null,
+        selectedNetsuiteItemCode: line.selectedNetsuiteItem?.code ?? null,
         // Left NULL here. Destination identity is resolved by the projection
         // slice that owns NetSuite mapping; inventing one at freeze time
         // would record a guess as a governed fact.
@@ -82,7 +87,10 @@ export async function freezeCommercialLineSet(
         quoteSnapshotLineId: row.id,
         tierId: tier.tierId,
         tierLabel: tier.tierLabel,
-        quantity: tier.quantity,
+        // The LINE's quantity, not the tier's. Storing the tier's put a
+        // one-time $140 charge on record as 1,000 units — the amount was
+        // right, but anything multiplying the row got 1000x the fee.
+        quantity: cell.state === "priced" ? cell.quantity : tier.quantity,
         pricingState: cell.state === "priced" ? "priced" : "quote_on_request",
         unitRate: cell.state === "priced" ? cell.unitRate.toFixed(4) : null,
         lineAmount: cell.state === "priced" ? cell.lineAmount.toFixed(2) : null,

@@ -7,6 +7,8 @@ import {
   upsertAssemblyProductionInputs,
 } from "@/app/actions/assembly-production-inputs";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { selectOtherServiceItems } from "@/lib/costing-store";
+import { OtherServiceItemPicker } from "@/components/costs/other-service-item-picker";
 import {
   selectActiveTierId,
   selectGraph,
@@ -340,6 +342,17 @@ export function ProductionDrilldown({
   // would let an operator create fresh unresolvable data — the state the
   // Tooling/Artwork split exists to stop producing — while hiding it from a
   // quote that DOES carry one would strand the amount with no way to resolve it.
+  const otherServiceItems = useCostingStore(selectOtherServiceItems);
+
+  // Per-line Other Service selections, read from the STORE rather than from a
+  // prop (Pattern 41): an RSC snapshot prop is frozen at render and would not
+  // reflect a save until a full page round trip.
+  const otherServiceByAssembly = new Map(
+    otherServiceItems
+      .filter((x) => x.assemblyId !== null)
+      .map((x) => [x.assemblyId!, { code: x.netsuiteItemCode, internalId: x.netsuiteInternalId }] as const),
+  );
+
   const legacyFieldsInUse = new Set<CostField>();
   for (const byTier of rowsBySku.values()) {
     for (const r of byTier.values()) {
@@ -453,6 +466,7 @@ export function ProductionDrilldown({
             rowsByTier={rowsBySku.get(asm.id) ?? new Map()}
             visibleLines={visibleLines}
             disabled={!editable}
+            otherServiceItem={otherServiceByAssembly.get(asm.id) ?? null}
           />
         </div>
       ))}
@@ -481,6 +495,7 @@ export function ProductionDrilldown({
 
 function ProductionTable({
   sku,
+  otherServiceItem,
   markupNodeId,
   policy,
   tiers,
@@ -489,6 +504,8 @@ function ProductionTable({
   disabled,
 }: {
   sku: QuoteSku;
+  /** This Item Group's per-line Other Service item, or null if not chosen. */
+  otherServiceItem: { code: string; internalId: string } | null;
   /** The engine's node key for this section's markup — the ANCHOR LEAF, which
    *  is not the same id the display is keyed by. See the note at the caller. */
   markupNodeId: string;
@@ -568,6 +585,7 @@ function ProductionTable({
           markup={markup}
           rowsByTier={rowsByTier}
           disabled={disabled}
+          otherServiceItem={otherServiceItem}
         />
       ))}
 
@@ -700,6 +718,7 @@ function ProductionRow({
   rowsByTier,
   disabled,
   markup,
+  otherServiceItem,
 }: {
   line: VirtualLine;
   sku: QuoteSku;
@@ -709,6 +728,13 @@ function ProductionRow({
   disabled: boolean;
   /** Both section rates, resolved once — see `useProductionMarkup`. */
   markup: SectionMarkups;
+  /**
+   * The per-line NetSuite item for this Item Group's Other Service charge.
+   *
+   * Passed to every row and used by ONE, which keeps the exclusivity visible
+   * at the call site rather than hidden behind a lookup inside the row.
+   */
+  otherServiceItem: { code: string; internalId: string } | null;
 }) {
   const showAmortizedSub =
     line.kind === "one_time_fee" && policy.allocateServiceFeesToCost;
@@ -727,6 +753,18 @@ function ProductionRow({
         )}
         {line.kind === "tier_total_cogs" && (
           <span className="sub">tier total · allocated across quoted units</span>
+        )}
+        {/*
+          EXCLUSIVE to Other Service. Every other destination resolves from the
+          firm mapping in Settings, and a per-line control on one of those would
+          be a second, competing source for a question already governed.
+        */}
+        {line.field === "otherServiceTotal" && (
+          <OtherServiceItemPicker
+            assemblyId={sku.id}
+            selected={otherServiceItem}
+            disabled={disabled}
+          />
         )}
       </div>
       <div className="cat">{line.category}</div>

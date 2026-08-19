@@ -9,6 +9,7 @@ import {
   quotes,
 } from "@/db/schema";
 import { db } from "@/db";
+import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
 import {
   SERVICE_IDENTITY_DESTINATION,
   bv011Label,
@@ -54,6 +55,25 @@ export type ProjectionBlocker =
       remediation: string;
     }
   | {
+      /**
+       * A frozen product line with no SKU. Its NetSuite item is matched by SKU,
+       * so there is nothing to match on — distinct from a SKU that simply does
+       * not resolve, which is a catalog problem rather than a quote one.
+       */
+      kind: "product_sku_missing";
+      lineId: string;
+      displayName: string;
+      remediation: string;
+    }
+  | {
+      /** A frozen product SKU that does not resolve, or resolves ambiguously. */
+      kind: "product_item_unresolved";
+      lineId: string;
+      displayName: string;
+      sku: string;
+      remediation: string;
+    }
+  | {
       /** Frozen before destinations were recorded. Not a legacy combined charge. */
       kind: "destination_not_recorded";
       lineId: string;
@@ -68,9 +88,36 @@ export type ProjectionBlocker =
   | { kind: "no_frozen_matrix"; remediation: string }
   | { kind: "no_accepted_tier"; remediation: string };
 
+/**
+ * A quantity-1 accounting line, resolved from the frozen accepted column.
+ *
+ * No item TYPE here, on purpose. BV-011 governs what a destination SHOULD be
+ * and the resolved NetSuite record IS what it is; an emitter carrying a third
+ * opinion could disagree with both.
+ */
+export type ResolvedAccountingLine = {
+  sourceLineId: string;
+  kind: "direct_service" | "otc";
+  /** OD-006 — the owning Item Group, or null for a top-level Direct Service. */
+  owningAssemblyId: string | null;
+  displayName: string;
+  destination: Bv011Destination;
+  netsuiteItemId: string;
+  netsuiteItemCode: string | null;
+  /** Integer cents, parsed from the frozen decimal without a float. */
+  amountCents: number;
+};
+
 export type ProjectionReadiness =
-  | { ready: true; acceptedTierId: string; tierCommercialTotal: string }
+  | {
+      ready: true;
+      acceptedTierId: string;
+      tierCommercialTotal: string;
+      /** Resolved in the same pass, so readiness and emission cannot disagree. */
+      lines: ResolvedAccountingLine[];
+    }
   | { ready: false; blockers: ProjectionBlocker[] };
+
 
 /**
  * The executor to read through.
@@ -178,6 +225,9 @@ export async function assessProjectionReadiness(
       kind: quoteSnapshotLines.lineKind,
       displayName: quoteSnapshotLines.displayName,
       destination: quoteSnapshotLines.bv011Destination,
+      selectedItemId: quoteSnapshotLines.selectedNetsuiteItemId,
+      selectedItemCode: quoteSnapshotLines.selectedNetsuiteItemCode,
+      owningAssemblyId: quoteSnapshotLines.owningAssemblyId,
       serviceIdentity: quoteSnapshotLines.serviceIdentity,
       legacyUnresolved: quoteSnapshotLines.legacyUnresolved,
       amount: quoteSnapshotLineTiers.lineAmount,
@@ -199,13 +249,22 @@ export async function assessProjectionReadiness(
     .select({
       destination: netsuiteDestinationItemMap.destination,
       internalId: netsuiteDestinationItemMap.netsuiteInternalId,
+      code: netsuiteDestinationItemMap.netsuiteItemCode,
     })
     .from(netsuiteDestinationItemMap);
   const mapped = new Map(
     mappings
       .filter((m) => (m.internalId ?? "").trim() !== "")
-      .map((m) => [m.destination, m.internalId] as const),
+      .map((m) => [m.destination, m] as const),
   );
+
+  // Resolved alongside the blockers, in the SAME pass.
+  //
+  // A separate resolver for the emitter would be a second answer to "which
+  // item does this line post to" — the divergence Pattern 58 warns about, and
+  // the one that lets readiness certify a line the emitter then sends
+  // somewhere else.
+  const resolved: ResolvedAccountingLine[] = [];
 
   for (const line of lines) {
     // Products resolve by SKU through the existing item resolver, not through
@@ -253,21 +312,41 @@ export async function assessProjectionReadiness(
 
     if (isPerLineDestination(destination)) {
       // `OTC - Other Service` has no firm-level record by design; its item is
-      // chosen per line. Until that selection exists, say so — reporting it as
-      // an unmapped destination would send an admin to Settings to add a row
-      // the schema forbids.
-      blockers.push({
-        kind: "per_line_destination_unresolved",
-        destination,
-        destinationLabel: bv011Label(destination),
-        lineId: line.id,
+      // chosen per line and FROZEN at send, because for this destination the
+      // operator's choice is the governance.
+      //
+      // A frozen selection satisfies the line. Its absence is reported as
+      // its own state rather than as an unmapped destination — the latter
+      // would send an admin to Settings to add a row the schema forbids.
+      const selected = (line.selectedItemId ?? "").trim();
+      if (selected === "") {
+        blockers.push({
+          kind: "per_line_destination_unresolved",
+          destination,
+          destinationLabel: bv011Label(destination),
+          lineId: line.id,
+          displayName: line.displayName,
+          remediation: `"${line.displayName}" posts to ${bv011Label(destination)}, whose NetSuite item is chosen per line rather than firm-wide. Choose its item on Costs, then revise and re-send.`,
+        });
+        continue;
+      }
+      resolved.push({
+        sourceLineId: line.id,
+        kind: line.kind === "direct_service" ? "direct_service" : "otc",
+        owningAssemblyId: line.owningAssemblyId,
         displayName: line.displayName,
-        remediation: `"${line.displayName}" posts to ${bv011Label(destination)}, whose NetSuite item is chosen per line rather than firm-wide. That selection is not available yet.`,
+        destination,
+        // The FROZEN selection, not the current one. For this destination the
+        // operator choice IS the governance, so it is read from the send.
+        netsuiteItemId: selected,
+        netsuiteItemCode: line.selectedItemCode ?? null,
+        amountCents: centsFromFrozen(line.amount),
       });
       continue;
     }
 
-    if (!mapped.has(destination)) {
+    const mapping = mapped.get(destination);
+    if (!mapping) {
       blockers.push({
         kind: "unmapped_destination",
         destination,
@@ -276,7 +355,21 @@ export async function assessProjectionReadiness(
         displayName: line.displayName,
         remediation: `${bv011Label(destination)} has no NetSuite item mapped. Add it in Settings → NetSuite, then push again.`,
       });
+      continue;
     }
+
+    resolved.push({
+      sourceLineId: line.id,
+      kind: line.kind === "direct_service" ? "direct_service" : "otc",
+      // OD-006 — an Item Group OTC line is emitted in association with its
+      // group. A Direct Service is top-level and carries null.
+      owningAssemblyId: line.owningAssemblyId,
+      displayName: line.displayName,
+      destination,
+      netsuiteItemId: mapping.internalId!,
+      netsuiteItemCode: mapping.code ?? null,
+      amountCents: centsFromFrozen(line.amount),
+    });
   }
 
   if (blockers.length > 0) return { ready: false, blockers };
@@ -284,6 +377,7 @@ export async function assessProjectionReadiness(
     ready: true,
     acceptedTierId: quote.acceptedTierId,
     tierCommercialTotal: tierTotal.total,
+    lines: resolved,
   };
 }
 
