@@ -184,6 +184,7 @@ export type AdapterAssemblyProductionInputRow = {
   toolingTotal: string | null;
   artworkTotal: string | null;
   rdTotal: string | null;
+  testingMicrosTotal: string | null;
   otherServiceTotal: string | null;
   bulkRawCost: string | null;
   actualUnitsProduced: number | null;
@@ -417,6 +418,7 @@ export function buildQuoteCostingInputFromNewModel(
       toolingTotal: numOrNull(api.toolingTotal),
       artworkTotal: numOrNull(api.artworkTotal),
       rdTotal: numOrNull(api.rdTotal),
+      testingMicrosTotal: numOrNull(api.testingMicrosTotal),
       otherServiceTotal: numOrNull(api.otherServiceTotal),
       bulkRawCost: numOrNull(api.bulkRawCost),
       actualUnitsProduced: api.actualUnitsProduced,

@@ -405,6 +405,7 @@ const prod = (over: Partial<CostingProductionInput> = {}): CostingProductionInpu
   toolingTotal: 0,
   artworkTotal: 0,
   rdTotal: 250,
+  testingMicrosTotal: 0,
   otherServiceTotal: 50,
   bulkRawCost: null,
   actualUnitsProduced: null,

@@ -217,6 +217,8 @@ export type CostingProductionInput = {
   /** BV-011 `OTC - Artwork`. */
   artworkTotal: number | null;
   rdTotal: number | null;
+  /** Testing / Micros — a one-time SERVICE charge, per the 2026-08-19 disposition. */
+  testingMicrosTotal: number | null;
   otherServiceTotal: number | null;
   bulkRawCost: number | null;
   actualUnitsProduced: number | null;
@@ -1818,6 +1820,25 @@ function computeLeafPerTier(args: {
     num(production?.toolingTotal) +
     num(production?.artworkTotal) +
     num(production?.rdTotal) +
+    // `testingMicrosTotal` joined this sum by business disposition (Accounting,
+    // 2026-08-19): Testing / Micros is a one-time SERVICE charge, not internal
+    // manufacturing COGS, so it prices like Setup and R&D rather than being
+    // absorbed per unit. Deliberately NOT added to
+    // `internalProductionCogsTotal`.
+    //
+    // Migration 0083 created the column — its own, because BV-011 posts Testing
+    // and Other Service to different destinations — and nothing ever added it
+    // here. So a Testing Direct Service's cost saved, displayed and persisted
+    // while contributing nothing: the line read NOT PRICED at a real cost. The
+    // #298 family, where a cost is authored and then silently absent from the
+    // arithmetic; that one was a join dropping rows, this one a sum omitting a
+    // column, and from the operator's side they look identical.
+    //
+    // It cannot double-charge: the separately-billed OTC path iterates
+    // ASSEMBLY-owned rows and `testingMicrosTotal` is neither an
+    // assembly-authorable field nor a member of `OTC_FEES`. Only the Direct
+    // Service leaf writes it.
+    num(production?.testingMicrosTotal) +
     num(production?.otherServiceTotal);
   if (production && tierQty > 0) {
     // Customer quote pricing is always based on the quoted tier quantity.

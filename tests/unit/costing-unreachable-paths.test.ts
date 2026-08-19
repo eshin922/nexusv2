@@ -93,6 +93,7 @@ function prod(over: Partial<CostingProductionInput> = {}): CostingProductionInpu
     toolingTotal: 0,
     artworkTotal: 0,
     rdTotal: 0,
+    testingMicrosTotal: 0,
     otherServiceTotal: 0,
     bulkRawCost: null,
     actualUnitsProduced: null,
