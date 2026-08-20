@@ -373,6 +373,16 @@ const classifiedIdentityFiles = new Set([
   // BV-011 destinations the population reaches, joining `quote_leaves` to the
   // library by `leaf_id` for the service identity. Writes nothing.
   "scripts/gate-1b/bv011-representation-census.ts",
+  // CLASSIFIED — read-only Case 6 Mixed proof harness. Queries `assembly_leaves`
+  // DELIBERATELY, and that is the point of the case: it must prove a top-level
+  // Direct Product acquires NO junction while its Item Group siblings keep
+  // theirs. It counts junctions per `quote_leaf_id` and asserts no packaging row
+  // references a structure it does not belong to. Canonical `quote_leaves.id` is
+  // the key throughout — an earlier version keyed per-SKU economics on the
+  // display label, which is empty for grouped members, so two leaves collided
+  // onto one entry and the check passed while covering half of what it claimed.
+  // Writes nothing.
+  "scripts/gate-1b/case6-mixed.ts",
   // CLASSIFIED — read-only CERT-303 walk evidence, canonical identity only.
   // Reads the frozen snapshot line set and its per-tier rows, and the live
   // per-line NetSuite selection keyed on `quote_leaf_id`. Resolves nothing

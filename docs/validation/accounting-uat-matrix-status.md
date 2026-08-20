@@ -33,12 +33,12 @@ the charge should become a quote line**, which is business design, not mapping.
 
 | # | case | status now | what it needs |
 |---|---|---|---|
-| 1 | Direct Product | **EXECUTABLE** | fixture only — no mappings |
+| 1 | Direct Product | **COVERED** — cfa7b84d, 2026-08-20 (blocker closed by #309) | — |
 | 2 | Turnkey Item Group | **COVERED** — SO2716 | — |
 | 3 | Direct Service | **COVERED** — SO2716, SO2718, SO2721 | — |
 | 4 | Item Group + separately billed OTC | **COVERED** — SO2716 | — |
-| 5 | Tooling / Artwork split | **NOW EXECUTABLE** | fixture only |
-| 6 | Mixed commercial structure | **EXECUTABLE** | fixture only |
+| 5 | Tooling / Artwork split | **COVERED** — ff90d502, 2026-08-20 | see `accounting-uat-case-5-tooling-artwork.md` |
+| 6 | Mixed commercial structure | **COVERED** — 4781e4bb, 2026-08-20 | see `accounting-uat-case-6-mixed.md` |
 | 7 | Freight / logistics | **BUSINESS DESIGN** | not a mapping gap |
 | 8 | Pack-out / Assembly Direct Service | **BLOCKED ON ONE MAPPING** | `otc_packout` |
 
