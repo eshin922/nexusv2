@@ -26,8 +26,8 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import {
-  quoteForAssemblyLeaf,
   quoteForAssemblyLeafInputLineGroup,
+  quoteForQuoteLeaf,
 } from "@/lib/quote-guards";
 import { reconcileWarnings } from "./warnings";
 
@@ -385,27 +385,43 @@ export async function updateAssemblyLeafInputCell(
 
     const user = await ensureUser();
 
-    // Resolve row + quote + draft assertion via direct query (no
-    // single-step guard helper for cell-level resolution since the
-    // common case is one row).
+    // Resolve the row by its OWN id, then the quote through the CANONICAL
+    // attachment.
+    //
+    // This used to INNER JOIN `assembly_leaves` on `assembly_leaf_id`. A
+    // top-level Direct Product's packaging row carries NULL there — it attaches
+    // by `quote_leaf_id` — so the join matched nothing and the write refused
+    // with "Cell not found" while the row plainly existed. The operator saw a
+    // cost cell accept a value and silently revert about a second later, which
+    // is the debounced save rolling back.
+    //
+    // The READ side was corrected for exactly this at OD-017 and says so at
+    // `actions/costing.ts`: "Reaching the quote via `assemblies` structurally
+    // excluded a Direct Component — its rows existed but no loader could see
+    // them, which is most of why a direct attachment was unpriceable." The
+    // loader was fixed; this WRITER was not. Same defect, one layer over —
+    // which is the migration lesson about enumerating every producer AND
+    // consumer of a changed identity, not just the ones a type error surfaces.
     const rows = await db
-      .select({
-        row: assemblyLeafInputs,
-        assemblyLeaf: assemblyLeaves,
-      })
+      .select({ row: assemblyLeafInputs })
       .from(assemblyLeafInputs)
-      .innerJoin(
-        assemblyLeaves,
-        eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
-      )
       .where(eq(assemblyLeafInputs.id, rowId))
       .limit(1);
     if (rows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Cell not found");
-    const { row, assemblyLeaf } = rows[0];
-    // Reuse quoteForAssemblyLeaf to validate draft + recover quote
-    // for the revalidate path.
-    const { quote, attachment } = await quoteForAssemblyLeaf(assemblyLeaf.id);
+    const { row } = rows[0];
+    if (!row.quoteLeafId)
+      // Refused rather than falling back to the legacy join. A cost row with no
+      // canonical identity cannot be attributed to a commercial line, and
+      // guessing one is how a cost lands on the wrong product.
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This cost row carries no commercial identity and cannot be edited.",
+      );
+    // THE governed cost-input guard. Resolves both shapes — grouped member and
+    // top-level Direct Product — through one path, with no branch on structure,
+    // and asserts draft.
+    const { quote, attachment } = await quoteForQuoteLeaf(row.quoteLeafId);
 
     const newUnitCost = parseUnitMoney(
       formData.get("unitCost"),
@@ -451,13 +467,13 @@ export async function updateAssemblyLeafInputCell(
         cascade.inserted + cascade.resolved + cascade.evaluated > 0
           ? {
               quote_leaf_id: attachment.quoteLeafId,
-              assembly_leaf_id: assemblyLeaf.id,
+              assembly_leaf_id: row.assemblyLeafId,
               ...diff,
               cascaded_warnings: cascade,
             }
           : {
               quote_leaf_id: attachment.quoteLeafId,
-              assembly_leaf_id: assemblyLeaf.id,
+              assembly_leaf_id: row.assemblyLeafId,
               ...diff,
             },
     });

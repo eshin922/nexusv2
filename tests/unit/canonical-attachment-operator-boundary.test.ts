@@ -43,10 +43,25 @@ test("the resolver still fails closed — the invariant is untouched", () => {
   assert.doesNotMatch(resolver, /return null/);
 });
 
-test("both operator write boundaries resolve through the converting helper", () => {
-  // quoteForAssemblyLeaf and quoteForAssemblyLeafInputLineGroup.
+test("the remaining legacy-keyed write boundary resolves through the converting helper", () => {
+  // ONE now, not two. `quoteForAssemblyLeafInputLineGroup` no longer converts
+  // from a legacy `assembly_leaf_id`: it reads the row's canonical
+  // `quote_leaf_id` and delegates to `quoteForQuoteLeaf`.
+  //
+  // The count going DOWN is the improvement, not a regression. Every legacy
+  // conversion is a path that a top-level Direct Product cannot travel — its
+  // rows carry a NULL `assembly_leaf_id` — and that is exactly what made every
+  // packaging line-level edit refuse with "Packaging line not found".
+  //
+  // `quoteForAssemblyLeaf` remains and still converts; it is the last one.
   const converted = guards.match(/await resolveAttachmentForOperator\(/g) ?? [];
-  assert.equal(converted.length, 2);
+  assert.equal(converted.length, 1);
+
+  // …and the line-group guard now reaches the canonical path instead.
+  const lineGroup = guards.slice(
+    guards.indexOf("export async function quoteForAssemblyLeafInputLineGroup("),
+  );
+  assert.match(lineGroup, /await quoteForQuoteLeaf\(quoteLeafId\)/);
 
   // The raw resolver is reached only from inside the helper, never directly
   // from a guard body.

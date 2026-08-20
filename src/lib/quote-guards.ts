@@ -353,24 +353,27 @@ export async function quoteForAssemblyLeafInputLineGroup(
   lineGroupId: string,
 ): Promise<{
   quote: Quote;
-  assembly: Assembly;
-  assemblyLeaf: AssemblyLeaf;
+  /** NULL for a top-level Direct Product, which belongs to no Item Group. */
+  assembly: Assembly | null;
   attachment: CanonicalAttachmentIdentity;
   lineGroupId: string;
 }> {
+  // OD-017 · resolved through the CANONICAL attachment, like its cell-level
+  // sibling `quoteForQuoteLeaf`.
+  //
+  // This used to chain `assembly_leaf_inputs → assembly_leaves → assemblies →
+  // quotes` with three INNER JOINs. A top-level Direct Product's packaging row
+  // carries a NULL `assembly_leaf_id`, so the first join dropped it and every
+  // line-level edit — markup, category, pricing vendor, qty per sellable unit,
+  // notes, inventory-eligible — refused with "Packaging line not found".
+  //
+  // It presented as an inert control rather than an error: the input accepted a
+  // keystroke, the debounced save failed, and the value reverted about a second
+  // later. That is why the cost cell and the markup cell BOTH looked broken
+  // while only one of them was reported.
   const rows = await db
-    .select({
-      quote: quotes,
-      assembly: assemblies,
-      assemblyLeaf: assemblyLeaves,
-    })
+    .select({ quoteLeafId: assemblyLeafInputs.quoteLeafId })
     .from(assemblyLeafInputs)
-    .innerJoin(
-      assemblyLeaves,
-      eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
-    )
-    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-    .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
     .where(eq(assemblyLeafInputs.lineGroupId, lineGroupId))
     .limit(1);
   if (rows.length === 0)
@@ -378,20 +381,17 @@ export async function quoteForAssemblyLeafInputLineGroup(
       ERR.NOT_FOUND,
       "Packaging line not found",
     );
-  const { quote, assembly, assemblyLeaf } = rows[0];
-  const attachment = await resolveAttachmentForOperator(assemblyLeaf.id);
-  if (
-    attachment.quoteId !== quote.id ||
-    attachment.assemblyId !== assembly.id ||
-    attachment.leafId !== assemblyLeaf.leafId
-  ) {
+  const { quoteLeafId } = rows[0];
+  if (!quoteLeafId)
     throw new ActionGuardError(
       ERR.VALIDATION,
-      "Commercial attachment identity does not match its Quote membership.",
+      "This packaging line carries no commercial identity and cannot be edited.",
     );
-  }
-  requireDraft(quote);
-  return { quote, assembly, assemblyLeaf, attachment, lineGroupId };
+  // Delegates the ownership proof, the identity cross-check and the draft
+  // assertion to the one governed guard, so both structural shapes resolve
+  // through a single path rather than two that could drift.
+  const { quote, assembly, attachment } = await quoteForQuoteLeaf(quoteLeafId);
+  return { quote, assembly, attachment, lineGroupId };
 }
 
 // Slice R6.2 — resolve quote ownership through (leg-group → quote).
