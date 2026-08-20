@@ -16,10 +16,17 @@ test("every legacy-keyed production mutation reaches canonical identity through 
   // guard -- but the call is centralised so the boundary conversion lives in
   // one place. See canonical-attachment-operator-boundary.test.ts.
   assert.equal((guards.match(/lookupCanonicalAttachmentByLegacyId\(/g) ?? []).length, 1);
-  assert.equal((guards.match(/resolveAttachmentForOperator\(/g) ?? []).length, 3);
-  // One fewer call site since addAssemblyLeafInput was removed: Setup now owns
-  // packaging structure, so Costs no longer has a create path to guard.
-  assert.equal((packaging.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 1);
+  // TWO now, not three. `quoteForAssemblyLeafInputLineGroup` stopped converting
+  // from a legacy `assembly_leaf_id` and reads the row's canonical
+  // `quote_leaf_id` instead.
+  assert.equal((guards.match(/resolveAttachmentForOperator\(/g) ?? []).length, 2);
+  // ZERO now. The packaging cell writer used to resolve through
+  // `quoteForAssemblyLeaf`, which reaches the quote via `assemblies` — so a
+  // top-level Direct Product, which has none, refused with "Cell not found"
+  // while its row plainly existed. It now uses the governed canonical guard,
+  // and BOTH structural shapes travel one path.
+  assert.equal((packaging.match(/quoteForAssemblyLeaf\(/g) ?? []).length, 0);
+  assert.equal((packaging.match(/quoteForQuoteLeaf\(/g) ?? []).length, 1);
   // One fewer since deleteAssemblyLeafInputLine was removed: Costs no longer
   // has a structure-delete path to guard.
   assert.equal((packaging.match(/quoteForAssemblyLeafInputLineGroup\(/g) ?? []).length, 1);

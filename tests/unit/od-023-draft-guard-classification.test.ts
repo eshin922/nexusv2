@@ -124,9 +124,22 @@ test("0 · every named loader really does assert draft", () => {
     const rest = qg.slice(start + 1);
     const next = rest.search(/\nexport (async )?function /);
     const body = next === -1 ? rest : rest.slice(0, next);
-    assert.match(
-      body,
-      /requireDraft\(quote\)/,
+    // Asserts draft DIRECTLY, or by delegating to a loader that does.
+    //
+    // Delegation was previously impossible to express here, so a loader that
+    // routed through `quoteForQuoteLeaf` — which asserts draft in this same
+    // list, and is checked by this same loop — read as unguarded. The property
+    // this file protects is "every caller is guarded", and the direct call was
+    // only ever a proxy for it.
+    //
+    // The delegate is required to be one of DRAFT_LOADERS, so the guarantee is
+    // transitive through checked code rather than assumed of an arbitrary
+    // helper.
+    const delegates = DRAFT_LOADERS.filter((d) => d !== loader).some((d) =>
+      new RegExp(`await ${d}\\(`).test(body),
+    );
+    assert.ok(
+      /requireDraft\(quote\)/.test(body) || delegates,
       `${loader} no longer asserts draft — every caller relying on it is now unguarded`,
     );
   }
