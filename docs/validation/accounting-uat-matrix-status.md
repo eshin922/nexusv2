@@ -95,3 +95,60 @@ executable with no code change.
 
 **Six of eight are executable or done.** One needs a single mapping choice; one
 needs a design decision that no mapping can substitute for.
+
+---
+
+# FINAL DISPOSITIONS — 2026-08-19
+
+## Case 7 · Freight / duties / customs — RECLASSIFIED as covered
+
+**V1 disposition:** freight, duties and customs stay inside turnkey / unit-cost
+economics. No separately billed commercial lines during Accounting UAT.
+
+Case 7 is therefore **covered by current unit-cost / turnkey behaviour**, not
+blocked. Separately billed freight/logistics is **out of V1 scope** and requires
+a future commercial-design decision.
+
+This also settles the four unmapped freight-adjacent destinations
+(`otc_freight_duties_tariffs`, `otc_customs`, and by the same reasoning
+`otc_raws`) — they stay unmapped because nothing should produce them in V1.
+Mapping them would assert a capability the commercial model does not have.
+
+## Case 8 · Pack-out / Assembly — the one open Accounting ask
+
+**`otc_packout` needs a NetSuite item.** It is the only destination that is
+producible today and has nowhere to post: a Pack-out / Assembly Direct Service
+is one of the five governed identities, authorable on Costs right now, and a
+quote carrying one refuses at push with `unmapped_destination`.
+
+Nothing else is required — no code change, no schema change. Once Accounting
+names the item, the mapping is an admin write and the fixture walk follows.
+
+Candidate discovery: `node … scripts/gate-1b/ns-destination-candidates.ts`.
+
+## Remaining executable work
+
+| # | case | state |
+|---|---|---|
+| 1 | Direct Product | build + walk |
+| 5 | Tooling / Artwork split | build + walk |
+| 6 | Mixed commercial structure | build + walk |
+| 8 | Pack-out / Assembly | build + walk **after** the mapping lands |
+
+## Durable witnesses — preserved, not rebuilt
+
+| SO | role |
+|---|---|
+| SO2716 | F1/F4 grouped + Direct Service / OTC baseline |
+| SO2717 | **negative** — REG-4 exact, line shape wrong |
+| SO2718 | pure Direct Service positive witness |
+| SO2721 | terminal integrated: frozen shape + CUSTOM cost + non-taxable + per-line selection + Custom price level |
+
+## Release sequence after the matrix is green
+
+1. MS OAuth / Entra SSO closure
+2. below-margin authorization re-certification under final authenticated identities
+3. full V1 regression sweep + harness rejuvenation
+4. release readiness
+
+**The V1 sweep does not start before 1 and 2 are closed.**
