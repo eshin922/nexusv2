@@ -111,8 +111,8 @@ pure hardening change — discovered one employee at a time.
 ## What settles it
 
 A test, not a reading. It needs a `@thedps.co` identity that has never signed
-in to Production Clerk, so it belongs with **the Jackie onboarding
-certification** rather than before it:
+in to Production Clerk, so it belongs with **the Cally Hou onboarding
+certification** (`cally@thedps.co`, role `logistics`) rather than before it:
 
 1. Set `sign_up.mode = restricted` on Production Clerk.
 2. Have the pre-authorized employee complete Continue with The DPS.
@@ -135,8 +135,11 @@ certification** rather than before it:
 ## Cross-references
 
 - `docs/user-onboarding-pre-authorized-binding.md` (#327) — the pending-row
-  binding design this interacts with, and the roster whose first member
-  certifies the question above.
+  binding design this interacts with. Its first certification case is Cally
+  Hou, chosen to prove the binding AND that the new `logistics` role survives
+  identity provisioning without fallback or inference.
+- PR #332 — the `logistics` role and the `read_only` unknown-user fallback that
+  certification depends on.
 - PR #329 — the sign-in splash and Enterprise SSO initiation path. Its
   production certification **remains valid and closed**; this finding was
   surfaced by, but is not caused by, that work.
