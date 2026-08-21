@@ -32,7 +32,7 @@ separate OTC or service lines.
 | Input | Destination | Item type |
 |---|---|---|
 | Filling / Blending | `OTC - Filling` | Inventory Item |
-| CM Assembly / Pack-out | `OTC - Packout` | Inventory Item |
+| CM Assembly / Pack-out | `OTC - Packout` | **Non-inventory Item** (amended 2026-08-20) |
 | Bulk Raw | `OTC - Raws` | Inventory Item |
 
 ### 1.b OTC / service lines
@@ -53,7 +53,7 @@ separate OTC or service lines.
 | Processing Fee | `OTC - Processing Fee` | Non-inventory Item |
 | Cartons (Master / Inner) | `OTC - Cartons` | Non-inventory Item |
 
-**16 destinations.** 6 Inventory Item, 10 Non-inventory Item.
+**16 destinations.** 5 Inventory Item, 11 Non-inventory Item. *(Amended 2026-08-20: `OTC - Packout` moved Inventory → Non-inventory; was 6/10.)*
 
 ---
 
@@ -162,3 +162,21 @@ uniform model.
 | [BV-009](BV-009-freight-treatment.md) | Freight treatment. ⚠️ unratified — [OD-001](../OPEN_DECISIONS.md). See §4.5 |
 | [OD-006](../OPEN_DECISIONS.md) | NetSuite assembly structure. Open; the workstream's NetSuite projection question depends on it |
 | `docs/validation/quote-translation-parity-matrix.md` §T-4 | Bulk raw as an independently governed quantity. See §4.6 |
+
+## Amendment — 2026-08-20 · Pack-out / Assembly item type
+
+**`OTC - Packout` is governed as a NON-INVENTORY item**, corrected from
+Inventory Item.
+
+Accounting's disposition: Pack-out / Assembly is a separately billed **service**,
+so its NetSuite item is a non-inventory service item.
+
+The original `Inventory Item` was recorded before any NetSuite item existed to
+check it against. A sandbox census taken while resolving Case 8 found **67
+OTC-coded fee items, every one `NonInvtPart`** — so no real OTC item could ever
+have satisfied the inventory declaration. The claim was unfalsifiable when
+written and false as soon as it was checked.
+
+**The Nexus destination key is unchanged: `otc_packout`.** No `otc_assembly` key
+is introduced; `packout_assembly -> otc_packout` continues to route the service
+identity.

@@ -57,7 +57,13 @@ export const BV011_DESTINATIONS: ReadonlyArray<{
   section: "1.a" | "1.b";
 }> = [
   { key: "otc_filling", label: "OTC - Filling", itemType: "inventory", section: "1.a" },
-  { key: "otc_packout", label: "OTC - Packout", itemType: "inventory", section: "1.a" },
+  // AMENDED 2026-08-20 — Accounting disposition. Pack-out / Assembly is billed
+  // as a SERVICE, so its NetSuite item is governed Non-inventory. Corrected
+  // from "inventory", which was recorded before any item existed to check it
+  // against: the sandbox has 67 OTC-coded fee items and every one is
+  // NonInvtPart, so "inventory" could never have been satisfied by a real
+  // OTC item. The destination key is unchanged — there is no `otc_assembly`.
+  { key: "otc_packout", label: "OTC - Packout", itemType: "non_inventory", section: "1.a" },
   { key: "otc_raws", label: "OTC - Raws", itemType: "inventory", section: "1.a" },
   { key: "otc_freight_duties_tariffs", label: "OTC - Freight, Duties, Tariffs", itemType: "inventory", section: "1.b" },
   { key: "otc_customs", label: "OTC - Customs", itemType: "inventory", section: "1.b" },
