@@ -72,17 +72,22 @@ export async function ensureUserWithAuthentication(
   // unrostered signer having no pending row is the ORDINARY case, not an error.
   const binding = await bindPendingUser({ clerkUserId: userId, email });
   if (binding.kind === "bound" || binding.kind === "raced") return binding.user;
-  if (binding.kind === "clerk_id_already_bound") {
-    // Refusal, not a fallback. This identity is already attached to a different
-    // Nexus user, so provisioning a second row would split one person across
-    // two records — and the unique index would reject it anyway, as an error
-    // about an index. Say what is actually true and who has to fix it.
+  if (binding.kind === "refused") {
+    // REFUSAL, never a fallback.
+    //
+    // Each of these means enrollment integrity is in question — an identity
+    // already bound, an address already bound, an ambiguous match, a
+    // non-corporate identity. Provisioning a fresh read_only row in any of
+    // those cases would answer an integrity question by creating a SECOND
+    // record for the same person, which is the failure the pending mechanism
+    // exists to prevent rather than a graceful degradation of it.
     throw new Error(
-      `[identity] This sign-in is already bound to Nexus user ${binding.boundToUserId}. ` +
-        `Nexus will not attach it to a second record — an admin must resolve the ` +
-        `duplicate before this person can sign in.`,
+      `[identity] Sign-in refused (${binding.refusal.code}). ${binding.refusal.detail} ` +
+        `An admin must resolve this before this person can sign in.`,
     );
   }
+  // Only `no_pending_row` reaches here: nobody provisioned this person, which
+  // is the ordinary unrostered case and not an error.
 
   const name =
     [identity.firstName, identity.lastName].filter(Boolean).join(" ") || null;

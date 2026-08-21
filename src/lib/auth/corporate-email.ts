@@ -21,3 +21,20 @@
 export function normalizeCorporateEmail(email: string): string {
   return email.trim().toLowerCase();
 }
+
+/** The tenant domain Enterprise SSO resolves. */
+export const CORPORATE_DOMAIN = "@thedps.co";
+
+/**
+ * Is this a corporate identity?
+ *
+ * STRICTER than the middleware's sign-in check, deliberately. That check also
+ * honours an `ALLOWED_EMAILS` break-glass list so a non-tenant address can be
+ * let into the application; this one does not. Being allowed to sign in and
+ * being eligible to claim a pre-authorized row are different questions, and
+ * answering the second with the first would let the break-glass list bind
+ * identities to provisioned employees.
+ */
+export function isCorporateEmail(email: string): boolean {
+  return normalizeCorporateEmail(email).endsWith(CORPORATE_DOMAIN);
+}

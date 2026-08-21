@@ -117,6 +117,10 @@ test("authority and identity are never in the write set", async () => {
     "email",
     "id:",
     "name",
+    // Separate identity relationships with their own governance. A sign-in has
+    // no standing to rewrite either.
+    "hubspotOwnerId",
+    "slackUserId",
   ]) {
     assert.doesNotMatch(
       set,
@@ -153,11 +157,19 @@ test("unknown signers still land read_only", async () => {
   assert.match(src, /isAdmin\(email\)\s*\?\s*"admin"\s*:\s*"read_only"/);
 });
 
-test("a Clerk id already bound elsewhere refuses instead of provisioning", async () => {
+test("integrity failures refuse instead of provisioning", async () => {
+  // The four hard refusals share one branch in ensure-user; which of them
+  // fired is carried on the refusal, not on the outcome kind. Their individual
+  // enumeration and their refusal semantics live in
+  // `pre-authorized-binding-refusals.test.ts`; this only asserts the caller
+  // routes them away from provisioning.
   const src = codeOnly(await ENSURE());
-  const idx = src.indexOf('binding.kind === "clerk_id_already_bound"');
-  assert.ok(idx > 0);
-  assert.match(src.slice(idx, idx + 500), /throw new Error/);
+  const idx = src.indexOf('binding.kind === "refused"');
+  assert.ok(idx > 0, "ensure-user must handle the refused outcome");
+  assert.ok(
+    src.indexOf("throw new Error", idx) < src.indexOf(".insert(users)", idx),
+    "a refusal must throw before any provisioning path is reachable",
+  );
 });
 
 // ── audit ─────────────────────────────────────────────────────────────────
