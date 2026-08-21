@@ -65,6 +65,8 @@ import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
 import { freezeCommercialLineSet } from "@/lib/commercial-freeze";
+import { freezeOrderedSpecs, orderedLeafIdsForQuote } from "@/lib/ordered-spec-freeze";
+import { ensureQuoteSpecAuthority } from "@/lib/product-structure/quote-spec-authority";
 import {
   searchProducts,
   type ProductSummary,
@@ -1884,6 +1886,40 @@ export async function sendQuote(
         addendumData: snapshotRepresentation.addendumData,
         structure: snapshotRepresentation.structure,
       });
+
+      // THE ORDERED SPECIFICATIONS, frozen before the commercial line set.
+      //
+      // Two steps, and the order between them is the governed part.
+      //
+      // 1 · MATERIALIZE. The quote-owned authority is created lazily at
+      //     attachment, and on this estate it frequently did not exist when a
+      //     quote was sent. Freezing without materializing would record an
+      //     ABSENCE as a fact — "this item had no specification" — when the
+      //     truth is only that nobody had opened it yet. Idempotent: the unique
+      //     index on (quote_id, leaf_id) makes exclusivity structural, so a
+      //     leaf that already has an authority keeps the one it has.
+      //
+      // 2 · FREEZE. One row per ordered leaf, including leaves with no
+      //     applicable spec, each carrying an explicit disposition. Absence
+      //     from that table therefore means "not ordered" and can never mean
+      //     "we failed to capture it".
+      //
+      // Both inside the send transaction, both before the offer is finalized: a
+      // send whose ordered specifications were not recorded is not an offer
+      // anyone can honour later, so failing here is strictly better than
+      // succeeding without them.
+      //
+      // The live `leaf_specs` row is deliberately NOT locked afterwards. The
+      // working spec stays revisable for future orders; this snapshot is what
+      // makes that safe, by taking history out of its keeping.
+      for (const leaf of await orderedLeafIdsForQuote(tx, quoteId)) {
+        await ensureQuoteSpecAuthority(tx as never, {
+          quoteId,
+          leafId: leaf.leafId,
+          createdBy: user.id,
+        });
+      }
+      await freezeOrderedSpecs(tx, { quoteId, snapshotId: snapshot.id });
 
       // THE COMMERCIAL LINE SET, frozen from the projection the customer
       // document was rendered from — the same in-memory result, not a second

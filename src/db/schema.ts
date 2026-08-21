@@ -889,6 +889,74 @@ export const quoteSnapshots = pgTable(
 //
 // `schema_version` is load-bearing: a reader that meets an unknown version must
 // REFUSE, not guess. A payload shape is a contract with every future reader.
+/**
+ * The ordered item's specification, as it stood for ONE sent offer.
+ *
+ * `leaf_specs` answers "what is this product's spec". This answers "what was
+ * ordered", and they are different questions the moment anyone edits the first.
+ * Nothing freezes the live row — no draft-lock, and for quote scope the
+ * versioning columns are inert — so without this table a sent order's spec is
+ * whatever the working spec says today.
+ *
+ * KEYED TO THE SNAPSHOT, not the quote: a quote can be sent more than once and
+ * each send is its own offer. Keying to the quote would let a revision
+ * overwrite the specification an earlier revision was ordered under.
+ *
+ * ONE ROW PER ORDERED LEAF, including leaves with no applicable spec — see
+ * `disposition`. Absence therefore means "not ordered" and can never mean
+ * "spec unknown".
+ *
+ * IMMUTABLE. A BEFORE UPDATE trigger raises; DELETE stays open so the snapshot
+ * FK can cascade. A later revision creates a NEW snapshot rather than editing
+ * this one, and the live spec remains freely revisable for future orders —
+ * which is the point of freezing here instead of locking there.
+ */
+export const quoteSnapshotLeafSpecs = pgTable(
+  "quote_snapshot_leaf_specs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    /**
+     * The ORDERED ITEM. No FK, deliberately, matching
+     * `quote_snapshot_lines.quote_leaf_id`: the working structure may be edited
+     * or deleted after a send, and the record of what was ordered must survive
+     * someone tidying the quote afterwards.
+     */
+    quoteLeafId: uuid("quote_leaf_id").notNull(),
+    /** Which live authority this was taken from. Explains; never resolves. */
+    sourceLeafSpecId: uuid("source_leaf_spec_id"),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    specValues: jsonb("spec_values").notNull().default(sql`'{}'::jsonb`),
+    productTypeId: text("product_type_id"),
+    /** The PINNED schema the values were authored under. Part of the identity. */
+    specSchema: text("spec_schema"),
+    schemaDerivedFromType: text("schema_derived_from_type"),
+    /** sha256 over canonical values + product type + schema. */
+    contentHash: text("content_hash").notNull(),
+    /**
+     * Why this row looks the way it does — stated, never inferred from an
+     * empty `spec_values`.
+     *
+     *   specified  a schema applies and values are frozen
+     *   no_schema  specifications intentionally do not apply — an ANSWER
+     *   unmapped   classified, no governed disposition — NOT an answer
+     *   no_type    no authoritative Product Type
+     */
+    disposition: text("disposition").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("qsls_snapshot_leaf_unique").on(t.quoteSnapshotId, t.quoteLeafId),
+    index("qsls_by_snapshot").on(t.quoteSnapshotId),
+    index("qsls_by_leaf").on(t.quoteLeafId),
+    index("qsls_by_hash").on(t.contentHash),
+  ],
+);
+
 export const quoteSnapshotArtifacts = pgTable("quote_snapshot_artifacts", {
   // 1:1 with the version. The snapshot id IS the key — a surrogate would
   // permit two artifacts for one version, and then "which one did the customer

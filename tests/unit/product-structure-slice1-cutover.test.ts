@@ -365,6 +365,15 @@ const classifiedIdentityFiles = new Set([
   // frozen line. It performs no lookup by it, and a frozen line is a record
   // of what was sold rather than a handle used to resolve anything later.
   "src/lib/commercial-freeze.ts",
+  // CLASSIFIED — canonical identity only. Reads `quote_leaves` directly for the
+  // ordered-item set and joins the spec authority on `leaf_id` + `quote_id`,
+  // which is the authority's own key. It writes `quoteLeafId` verbatim onto the
+  // frozen row as the ORDERED ITEM's identity and never resolves anything
+  // through it afterwards. `assembly_leaves` is not queried at all — grouped and
+  // direct items are both reached as `quote_leaves` rows, which is what makes a
+  // Direct Component's specification present in the freeze rather than lost with
+  // the legacy junction.
+  "src/lib/ordered-spec-freeze.ts",
   // CLASSIFIED — read-only walk evidence, canonical identity only. All three
   // read `quote_leaf_id` as the governed owner of a service-owned production
   // row, or as the identity a frozen line records. None resolves the legacy
