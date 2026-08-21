@@ -53,7 +53,14 @@ function buildIframeSrc(
     addendum: addendumOn ? "1" : "0",
     v: version,
   });
-  return `/api/quotes/${quoteId}/customer-pdf?${params.toString()}`;
+  // The `#navpanes=0` fragment configures the BROWSER's built-in PDF
+  // viewer, not the document: it hides the left thumbnail pane by default
+  // so the quote gets the full preview width. A URL fragment is never sent
+  // to the server, so the customer-pdf route and the generated PDF are
+  // untouched. The native toolbar (zoom / download / print) is deliberately
+  // left intact, and the pane remains reopenable from the viewer itself.
+  // Honoured by Chromium/Edge; ignored harmlessly elsewhere.
+  return `/api/quotes/${quoteId}/customer-pdf?${params.toString()}#navpanes=0`;
 }
 
 export function QuoteHost({
