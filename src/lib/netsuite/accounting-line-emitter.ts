@@ -1,3 +1,4 @@
+import { derivePostedRate } from "@/lib/commercial-rate";
 import type { ResolvedAccountingLine } from "@/lib/netsuite/projection-readiness";
 import { decimalFromCents } from "@/lib/netsuite/frozen-cents";
 
@@ -73,12 +74,17 @@ export type EmittedAccountingLine = {
    */
   quantity: number;
   /**
-   * Decimal string, carried.
+   * Decimal string, DERIVED from the amount at scale 8.
    *
-   * A Direct Service carries the frozen `unit_rate` VERBATIM rather than
-   * round-tripping through cents: the column is numeric(14,4) and a rate like
-   * `0.1234` does not survive a cent representation. An OTC charge has no unit
-   * rate of its own, so its rate is its amount rendered from integer cents.
+   * Previously the frozen `unit_rate` was carried verbatim, on the reasoning
+   * that a rate like `0.1234` does not survive a cent representation. True,
+   * and the reason the rate needs its own scale — but carrying it verbatim
+   * also carried whatever rounding error the freeze had put in it. NetSuite
+   * computes `quantity × rate`, so the rate must be whatever reproduces the
+   * accepted amount, and that is a derivation rather than a lookup.
+   *
+   * An OTC charge is quantity 1, where the derivation returns the amount
+   * itself — so both shapes go through one path instead of two.
    */
   rate: string;
   /** Integer cents, carried from the frozen line amount. REG-4's basis. */
@@ -134,20 +140,39 @@ export function emitAccountingLines(
             `different commercial statement than the one that was accepted.`,
         );
       }
+      const posted = derivePostedRate(
+        decimalFromCents(line.amountCents),
+        line.quantity,
+      );
+      if (!posted.ok) {
+        throw new Error(
+          `[accounting-line-emitter] Direct Service line ${line.sourceLineId} ` +
+            `("${line.displayName}") cannot be posted at a rate that reproduces ` +
+            `its accepted amount: ${posted.reason} Refusing rather than posting ` +
+            `a different commercial statement than the one that was accepted.`,
+        );
+      }
       return {
         ...common,
         quantity: line.quantity,
-        rate: line.unitRate,
+        rate: posted.rate,
       };
     }
 
     // A separately billed one-time charge IS its own line: quantity 1, and the
     // rate is the amount. Rendered from the same integer cents, so the two are
     // one number written twice rather than one derived from the other.
+    const posted = derivePostedRate(decimalFromCents(line.amountCents), 1);
+    if (!posted.ok) {
+      throw new Error(
+        `[accounting-line-emitter] One-time charge ${line.sourceLineId} ` +
+          `("${line.displayName}"): ${posted.reason}`,
+      );
+    }
     return {
       ...common,
       quantity: 1,
-      rate: decimalFromCents(line.amountCents),
+      rate: posted.rate,
     };
   });
 }

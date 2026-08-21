@@ -3817,8 +3817,24 @@ export const quoteSnapshotLineTiers = pgTable(
      * `quoteSnapshotTierTotals`. A one-time fee is quantity 1 at every tier;
      * storing the tier's put a $140 charge on record as 1,000 units.
      *
-     * `unitRate × quantity === lineAmount` holds by construction, which is what
-     * lets REG-4 check the multiplication NetSuite performs on its own.
+     * `unitRate × quantity === lineAmount` holds IN THE DURABLE RECORD, which
+     * is what lets REG-4 check the multiplication NetSuite performs on its own.
+     *
+     * It is NOT true by construction, and saying so here was wrong for as long
+     * as the column was numeric(14,4). The projection computes the amount as
+     * `rate × qty` at full precision and the freeze then rounded the two
+     * INDEPENDENTLY — rate to 4dp, amount to 2dp from the unrounded product —
+     * so the stored pair disagreed by up to `5×10⁻⁵ × quantity`: $0.04 on the
+     * ABH tier-2 line, $0.86 at 20,000 units. REG-4 refused the send, correctly.
+     *
+     * The invariant is now ESTABLISHED rather than assumed: the freeze derives
+     * the rate FROM the accepted amount and asserts exact integer-cent equality
+     * before writing (see commercial-freeze.ts). Scale 8 is what makes that
+     * derivation representable, and is proven to survive the provider — a
+     * sandbox Sales Order posted 1.00000001 and 1.00000002 at quantity
+     * 1,000,000 and NetSuite returned both rates intact with amounts one cent
+     * apart. Precision 18 keeps the 10 integer digits numeric(14,4) had;
+     * numeric(14,8) would have cut them to 6.
      */
     quantity: integer("quantity"),
     /**
@@ -3830,7 +3846,7 @@ export const quoteSnapshotLineTiers = pgTable(
      * is a statement and a priced one cannot be half-written.
      */
     pricingState: commercialPricingState("pricing_state").notNull(),
-    unitRate: numeric("unit_rate", { precision: 14, scale: 4 }),
+    unitRate: numeric("unit_rate", { precision: 18, scale: 8 }),
     lineAmount: numeric("line_amount", { precision: 14, scale: 2 }),
     allocationState: commercialAllocationState("allocation_state"),
   },

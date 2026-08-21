@@ -10,6 +10,7 @@ import {
 import { centsFromFrozen, decimalFromCents } from "@/lib/netsuite/frozen-cents";
 import { emitAccountingLines } from "@/lib/netsuite/accounting-line-emitter";
 import { assessProjectionReadiness } from "@/lib/netsuite/projection-readiness";
+import { derivePostedRate } from "@/lib/commercial-rate";
 import { checkLinkA, checkLinkB } from "@/lib/netsuite/reg4";
 import type { Reg4Failure, Reg4Line } from "@/lib/netsuite/reg4";
 import type { ProjectionBlocker } from "@/lib/netsuite/projection-readiness";
@@ -210,6 +211,30 @@ export async function buildFrozenSalesOrder(
       continue;
     }
 
+    // The posted rate is DERIVED from the frozen amount, immediately before
+    // the POST — not read from `unit_rate`.
+    //
+    // Deriving here as well as at freeze is what lets a quote frozen under the
+    // old 4dp writer be sent correctly without its accepted amount being
+    // touched. The amount is the authority in the record; the rate is only how
+    // that amount is expressed to a provider that multiplies. Reading the
+    // stored rate would carry the historical rounding error straight through.
+    const amount = row.amount ?? "0";
+    const quantity = row.quantity ?? 1;
+    const posted = derivePostedRate(amount, quantity);
+    if (!posted.ok) {
+      blockers.push({
+        kind: "product_rate_unrepresentable",
+        lineId: row.sourceLineId,
+        displayName: row.description,
+        remediation:
+          `"${row.description}" cannot be posted at a rate that reproduces its ` +
+          `accepted amount: ${posted.reason} Nothing was posted, and the accepted ` +
+          `amount was not altered.`,
+      });
+      continue;
+    }
+
     productLines.push({
       sourceLineId: row.sourceLineId,
       kind: row.kind,
@@ -220,11 +245,11 @@ export async function buildFrozenSalesOrder(
       // A product has no destination by construction — it resolves by SKU.
       destination: null,
       netsuiteItemId: resolution.netsuiteItemId,
-      // Frozen, all three. The quantity and rate are what NetSuite multiplies;
-      // the amount is what that product must reproduce.
-      quantity: row.quantity ?? 1,
-      rate: row.rate ?? "0",
-      amount: row.amount ?? "0",
+      // Quantity and amount are FROZEN; the rate is derived from the amount so
+      // NetSuite's own multiplication reproduces it exactly.
+      quantity,
+      rate: posted.rate,
+      amount,
     });
   }
 

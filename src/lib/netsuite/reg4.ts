@@ -1,3 +1,4 @@
+import { POSTED_RATE_SCALE } from "@/lib/commercial-rate";
 import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
 
 /**
@@ -24,16 +25,23 @@ import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
  * checked before the POST, with a refusal when it does not.
  *
  * A quantity-1 line is safe by construction — rate equals amount. A product
- * line is not: `rate` is `numeric(14,4)`, so `rate × qty` can land on a
- * fraction of a cent that NetSuite then rounds, and the order would be off by
- * pennies against a total we had already frozen and shown the customer.
+ * line is not: `rate × qty` can land on a fraction of a cent that NetSuite then
+ * rounds, and the order would be off by pennies against a total we had already
+ * frozen and shown the customer. That is not hypothetical — at scale 4 it cost
+ * the ABH quote $0.04 at 10,000 units and $0.86 at 20,000, and this check is
+ * what refused those sends.
+ *
+ * The rate is now DERIVED from the frozen amount at `POSTED_RATE_SCALE` (see
+ * commercial-rate.ts), so the multiplication is exact by construction. This
+ * check is still not redundant: it verifies the construction held, on the
+ * numbers actually about to be transmitted, rather than trusting that it did.
  */
 
 export type Reg4Line = {
   sourceLineId: string;
   description: string;
   quantity: number;
-  /** Per-unit rate as the frozen decimal string, e.g. "2.1750". */
+  /** Per-unit rate as the posted decimal string, e.g. "3.05030400". */
   rate: string;
   /** The frozen line amount as a decimal string, e.g. "10875.00". */
   amount: string;
@@ -59,13 +67,22 @@ export type Reg4Failure =
       detail: string;
     };
 
+const RATE_UNIT = 10n ** BigInt(POSTED_RATE_SCALE);
+const RATE_PER_CENT = RATE_UNIT / 100n;
+
 /**
  * `quantity × rate` in exact decimal arithmetic, returned in cents.
  *
- * BigInt throughout. The rate's four decimals are held as an integer scaled by
- * 10^4, multiplied by the integer quantity, then reduced to cents — so nothing
- * passes through a float, and a result that is NOT a whole number of cents is
- * reported rather than rounded away.
+ * BigInt throughout. The rate's decimals are held as an integer scaled by
+ * 10^POSTED_RATE_SCALE, multiplied by the integer quantity, then reduced to
+ * cents — so nothing passes through a float, and a result that is NOT a whole
+ * number of cents is reported rather than rounded away.
+ *
+ * The scale is READ FROM the posted-rate module rather than repeated here. It
+ * was previously hardcoded to 4, which silently TRUNCATED anything finer: given
+ * an 8dp rate it would have discarded four digits and then reported the
+ * resulting disagreement as the provider's fault. A checker that quietly
+ * reshapes its input cannot testify about it.
  */
 export function exactRateTimesQuantity(
   rate: string,
@@ -74,11 +91,14 @@ export function exactRateTimesQuantity(
   const trimmed = rate.trim();
   const negative = trimmed.startsWith("-");
   const [whole, frac = ""] = (negative ? trimmed.slice(1) : trimmed).split(".");
-  const scaled = BigInt(whole || "0") * 10_000n + BigInt((frac + "0000").slice(0, 4) || "0");
-  const product = scaled * BigInt(Math.trunc(quantity)); // scaled by 10^4
-  // 10^4 → 10^2. A remainder means the product is not a whole number of cents.
-  const cents = product / 100n;
-  const remainder = product % 100n;
+  // Refuse rather than truncate: a rate finer than the posted scale is not
+  // something this function may quietly round on the provider's behalf.
+  if (frac.length > POSTED_RATE_SCALE) return { cents: 0, exact: false };
+  const padded = (frac + "0".repeat(POSTED_RATE_SCALE)).slice(0, POSTED_RATE_SCALE);
+  const scaled = BigInt(whole || "0") * RATE_UNIT + BigInt(padded || "0");
+  const product = scaled * BigInt(Math.trunc(quantity)); // scaled by 10^SCALE
+  const cents = product / RATE_PER_CENT;
+  const remainder = product % RATE_PER_CENT;
   const signed = negative ? -cents : cents;
   return { cents: Number(signed), exact: remainder === 0n };
 }

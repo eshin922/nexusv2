@@ -65,7 +65,7 @@ test("Direct Service preserves qty x rate = amount, from the frozen row", () => 
   const [e] = emitAccountingLines([CERT303]);
 
   assert.equal(e.quantity, 2000, "quantity was not carried from the frozen row");
-  assert.equal(e.rate, "2.2400", "unit rate was not carried VERBATIM");
+  assert.equal(e.rate, "2.24000000", "unit rate does not reproduce the amount");
   assert.equal(e.amountCents, 448_000);
 
   // The identity holds. Asserted in integer cents so the check itself cannot
@@ -77,13 +77,15 @@ test("Direct Service preserves qty x rate = amount, from the frozen row", () => 
   );
 });
 
-test("the unit rate keeps four decimals — a cents round trip would lose them", () => {
-  // The frozen column is numeric(14,4). 0.1234 has no cent representation, so
-  // routing the rate through cents would silently post 0.12.
+test("a sub-cent unit rate survives — a cents round trip would lose it", () => {
+  // 0.1234 has no cent representation, so routing the rate through cents would
+  // silently post 0.12. The rate now carries EIGHT decimals rather than four,
+  // but the property under test is unchanged: it is not a cent value.
   const [e] = emitAccountingLines([
     { ...CERT303, quantity: 10_000, unitRate: "0.1234", amountCents: 123_400 },
   ]);
-  assert.equal(e.rate, "0.1234");
+  assert.equal(e.rate, "0.12340000");
+  assert.equal(Number(e.rate), 0.1234, "the value moved, not just its rendering");
   assert.notEqual(e.rate, decimalFromCents(1234), "the rate went through cents");
 });
 
@@ -92,7 +94,7 @@ test("the unit rate keeps four decimals — a cents round trip would lose them",
 test("one-time OTC remains 1 x amount = amount", () => {
   const [e] = emitAccountingLines([SETUP]);
   assert.equal(e.quantity, 1);
-  assert.equal(e.rate, "140.00");
+  assert.equal(e.rate, "140.00000000");
   assert.equal(e.amountCents, 140_00);
   assert.equal(Math.round(Number(e.rate) * e.quantity * 100), e.amountCents);
 });
@@ -102,7 +104,7 @@ test("an OTC charge does NOT acquire the tier quantity", () => {
   // a $140 setup fee posted as 2,000 x $140.
   const [e] = emitAccountingLines([{ ...SETUP, quantity: 2000, unitRate: "0.0700" }]);
   assert.equal(e.quantity, 1, "an OTC charge took a tier quantity");
-  assert.equal(e.rate, "140.00", "an OTC charge took a per-unit rate");
+  assert.equal(e.rate, "140.00000000", "an OTC charge took a per-unit rate");
   assert.equal(e.amountCents, 140_00, "the charge amount moved");
 });
 

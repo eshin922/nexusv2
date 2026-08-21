@@ -74,6 +74,18 @@ export type ProjectionBlocker =
       remediation: string;
     }
   | {
+      /**
+       * The accepted amount cannot be expressed as `quantity × rate` at the
+       * posted scale, so NetSuite's own multiplication would land somewhere
+       * else. A representational limit, NOT a pricing problem: the accepted
+       * amount is correct and is left exactly as frozen.
+       */
+      kind: "product_rate_unrepresentable";
+      lineId: string;
+      displayName: string;
+      remediation: string;
+    }
+  | {
       /** Frozen before destinations were recorded. Not a legacy combined charge. */
       kind: "destination_not_recorded";
       lineId: string;
