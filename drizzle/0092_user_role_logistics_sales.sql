@@ -1,0 +1,21 @@
+-- Nexus application roles: add `logistics` and `sales`.
+--
+-- ADDITIVE. New enum labels neither rewrite nor invalidate any stored value,
+-- and no deployed reader branches on a role other than `admin` — so the values
+-- are inert until something is written with them, which the roster does later
+-- and deliberately.
+--
+-- ORDER MATTERS AND IS NOT COSMETIC. `BEFORE 'read_only'` keeps the type
+-- ordered by authority, so `ORDER BY role` and any future range comparison read
+-- least-privilege-last. Appending would have put `read_only` in the middle of
+-- the authority ladder.
+--
+-- Finance is NOT added. It maps to the existing `accounting` role; a separate
+-- label would have been a synonym nothing distinguished.
+--
+-- No per-role permission gate ships with this. `logistics` and `sales` inherit
+-- nothing, because authority is carried by `role = 'admin'`, `can_edit_specs`,
+-- `can_create_leaves` and `commercial_approver` — each independently defaulted
+-- false. A new role value is a label until something reads it.
+ALTER TYPE "public"."user_role" ADD VALUE IF NOT EXISTS 'logistics' BEFORE 'read_only';--> statement-breakpoint
+ALTER TYPE "public"."user_role" ADD VALUE IF NOT EXISTS 'sales' BEFORE 'read_only';

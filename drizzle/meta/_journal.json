@@ -631,6 +631,13 @@
       "when": 1786320072000,
       "tag": "0091_frozen_rate_precision_8dp",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1786320084000,
+      "tag": "0092_user_role_logistics_sales",
+      "breakpoints": true
     }
   ]
 }

@@ -22,12 +22,51 @@ import {
 
 // ---------- enums ----------
 
+/**
+ * Nexus application roles. NOT Entra or Clerk roles — the identity provider
+ * authenticates; Nexus decides what an authenticated person may do.
+ *
+ * Ordered by authority, `read_only` last.
+ *
+ * ── WHAT A ROLE DOES AND DOES NOT CARRY ──────────────────────────────────
+ *
+ * Only `admin` is read for an authorization decision anywhere in the tree
+ * (`admin-guard.ts`, `spec-permission-guard.ts`). Every other value is a
+ * DESCRIPTIVE LABEL today: `purchasing`, `accounting` and `read_only` appear
+ * nowhere outside this file, and `pm` appears once — as the provisioning
+ * fallback below, not as a check.
+ *
+ * That is deliberate, and it is the reason `logistics` and `sales` could be
+ * added without inventing gates for them: real authority is carried by
+ * narrower, independently-defaulted grants —
+ *
+ *   role === "admin"      admin surfaces, plus implicit spec/leaf grants
+ *   canEditSpecs          default false
+ *   canCreateLeaves       default false
+ *   commercialApprover    default false, BV-005, never derived from role
+ *
+ * — so a new role value inherits nothing. It is not privileged by default
+ * because nothing consults it.
+ *
+ * `read_only` is therefore NOT enforced by a guard. It is the honest label for
+ * "no grants", which is exactly what an unrostered account has.
+ *
+ * When per-role gating does arrive it follows the role-as-affordance model in
+ * CLAUDE.md — per section, on a shared page — not per route.
+ */
 export const userRole = pgEnum("user_role", [
   "admin",
   "pm",
   "purchasing",
   "production",
+  // Finance maps HERE rather than to a role of its own. A separate `finance`
+  // value would have been a synonym nothing distinguished.
   "accounting",
+  // Freight and shipment work. No admin authority, no spec or leaf grants, no
+  // commercial approval.
+  "logistics",
+  // Quote authoring alongside PMs. Same absence of implied grants.
+  "sales",
   "read_only",
 ]);
 
