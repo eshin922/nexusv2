@@ -198,6 +198,13 @@ const classifiedIdentityFiles = new Set([
   // future change of population source must re-prove.
   "scripts/gate-1b/od-014-ordering-check.ts",
   "scripts/gate-1b/od-014-population-evidence.ts",
+  // CLASSIFIED — write-then-rollback falsification, canonical identity only.
+  // Inserts probe rows carrying a literal `quote_leaf_id` to prove the
+  // immutability trigger and the (snapshot, leaf) uniqueness actually refuse.
+  // Every statement runs inside a transaction that always rolls back; it
+  // resolves nothing through the identity, never queries `assembly_leaves`, and
+  // asserts residue 0 afterwards.
+  "scripts/gate-1b/ordered-spec-freeze-falsification.ts",
   // CLASSIFIED — verification, read-only. Asserts that the engine's leaf
   // population equals the canonical attachment set by identity. It resolves
   // the canonical-to-legacy mapping only to predict the id the engine emits,
