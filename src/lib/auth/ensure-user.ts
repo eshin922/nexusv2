@@ -56,7 +56,24 @@ export async function ensureUserWithAuthentication(
   const email = identity.email;
   const name =
     [identity.firstName, identity.lastName].filter(Boolean).join(" ") || null;
-  const role = isAdmin(email) ? "admin" : "pm";
+  // LEAST PRIVILEGE for an identity nobody recognised.
+  //
+  // This branch used to assign "pm", which meant every first-time signer
+  // arrived with quote-authoring standing — and it overrode the column's own
+  // `read_only` default to do it. That was invisible while `pm` was
+  // indistinguishable from every other non-admin role, and it would have
+  // stopped being invisible the moment the first per-role gate shipped: an
+  // account that fell through onboarding would read as a deliberate grant.
+  //
+  // Reaching here at all means the address is authorized to sign in (the
+  // middleware's @thedps.co check ran first) but is NOT on the roster. That is
+  // an onboarding gap, and the safe response to a gap is the smallest possible
+  // standing, not the most useful one.
+  //
+  // Recognised employees do not depend on this: the pre-authorized binding
+  // (#327) assigns each roster member their explicit role before first login,
+  // so this fallback governs only the unrecognised case.
+  const role = isAdmin(email) ? "admin" : "read_only";
 
   const { hubspot } = await getApplicationDependencies();
   const owner = await hubspot.findOwnerByEmail(email);
