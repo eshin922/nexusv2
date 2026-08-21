@@ -71,9 +71,12 @@ const prod = (tierId: string, extra: Record<string, unknown>) => ({
 test("BV-011 catalogue is complete and matches the document's own count", () => {
   assert.equal(BV011_DESTINATIONS.length, 16);
   const inventory = BV011_DESTINATIONS.filter((d) => d.itemType === "inventory");
-  // BV-011 states the split explicitly: "6 Inventory Item, 10 Non-inventory".
-  assert.equal(inventory.length, 6, "six Inventory destinations");
-  assert.equal(BV011_DESTINATIONS.length - inventory.length, 10);
+  // BV-011 states the split explicitly: "5 Inventory Item, 11 Non-inventory".
+  // Was 6/10 until 2026-08-20, when Accounting governed Pack-out / Assembly as
+  // a non-inventory SERVICE item. The count is mirrored here on purpose: it is
+  // how a silent drift between the document and the catalogue gets caught.
+  assert.equal(inventory.length, 5, "five Inventory destinations");
+  assert.equal(BV011_DESTINATIONS.length - inventory.length, 11);
   assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 16, "keys unique");
 });
 
@@ -83,6 +86,20 @@ test("Tooling and Artwork are separate destinations with DIFFERENT item types", 
   assert.equal(bv011ItemType("otc_tooling"), "inventory");
   assert.equal(bv011ItemType("otc_artwork"), "non_inventory");
   assert.notEqual(bv011ItemType("otc_tooling"), bv011ItemType("otc_artwork"));
+});
+
+test("Pack-out / Assembly is a NON-INVENTORY service item, and routes to otc_packout", () => {
+  // AMENDED 2026-08-20. Pack-out is billed as a service, so its NetSuite item
+  // is non-inventory. Pinned as an assertion because the previous value —
+  // "inventory" — was recorded before any item existed to check it against and
+  // no real OTC fee item could have satisfied it: a sandbox census found 67
+  // OTC-coded items, all NonInvtPart.
+  assert.equal(bv011ItemType("otc_packout"), "non_inventory");
+
+  // The destination key did NOT change. Accounting named the ITEM "OTC -
+  // Assembly"; that is the NetSuite item's name, not a new Nexus destination.
+  // An `otc_assembly` key would split one governed destination into two.
+  assert.equal(SERVICE_IDENTITY_DESTINATION.packout_assembly, "otc_packout");
 });
 
 test("the legacy combined column has NO destination, and that absence is deliberate", () => {
