@@ -114,12 +114,18 @@ export function derivePostedRate(amount: string, quantity: number): DerivedRate 
   // back on the accepted cents, with nothing left over?
   const product = scaled * q; // scaled by 1e8
   if (product % RATE_PER_CENT !== 0n || product / RATE_PER_CENT !== cents) {
-    const got = Number(product) / Number(RATE_PER_CENT) / 100;
+    // Rendered at the FULL posted scale, deliberately.
+    //
+    // A shorter rendering rounds the shortfall away and prints a number that
+    // reads as equal to the accepted amount — "3 × 0.00333333 gives 0.0100,
+    // not the accepted 0.01", which is nonsense to whoever has to act on it.
+    // A message about a sub-cent discrepancy has to be able to show one.
     return {
       ok: false,
       reason:
-        `${quantity} × ${renderRate(scaled)} gives ${got.toFixed(4)}, not the accepted ` +
-        `${amount}. ${POSTED_RATE_SCALE} decimal places cannot represent this line.`,
+        `${quantity} × ${renderRate(scaled)} gives ${renderRate(product)}, not the ` +
+        `accepted ${amount}. ${POSTED_RATE_SCALE} decimal places cannot ` +
+        `represent this line.`,
     };
   }
   return { ok: true, rate: renderRate(scaled) };
