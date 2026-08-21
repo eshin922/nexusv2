@@ -4,6 +4,10 @@
 `signUpForceRedirectUrl` semantics for PR #329; unrelated to that PR, and
 deliberately not changed during its production smoke.
 
+**Updated 2026-08-21 with Clerk's support response**, which settles the
+instance-configuration half of this record and narrows the open question. See
+"Vendor-confirmed configuration" below.
+
 ## The finding
 
 Production Clerk (`clerk.thedps.co`, `ins_3HICAPFehy0D0phy6vy1kg4DATw`) has:
@@ -15,7 +19,7 @@ sign_up: { "mode": "public", "progressive": true, "captcha_enabled": true, … }
 `SignUpModes = 'public' | 'restricted' | 'waitlist'`. Production is on
 **`public`**, and `accounts.thedps.co/sign-up` renders a live "Create your
 account" form with an email field. Combined with Email verification code —
-enabled as the Clerk instance-validity prerequisite — **any email address can
+which is required configuration, not a workaround — **any email address can
 create a Clerk user in the production instance.**
 
 ## What this does and does not expose
@@ -33,10 +37,51 @@ the social providers were the louder problem.
 **This is not an acceptable final state.** It is recorded as open, not
 tolerated.
 
-## Why it was not tightened immediately
+## Vendor-confirmed configuration
 
-Because tightening it might break the thing it is meant to protect, and that is
-a question with an answer rather than a guess.
+**Clerk support, 2026-08-21 — dispositive.** Email verification code is
+**required configuration for the current Clerk architecture**, not a provisional
+workaround pending a better answer. The earlier framing in this document was
+wrong on that point and is corrected here.
+
+Clerk confirms:
+
+- **Enterprise SSO does not satisfy Clerk's instance-level generic-first-factor
+  requirement.** At least one generic first factor must remain enabled.
+- **Email verification code is the recommended pattern** for that requirement.
+- **For a domain-bound Enterprise identifier such as `@thedps.co`, Clerk
+  resolves `supportedFirstFactors: ["enterprise_sso"]` only** — so OTP is never
+  offered in the normal DPS flow. This matches what was measured empirically
+  before the ticket was answered.
+- **Email OTP remains usable through FAPI for identifiers outside an Enterprise
+  connection domain.** Hiding it in the Nexus UI does not disable the API
+  capability, and should not be mistaken for having done so.
+
+The governed Production Clerk configuration is therefore **settled**:
+
+| factor | state |
+|---|---|
+| Enterprise OIDC · The DPS Microsoft | **enabled** |
+| Email verification code | **enabled** — required, vendor-confirmed |
+| Microsoft social | disabled |
+| Google | disabled |
+| Password | disabled |
+| Email verification link | disabled |
+
+**An Enterprise-only / no-generic-factor instance is not to be investigated
+further.** Clerk states it is unsupported. The self-inflicted production outage
+that surfaced this — disabling both social providers left zero generic first
+factors and FAPI rejected the instance with `user_settings_invalid` — was the
+empirical form of the same answer.
+
+## The remaining open question
+
+Narrower than when this was first banked. It is no longer about which factors
+are enabled; it is only about enrollment mode:
+
+> **Can `sign_up.mode = restricted` close arbitrary Clerk enrollment while still
+> allowing first-time DPS Enterprise SSO transfer for a pre-authorized Nexus
+> employee?**
 
 **First-time Enterprise SSO onboarding goes through a sign-up transfer.**
 Established from the installed SDK (`@clerk/types` 4.101.23):
@@ -58,31 +103,25 @@ type HandleOAuthCallbackParams = TransferableOption
 //  occurs."
 ```
 
-So a never-before-seen `@thedps.co` employee signing in for the first time is
-routed through Clerk's **sign-up** object. `restricted` mode permits sign-up
-only via invitation or allowlist. Whether the enterprise transfer is exempt
-from that restriction is **not established** — and if it is not, switching to
-`restricted` would block every new employee's first login while appearing to
-be a pure hardening change.
-
-That is the failure mode worth avoiding: a security tightening that silently
-breaks onboarding, discovered one employee at a time.
+`restricted` mode permits sign-up only via invitation or allowlist. Whether the
+enterprise transfer is exempt is **not established**, and if it is not,
+switching would block every new employee's first login while appearing to be a
+pure hardening change — discovered one employee at a time.
 
 ## What settles it
 
-A test, not a reading. It needs a second DPS identity that has never signed in
-to Production Clerk, which is why it belongs with roster onboarding rather than
-before it:
+A test, not a reading. It needs a `@thedps.co` identity that has never signed
+in to Production Clerk, so it belongs with **the Jackie onboarding
+certification** rather than before it:
 
 1. Set `sign_up.mode = restricted` on Production Clerk.
-2. Have a never-before-seen `@thedps.co` employee complete Continue with The DPS.
-3. If the transfer succeeds and a Clerk user is created → `restricted` is safe;
-   keep it, and open enrollment is closed.
-4. If it fails → revert to `public` and find the supported mechanism
-   (allowlist by domain, invitation-based provisioning, or whatever Clerk
-   support advises) before tightening again.
+2. Have the pre-authorized employee complete Continue with The DPS.
+3. Transfer succeeds → keep `restricted`; arbitrary enrollment is closed.
+4. Transfer fails → revert to `public` and find the supported mechanism
+   (domain allowlist, invitation-based provisioning, or whatever Clerk advises)
+   before tightening again.
 
-**Do not tighten before step 2 passes.**
+**Do not change sign-up mode before step 2.**
 
 ## Related, unresolved
 
@@ -92,17 +131,12 @@ before it:
   pass it, so it defaults true — which is what makes first-login onboarding
   work. If enrollment is ever narrowed at the callback, this is the prop, not
   the redirect URLs.
-- **Email verification code** remains enabled as the Clerk instance-validity
-  prerequisite (Clerk rejects an instance with zero generic first factors —
-  `user_settings_invalid`, at FAPI, for custom flows too). A Clerk support
-  ticket asking whether an Enterprise-SSO-only instance is supported was filed
-  2026-08-21; its answer may remove both this dependency and part of this
-  finding.
 
 ## Cross-references
 
 - `docs/user-onboarding-pre-authorized-binding.md` (#327) — the pending-row
-  binding design this interacts with, plus the unresolved `userRole` enum gap
-  for Logistics / Finance / Sales.
-- PR #329 — the sign-in splash and Enterprise SSO initiation path. This finding
-  was surfaced by, but is not caused by, that work.
+  binding design this interacts with, and the roster whose first member
+  certifies the question above.
+- PR #329 — the sign-in splash and Enterprise SSO initiation path. Its
+  production certification **remains valid and closed**; this finding was
+  surfaced by, but is not caused by, that work.
