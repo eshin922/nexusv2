@@ -40,7 +40,7 @@ the charge should become a quote line**, which is business design, not mapping.
 | 5 | Tooling / Artwork split | **COVERED** — ff90d502, 2026-08-20 | see `accounting-uat-case-5-tooling-artwork.md` |
 | 6 | Mixed commercial structure | **COVERED** — 4781e4bb, 2026-08-20 | see `accounting-uat-case-6-mixed.md` |
 | 7 | Freight / logistics | **BUSINESS DESIGN** | not a mapping gap |
-| 8 | Pack-out / Assembly Direct Service | **BLOCKED ON ONE MAPPING** | `otc_packout` |
+| 8 | Pack-out / Assembly Direct Service | **COVERED** — SO2722, 2026-08-21 | see `accounting-uat-case-8-packout.md` |
 
 ### Case 5 is unblocked
 
