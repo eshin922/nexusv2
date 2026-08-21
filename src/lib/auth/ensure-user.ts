@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { projects, users } from "@/db/schema";
 import { isAdmin } from "@/lib/admin-guard";
+import { bindPendingUser } from "@/lib/auth/pending-binding";
 import type { AuthenticationDependencies } from "@/lib/auth/identity-provider";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 
@@ -54,6 +55,40 @@ export async function ensureUserWithAuthentication(
 
   // Slow path: first sign-in
   const email = identity.email;
+
+  // #327 — PRE-AUTHORIZED BINDING, ahead of provisioning.
+  //
+  // An admin may have created this person's Nexus row, with their role and
+  // authorities, before they ever reached Clerk. If so, attach this identity to
+  // THAT row rather than manufacturing a second one at least privilege.
+  //
+  // Order matters: this must run BEFORE the insert below, or a rostered
+  // employee's first sign-in creates a duplicate read_only row and their
+  // pre-authorized row sits pending forever while they see an application with
+  // no access. The duplicate would be the visible symptom; the pending row
+  // going unclaimed is the one that would take longer to notice.
+  //
+  // Everything except a successful bind falls through, deliberately. An
+  // unrostered signer having no pending row is the ORDINARY case, not an error.
+  const binding = await bindPendingUser({ clerkUserId: userId, email });
+  if (binding.kind === "bound" || binding.kind === "raced") return binding.user;
+  if (binding.kind === "refused") {
+    // REFUSAL, never a fallback.
+    //
+    // Each of these means enrollment integrity is in question — an identity
+    // already bound, an address already bound, an ambiguous match, a
+    // non-corporate identity. Provisioning a fresh read_only row in any of
+    // those cases would answer an integrity question by creating a SECOND
+    // record for the same person, which is the failure the pending mechanism
+    // exists to prevent rather than a graceful degradation of it.
+    throw new Error(
+      `[identity] Sign-in refused (${binding.refusal.code}). ${binding.refusal.detail} ` +
+        `An admin must resolve this before this person can sign in.`,
+    );
+  }
+  // Only `no_pending_row` reaches here: nobody provisioned this person, which
+  // is the ordinary unrostered case and not an error.
+
   const name =
     [identity.firstName, identity.lastName].filter(Boolean).join(" ") || null;
   // LEAST PRIVILEGE for an identity nobody recognised.
@@ -70,9 +105,9 @@ export async function ensureUserWithAuthentication(
   // an onboarding gap, and the safe response to a gap is the smallest possible
   // standing, not the most useful one.
   //
-  // Recognised employees do not depend on this: the pre-authorized binding
-  // (#327) assigns each roster member their explicit role before first login,
-  // so this fallback governs only the unrecognised case.
+  // Recognised employees do not reach this line at all: the pre-authorized
+  // binding above returns early for anyone an admin provisioned, so this
+  // governs only the genuinely unrecognised case.
   const role = isAdmin(email) ? "admin" : "read_only";
 
   const { hubspot } = await getApplicationDependencies();
@@ -84,7 +119,17 @@ export async function ensureUserWithAuthentication(
   // returned because the constraint conflict suppressed the INSERT).
   const insertedRows = await db
     .insert(users)
-    .values({ clerkUserId: userId, email, name, role, hubspotOwnerId })
+    // `bindingState` is stated rather than left to the column default. This row
+    // is being created WITH an identity, so it is born bound — and saying so
+    // keeps the writer honest if the default is ever reconsidered.
+    .values({
+      clerkUserId: userId,
+      email,
+      name,
+      role,
+      hubspotOwnerId,
+      bindingState: "bound" as const,
+    })
     .onConflictDoNothing({ target: users.clerkUserId })
     .returning();
 

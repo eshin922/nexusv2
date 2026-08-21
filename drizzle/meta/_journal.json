@@ -638,6 +638,13 @@
       "when": 1786320084000,
       "tag": "0092_user_role_logistics_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1786320096000,
+      "tag": "0093_pre_authorized_first_signin_binding",
+      "breakpoints": true
     }
   ]
 }

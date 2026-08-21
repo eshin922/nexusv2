@@ -1,3 +1,4 @@
+import { CORPORATE_DOMAIN } from "@/lib/auth/corporate-email";
 import {
   clerkClient,
   clerkMiddleware,
@@ -32,12 +33,14 @@ const isPublicRoute = createRouteMatcher([
   "/api/certification-status",
   "/api/slack/interactivity",
 ]);
-const PRIMARY_DOMAIN = "@thedps.co";
+// One definition, shared with the binding path. The two ask DIFFERENT questions
+// of it — sign-in also honours ALLOWED_EMAILS below, binding never does — but
+// they must agree on what the tenant domain IS.
 
 function emailAllowed(email: string | undefined): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
-  if (normalized.endsWith(PRIMARY_DOMAIN)) return true;
+  if (normalized.endsWith(CORPORATE_DOMAIN)) return true;
   const extras = (process.env.ALLOWED_EMAILS ?? "")
     .split(",")
     .map((value) => value.trim().toLowerCase())
