@@ -8,6 +8,7 @@ import {
   quotes,
 } from "@/db/schema";
 import { verifyProjectionTotals } from "@/lib/commercial-projection";
+import { derivePostedRate } from "@/lib/commercial-rate";
 import type { CommercialProjection } from "@/lib/commercial-projection";
 import type { db as Db } from "@/db";
 
@@ -83,6 +84,34 @@ export async function freezeCommercialLineSet(
 
     for (const [i, cell] of line.cells.entries()) {
       const tier = projection.tiers[i];
+
+      // THE RATE IS DERIVED FROM THE AMOUNT, not rounded alongside it.
+      //
+      // `cell.lineAmount` is `rate × qty` at full precision, and rounding the
+      // two independently is what let them disagree: the rate lost up to
+      // 5e-5, the amount kept it, and `quantity × rate` then missed the
+      // accepted figure by up to `5e-5 × quantity`. Deriving makes the amount
+      // the authority and the rate its representation — which is what it is,
+      // since NetSuite computes the amount from the rate rather than being
+      // told it.
+      //
+      // Refusal, not repair: if scale 8 cannot represent the line, the send
+      // stops here. Adjusting the accepted amount to fit the arithmetic is not
+      // a decision this code is entitled to make.
+      let unitRate: string | null = null;
+      if (cell.state === "priced") {
+        const amount = cell.lineAmount.toFixed(2);
+        const derived = derivePostedRate(amount, cell.quantity);
+        if (!derived.ok) {
+          throw new Error(
+            `Commercial freeze aborted — "${line.displayName}" at ${tier.tierLabel} ` +
+              `cannot be posted at a representable rate: ${derived.reason} ` +
+              `Nothing was frozen.`,
+          );
+        }
+        unitRate = derived.rate;
+      }
+
       await tx.insert(quoteSnapshotLineTiers).values({
         quoteSnapshotLineId: row.id,
         tierId: tier.tierId,
@@ -92,7 +121,7 @@ export async function freezeCommercialLineSet(
         // right, but anything multiplying the row got 1000x the fee.
         quantity: cell.state === "priced" ? cell.quantity : tier.quantity,
         pricingState: cell.state === "priced" ? "priced" : "quote_on_request",
-        unitRate: cell.state === "priced" ? cell.unitRate.toFixed(4) : null,
+        unitRate,
         lineAmount: cell.state === "priced" ? cell.lineAmount.toFixed(2) : null,
         allocationState: line.allocationByTier[i],
       });

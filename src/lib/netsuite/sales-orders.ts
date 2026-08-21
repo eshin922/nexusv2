@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { POSTED_RATE_SCALE } from "@/lib/commercial-rate";
 import { createRecord, getRecord, type NetsuiteConfig } from "./client";
 import { NON_TAXABLE_TAX_CODE_ID } from "./tax-policy";
 import { CUSTOM_PRICE_LEVEL_ID } from "./price-policy";
@@ -330,7 +331,10 @@ export function buildSalesOrderPayload(
   const flatItems = input.lines.map((line) => ({
       item: { id: line.netsuiteItemId },
       quantity: line.quantity,
-      rate: parseFloat(line.rate.toFixed(4)),
+      // POSTED_RATE_SCALE, not 4. The rate is derived from the frozen amount
+      // at this scale precisely so NetSuite's own `quantity × rate` reproduces
+      // it; rendering it shorter here would undo that on the wire.
+      rate: parseFloat(line.rate.toFixed(POSTED_RATE_SCALE)),
       description: line.description,
       // Unconditional, not conditional on a setting. See tax-policy.ts.
       taxCode: { id: NON_TAXABLE_TAX_CODE_ID },

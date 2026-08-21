@@ -1,0 +1,31 @@
+-- Frozen unit rate: numeric(14,4) -> numeric(18,8).
+--
+-- WHY 8 DECIMALS
+--
+-- NetSuite is sent `quantity` and `rate` and computes the amount itself. At
+-- scale 4 the freeze rounded the rate and the amount INDEPENDENTLY from the
+-- same full-precision source, so `quantity × rate` could miss the frozen
+-- amount by up to `5e-5 × quantity` — $0.04 on the ABH tier-2 line at 10,000
+-- units, $0.86 at 20,000. REG-4 refused those sends, correctly. The repair
+-- derives the rate FROM the accepted amount, which needs somewhere to put the
+-- digits.
+--
+-- Proven against the provider, not assumed: a sandbox Sales Order posted
+-- rates 1.00000001 and 1.00000002 at quantity 1,000,000 — differing only in
+-- the 8th decimal, which is worth exactly one cent there. NetSuite returned
+-- both rates intact and computed amounts exactly one cent apart. Had it
+-- truncated below 8dp the two lines would have been indistinguishable.
+--
+-- WHY PRECISION 18, NOT 14
+--
+-- numeric(14,8) leaves only 6 integer digits, against the 10 that
+-- numeric(14,4) allowed — a NARROWING of the whole-number range, even though
+-- production peaks at 4 integer digits today. numeric(18,8) keeps all 10.
+--
+-- NON-NARROWING, SO SAFE AHEAD OF CODE
+--
+-- Widening a numeric neither rewrites nor rejects any stored value, and the
+-- deployed 4dp writer stays valid against the wider column. Deployment order
+-- is therefore: this migration first, the 8dp writer after.
+ALTER TABLE "quote_snapshot_line_tiers"
+  ALTER COLUMN "unit_rate" TYPE numeric(18, 8);

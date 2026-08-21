@@ -104,7 +104,7 @@ test("maps the verified required and optional Sales Order accounting fields", ()
         {
           item: { id: "item-123" },
           quantity: 250,
-          rate: 1.2346,
+          rate: 1.23456,
           description: "Exact resolved leaf",
           taxCode: { id: "-8" },
           price: { id: "-1" },
@@ -174,7 +174,7 @@ test("missing projectManagerNsId is omitted without identifier inference", () =>
   assert.equal(own(payload, "custbody_project_manager"), false);
 });
 
-test("flat leaf lines preserve resolved item IDs and derive amount from quantity times rate", () => {
+test("flat leaf lines preserve resolved item IDs and transmit the rate at full posted precision", () => {
   const payload = buildSalesOrderPayload(fullInput);
   const lines = (payload.item as { items: Array<Record<string, unknown>> }).items;
 
@@ -182,11 +182,16 @@ test("flat leaf lines preserve resolved item IDs and derive amount from quantity
   assert.deepEqual(lines[0].item, { id: "item-123" });
   assert.equal(lines[0].custcol_dps_sku, "SKU-EXACT-123");
   assert.equal(lines[0].quantity, 250);
-  assert.equal(lines[0].rate, 1.2346);
+  // The fixture rate is 1.23456. Under the old `toFixed(4)` the payload
+  // transmitted 1.2346 and NetSuite computed 250 x 1.2346 = 308.65 for a line
+  // worth 308.64 — the rounding defect this slice repairs, written down here
+  // as an expectation and therefore invisible.
+  assert.equal(lines[0].rate, 1.23456);
   assert.equal(own(lines[0], "amount"), false);
   assert.equal(
-    Number(lines[0].quantity) * Number(lines[0].rate),
-    308.65,
+    Math.round(Number(lines[0].quantity) * Number(lines[0].rate) * 100),
+    30864,
+    "quantity x transmitted rate must be the line's exact value",
   );
 });
 

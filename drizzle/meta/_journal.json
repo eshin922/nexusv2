@@ -624,6 +624,13 @@
       "when": 1786320060000,
       "tag": "0090_per_line_other_service_item",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1786320072000,
+      "tag": "0091_frozen_rate_precision_8dp",
+      "breakpoints": true
     }
   ]
 }

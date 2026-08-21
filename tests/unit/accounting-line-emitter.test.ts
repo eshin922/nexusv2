@@ -71,9 +71,12 @@ test("an OTC charge is 1 x its amount, carried and never recomputed", () => {
   assert.equal(emitted.amountCents, 14000);
   assert.equal(
     emitted.rate,
-    "140.00",
-    "rate equals amount because quantity is 1 — neither derived from the other",
+    "140.00000000",
+    "rate equals amount because quantity is 1",
   );
+  // Rendered at the posted scale, but the same NUMBER — the widening changed
+  // how the rate is written, never what it is worth.
+  assert.equal(Number(emitted.rate) * emitted.quantity * 100, emitted.amountCents);
 });
 
 test("an Item Group OTC line keeps its owner; a Direct Service is top-level", () => {
@@ -165,6 +168,11 @@ test("the emitter cannot reach live costing, by construction", async () => {
   const ALLOWED = [
     /^import type \{ ResolvedAccountingLine \} from "@\/lib\/netsuite\/projection-readiness";$/,
     /^import \{ decimalFromCents \} from "@\/lib\/netsuite\/frozen-cents";$/,
+    // Pure decimal arithmetic over a frozen amount and an integer quantity.
+    // It imports NOTHING — asserted below — so admitting it cannot widen the
+    // emitter's reach. The allowlist is extended deliberately rather than
+    // loosened into a pattern, which is the point of naming imports.
+    /^import \{ derivePostedRate \} from "@\/lib\/commercial-rate";$/,
   ];
   for (const imp of imports) {
     assert.ok(
@@ -173,6 +181,15 @@ test("the emitter cannot reach live costing, by construction", async () => {
     );
   }
   assert.equal(imports.length, ALLOWED.length, imports.join(" | "));
+
+  // The admitted module is a leaf. If it ever grows an import, this fails
+  // here rather than the emitter's boundary quietly becoming transitive.
+  const rateSrc = await readFile("src/lib/commercial-rate.ts", "utf8");
+  assert.equal(
+    [...rateSrc.matchAll(/^import .*$/gm)].length,
+    0,
+    "commercial-rate must stay import-free to remain safe on this allowlist",
+  );
 });
 
 test("the emitter names no item type — that belongs to the resolved record", async () => {

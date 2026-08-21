@@ -230,10 +230,16 @@ test("there is no escape hatch for a second commercial line source", async () =>
 
 test("product amounts come from the frozen row, never from live costing", async () => {
   const src = await readFile("src/lib/netsuite/frozen-sales-order.ts", "utf8");
-  // The product branch reads quantity, rate and amount off the frozen row.
-  assert.match(src, /quantity: row\.quantity \?\? 1,/);
-  assert.match(src, /rate: row\.rate \?\? "0",/);
-  assert.match(src, /amount: row\.amount \?\? "0",/);
+  // Quantity and amount are read off the frozen row.
+  assert.match(src, /const amount = row\.amount \?\? "0";/);
+  assert.match(src, /const quantity = row\.quantity \?\? 1;/);
+  // The RATE is no longer read — it is derived from the frozen amount, so the
+  // number NetSuite multiplies reproduces the accepted figure exactly. Reading
+  // `unit_rate` is what carried the freeze's rounding error onto the order.
+  assert.match(src, /derivePostedRate\(amount, quantity\)/);
+  assert.doesNotMatch(src, /rate: row\.rate/, "the stored rate is read again");
+  // A rate that cannot reproduce the amount blocks the push; it never posts.
+  assert.match(src, /kind: "product_rate_unrepresentable"/);
   // And the module cannot reach the costing tree at all.
   assert.doesNotMatch(src, /getCostingBundle|computeQuoteCosting|skuRollups|costing-adapter/);
 });

@@ -1,3 +1,4 @@
+import { POSTED_RATE_SCALE } from "@/lib/commercial-rate";
 import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -1312,11 +1313,12 @@ export async function runMarkComplete(
               description: e.frozen.description,
               netsuiteItemId: e.frozen.netsuiteItemId,
               qtyPerGroup: e.qtyPerGroup,
-              // The transmitted rate, not the frozen string — `toFixed(4)`
-              // matches the payload builder exactly, so if that rendering ever
-              // lost precision the check refuses instead of the order quietly
-              // computing a different amount than the one proved at STEP 3.5.
-              rate: e.soLine.rate.toFixed(4),
+              // The transmitted rate, not the frozen string — the rendering
+              // matches the payload builder exactly (same POSTED_RATE_SCALE), so
+              // if that rendering ever lost precision the check refuses instead
+              // of the order quietly computing a different amount than the one
+              // proved at STEP 3.5.
+              rate: e.soLine.rate.toFixed(POSTED_RATE_SCALE),
               frozenAmount: e.frozen.amount,
             })),
         }))
@@ -1331,7 +1333,7 @@ export async function runMarkComplete(
         description: e.frozen.description,
         netsuiteItemId: e.frozen.netsuiteItemId,
         quantity: e.soLine.quantity,
-        rate: e.soLine.rate.toFixed(4),
+        rate: e.soLine.rate.toFixed(POSTED_RATE_SCALE),
         frozenAmount: e.frozen.amount,
       }));
     const postGroupingFailures = checkPostGroupingReg4({
