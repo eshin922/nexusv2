@@ -1111,6 +1111,18 @@ export async function moveTier(formData: FormData): Promise<ActionResult<void>> 
 //   line_group_id): preserves supplier/category/markup metadata;
 //   unit_cost/purchase_qty reset because per-tier values depend
 //   on volume.
+//
+//   #321 — this is now purely an AUDIT COUNT. It no longer gates
+//   materialization, and it is keyed on canonical `quote_leaf_id`
+//   rather than through `assembly_leaves`.
+//
+//   AUDIT SEMANTICS CHANGED: `packaging_lines_preserved` previously
+//   EXCLUDED Direct-owned lines (their `assembly_leaf_id` is NULL),
+//   so it under-reported on mixed quotes and read zero on Direct-only
+//   ones. It now counts every commercial packaging line. Rows written
+//   before this change carry the old, narrower meaning — a forensic
+//   comparison across the boundary is comparing two different
+//   questions.
 // - `preservedProductionPolicy` (assembly_production_inputs
 //   denormalized policy per assembly, NOT per leaf — production
 //   policy lives at assembly level in NEW model): preserves
@@ -1169,12 +1181,12 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       notes: assemblyLeafInputs.notes,
     })
     .from(assemblyLeafInputs)
-    .innerJoin(
-      assemblyLeaves,
-      eq(assemblyLeaves.id, assemblyLeafInputs.assemblyLeafId),
-    )
-    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-    .where(eq(assemblies.quoteId, quoteId))
+    // #321 — CANONICAL. This reached the quote through `assembly_leaves`, whose
+    // key is NULL on a Direct Product's packaging rows, so a Direct-only quote
+    // counted ZERO lines while commercial rows plainly existed. Re-keyed onto
+    // `quote_leaf_id`, which is the identity every packaging row carries.
+    .innerJoin(quoteLeaves, eq(quoteLeaves.id, assemblyLeafInputs.quoteLeafId))
+    .where(eq(quoteLeaves.quoteId, quoteId))
     .orderBy(
       asc(assemblyLeafInputs.lineGroupId),
       asc(assemblyLeafInputs.createdAt),
@@ -1299,13 +1311,21 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
       )
       .returning({ id: quoteTiers.id });
 
-    // Slice 11.5.1 — reseed assembly_leaf_inputs: each preserved
-    // line × each new tier.
-    if (preservedLines.length > 0) {
-      // Same shared contract as addTier and attachAssemblyLeaf.
-      const seeded = await materializePackagingRows(tx, quoteId);
-      cellsSeeded = seeded.inserted;
-    }
+    // Reseed assembly_leaf_inputs: every canonical attachment × each new tier.
+    //
+    // #321 — NO OWNERSHIP GATE. This used to run only `if
+    // (preservedLines.length > 0)`, and `preservedLines` reached the quote
+    // through `assembly_leaves`. On a Direct-only quote that count was zero
+    // even though packaging rows existed, so the materializer never ran and the
+    // operator's grid came back empty against the new tiers — silently.
+    //
+    // Deliberately NOT replaced with a canonical-count gate. `materializePackagingRows`
+    // is idempotent (it diffs against existing rows) and returns early when the
+    // quote has no leaves or no tiers, so an eligibility proxy buys nothing and
+    // is one more thing that can drift from what it proxies. That drift IS the
+    // defect being repaired here, five instances deep.
+    const seeded = await materializePackagingRows(tx, quoteId);
+    cellsSeeded = seeded.inserted;
 
     // Slice 11.5.1 — reseed assembly_production_inputs: each
     // assembly's preserved policy × each new tier. Per-tier costs

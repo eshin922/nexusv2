@@ -383,6 +383,13 @@ const classifiedIdentityFiles = new Set([
   // onto one entry and the check passed while covering half of what it claimed.
   // Writes nothing.
   "scripts/gate-1b/case6-mixed.ts",
+  // CLASSIFIED — read-only #321 discrimination proof. Queries `assembly_leaves`
+  // DELIBERATELY: it SIMULATES the removed legacy ownership gate so the old
+  // implementation can be shown to FAIL the Direct-only case before the new one
+  // is accepted. A regression that passes on both implementations certifies
+  // nothing. Runs both shapes inside a transaction it then rolls back, so the
+  // Case 1 witness is never mutated, and re-reads afterwards to prove it.
+  "scripts/gate-1b/f1-gate-discrimination.ts",
   // CLASSIFIED — read-only CERT-303 walk evidence, canonical identity only.
   // Reads the frozen snapshot line set and its per-tier rows, and the live
   // per-line NetSuite selection keyed on `quote_leaf_id`. Resolves nothing
