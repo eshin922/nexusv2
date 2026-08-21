@@ -1,0 +1,19 @@
+{
+  "recorded": "before SEND, from Nexus only — never derived from NetSuite",
+  "quote": "08a76c99-729f-4028-8700-c9b8b1be59f4",
+  "scenario": "CERT-304 packout assembly",
+  "project": "350456fc-f246-4146-91ed-d384332250fc",
+  "hubspot_deal": "64175307673",
+  "service": { "sku": "SVC-PACKOUT-ASSEMBLY", "commercial_kind": "service", "identity": "packout_assembly" },
+  "destination_expected": "otc_packout",
+  "item_expected": { "code": "OTC-0049", "internal_id": "76154", "type": "NonInvtPart" },
+  "tier": { "label": "Tier 1", "quantity": 1000 },
+  "governed_cost_total": 5000,
+  "governed_cost_per_unit": 5,
+  "markup": "0.40 (Production authority, BV-013)",
+  "expected_unit_rate": 7,
+  "expected_line_amount": 7000,
+  "expected_tax_code": -8,
+  "expected_tax_total": 0,
+  "expected_price_level": -1
+}
