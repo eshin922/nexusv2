@@ -122,3 +122,60 @@ case unrepresentable instead of merely checked.
   its insert does not suppress the `users_email_unique` conflict. That is the
   code this design changes, and the reason a naive email-match fallback would
   be the wrong shape.
+
+---
+
+## Initial roster — recorded for later onboarding, not provisioned
+
+Supplied 2026-08-21. **Nexus application roles only.** These are not mapped
+into Entra or Clerk roles, and nothing here is created yet.
+
+| name | corporate email | stated Nexus role |
+|---|---|---|
+| Jackie King | jackie@thedps.co | PM |
+| Lexa Yerges | lexa@thedps.co | PM |
+| Aisha Manjra | aisha@thedps.co | PM |
+| Cally Hou | cally@thedps.co | Logistics |
+| Daniel Park | daniel@thedps.co | Admin |
+| Amy Park | amy@thedps.co | Admin |
+| Melinda Will | melinda@thedps.co | Finance |
+| Jing Santos | jing@thedps.co | Sales |
+
+### §0.5 — three stated roles have no enum value
+
+Verified against `userRole` (`src/db/schema.ts:25`), which is:
+
+```
+admin · pm · purchasing · production · accounting · read_only
+```
+
+| stated | enum | status |
+|---|---|---|
+| PM | `pm` | direct |
+| Admin | `admin` | direct |
+| **Logistics** | — | **no value.** `purchasing` is adjacent but is not the same function |
+| **Finance** | — | **no value.** `accounting` is the plausible intent, not a certainty |
+| **Sales** | — | **no value.** Nothing in the enum corresponds |
+
+Deliberately not resolved here. Three of eight people cannot be provisioned
+until this is dispositioned, and the choice is a real one: extend the enum
+(`logistics`, `finance`/rename, `sales`), or map onto existing values and
+accept that the label an admin picks differs from the authority it grants.
+
+Guessing would bank a mapping that either fails at insert or silently grants
+the wrong authority — the second being the worse outcome, since it looks like
+it worked.
+
+### `commercial_approver` is not inferred from Admin
+
+Two Admin rows appear above. **Neither implies `commercial_approver = true`.**
+The schema already says so, and says why (`src/db/schema.ts:328-334`):
+
+> Defaults false, and is NOT seeded. Membership is assigned after
+> organisation-tenant SSO, when distinct staff identities exist — the three
+> pre-SSO rows in production today are all the same person, so seeding from
+> them would manufacture an independence the estate does not have.
+
+That rationale is the reason this roster does not carry an approver column at
+all: approver membership is a separate governed decision, made once distinct
+staff identities exist — which is precisely what this SSO work creates.
