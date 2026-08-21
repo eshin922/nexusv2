@@ -213,9 +213,16 @@ test("the projection refusal is GONE, and what replaced it is wired", async () =
   assert.doesNotMatch(rules, /Direct Service Sales Order projection is not enabled/);
   assert.doesNotMatch(rules, /kind: "projection"/);
 
-  // Still consulted, and its reason still thrown verbatim rather than restated.
-  assert.match(mc, /const gate = evaluateDirectServiceGate\(/);
-  assert.match(mc, /if \(gate\.blocked\) throw new Error\(gate\.reason\)/);
+  // BV-011 CONSUMER CUTOVER (#317). The legacy gate is no longer in the push
+  // path at all — it resolved through `netsuite_service_item_map`, a superseded
+  // authority, so a correct destination mapping was invisible to the writer.
+  // Readiness now answers for every Direct Service line through the destination
+  // map, and its answer is the one the emitter posts.
+  assert.doesNotMatch(mc, /evaluateDirectServiceGate/);
+  assert.doesNotMatch(mc, /loadServiceItemMappings/);
+  // INVARIANT 4 — no legacy fallback. A fallback would let a stale legacy row
+  // make a push succeed that the governed authority says is unmapped.
+  assert.doesNotMatch(mc, /netsuiteServiceItemMap|service-item-map/);
 
   // The replacement: a service's item and amount come from the frozen column.
   assert.match(mc, /buildFrozenSalesOrder\(quoteId, \{ resolveSku \}\)/);
@@ -494,26 +501,28 @@ test("other_service is no longer the GATE's refusal — readiness owns it", asyn
   assert.match(readiness, /Choose its item on Costs/);
 });
 
-test("mark-complete throws the gate's reason BEFORE building any SO payload", async () => {
+test("the push consumes readiness's resolved item, and nothing else", async () => {
+  // Replaces "mark-complete throws the gate's reason BEFORE building any SO
+  // payload". That test pinned the LEGACY gate into the push path; #317 removed
+  // it, so the pin moves to the authority that replaced it rather than being
+  // deleted — otherwise the cutover would silently lose its regression.
   const mc = await code("lib/netsuite/mark-complete.ts");
-  // CALL sites, not first mention. The first draft of this searched for the
-  // bare identifier and matched the IMPORT of `buildSalesOrderPayload` at the
-  // top of the file — so it measured import order and failed on correct code.
+
+  // CALL sites, not first mention — the note that survives from the original:
+  // searching the bare identifier matched the IMPORT and measured import order.
   // A filter that cannot express the thing it certifies is worse than none.
   const callIdx = (name: string) => mc.indexOf(`${name}(`);
-  const gateIdx = callIdx("evaluateDirectServiceGate");
-  const skuIdx = mc.indexOf("const uniqueSkus");
-  const payloadIdx = callIdx("buildSalesOrderPayload");
-  assert.ok(gateIdx > -1, "the gate is not called");
-  assert.ok(gateIdx < skuIdx, "the gate runs after SKU resolution");
-  assert.ok(payloadIdx > -1, "buildSalesOrderPayload is never called — check the pattern");
-  assert.ok(gateIdx < payloadIdx, "the gate runs after payload construction");
-  // A "proceed" from the gate is now a legitimate outcome, so the assertion
-  // that used to stand here — that proceeding was itself an error — is gone
-  // with the block it belonged to. What must still hold is that a BLOCKED gate
-  // throws its own reason rather than one restated at the call site.
-  assert.match(mc, /if \(gate\.blocked\) throw new Error\(gate\.reason\);/);
-  assert.doesNotMatch(mc, /Direct Service gate returned proceed/);
+
+  // The superseded authority is not consulted anywhere in the push.
+  assert.equal(callIdx("evaluateDirectServiceGate"), -1);
+  assert.equal(callIdx("loadServiceItemMappings"), -1);
+  assert.equal(callIdx("validateServiceItemMappings"), -1);
+
+  // And the frozen projection path — which resolves through the destination
+  // map — is still what builds the order.
+  assert.ok(callIdx("buildSalesOrderPayload") > -1,
+    "buildSalesOrderPayload is never called — check the pattern");
+  assert.match(mc, /buildFrozenSalesOrder\(quoteId, \{ resolveSku \}\)/);
 });
 
 test("a fixed identity with a PER-LINE destination is exempt from the firm-wide gate", () => {

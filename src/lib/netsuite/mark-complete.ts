@@ -63,14 +63,6 @@ import {
   stripGroupingPlan,
   type PlanLineInput,
 } from "./grouping-plan";
-import {
-  evaluateDirectServiceGate,
-  isFixedServiceIdentity,
-  loadServiceItemMappings,
-  validateServiceItemMappings,
-  type FixedServiceIdentity,
-  type StoredServiceMapping,
-} from "./service-item-map";
 import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
@@ -456,37 +448,25 @@ export async function runMarkComplete(
     (p) => p.commercialKind !== "service",
   );
 
-  if (directServices.length > 0) {
-    // The decision lives in `evaluateDirectServiceGate` so it can be exercised
-    // rather than only code-asserted: driving a real quote to `accepted` to
-    // test this would fire the production HubSpot deal-stage push.
-    const stored = await loadServiceItemMappings();
-    const identities = directServices.map((svc) => svc.serviceIdentity);
-    const fixed = identities
-      .filter((id): id is DirectServiceIdentity => id !== null)
-      .filter(isFixedServiceIdentity);
-
-    const verdicts = await validateServiceItemMappings(
-      netsuite,
-      fixed
-        .map((id) => ({ id, m: stored.get(id) }))
-        .filter(
-          (x): x is { id: FixedServiceIdentity; m: StoredServiceMapping } =>
-            Boolean(x.m),
-        )
-        .map((x) => ({
-          serviceIdentity: x.id,
-          netsuiteInternalId: x.m.netsuiteInternalId,
-        })),
-    );
-
-    const gate = evaluateDirectServiceGate({
-      serviceIdentities: identities,
-      mapped: new Set(stored.keys()),
-      verdicts,
-    });
-    if (gate.blocked) throw new Error(gate.reason);
-  }
+  // BV-011 CONSUMER CUTOVER (#317) — the legacy Direct Service gate is GONE.
+  //
+  // It resolved through `netsuite_service_item_map`, which admin governance and
+  // readiness had already left behind for `netsuite_destination_item_map`. Two
+  // authorities answering "which item does this service post to" meant a
+  // correct, audited destination mapping was invisible to the writer, and the
+  // push refused a quote that was in fact fully mapped.
+  //
+  // `assessProjectionReadiness` already covers every Direct Service line: it
+  // derives the destination from the governed identity via
+  // SERVICE_IDENTITY_DESTINATION when the frozen row predates the column,
+  // blocks with `unmapped_destination` when that destination has no row, and
+  // resolves `netsuiteItemId` from the destination map into the SAME
+  // `ResolvedAccountingLine` the emitter posts. Readiness and emission cannot
+  // disagree because there is one pass and one answer.
+  //
+  // Deliberately NO fallback to the legacy map. A fallback would re-create the
+  // split this removes, and would let a stale legacy row make a push succeed
+  // that the governed authority says is unmapped.
 
   // Every UNIQUE product SKU on the quote must resolve — grouped members AND
   // Direct Products. A Direct Product resolves through the identical SKU-match;
