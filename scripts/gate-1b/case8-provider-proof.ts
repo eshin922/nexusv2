@@ -19,6 +19,8 @@
  * sign is asserted as its own claim — an `abs()` with no assertion would hide
  * a genuine sign error behind the same call that absorbs the convention.
  */
+import { sql } from "drizzle-orm";
+import { db } from "@/db";
 import { suiteQL } from "@/lib/netsuite/client";
 const Q = "08a76c99-729f-4028-8700-c9b8b1be59f4";
 const SO = "362841";
