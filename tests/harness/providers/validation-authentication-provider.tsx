@@ -34,7 +34,6 @@ export const validationAuthentication: AuthenticationDependencies = {
   identity: {
     name: "validation-identity",
     kind: "isolated",
-    provisionMissingUsers: false,
     async current() {
       return selectedIdentity();
     },

@@ -10,7 +10,6 @@ export type ApplicationIdentity = {
 export interface IdentityProvider {
   readonly name: string;
   readonly kind: "production" | "isolated";
-  readonly provisionMissingUsers: boolean;
   current(): Promise<ApplicationIdentity | null>;
 }
 

@@ -151,21 +151,22 @@ test("commercial_approver is not referenced as a writable field anywhere here", 
 
 // ── ordering: binding must precede least-privilege provisioning ───────────
 
-test("binding runs BEFORE the fallback insert", async () => {
+test("binding is the only way a sign-in reaches a user row it did not find", async () => {
   const src = codeOnly(await ENSURE());
-  const bind = src.indexOf("bindPendingUser(");
-  const insert = src.indexOf(".insert(users)");
-  assert.ok(bind > 0 && insert > 0);
-  assert.ok(
-    bind < insert,
-    "a rostered employee would otherwise get a duplicate read_only row while " +
-      "their pre-authorized row sat pending forever",
-  );
+  // This once asserted an ORDERING — binding before the fallback insert —
+  // because a rostered employee would otherwise get a duplicate read_only row
+  // while their pre-authorized row sat pending forever.
+  //
+  // The fallback insert is gone, so the ordering is unfalsifiable and the
+  // property is now absolute: resolve, bind, or refuse.
+  assert.match(src, /bindPendingUser\(/);
+  assert.doesNotMatch(src, /\.insert\(users\)/);
 });
 
-test("unknown signers still land read_only", async () => {
+test("unknown signers are refused, not enrolled", async () => {
   const src = codeOnly(await ENSURE());
-  assert.match(src, /isAdmin\(email\)\s*\?\s*"admin"\s*:\s*"read_only"/);
+  assert.match(src, /recordEnrollmentRefusal/);
+  assert.doesNotMatch(src, /\.insert\(users\)/);
 });
 
 test("integrity failures refuse instead of provisioning", async () => {
@@ -177,10 +178,8 @@ test("integrity failures refuse instead of provisioning", async () => {
   const src = codeOnly(await ENSURE());
   const idx = src.indexOf('binding.kind === "refused"');
   assert.ok(idx > 0, "ensure-user must handle the refused outcome");
-  assert.ok(
-    src.indexOf("throw new Error", idx) < src.indexOf(".insert(users)", idx),
-    "a refusal must throw before any provisioning path is reachable",
-  );
+  assert.ok(src.indexOf("throw new Error", idx) > 0, "a refusal must throw");
+  assert.doesNotMatch(src, /\.insert\(users\)/, "no provisioning path remains");
 });
 
 // ── audit ─────────────────────────────────────────────────────────────────

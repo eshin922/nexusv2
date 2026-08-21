@@ -52,14 +52,17 @@ const MIGRATION = () =>
 
 // ── refusal vs fall-through ───────────────────────────────────────────────
 
-test("exactly one outcome falls through to provisioning", async () => {
+test("the outcome vocabulary is closed", async () => {
   const src = codeOnly(await BINDING());
   const kinds = [...src.matchAll(/kind: "(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(
     [...new Set(kinds)].sort(),
     ["bound", "no_pending_row", "raced", "refused"],
-    "a new outcome kind must be classified as refusal or fall-through explicitly",
+    "a new outcome kind must be classified deliberately by the caller",
   );
+  // `no_pending_row` no longer means "provision them" — the caller refuses and
+  // records it. The name is kept because it still describes what this module
+  // found, and the module does not decide what follows.
 });
 
 test("all four hard refusals are enumerated", async () => {
@@ -81,13 +84,10 @@ test("a refusal throws rather than provisioning a second record", async () => {
   // Ordering, not a fixed window — a window wide enough to contain the branch
   // is also wide enough to reach the provisioning path below it, and would then
   // fail on code that is behaving correctly.
-  const throwIdx = src.indexOf("throw new Error", idx);
-  const insertIdx = src.indexOf(".insert(users)", idx);
-  assert.ok(throwIdx > 0, "the refusal must throw");
-  assert.ok(
-    throwIdx < insertIdx,
-    "the refusal must throw BEFORE any provisioning path is reachable",
-  );
+  assert.ok(src.indexOf("throw new Error", idx) > 0, "the refusal must throw");
+  // Stronger than the ordering this once asserted: there is no provisioning
+  // path left to reach, in this branch or any other.
+  assert.doesNotMatch(src, /\.insert\(users\)/);
 });
 
 test("an already-bound address refuses instead of reaching the unique index", async () => {
@@ -160,10 +160,11 @@ test("OLD BEHAVIOUR: provisioning-only could not reach a pre-authorized row", as
   // The old path's entire vocabulary was INSERT: it read no row it had not
   // created, so a pre-authorized row was unreachable by construction rather
   // than by oversight.
-  const insertIdx = src.indexOf(".insert(users)");
-  const bindIdx = src.indexOf("bindPendingUser(");
-  assert.ok(bindIdx > 0, "the contract requires a binding attempt to exist");
-  assert.ok(bindIdx < insertIdx, "and it must be reachable before provisioning");
+  //
+  // Both halves are now asserted as absence — the binding exists, and the
+  // INSERT it once had to outrun is gone entirely.
+  assert.match(src, /bindPendingUser\(/, "the contract requires a binding attempt");
+  assert.doesNotMatch(src, /\.insert\(users\)/, "sign-in must not create a user");
 });
 
 test("OLD BEHAVIOUR: a pending row would have COLLIDED, not bound", async () => {
@@ -185,16 +186,16 @@ test("OLD BEHAVIOUR: a pending row would have COLLIDED, not bound", async () => 
 
 test("OLD BEHAVIOUR: a role derived from an address cannot express a provisioned one", async () => {
   const src = codeOnly(await ENSURE());
-  // The old path derived role from the EMAIL. A role an admin chose in advance
-  // is not derivable from an address, so any provisioning-time role would have
-  // been discarded at first sign-in.
-  assert.match(src, /isAdmin\(email\)\s*\?\s*"admin"\s*:\s*"read_only"/);
-  // The early return above it is what protects a provisioned role from being
-  // overwritten by that derivation.
-  assert.ok(
-    src.indexOf("bindPendingUser(") < src.indexOf("isAdmin(email)"),
-    "role derivation must sit AFTER the binding's early return",
-  );
+  // The old path derived role from the EMAIL — first `isAdmin(email) ? "admin"
+  // : "pm"`, later `: "read_only"`. A role an admin chose in advance is not
+  // derivable from an address, so any provisioning-time role would have been
+  // discarded at first sign-in.
+  //
+  // That derivation is now gone entirely, along with the provisioning it fed.
+  // Asserting its ABSENCE is the stronger form of the same claim: there is no
+  // longer any path by which a sign-in can decide someone's authority.
+  assert.doesNotMatch(src, /isAdmin\(/, "no role may be derived from an address");
+  assert.doesNotMatch(src, /\.insert\(users\)/, "a sign-in may not create a user");
 });
 
 test("OLD BEHAVIOUR: no state existed to consume, so binding could not be one-time", async () => {

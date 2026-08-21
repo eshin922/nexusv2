@@ -91,6 +91,15 @@ export function isFallbackActorIdentity(displayName: string | null): boolean {
 export const SYSTEM_ACTORS = {
   /** NetSuite Item Group push with no acting operator. */
   netsuiteIntegration: "NetSuite integration",
+  /**
+   * Refusal of a sign-in by an identity Nexus has no record of.
+   *
+   * There is deliberately no person to attribute this to. The identity that
+   * attempted is NOT a Nexus actor — that is the entire finding — and naming
+   * them as the actor would assert an enrollment the refusal exists to deny.
+   * The attempted address is recorded on the row as the SUBJECT instead.
+   */
+  enrollmentGate: "Enrollment gate",
 } as const;
 
 export type SystemActor = (typeof SYSTEM_ACTORS)[keyof typeof SYSTEM_ACTORS];

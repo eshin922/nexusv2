@@ -25,7 +25,6 @@ export const clerkAuthentication: AuthenticationDependencies = {
   identity: {
     name: "clerk",
     kind: "production",
-    provisionMissingUsers: true,
     current: currentIdentity,
   },
   ui: {
