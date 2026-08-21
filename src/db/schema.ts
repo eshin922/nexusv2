@@ -70,6 +70,24 @@ export const userRole = pgEnum("user_role", [
   "read_only",
 ]);
 
+/**
+ * Whether a `users` row has yet been attached to a Clerk identity (#327).
+ *
+ * STATED, not inferred from the nullity of `clerk_user_id`. Inferring it would
+ * make an unprovisioned row and a deliberately pre-authorized one the same
+ * thing — the OD-027 ambiguity in a new place. A DB CHECK ties the two together
+ * so the statement and the handle can never disagree.
+ *
+ * `pending_first_sign_in` is reachable ONLY by an admin provisioning a row
+ * ahead of the person's first login. The transition to `bound` is one-way and
+ * happens once; no sign-in path may write `clerk_user_id` on a row that already
+ * has one.
+ */
+export const userBindingState = pgEnum("user_binding_state", [
+  "pending_first_sign_in",
+  "bound",
+]);
+
 export const projectCategory = pgEnum("project_category", [
   "packaging",
   "turnkey",
@@ -352,7 +370,17 @@ export const users = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    clerkUserId: text("clerk_user_id").notNull().unique(),
+    /**
+     * NULLABLE since #327: a pre-authorized row exists before the person has
+     * ever reached Clerk. Null means "no identity attached yet", and is legal
+     * ONLY while `bindingState` is `pending_first_sign_in` (DB CHECK).
+     *
+     * Unique, which is also the structural guarantee that one Clerk identity
+     * cannot be claimed by two Nexus rows — the binding checks for that too,
+     * so the refusal is legible, but the constraint is the thing that makes it
+     * impossible rather than merely unlikely.
+     */
+    clerkUserId: text("clerk_user_id").unique(),
     email: text("email").notNull().unique(),
     name: text("name"),
     role: userRole("role").notNull().default("read_only"),
@@ -371,6 +399,19 @@ export const users = pgTable(
      * them would manufacture an independence the estate does not have.
      */
     commercialApprover: boolean("commercial_approver").notNull().default(false),
+    /**
+     * #327 · pre-authorized first-sign-in binding.
+     *
+     * DEFAULT 'bound' is load-bearing for deployment order, not a convenience:
+     * the deployed `ensure-user` INSERT does not mention this column, and with
+     * NOT NULL and no default that INSERT would have started failing the moment
+     * the migration applied — the 0066 outage shape. A row that supplies a
+     * clerk_user_id IS bound, so the default is also correct on its merits.
+     *
+     * An admin provisioning ahead of first login states
+     * `pending_first_sign_in` explicitly.
+     */
+    bindingState: userBindingState("binding_state").notNull().default("bound"),
     /**
      * Durable Slack↔Nexus identity binding (`U…`).
      *
