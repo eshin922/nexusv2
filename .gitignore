@@ -55,3 +55,8 @@ Thumbs.db
 
 # OD-012 — drift-detection output, never governed migrations
 .drizzle-drift/
+
+# Design assets dropped in the repo root for a slice are working files, not
+# tracked ones. They belong in the slice that consumes them (public/, or an
+# asset directory), never swept in by an unrelated `git add -A`.
+/*.png

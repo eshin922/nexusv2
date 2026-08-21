@@ -80,22 +80,22 @@ test("logistics and sales appear in no guard at all", async () => {
 
 // ── least privilege for an unrecognised identity ──────────────────────────
 
-test("an unrecognised first-time signer is provisioned read_only, not pm", async () => {
+test("an unrecognised signer is REFUSED, not provisioned at any role", async () => {
   const src = codeOnly(await SRC("lib/auth/ensure-user.ts"));
-  assert.match(
-    src,
-    /isAdmin\(email\)\s*\?\s*"admin"\s*:\s*"read_only"/,
-    "the fallback must be least privilege",
-  );
-  assert.doesNotMatch(
-    src,
-    /:\s*"pm"/,
-    "the pm fallback granted quote-authoring standing to anyone who fell " +
-      "through onboarding, and overrode the column default to do it",
-  );
+  // The read_only fallback is gone. It looked like least privilege and was not:
+  // no non-admin role value is read for an authorization decision anywhere (see
+  // the sweep above), so an auto-provisioned row was not meaningfully more
+  // constrained than any other non-admin row. The defect was that a person
+  // outside the roster got an account at all.
+  assert.doesNotMatch(src, /\.insert\(users\)/, "nothing may provision a user");
+  assert.doesNotMatch(src, /:\s*"read_only"/, "no role fallback may remain");
+  assert.doesNotMatch(src, /:\s*"pm"/);
+  assert.match(src, /recordEnrollmentRefusal/);
 });
 
-test("the fallback agrees with the column default", async () => {
+test("read_only remains the column default for admin-created rows", async () => {
+  // Still the right default for a row an admin creates without stating a role.
+  // What changed is that no SIGN-IN creates one.
   const schema = await SRC("db/schema.ts");
   assert.match(schema, /userRole\("role"\)\.notNull\(\)\.default\("read_only"\)/);
 });
