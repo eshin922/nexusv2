@@ -57,13 +57,23 @@ import type { AppUser } from "@/lib/auth/ensure-user";
  * none of these may quietly become "provision a fresh read_only user", because
  * that answers a question about enrollment integrity by creating a second
  * record for the same person.
+ *
+ * The rule holds AFTER the lookup too, which is the subtler half: once a row is
+ * observed owning the address, `no_pending_row` becomes unreachable. Every path
+ * below that point ends in `bound`, `raced`, or a refusal. A race handler that
+ * reported "nobody is provisioned" would reach the forbidden outcome through
+ * the one branch nobody reads twice.
  */
 
 export type BindingRefusal =
   | { code: "non_corporate_identity"; detail: string }
   | { code: "ambiguous_email_match"; detail: string }
   | { code: "clerk_id_already_bound"; detail: string }
-  | { code: "email_already_bound"; detail: string };
+  | { code: "email_already_bound"; detail: string }
+  /** Observed pending, then claimed by a different identity before the write. */
+  | { code: "pending_row_claimed"; detail: string }
+  /** Observed, then gone. Something deleted a row mid-sign-in. */
+  | { code: "binding_target_missing"; detail: string };
 
 export type BindingOutcome =
   | { kind: "bound"; user: AppUser }
@@ -71,6 +81,8 @@ export type BindingOutcome =
   /** ORDINARY: nobody provisioned this person. Caller provisions read_only. */
   | { kind: "no_pending_row" }
   | { kind: "refused"; refusal: BindingRefusal };
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Attempt to bind `clerkUserId` to a pre-authorized row for `email`.
@@ -80,10 +92,17 @@ export type BindingOutcome =
  * instants — the double-keyed UPDATE would still refuse to overwrite anything,
  * but a refusal should be reasoned from the same state it acted on.
  */
-export async function bindPendingUser(args: {
-  clerkUserId: string;
-  email: string;
-}): Promise<BindingOutcome> {
+export async function bindPendingUser(
+  args: { clerkUserId: string; email: string },
+  /**
+   * Run inside a caller-supplied transaction instead of opening one.
+   *
+   * Exists so the refusal paths can be exercised against a REAL database and
+   * rolled back, rather than only asserted at source level. A refusal that has
+   * never been observed refusing is a claim about code, not about behaviour.
+   */
+  outerTx?: Tx,
+): Promise<BindingOutcome> {
   const normalized = normalizeCorporateEmail(args.email);
 
   // Precondition 1 — a VERIFIED CORPORATE identity.
@@ -105,7 +124,7 @@ export async function bindPendingUser(args: {
     };
   }
 
-  return db.transaction(async (tx) => {
+  const run = async (tx: Tx): Promise<BindingOutcome> => {
     // Precondition 4 — the incoming identity is not already bound elsewhere.
     //
     // The unique index on `clerk_user_id` would also stop this, but as a
@@ -192,16 +211,54 @@ export async function bindPendingUser(args: {
       .returning();
 
     if (updated.length !== 1) {
-      // Race loser. The winner bound the same row to the same identity — both
-      // requests carry one authenticated session — so re-reading by
-      // clerk_user_id returns the row this request was trying to produce.
-      const won = await tx
+      // ZERO ROWS AFTER WE ALREADY OBSERVED ONE.
+      //
+      // This may NEVER fall through to `no_pending_row`. We established above
+      // that a Nexus user owns this address; reporting "nobody is provisioned"
+      // now would send the caller off to create a SECOND row for a person who
+      // demonstrably has one — the exact failure the pending mechanism exists
+      // to prevent, reached through its own race handler.
+      //
+      // Re-read by the DURABLE users.id, not by the incoming clerk_user_id. A
+      // lookup keyed on the identity we failed to write can only answer "did I
+      // win?", and returns nothing in every case where someone else won — which
+      // is precisely when the answer matters most.
+      const after = await tx
         .select()
         .from(users)
-        .where(eq(users.clerkUserId, args.clerkUserId))
+        .where(eq(users.id, target.id))
         .limit(1);
-      if (won.length === 1) return { kind: "raced" as const, user: won[0] };
-      return { kind: "no_pending_row" as const };
+
+      if (after.length !== 1) {
+        return {
+          kind: "refused" as const,
+          refusal: {
+            code: "binding_target_missing" as const,
+            detail:
+              `Nexus user ${target.id} was present a moment ago and is now gone. ` +
+              `Nothing was bound.`,
+          },
+        };
+      }
+
+      const now = after[0];
+      // The ordinary race: a sibling request from the SAME sign-in won. Both
+      // carry one authenticated session, so the row is bound to our identity.
+      if (now.clerkUserId === args.clerkUserId && now.bindingState === "bound") {
+        return { kind: "raced" as const, user: now };
+      }
+
+      return {
+        kind: "refused" as const,
+        refusal: {
+          code: "pending_row_claimed" as const,
+          detail:
+            `Nexus user ${now.id} (${now.email}) was pending a moment ago and is ` +
+            `now ${now.bindingState}${
+              now.clerkUserId ? " under a different sign-in" : ""
+            }. Nothing was bound.`,
+        },
+      };
     }
 
     const user = updated[0];
@@ -244,5 +301,7 @@ export async function bindPendingUser(args: {
     );
 
     return { kind: "bound" as const, user };
-  });
+  };
+
+  return outerTx ? run(outerTx) : db.transaction(run);
 }

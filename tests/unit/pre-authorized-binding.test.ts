@@ -2,10 +2,21 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { codeOnly } from "../support/code-only.ts";
+import { codeOnly as stripComments } from "../support/code-only.ts";
 
 import { normalizeCorporateEmail } from "../../src/lib/auth/corporate-email.ts";
 import { userBindingState, users } from "../../src/db/schema.ts";
+
+/**
+ * Comments stripped AND line endings normalized.
+ *
+ * These files are checked out with CRLF on Windows and LF on CI, so any pattern
+ * containing a bare newline silently stops matching depending on where it runs.
+ * That turns every multi-line assertion below into a coin flip between
+ * environments rather than a statement about the code.
+ */
+const codeOnly = (src: string): string =>
+  stripComments(src).replace(/\r\n/g, "\n");
 
 // ═══════════════════════════════════════════════════════════════════════
 // #327 — PRE-AUTHORIZED FIRST-SIGN-IN BINDING

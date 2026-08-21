@@ -2,13 +2,26 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { codeOnly } from "../support/code-only.ts";
+import { codeOnly as stripComments } from "../support/code-only.ts";
 
 import {
   CORPORATE_DOMAIN,
   isCorporateEmail,
 } from "../../src/lib/auth/corporate-email.ts";
 import { users } from "../../src/db/schema.ts";
+
+/**
+ * Comments stripped AND line endings normalized.
+ *
+ * These files are checked out with CRLF on Windows and LF on CI, so any pattern
+ * containing a bare newline silently stops matching depending on where it runs.
+ * That turns every multi-line assertion below into a coin flip between
+ * environments rather than a statement about the code — which is exactly how
+ * two of these passed when freshly written and failed after git normalized the
+ * file.
+ */
+const codeOnly = (src: string): string =>
+  stripComments(src).replace(/\r\n/g, "\n");
 
 // ═══════════════════════════════════════════════════════════════════════
 // #327 — HARD REFUSALS, ATOMICITY, AND THE DISCRIMINATING TESTS
@@ -115,10 +128,20 @@ test("the domain is defined once and shared with the middleware", async () => {
 
 test("preconditions and the write share one transaction", async () => {
   const src = codeOnly(await BINDING());
-  assert.match(src, /db\.transaction\(async \(tx\) =>/);
+  // One body, run either on a caller's transaction or on a fresh one — never
+  // partly on the pool.
+  assert.match(src, /const run = async \(tx: Tx\)/);
+  assert.match(src, /return outerTx \? run\(outerTx\) : db\.transaction\(run\)/);
   // Nothing inside may reach back to the pool and escape the transaction.
-  const body = src.slice(src.indexOf("db.transaction("));
+  const body = src.slice(src.indexOf("const run = async"));
   assert.doesNotMatch(body, /\bdb\s*\.\s*(select|update|insert)/);
+});
+
+test("the caller-supplied transaction is honoured, not merely accepted", async () => {
+  const src = codeOnly(await BINDING());
+  // A parameter that is taken and then ignored would still typecheck, still
+  // read correctly, and would silently commit test writes to production.
+  assert.match(src, /outerTx \? run\(outerTx\)/);
 });
 
 test("the audit commits with the binding, not beside it", async () => {
@@ -180,4 +203,93 @@ test("OLD BEHAVIOUR: no state existed to consume, so binding could not be one-ti
   // what make the transition one-way rather than a repeatable email match.
   assert.equal(users.bindingState.notNull, true);
   assert.match(await MIGRATION(), /users_binding_state_matches_clerk_id/);
+});
+
+// ── the zero-row race may NEVER fall through ──────────────────────────────
+//
+// The subtlest way to reach the forbidden outcome: not by returning it where a
+// reader would look for it, but through the race handler — the branch nobody
+// reads twice. Once a row is observed owning the address, "nobody is
+// provisioned" is a false statement, and acting on it creates a second record
+// for a person who demonstrably has one.
+
+test("no_pending_row is unreachable once a row is observed", async () => {
+  const src = codeOnly(await BINDING());
+  const observed = src.indexOf("const target = forEmail[0]");
+  assert.ok(observed > 0, "the observation point must exist");
+  const after = src.slice(observed);
+  assert.doesNotMatch(
+    after,
+    /no_pending_row/,
+    "every path after a row is observed must end in bound, raced, or a refusal",
+  );
+});
+
+test("the race handler re-reads by durable users.id, not the incoming identity", async () => {
+  const src = codeOnly(await BINDING());
+  const handler = src.slice(src.indexOf("if (updated.length !== 1)"));
+  const reread = handler.slice(0, handler.indexOf("if (after.length !== 1)"));
+  assert.match(
+    reread,
+    /eq\(users\.id, target\.id\)/,
+    "a lookup keyed on the identity we failed to write can only answer " +
+      "'did I win?', and returns nothing in exactly the cases that matter",
+  );
+  assert.doesNotMatch(reread, /eq\(users\.clerkUserId, args\.clerkUserId\)/);
+});
+
+test("the race handler classifies all three post-write states", async () => {
+  const src = codeOnly(await BINDING());
+  const handler = src.slice(src.indexOf("if (updated.length !== 1)"));
+  // vanished -> integrity refusal
+  assert.match(handler, /code: "binding_target_missing"/);
+  // ours -> raced
+  assert.match(
+    handler,
+    /now\.clerkUserId === args\.clerkUserId && now\.bindingState === "bound"/,
+  );
+  // someone else's -> refusal
+  assert.match(handler, /code: "pending_row_claimed"/);
+});
+
+// ── provisioning atomicity ────────────────────────────────────────────────
+
+const PROVISION = () =>
+  readFile(new URL("../../scripts/gate-1b/provision-pending-user.ts", import.meta.url), "utf8");
+
+test("the pending row and its audit commit together or not at all", async () => {
+  const src = codeOnly(await PROVISION());
+  assert.match(src, /db\.transaction\(async \(tx\) =>/);
+  const body = src.slice(src.indexOf("db.transaction("));
+  // The INSERT is on the transaction, not the pool.
+  assert.match(body, /await tx\s*\.insert\(users\)/);
+  assert.doesNotMatch(body, /await db\s*\.insert/);
+  // And the audit joins it, so an audit failure rolls the row back and an
+  // insert failure never reaches the audit.
+  assert.match(body, /writeAuditEntry\([\s\S]*?\n\s*tx,\n\s*\);/);
+});
+
+test("provisioning grants no authority beyond the role", async () => {
+  const src = codeOnly(await PROVISION());
+  const values = src.slice(src.indexOf(".values({"), src.indexOf(".returning()"));
+  for (const flag of ["commercialApprover", "canEditSpecs", "canCreateLeaves"]) {
+    assert.match(
+      values,
+      new RegExp(`${flag}: false`),
+      `${flag} must be explicitly false — BV-005 keeps commercial approval ` +
+        `independent of role, and a provisioning flag is where that erodes`,
+    );
+  }
+  assert.match(values, /bindingState: "pending_first_sign_in"/);
+  assert.match(values, /clerkUserId: null/);
+});
+
+test("provisioning does not build SQL by interpolating its argument", async () => {
+  const src = codeOnly(await PROVISION());
+  assert.doesNotMatch(
+    src,
+    /sql\.raw\(/,
+    "the address comes from a CLI argument; interpolating it into raw SQL is " +
+      "an injection whether or not this caller is trusted today",
+  );
 });

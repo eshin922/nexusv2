@@ -30,7 +30,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
-import { normalizeCorporateEmail } from "@/lib/auth/corporate-email";
+import { CORPORATE_DOMAIN, isCorporateEmail, normalizeCorporateEmail } from "@/lib/auth/corporate-email";
 
 const ROLES = [
   "admin",
@@ -44,7 +44,6 @@ const ROLES = [
 ] as const;
 type Role = (typeof ROLES)[number];
 
-const CORPORATE_DOMAIN = "@thedps.co";
 /** The admin performing the provisioning; the audit must name a real actor. */
 const ACTOR_USER_ID = "e60b5670-86d8-437b-9654-36a1284c7b19";
 
@@ -68,7 +67,7 @@ async function main() {
   }
 
   const email = normalizeCorporateEmail(rawEmail);
-  if (!email.endsWith(CORPORATE_DOMAIN)) {
+  if (!isCorporateEmail(email)) {
     console.error(
       `REFUSED — ${email} is not a ${CORPORATE_DOMAIN} address. Enterprise SSO ` +
         `only resolves the corporate domain, so a row for anything else could ` +
@@ -77,10 +76,18 @@ async function main() {
     process.exit(1);
   }
 
-  const clash = (await db.execute(
-    sql.raw(`select id, email, binding_state::text, clerk_user_id is not null as bound
-               from public.users where lower(email) = '${email.replace(/'/g, "''")}'`),
-  )) as unknown as Array<Record<string, unknown>>;
+  // Parameterized. The value comes from a CLI argument, and building SQL by
+  // interpolating it would be an injection whether or not this caller is
+  // trusted today.
+  const clash = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      bindingState: users.bindingState,
+      clerkUserId: users.clerkUserId,
+    })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${email}`);
   if (clash.length > 0) {
     console.error(`REFUSED — a Nexus user already exists for ${email}:`);
     console.error("  " + JSON.stringify(clash[0]));
@@ -90,39 +97,50 @@ async function main() {
     process.exit(1);
   }
 
-  const [created] = await db
-    .insert(users)
-    .values({
-      email: rawEmail.trim(),
-      name,
-      role,
-      // The whole point: no identity yet, and the state SAYS so.
-      clerkUserId: null,
-      bindingState: "pending_first_sign_in" as const,
-      // Left to their defaults (false), stated here so a reader sees the
-      // omission is deliberate rather than forgotten.
-      commercialApprover: false,
-      canEditSpecs: false,
-      canCreateLeaves: false,
-    })
-    .returning();
+  // ONE TRANSACTION. The row and the record of who created it commit together
+  // or not at all: a pending user with no provenance is an unexplained grant of
+  // future access, and an audit row for a user that does not exist is a claim
+  // about nothing. Same rule the binding follows on the other side of the flow.
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(users)
+      .values({
+        email: rawEmail.trim(),
+        name,
+        role,
+        // The whole point: no identity yet, and the state SAYS so.
+        clerkUserId: null,
+        bindingState: "pending_first_sign_in" as const,
+        // Left to their defaults (false), stated here so a reader sees the
+        // omission is deliberate rather than forgotten.
+        commercialApprover: false,
+        canEditSpecs: false,
+        canCreateLeaves: false,
+      })
+      .returning();
 
-  await writeAuditEntry({
-    userId: ACTOR_USER_ID,
-    entityType: "user",
-    entityId: created.id,
-    action: "user_pre_authorized",
-    diffJson: {
-      email: created.email,
-      name: created.name,
-      role: created.role,
-      binding_state: created.bindingState,
-      commercial_approver: created.commercialApprover,
-      can_edit_specs: created.canEditSpecs,
-      can_create_leaves: created.canCreateLeaves,
-      audit_source: "admin_provisioning",
-    },
-    summary: `Pre-authorized ${created.email} as ${created.role}, pending first sign-in.`,
+    await writeAuditEntry(
+      {
+        userId: ACTOR_USER_ID,
+        entityType: "user",
+        entityId: row.id,
+        action: "user_pre_authorized",
+        diffJson: {
+          email: row.email,
+          name: row.name,
+          role: row.role,
+          binding_state: row.bindingState,
+          commercial_approver: row.commercialApprover,
+          can_edit_specs: row.canEditSpecs,
+          can_create_leaves: row.canCreateLeaves,
+          audit_source: "admin_provisioning",
+        },
+        summary: `Pre-authorized ${row.email} as ${row.role}, pending first sign-in.`,
+      },
+      tx,
+    );
+
+    return row;
   });
 
   console.log("PROVISIONED — pending first sign-in");
