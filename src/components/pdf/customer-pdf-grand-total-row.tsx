@@ -15,9 +15,8 @@
 
 import { Text, View } from "@react-pdf/renderer";
 
-import { money, serviceFeesTotal, tierGrand, unit } from "./customer-pdf-helpers";
+import { money, tierGrand, unit } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
-import { unpricedLinePhrase } from "./customer-pdf-unpriced";
 import type {
   CpdfPdfLayout,
   CpdfServiceFee,
@@ -58,19 +57,6 @@ export function GrandTotalRow({
     ...tierGrand(skuSet, tiers, ti, foldFees, serviceFees),
     rec: !isSingle && tier.recommended === true,
   }));
-  const anyUnpriced = colData.some((c) => c.hasUnpriced);
-  // The notes column sits under the WHOLE row, so a fee figure printed here
-  // speaks for every column shown. State one only where every displayed tier
-  // folds the same amount; where they differ, say that fees are folded and
-  // let the itemized block below carry the per-tier figures.
-  const foldedByCol = colData.map((c) => serviceFeesTotal(serviceFees, c.ti));
-  const foldedTotal = foldedByCol[0] ?? 0;
-  const foldedUniform = foldedByCol.every((v) => v === foldedTotal);
-  // Named from the quote, not from the prototype. The literal that stood here
-  // ("CAP-60 · Tier 1") named a mock SKU to every customer whose quote had a
-  // pending line, while their actual pending line went unnamed.
-  const unpricedPhrase = unpricedLinePhrase(skuSet, tiers);
-
   return (
     // Slice 11 Step 3 Fix 2 (CA 2026-06-30): GrandTotalRow (label
     // column + per-tier figures + PER UNIT/ALL-IN sub-legend) is an
@@ -131,60 +117,33 @@ export function GrandTotalRow({
           );
         })}
       </View>
-      {/* notes column under the grand row (CD `pdf-render.jsx:172`) */}
-      <View style={styles.grandNotes}>
-        <Text style={styles.grandNote}>
-          <Text style={styles.grandNoteK}>{"Per unit   ".toUpperCase()}</Text>
-          The blended all-in unit price across the basket at that tier — the
-          turnkey total divided by units shipped.
-        </Text>
-        {allInUnit && (
-          <Text style={styles.grandNote}>
-            <Text style={styles.grandNoteK}>{"All-in   ".toUpperCase()}</Text>
-            Setup, tooling, freight, duty {"&"} tariffs are landed in the unit
-            price shown — the total is what you pay.
-          </Text>
-        )}
-        {foldFees && foldedByCol.some((v) => v > 0) && (
-          // Slice 11 Step 8 matrix smoke Cluster 2B fix (2026-07-27):
-          // gate on real fee total, not just `foldFees` (which is
-          // `hasCharges = serviceFees.length > 0 || freightLines.length > 0`).
-          // When only freight lines exist (charges combo with no
-          // one-time fees), the previous condition fired with
-          // `money(0) = "$0.00"` — claiming fees were "folded into
-          // the total" when in fact there were none.
-          <Text style={styles.grandNote}>
-            <Text style={styles.grandNoteK}>{"Includes   ".toUpperCase()}</Text>
-            {foldedUniform ? (
-              <>
-                One-time project {"&"} SKU fees of{" "}
-                <Text style={styles.grandNoteAmt}>{money(foldedTotal)}</Text>,
-                folded into the total above and itemized below.
-              </>
-            ) : (
-              <>
-                One-time project {"&"} SKU fees are folded into each total
-                above and itemized below.
-              </>
-            )}
-          </Text>
-        )}
-        {freightAtCost && (
-          <Text style={[styles.grandNote, styles.grandNoteFreight]}>
-            <Text style={styles.grandNoteK}>{"Plus   ".toUpperCase()}</Text>
-            Outbound freight — billed separately at cost (itemized below); not
-            included in the turnkey total.
-          </Text>
-        )}
-        {anyUnpriced && (
-          <Text style={styles.grandNote}>
-            <Text style={styles.grandNoteK}>{"From   ".toUpperCase()}</Text>
-            Totals exclude lines marked {"“"}quote on request{"”"}
-            {unpricedPhrase !== null && ` (${unpricedPhrase})`}; the final
-            total issues once those lines are priced.
-          </Text>
-        )}
-      </View>
+      {/* Notes column under the grand row (CD `pdf-render.jsx:172`).
+          PER UNIT / INCLUDES / FROM removed 2026-08-20: those legends
+          explained how to READ the table rather than stating a commercial
+          fact, and their wrapping was colliding at preview width.
+          ALL-IN and PLUS deliberately REMAIN. They are inclusion and
+          exclusion disclosures — what the unit price already covers, and
+          what the turnkey total does not — which the customer relies on
+          commercially. Dropping PLUS in particular would silently remove
+          notice that outbound freight is billed on top. */}
+      {(allInUnit || freightAtCost) && (
+        <View style={styles.grandNotes}>
+          {allInUnit && (
+            <Text style={styles.grandNote}>
+              <Text style={styles.grandNoteK}>{"All-in   ".toUpperCase()}</Text>
+              Setup, tooling, freight, duty {"&"} tariffs are landed in the
+              unit price shown — the total is what you pay.
+            </Text>
+          )}
+          {freightAtCost && (
+            <Text style={[styles.grandNote, styles.grandNoteFreight]}>
+              <Text style={styles.grandNoteK}>{"Plus   ".toUpperCase()}</Text>
+              Outbound freight — billed separately at cost (itemized below);
+              not included in the turnkey total.
+            </Text>
+          )}
+        </View>
+      )}
     </View>
   );
 }

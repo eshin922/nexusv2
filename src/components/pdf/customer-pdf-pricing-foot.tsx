@@ -48,11 +48,17 @@ export function PricingFoot({
 }) {
   return (
     <View style={styles.tableFoot}>
-      <Text>
-        Per-unit and extended pricing, in USD.
-        {recommendedTierFullLabel !== null &&
-          ` ★ ${recommendedTierFullLabel} is our recommended first-PO tier.`}
-      </Text>
+      {/* "Per-unit and extended pricing, in USD." removed 2026-08-20 — a
+          reading instruction, not a commercial statement, and it was
+          colliding with the partial-pricing line at preview width.
+          The ★ sentence stays: it names the recommended tier from the
+          governed quote input (see the Pattern 45 note above) and is a
+          commercial recommendation the customer acts on. */}
+      {recommendedTierFullLabel !== null && (
+        <Text>
+          {`★ ${recommendedTierFullLabel} is our recommended first-PO tier.`}
+        </Text>
+      )}
       {partial && (
         <Text>
           quote on request — pricing finalizes once the noted milestone clears.
