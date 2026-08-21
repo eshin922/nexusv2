@@ -19,8 +19,16 @@ import { NextResponse } from "next/server";
 // `src/lib/slack/signature.ts`. It decides nothing itself: it establishes a
 // governed Nexus identity and delegates to the same authorization core the UI
 // uses, which re-reads authority from the database.
+// `/sso-callback` is public BY NECESSITY. It is the Enterprise SSO return
+// leg: at the moment the browser lands there the Clerk session does not exist
+// yet, so gating it would redirect to /sign-in before the handshake can
+// complete — an infinite loop that presents as a broken identity provider
+// rather than a misconfigured route. It grants nothing: it only finishes the
+// OAuth round trip, and the authorization check below runs on the destination
+// request that follows.
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
+  "/sso-callback(.*)",
   "/api/certification-status",
   "/api/slack/interactivity",
 ]);
