@@ -48,6 +48,27 @@ function emailAllowed(email: string | undefined): boolean {
   return extras.includes(normalized);
 }
 
+/**
+ * THE NEXUS ENTRANCE IS /sign-in. There is no second door.
+ *
+ * A Clerk instance's default `sign_in_url` is its hosted Account Portal —
+ * measured on this instance as `https://accounts.thedps.co/sign-in`. So
+ * `redirectToSignIn()` below sent every unauthenticated visit to a protected
+ * route out of the application entirely, onto a generic Clerk-branded page with
+ * an email field: not the approved surface, and not a page that even offers
+ * Continue with The DPS.
+ *
+ * The leak had always existed and stayed invisible, because the only two ways
+ * anyone had reached the splash were typing the URL and the unauthorized-email
+ * branch at the foot of this file, which builds the path explicitly.
+ *
+ * Stated in CODE rather than via NEXT_PUBLIC_CLERK_SIGN_IN_URL. An environment
+ * variable is invisible at the call site, drifts per environment, and is
+ * exactly the class of setting that reads as configured while being absent —
+ * which is how this reached production in the first place.
+ */
+const SIGN_IN_URL = "/sign-in";
+
 export const productionMiddleware = clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return;
 
@@ -70,8 +91,12 @@ export const productionMiddleware = clerkMiddleware(async (auth, req) => {
     }
   }
 
-  const url = new URL("/sign-in", req.url);
+  const url = new URL(SIGN_IN_URL, req.url);
   url.searchParams.set("error", "unauthorized");
   if (email) url.searchParams.set("email", email);
   return NextResponse.redirect(url);
-});
+},
+// `redirectToSignIn()` resolves THIS, not the ClerkProvider prop — the provider
+// is a client-side concern and never reaches middleware. Without it the call
+// falls back to the instance default, which is the hosted Account Portal.
+{ signInUrl: SIGN_IN_URL });
