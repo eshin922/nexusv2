@@ -16,14 +16,16 @@ import { UsersTable } from "./users-table";
 //
 // What stays placeholder (per R5 brief vocabulary "drawn-but-inert
 // for not-yet-built"):
-// - Role transitions (admin/pm/purchasing/...) edit affordance. v1
-//   stays DB-direct per pre-existing comment; UI is post-MVP scope.
-// - "+ Invite user" button — Clerk auto-provisions on sign-in; no
-//   admin-invite path exists today. Add when invite flow lands.
+// - Role transitions (admin/pm/purchasing/...) edit affordance. Still
+//   DB-direct; a create form is not a role-management surface, and
+//   editing an existing person's authority is its own decision.
 //
-// v1 scope unchanged from RI.7: phone-only inline edit. The R5
-// presentation makes the page belong with the rest of the admin
-// surfaces without expanding feature scope.
+// The "+ Invite user" placeholder is now "+ Add User" and real. Its
+// former note ("Clerk auto-provisions on sign-in") described a
+// mechanism that no longer exists: auto-provisioning was removed, and
+// a first sign-in now BINDS to a pre-authorized row or is refused. So
+// this surface is the only way an employee gets into Nexus, which is
+// why it exists rather than staying drawn-but-inert.
 
 export default async function AdminUsersPage() {
   await requireAdminPage();
@@ -38,11 +40,12 @@ export default async function AdminUsersPage() {
           Manage <em>users</em>
         </h1>
         <p className="sub">
-          Users are auto-provisioned via Clerk sign-in. The load-bearing
-          edit here is <strong style={{ color: "var(--ink)" }}>phone</strong>{" "}
-          — it populates the PreparedBy block on customer-facing PDFs.
-          HubSpot doesn&rsquo;t sync phone, so it&rsquo;s admin-managed
-          manually.
+          An employee reaches Nexus only if they are added here first — a
+          sign-in with no record waiting for it is refused, not enrolled.
+          The load-bearing edit is{" "}
+          <strong style={{ color: "var(--ink)" }}>phone</strong>: it populates
+          the PreparedBy block on customer-facing PDFs, and HubSpot
+          doesn&rsquo;t sync it.
         </p>
       </div>
 
@@ -53,18 +56,21 @@ export default async function AdminUsersPage() {
           name: r.name,
           role: r.role,
           phone: r.phone,
+          bindingState: r.bindingState,
         }))}
       />
 
       <div className="r5-dn">
         <span className="lbl">Designer note</span>
-        Phone is the only field this surface lets you edit; name + email
-        come from Clerk, and role transitions are DB-direct in v1. Once
-        we have an invite-flow (admin pre-creates user, role gets picked
-        before first sign-in) plus a role-edit affordance, this surface
-        grows two more click-Edit columns. Re-evaluate the table shape
-        when that scope lands — at three editable columns the
-        click-Edit-the-whole-row pattern starts to crowd.
+        Add User creates the record; it does not grant anything beyond the
+        role. Approval authority, spec and leaf permissions stay separate
+        grants, because each is a decision someone should have to make on
+        purpose rather than inherit from a hiring form. Editing an existing
+        person&rsquo;s role is likewise not here — changing what someone can
+        already reach is a different act from deciding what they start with.
+        Phone remains the one inline edit. When role editing does land, this
+        table grows a second click-Edit column and the row-becomes-editor
+        pattern will want re-examining.
       </div>
     </div>
   );
