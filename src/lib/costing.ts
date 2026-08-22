@@ -21,7 +21,7 @@ import {
 //
 //   factoryCost/unit  = packagingCost/unit
 //                       + productionCost/unit (when allocate_service_fees=true)
-//                       + rawCost/unit (when not customer_ships_raws)
+//                       + rawCost/unit (unconditional)
 //
 //   Freight is per-quote, not per-SKU (R6.2 Gap 22 disposition). The
 //   journey is a sequence of legs grouped into one or more
@@ -201,7 +201,6 @@ export type CostingPackagingInput = {
 export type CostingProductionInput = {
   quoteSkuId: string;
   tierId: string;
-  customerShipsRaws: boolean;
   allocateServiceFeesToCost: boolean;
   fillingBlendingCost: number | null;
   cmAssemblyTotal: number | null;
@@ -1788,10 +1787,9 @@ function computeLeafPerTier(args: {
   let internalProductionCogsPerUnit = 0;
   let allocatedServiceFeesPerUnit = 0;
   let bulkRawTotal = 0;
-  // `rawCost` is 0 in two DIFFERENT situations — nothing was entered, or a
-  // decision excluded what was entered. The scalar cannot tell them apart,
-  // which is exactly why `flagged-out` is a kind rather than a zero.
-  let rawExcludedByCustomerShipping = false;
+  // `rawCost` is now 0 in exactly one situation: nothing was entered. The
+  // second situation — an entered value excluded by a decision — was
+  // `customer_ships_raws`, which is retired. Raw inclusion is unconditional.
   // The run TOTALS are formed unconditionally, because they are facts about
   // what was entered and do not depend on the tier having a quantity. Only the
   // per-unit amortization is guarded — dividing by zero units is what is
@@ -1859,18 +1857,17 @@ function computeLeafPerTier(args: {
       internalProductionCogsPerUnit + allocatedServiceFeesPerUnit;
     separateServiceFees = 0;
 
-    rawExcludedByCustomerShipping = production.customerShipsRaws;
-    if (!production.customerShipsRaws) {
-      const bulk = num(production.bulkRawCost);
-      rawCost = denom > 0 ? bulk / denom : 0;
-    }
+    // Unconditional. `customer_ships_raws` used to gate this, and was false on
+    // every row in the database — so this is the branch all live data already
+    // took, not a new behaviour.
+    const bulk = num(production.bulkRawCost);
+    rawCost = denom > 0 ? bulk / denom : 0;
   }
   // Same class of fact as the totals above, and retained for the same reason:
   // the flagged-out node states WHAT was excluded, and a reason without the
   // amount tells an operator that something was left out but not what it
   // would have cost them.
   bulkRawTotal = num(production?.bulkRawCost);
-  rawExcludedByCustomerShipping = Boolean(production?.customerShipsRaws);
 
   // BV-013 · strict. No `Other`, no firm fallback.
   //
@@ -2035,24 +2032,11 @@ function computeLeafPerTier(args: {
     const RAW_PROVISIONAL =
       "Provisional — the pricing-active bulk raw value. Quote-level ingredient rows are a separate, unconnected representation and are not the arithmetic source of this price.";
 
-    if (rawExcludedByCustomerShipping) {
-      // NOT a zero. An input that exists was excluded by a decision. A
-      // zero-valued markup node and this node carry different facts, and the
-      // scalar alone cannot tell them apart — which is why this is a kind.
-      rawSectionNode = {
-        key: rawBase,
-        kind: "flagged-out",
-        label: "Bulk raw",
-        value: 0,
-        unit: "usd",
-        reason:
-          "Customer ships raws — " + money(bulkRawTotal) +
-          " of bulk raw cost is excluded from the quoted price.",
-        note: RAW_PROVISIONAL,
-        noteLevel: "warn",
-      };
-      cellSections.push(rawSectionNode);
-    } else {
+    {
+      // Formerly an if/else on `customer_ships_raws`: the true arm emitted a
+      // `flagged-out` node saying the entered raw cost had been excluded. That
+      // arm was reachable by no row in the database and is retired, so bulk raw
+      // is always a priced `markup` node.
       rawSectionNode = {
         key: rawBase,
         kind: "markup",

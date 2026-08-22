@@ -7,8 +7,13 @@
  * the last rung of the markup resolution ladder:
  *
  *   assembly_leaf_overrides                        0 rows  ->  `override`
- *   assembly_production_inputs.customer_ships_raws 0 rows  ->  `flagged-out`
  *   FALLBACK_MARKUP                                never reached
+ *
+ * A third stood here: `assembly_production_inputs.customer_ships_raws`, which
+ * emitted `flagged-out`. It was 0 rows then and it is GONE now — the Production
+ * cleanup retired the branch rather than leaving an economic path nothing
+ * reaches. Its coverage is replaced by the positive contract that an entered
+ * bulk raw cost is always priced.
  *
  * That third one was found the hard way: perturbing `FALLBACK_MARKUP` by 1e-8
  * changed nothing and the preservation check passed. The check was measuring
@@ -84,7 +89,6 @@ function prod(over: Partial<CostingProductionInput> = {}): CostingProductionInpu
   return {
     quoteSkuId: LEAF,
     tierId: TIER,
-    customerShipsRaws: false,
     allocateServiceFeesToCost: true,
     fillingBlendingCost: 0,
     cmAssemblyTotal: 0,
@@ -165,46 +169,26 @@ test("override · zero is a real override, not an absent one", () => {
   assert.equal(r.requiredSellPerUnit, 0);
 });
 
-// ------------------------------------------------------------- flagged-out
+// --------------------------------------------- bulk raw (exclusion retired)
 
-test("flagged-out · customer-shipped raws contribute zero, and it is not merely a zero cost", () => {
-  const shipped = cell(
-    computeQuoteCosting(
-      input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 5000 })] }),
-    ),
+test("bulk raw · an entered cost is always priced; there is no exclusion path", () => {
+  // Two tests stood here covering `customer_ships_raws` — the branch that
+  // excluded an entered bulk raw cost. It was one of the three behaviours no
+  // production data reached (0 rows), and it is now REMOVED rather than merely
+  // untested. What replaces them is the positive contract: an entered cost
+  // always reaches unit cost.
+  const priced = cell(
+    computeQuoteCosting(input({ production: [prod({ bulkRawCost: 5000 })] })),
   );
-  const notShipped = cell(
-    computeQuoteCosting(
-      input({ production: [prod({ customerShipsRaws: false, bulkRawCost: 5000 })] }),
-    ),
-  );
+  assert.equal(priced.rawCostPerUnit, 5000 / 1000);
+  assert.ok(priced.rawMarkupSumPerUnit > 0, "and it carries markup");
 
-  assert.equal(shipped.rawCostPerUnit, 0, "excluded input contributes nothing");
-  assert.equal(shipped.rawMarkupSumPerUnit, 0, "and carries no markup either");
-
-  // The distinction the `flagged-out` kind exists to make: this is not "raw
-  // cost happened to be zero". The input has a value of 5000; a decision
-  // excluded it. Without the flag both cases look identical downstream.
-  assert.equal(notShipped.rawCostPerUnit, 5000 / 1000);
-  assert.ok(notShipped.rawCostPerUnit > 0);
-  assert.ok(
-    notShipped.contributionCostPerUnit > shipped.contributionCostPerUnit,
-    "excluding the input must change the cost it would otherwise have added",
-  );
-});
-
-test("flagged-out · a genuinely absent bulk raw cost is indistinguishable in value from an excluded one", () => {
   const absent = cell(computeQuoteCosting(input({ production: [prod({ bulkRawCost: null })] })));
-  const excluded = cell(
-    computeQuoteCosting(
-      input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 5000 })] }),
-    ),
-  );
-  // Both are 0.00. This is precisely why the reason must be carried as node
-  // metadata rather than inferred from the value — the scalar cannot tell a
-  // reader which of the two happened.
   assert.equal(absent.rawCostPerUnit, 0);
-  assert.equal(excluded.rawCostPerUnit, 0);
+  assert.ok(
+    priced.contributionCostPerUnit > absent.contributionCostPerUnit,
+    "an entered bulk raw cost must move contribution cost",
+  );
 });
 
 // ------------------------------------------------- markup resolution ladder

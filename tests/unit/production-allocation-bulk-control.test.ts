@@ -127,91 +127,73 @@ function fn(src: string, name: string): string {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-test("the quote-level control reads the aggregate, never one product's row", async () => {
-  const body = fn(await code(), "SectionToggles");
-  assert.match(body, /allocation === "mixed"/, "mixed is not rendered distinctly");
+// ── the controls are gone; the READING is not ────────────────────────────
+//
+// Six tests stood here guarding the two Production toggles: aggregate display,
+// the raws fan-out's anti-flatten carry, per-control pending state, the
+// disabled explanation, and label uniqueness. Every one of them asserted a
+// control that no longer exists.
+//
+// They are replaced by the contract that actually matters now — the surface no
+// longer WRITES either field, and still READS allocation to place one-time
+// fees. Deleting them outright would have left the removal with no contract at
+// all, which is how a control quietly comes back.
 
-  // Scoped to the RENDER. `policy` is the first leaf's persisted row, and
-  // displaying its allocation as the quote's is the defect that got the old
-  // control removed. The write path may still fall back to it when an assembly
-  // has no persisted row of its own — that is a default for a value being
-  // created, not a claim about the quote, and narrowing to the render is what
-  // tells the two apart. An instrument that cannot is worse than none: it
-  // fails on correct code and gets relaxed until it fails on nothing.
-  const render = body.slice(body.indexOf("\n  return ("));
-  assert.notEqual(render, "", "the render could not be located");
-  assert.doesNotMatch(
-    render,
-    /policy\.allocateServiceFeesToCost/,
-    "the section control displays one product's allocation as the quote's",
-  );
-});
-
-test("the raws fan-out still carries each assembly's OWN allocation", async () => {
-  // The anti-flatten guard on the sibling control. `updateAssemblyProductionPolicy`
-  // rewrites the whole row, so a raws toggle that sent the section's allocation
-  // would flatten A=ON / B=OFF as a side effect of an unrelated decision.
-  const body = fn(await code(), "SectionToggles");
-  assert.match(
-    body,
-    /policyByAssembly\.get\(asm\.id\)\?\.allocateServiceFeesToCost/,
-    "the raws fan-out no longer preserves per-assembly allocation",
-  );
-});
-
-test("the bulk allocation write carries each assembly's OWN raws and notes", async () => {
-  // Mirror image of the above, one field over.
-  const body = fn(await code(), "SectionToggles");
-  const bulk = body.slice(body.indexOf("function bulkSetAllocation"));
-  assert.match(bulk, /own\?\.customerShipsRaws/);
-  assert.match(bulk, /own\?\.notes/);
-});
-
-test("the two controls hold separate pending state", async () => {
-  // Pattern 47(f): a control may be disabled only by the action IT initiates.
-  // One shared transition would make an in-flight raws write disable allocation
-  // with nothing on screen explaining it.
-  const body = fn(await code(), "SectionToggles");
-  assert.match(body, /const \[rawsPending, startRaws\] = useTransition\(\)/);
-  assert.match(body, /const \[allocPending, startAlloc\] = useTransition\(\)/);
-  assert.doesNotMatch(
-    body,
-    /disabled=\{disabled \|\| rawsPending \|\| noAssemblies\}/,
-    "the allocation control is gated by the raws transition",
-  );
-});
-
-test("the disabled state says why", async () => {
-  // Pattern 47(f): a greyed control with no explanation is not acceptable
-  // operator behaviour. `none` is the only state that disables this control.
-  const body = fn(await code(), "SectionToggles");
-  assert.match(body, /noAssemblies[\s\S]{0,120}?No assemblies on this quote/);
-});
-
-test("there is exactly ONE control bearing this label", async () => {
-  // Quote-wide authority, one control. Two controls sharing a label — one
-  // quote-level, one per-product — read as a duplicate rather than as two
-  // scopes, which is why the per-assembly affordance is deliberately absent
-  // rather than pending.
-  //
-  // A future slice restoring per-assembly authoring is a business decision, not
-  // a refactor: it fails here and has to say so.
+test("the Production surface writes neither policy field", async () => {
   const src = await code();
-  assert.doesNotMatch(src, /AssemblyAllocationToggle/);
-  const labels = src.match(/Allocate service fees to unit cost/g) ?? [];
-  assert.equal(labels.length, 1, `${labels.length} controls carry the label`);
+  // The acceptance condition for retiring `customer_ships_raws`: no active path
+  // writes it. Asserted on the surface that used to be its only writer.
+  assert.doesNotMatch(src, /customerShipsRaws/, "the retired raws flag is back");
+  assert.doesNotMatch(
+    src,
+    /fd\.set\("allocateServiceFeesToCost"/,
+    "the Production surface writes allocation again",
+  );
+  assert.doesNotMatch(src, /function bulkSetAllocation/);
+  assert.doesNotMatch(src, /function flipToggle/);
 });
 
-test("divergent data is still written per assembly, not collapsed", async () => {
-  // Authoring is quote-wide; the WRITE is still per assembly. That is what
-  // keeps a pre-existing divergent value preserved through an unrelated raws
-  // toggle and still visible as `mixed`. If this ever became a single write,
-  // the per-assembly column would be dead and the aggregate meaningless —
-  // which is a Production/OTC decision, not a tidy-up.
-  const body = fn(await code(), "SectionToggles");
-  const bulk = body.slice(body.indexOf("function bulkSetAllocation"));
-  assert.match(bulk, /for \(const asm of assemblies\)/);
-  assert.match(bulk, /fd\.set\("quoteSkuId", asm\.id\)/);
+test("neither control's label appears on the Production surface", async () => {
+  const src = await code();
+  for (const label of [
+    "Customer ships raws",
+    "Allocate service fees to unit cost",
+  ]) {
+    const hits = (src.match(new RegExp(label, "g")) ?? []).filter(Boolean);
+    // Comments may explain WHY a control was removed; a rendered label may not
+    // reappear. Counted against JSX text rather than the whole file.
+    const rendered = (src.match(new RegExp(`<div className="lab">${label}`, "g")) ?? []).length;
+    assert.equal(rendered, 0, `${label} is rendered again (${hits.length} textual mentions)`);
+  }
+});
+
+test("allocation is still READ to place one-time fees", async () => {
+  // "Remove the control, keep the behaviour." The value still decides whether a
+  // one-time fee allocates into unit cost or invoices separately, and that
+  // reading must survive the control's removal.
+  const src = await code();
+  assert.match(src, /line\.kind === "one_time_fee" && policy\.allocateServiceFeesToCost/);
+  assert.match(src, /line\.kind === "one_time_fee" && !policy\.allocateServiceFeesToCost/);
+});
+
+test("storage stays per assembly — the invariant outlived its control", async () => {
+  // Was asserted against `bulkSetAllocation`'s per-assembly loop. That handler
+  // went with its control, but THE INVARIANT DID NOT: allocation is still
+  // stored per assembly, so a pre-existing divergent value survives and still
+  // reads `mixed`. Collapsing to one row would make the column dead and the
+  // aggregate a lie — a Production/OTC decision, not a tidy-up.
+  //
+  // Re-anchored on the action, which is where the write actually lives now.
+  const action = await readFile(
+    fileURLToPath(new URL("../../src/app/actions/assembly-production-inputs.ts", import.meta.url)),
+    "utf8",
+  );
+  assert.match(action, /eq\(assemblyProductionInputs\.assemblyId, assemblyId\)/);
+  assert.doesNotMatch(
+    action,
+    /customerShipsRaws/,
+    "the action still writes the retired raws flag",
+  );
 });
 
 test("the section header states the aggregate, not the first leaf's row", async () => {

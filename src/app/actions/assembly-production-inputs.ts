@@ -57,7 +57,6 @@ export type ProductionCellSnapshot = {
 
 export type ProductionPolicySnapshot = {
   quoteSkuId: string;
-  customerShipsRaws: boolean;
   allocateServiceFeesToCost: boolean;
   notes: string | null;
 };
@@ -220,20 +219,18 @@ export async function upsertAssemblyProductionInputs(
       // sibling rows. When #126's per-cell fix started actually
       // reaching this INSERT branch (previously silently no-op'd
       // due to leaf-vs-assembly ID mismatch), fresh rows were
-      // getting schema defaults (customerShipsRaws=false,
-      // allocateServiceFeesToCost=true). If the PM had previously
+      // getting schema defaults (allocateServiceFeesToCost=true).
+      // If the PM had previously
       // toggled allocate=false on another tier row for this
       // assembly, the new tier row inherited a CONFLICTING policy
       // (alloc=true) — resolver picked the first row arbitrarily
       // and rendered accordingly, silently violating PM intent.
       //
       // Fix: look up any existing sibling row for this assembly
-      // and inherit customerShipsRaws + allocateServiceFeesToCost
-      // + notes. Only fall back to schema defaults when NO sibling
+      // and inherit allocateServiceFeesToCost + notes. Only fall back to schema defaults when NO sibling
       // exists (this is the true first-touch on the assembly).
       const siblingRows = await db
         .select({
-          customerShipsRaws: assemblyProductionInputs.customerShipsRaws,
           allocateServiceFeesToCost:
             assemblyProductionInputs.allocateServiceFeesToCost,
           notes: assemblyProductionInputs.notes,
@@ -244,7 +241,6 @@ export async function upsertAssemblyProductionInputs(
       const inheritedPolicy =
         siblingRows.length > 0
           ? {
-              customerShipsRaws: siblingRows[0].customerShipsRaws,
               allocateServiceFeesToCost:
                 siblingRows[0].allocateServiceFeesToCost,
               notes: siblingRows[0].notes,
@@ -395,13 +391,11 @@ export async function updateAssemblyProductionPolicy(
     // whether a fee is billed separately, which is an economic statement.
     assertDraft(quote);
 
-    const newCustomerShipsRaws = parseBool(formData.get("customerShipsRaws"));
     const newAllocate = parseBool(formData.get("allocateServiceFeesToCost"));
     const newNotes = trimOrNull(formData.get("notes"));
 
     const beforeRows = await db
       .select({
-        customerShipsRaws: assemblyProductionInputs.customerShipsRaws,
         allocateServiceFeesToCost:
           assemblyProductionInputs.allocateServiceFeesToCost,
         notes: assemblyProductionInputs.notes,
@@ -442,7 +436,6 @@ export async function updateAssemblyProductionPolicy(
         quoteTierRows.map((t) => ({
           assemblyId,
           tierId: t.id,
-          customerShipsRaws: newCustomerShipsRaws,
           allocateServiceFeesToCost: newAllocate,
           notes: newNotes,
         })),
@@ -454,10 +447,6 @@ export async function updateAssemblyProductionPolicy(
         entityId: assemblyId,
         action: "assembly_production_policy_updated",
         diffJson: {
-          customer_ships_raws: {
-            from: DEFAULT_ASSEMBLY_POLICY.customerShipsRaws,
-            to: newCustomerShipsRaws,
-          },
           allocate_service_fees_to_cost: {
             from: DEFAULT_ASSEMBLY_POLICY.allocateServiceFeesToCost,
             to: newAllocate,
@@ -473,7 +462,6 @@ export async function updateAssemblyProductionPolicy(
 
       return {
         quoteSkuId: assemblyId,
-        customerShipsRaws: newCustomerShipsRaws,
         allocateServiceFeesToCost: newAllocate,
         notes: newNotes,
       };
@@ -481,12 +469,6 @@ export async function updateAssemblyProductionPolicy(
     const before = beforeRows[0];
 
     const diff: Diff = {};
-    if (before.customerShipsRaws !== newCustomerShipsRaws) {
-      diff.customer_ships_raws = {
-        from: before.customerShipsRaws,
-        to: newCustomerShipsRaws,
-      };
-    }
     if (before.allocateServiceFeesToCost !== newAllocate) {
       diff.allocate_service_fees_to_cost = {
         from: before.allocateServiceFeesToCost,
@@ -500,7 +482,6 @@ export async function updateAssemblyProductionPolicy(
     if (Object.keys(diff).length === 0) {
       return {
         quoteSkuId: assemblyId,
-        customerShipsRaws: before.customerShipsRaws,
         allocateServiceFeesToCost: before.allocateServiceFeesToCost,
         notes: before.notes,
       };
@@ -509,7 +490,6 @@ export async function updateAssemblyProductionPolicy(
     await db
       .update(assemblyProductionInputs)
       .set({
-        customerShipsRaws: newCustomerShipsRaws,
         allocateServiceFeesToCost: newAllocate,
         notes: newNotes,
         updatedAt: new Date(),
@@ -528,7 +508,6 @@ export async function updateAssemblyProductionPolicy(
 
     return {
       quoteSkuId: assemblyId,
-      customerShipsRaws: newCustomerShipsRaws,
       allocateServiceFeesToCost: newAllocate,
       notes: newNotes,
     };

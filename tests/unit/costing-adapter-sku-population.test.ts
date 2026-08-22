@@ -227,7 +227,6 @@ test("production data anchors to the lowest-position leaf, by canonical order", 
           // omitted, so this fixture states which owner it is exercising.
           quoteLeafId: null,
           tierId: TIER_A,
-          customerShipsRaws: false,
           allocateServiceFeesToCost: true,
           fillingBlendingCost: "100",
           cmAssemblyTotal: null,

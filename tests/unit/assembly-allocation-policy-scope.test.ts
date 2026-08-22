@@ -89,7 +89,6 @@ const prod = (
 ): CostingProductionInput => ({
   quoteSkuId: leafId,
   tierId: TIER,
-  customerShipsRaws: false,
   allocateServiceFeesToCost: alloc,
   fillingBlendingCost: 0,
   cmAssemblyTotal: 0,

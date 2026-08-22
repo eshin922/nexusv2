@@ -45,7 +45,7 @@ function input(over: Partial<QuoteCostingInput> = {}): QuoteCostingInput {
       unitCost: 10, qtyPerSellableUnit: 1, category: "Primary", markupPct: 0.4,
     }],
     production: [{
-      quoteSkuId: SKU, tierId: TIER, customerShipsRaws: false,
+      quoteSkuId: SKU, tierId: TIER,
       allocateServiceFeesToCost: true, fillingBlendingCost: 1, cmAssemblyTotal: 2,
     } as QuoteCostingInput["production"][number]],
     freightLegGroups: [], freightLegs: [], freightLegTiers: [],
@@ -107,7 +107,7 @@ test("a packaging MARKUP change is economic too", () => {
 test("production / bulk raw change → refusal", () => {
   const moved = fp({
     production: [{
-      quoteSkuId: SKU, tierId: TIER, customerShipsRaws: false,
+      quoteSkuId: SKU, tierId: TIER,
       allocateServiceFeesToCost: true, fillingBlendingCost: 9, cmAssemblyTotal: 2,
     } as QuoteCostingInput["production"][number]],
   });

@@ -359,7 +359,6 @@ export default async function CostBuildPage({
       id: string;
       quoteSkuId: string;
       tierId: string;
-      customerShipsRaws: boolean;
       allocateServiceFeesToCost: boolean;
       notes: string | null;
       fillingBlendingCost: string | null;
@@ -577,7 +576,6 @@ export default async function CostBuildPage({
         // the semantic is assembly.id.
         quoteSkuId: api.assemblyId,
         tierId: api.tierId,
-        customerShipsRaws: api.customerShipsRaws,
         allocateServiceFeesToCost: api.allocateServiceFeesToCost,
         notes: api.notes,
         fillingBlendingCost: api.fillingBlendingCost,

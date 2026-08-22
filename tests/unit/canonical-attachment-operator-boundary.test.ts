@@ -121,24 +121,23 @@ test("production service-fee cells roll back on the thrown path too", () => {
   assert.match(production, /updateProductionCell\(sku\.id, tier\.id/);
 });
 
-test("a rejected production policy write is surfaced, not silently swallowed", () => {
-  // Was: assert the two console.error strings. A thrown write not escaping the
-  // transition is necessary but not sufficient — the control renders from the
-  // RSC prop, so a rejected write leaves the OLD value on screen, which is
-  // visually identical to "nothing happened". Logging to the console does not
-  // reach the operator.
+test("the Production surface no longer writes policy, so it needs no error slot", () => {
+  // Was: BOTH quote-level Production controls write policy, so both governed
+  // rejection and thrown error must land in operator-visible state — count 2.
   //
-  // Both failure paths — a governed `{ok:false}` and a thrown error — must now
-  // land in operator-visible state. The count is 2 because BOTH quote-level
-  // Production controls write policy: Customer ships raws and Allocate service
-  // fees. A new writer without an error slot drops the count and fails here.
-  const rejected = production.match(/setWriteError\(res\.error\.message\)/g) ?? [];
-  const threw = production.match(/setWriteError\(\s*\n?\s*e instanceof Error/g) ?? [];
-  assert.ok(rejected.length >= 2, `governed rejection surfaced (${rejected.length})`);
-  assert.ok(threw.length >= 2, `thrown error surfaced (${threw.length})`);
-  // And it must actually render, not just be held in state.
-  assert.match(production, /r6-prod-toggle-error/);
-  assert.match(production, /Could not save:/);
-  // No path may go back to console-only.
+  // The count is now ZERO. Both controls were removed: `Customer ships raws`
+  // retired outright, allocation moved to the Commercial Recovery redesign.
+  // A write with no error slot is the defect that test existed to catch, so
+  // the honest successor asserts there is no write — and that the error
+  // machinery went with it rather than being left as an orphan.
+  for (const gone of [
+    /setWriteError\(/,
+    /r6-prod-toggle-error/,
+    /function flipToggle/,
+    /function bulkSetAllocation/,
+  ]) {
+    assert.doesNotMatch(production, gone, `${gone} survived its control`);
+  }
+  // And no path may go back to console-only reporting if a writer returns.
   assert.doesNotMatch(production, /console\.error\("\[production-policy\]/);
 });

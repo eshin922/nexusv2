@@ -47,7 +47,6 @@ function input(overrides: Partial<QuoteCostingInput["production"][number]> = {})
       {
         quoteSkuId: "leaf",
         tierId: "tier",
-        customerShipsRaws: false,
         allocateServiceFeesToCost: true,
         fillingBlendingCost: 100,
         cmAssemblyTotal: 50,
@@ -104,19 +103,23 @@ test("filling and CM remain COGS when one-time fee allocation is disabled", () =
   assert.equal(result.requiredSellPerUnit, 9.5);
 });
 
-test("customer-supplied bulk raw gates bulk raw only", () => {
+test("bulk raw is included unconditionally — nothing gates it out", () => {
+  // Replaces "customer-supplied bulk raw gates bulk raw only". That gate is
+  // retired: `customer_ships_raws` was false on every row, so this asserts the
+  // path all live data already took, now as the only path.
   const result = leaf(
-    computeQuoteCosting(
-      input({
-        customerShipsRaws: true,
-        allocateServiceFeesToCost: false,
-      }),
-    ),
+    computeQuoteCosting(input({ allocateServiceFeesToCost: false })),
   );
   assert.equal(result.packagingCostPerUnit, 6);
   assert.equal(result.productionCostPerUnit, 1.5);
-  assert.equal(result.rawCostPerUnit, 0);
-  assert.equal(result.factoryCostPerUnit, 7.5);
+  assert.ok(
+    result.rawCostPerUnit > 0,
+    "an entered bulk raw cost reaches unit cost with no gate in front of it",
+  );
+  assert.equal(
+    result.factoryCostPerUnit,
+    result.packagingCostPerUnit + result.productionCostPerUnit + result.rawCostPerUnit,
+  );
 });
 
 test("one-time fees are included exactly once only when allocated", () => {

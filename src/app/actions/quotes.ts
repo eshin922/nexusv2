@@ -806,7 +806,7 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
   // tier) — production policy lives at assembly level in NEW model.
   // Walk every assembly in the quote, inherit policy from any existing
   // production row for that assembly (so the new tier gets the
-  // assembly's current customer_ships_raws / allocate_service_fees_to_cost
+  // assembly's current allocate_service_fees_to_cost
   // / notes), insert one row per assembly at the new tier.
   const quoteAssemblies = await db
     .select({ id: assemblies.id })
@@ -818,7 +818,6 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
     const existingPolicy = await db
       .selectDistinctOn([assemblyProductionInputs.assemblyId], {
         assemblyId: assemblyProductionInputs.assemblyId,
-        customerShipsRaws: assemblyProductionInputs.customerShipsRaws,
         allocateServiceFeesToCost:
           assemblyProductionInputs.allocateServiceFeesToCost,
         notes: assemblyProductionInputs.notes,
@@ -834,7 +833,6 @@ export async function addTier(formData: FormData): Promise<ActionResult<void>> {
         return {
           assemblyId: a.id,
           tierId: tier.id,
-          customerShipsRaws: p?.customerShipsRaws ?? false,
           allocateServiceFeesToCost: p?.allocateServiceFeesToCost ?? true,
           notes: p?.notes ?? null,
           // per-tier costs intentionally null — PM fills in.
@@ -1129,7 +1127,7 @@ export async function moveTier(formData: FormData): Promise<ActionResult<void>> 
 // - `preservedProductionPolicy` (assembly_production_inputs
 //   denormalized policy per assembly, NOT per leaf — production
 //   policy lives at assembly level in NEW model): preserves
-//   customer_ships_raws/allocate_service_fees_to_cost/notes;
+//   allocate_service_fees_to_cost/notes;
 //   per-tier costs reset.
 // - `preservedFreightLegs` (legs survive tier wipe via leg-quote
 //   FK; only per-(leg, tier) rate rows cascade-delete): freight
@@ -1203,7 +1201,6 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
   const preservedProductionPolicy = await db
     .selectDistinctOn([assemblyProductionInputs.assemblyId], {
       assemblyId: assemblyProductionInputs.assemblyId,
-      customerShipsRaws: assemblyProductionInputs.customerShipsRaws,
       allocateServiceFeesToCost:
         assemblyProductionInputs.allocateServiceFeesToCost,
       notes: assemblyProductionInputs.notes,
@@ -1341,7 +1338,6 @@ export async function applyTierPreset(formData: FormData): Promise<ActionResult<
           seedRows.push({
             assemblyId: policy.assemblyId,
             tierId: tier.id,
-            customerShipsRaws: policy.customerShipsRaws,
             allocateServiceFeesToCost: policy.allocateServiceFeesToCost,
             notes: policy.notes,
           });
@@ -3620,7 +3616,6 @@ export async function cloneQuoteGraph(
           assemblyId: newAsyId,
           quoteLeafId: newLeafId,
           tierId: newTierId,
-          customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
           notes: r.notes,
           fillingBlendingCost: r.fillingBlendingCost,

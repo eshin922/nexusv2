@@ -1111,8 +1111,12 @@ test("§1 · the assembly row holds identity only; allocation moved to the secti
   assert.doesNotMatch(src, /rolls up from leaf children/);
   assert.doesNotMatch(src, /AssemblyAllocationToggle/);
 
-  // Per-assembly write, from the section-head control.
-  assert.match(src, /for \(const asm of assemblies\)[\s\S]{0,600}?fd\.set\("quoteSkuId", asm\.id\)/);
+  // The section-head WRITE is gone — the allocation control moved to the
+  // Commercial Recovery redesign, and `Customer ships raws` was retired
+  // outright. The aggregate READ stays: per-assembly storage is still what
+  // makes `mixed` meaningful, and the section head still reports it.
+  assert.doesNotMatch(src, /function bulkSetAllocation/);
+  assert.doesNotMatch(src, /customerShipsRaws/);
   assert.match(src, /aggregateAllocation\(policyByAssembly\.values\(\)\)/);
 
   // Full contract: tests/unit/production-allocation-bulk-control.test.ts
