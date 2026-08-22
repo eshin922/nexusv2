@@ -292,3 +292,110 @@ SEND snapshot are frozen.
    carries forward.)
 3. Does the quote-level UI show `per_assembly` as a selectable state, or infer
    it and show "mixed"? The former is honest; the latter is fewer concepts.
+
+---
+
+# Dispositions — recorded 2026-08-22, before implementation
+
+## D1 · Freight `separate_line` is decomposition, NOT a price increase
+
+**Approved contract.** This answers §10 question 1, and the answer is the
+conservative one: recovery is a presentation/decomposition lever, not a pricing
+lever.
+
+- `bundled` → freight stays embedded in unit pricing; no customer-facing
+  freight line.
+- `separate_line` → **remove the recovered freight amount from bundled unit
+  revenue and emit that same amount as a separate freight line.**
+- **Total customer revenue is IDENTICAL when toggling only
+  `bundled ↔ separate_line`.**
+- Any already-governed freight markup/recovery amount **moves with** the freight
+  component. It is never duplicated.
+- "Charge freight on top" is a **separate, explicit pricing decision**.
+  `separate_line` must not be overloaded with it.
+
+This keeps recovery and presentation out of pricing authority — the same
+separation Layer 1 gets from Layer 2.
+
+### The arithmetic, and the trap in it
+
+```
+freightPerUnit = perTier.totalLandedFreightWithMarkup   (recovered, with markup)
+newUnitRate    = requiredSellPerUnit − freightPerUnit
+freightLine(t) = Σ over unit lines ( freightPerUnit × lineQty )
+```
+
+Neutral by construction in exact arithmetic: the amount subtracted from the unit
+lines is the amount the freight line carries.
+
+**In IEEE-754 it is not automatically neutral.** Subtracting a component and
+re-adding it elsewhere need not reproduce the original bits — the OD-025 lesson,
+where a dimension-aware fold moved `blendedMarginPct` on three real quotes from
+a repair whose entire premise was that it moved no money.
+
+So, per that lesson:
+
+- **short-circuit the identity case**: `freightPerUnit === 0` leaves the rate
+  untouched rather than computing `rate − 0`;
+- the neutrality invariant is asserted **on the per-tier total**, which is where
+  the guarantee is owed, at a stated tolerance rather than an assumed one;
+- the test asserts the total is unchanged **and** that composition changed —
+  a test proving only the first would pass against a branch wired to nothing.
+
+## D2 · Revision behaviour
+
+The recovery profile is **editable on a draft revision**. Each revision owns its
+own live recovery state and freezes that state at SEND.
+
+**A sent revision never inherits later recovery changes from another revision.**
+This follows from the storage shape rather than needing a rule: the profile
+lives on `quotes`, and `reviseQuote` creates a NEW quote row. Each row carries
+its own columns, and `assertNotFrozen` prevents the sent one from moving.
+
+Answers §10 question 2.
+
+## D3 · Service-fee UI semantics
+
+`per_assembly` stays as the **model** state. The operator surface does not
+expose the implementation term:
+
+| model | operator label |
+|---|---|
+| `per_assembly` | **Keep item-level settings** |
+| `allocate` | **Allocate all** |
+| `separate` | **Bill separately** |
+
+When existing assembly values differ, the surface shows **`Mixed`** as the
+current state/summary. The operator can preserve item-level state or
+deliberately override every assembly.
+
+**Quote-level `allocate` / `separate` MUST NOT write assembly-level values.**
+Switching back to item-level behaviour restores the preserved exceptions. This
+is the model property from §1 stated as a UI requirement, and it is what makes
+"override" non-destructive.
+
+Answers §10 question 3.
+
+## D4 · Historical freight — corrected fact recorded
+
+- the sole existing `freight_treatment = pass_through` is on a **COMPLETE**
+  quote (Nemah 15ml, "NEXUS V1 ACCOUNTING REVIEW — SANDBOX · Item Group +
+  freight");
+- **no open draft currently exercises it**;
+- it remains **historical/internal metadata** and is **not migrated** into
+  commercial recovery.
+
+**No backfill from `freight_treatment`.** Confirms §4.
+
+## Test-matrix addition
+
+| # | case | expect |
+|---|---|---|
+| 13 | same bundle, `bundled` vs `separate_line` | internal costs **identical**, total customer revenue **identical**, line composition **different** |
+
+Case 13 is the contract of D1 made falsifiable. All three clauses are asserted:
+two constants and one change. Dropping the third would let a no-op branch pass.
+
+## Still out of scope
+
+Finished Quote UI polish · Accounting Invoice Guidance · stale-PR cleanup.
