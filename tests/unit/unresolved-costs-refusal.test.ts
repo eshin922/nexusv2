@@ -15,6 +15,7 @@ import {
  */
 
 const ROW: UnresolvedQuoteCost = {
+  source: "packaging",
   quoteLeafId: "11111111-1111-1111-1111-111111111111",
   assemblyLeafId: null,
   tierId: "22222222-2222-2222-2222-222222222222",

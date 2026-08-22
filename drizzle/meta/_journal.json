@@ -666,6 +666,13 @@
       "when": 1786320132000,
       "tag": "0096_snapshot_artifact_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1786320144000,
+      "tag": "0097_projects_is_test",
+      "breakpoints": true
     }
   ]
 }

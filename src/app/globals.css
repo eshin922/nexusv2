@@ -18,6 +18,7 @@
 @import "../styles/r12-pricing-workspace.css";
 /* Nexus extensions, last so they win. Never edited into the canonical files. */
 @import "../styles/r12-pricing-workspace-overrides.css";
+@import "../styles/r14-organizer.css";
 /* R13 — the Pricing decision hierarchy. After the r12 addendum, because it
    replaces the pre-grid stack those rules styled. */
 @import "../styles/r13-pricing-decision.css";

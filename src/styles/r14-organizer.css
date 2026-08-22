@@ -1,0 +1,483 @@
+/*
+ * Deal Organizer · R14
+ *
+ * ── WHY THIS IS NOT A VERBATIM PATTERN-30 ADOPTION ───────────────────────
+ *
+ * Pattern 30 says: copy the design source's CSS file in unchanged. There is no
+ * such file here. `Nexus Deal Organizer.dc.html` styles every node with an
+ * inline `style="..."` attribute and defines no classes at all, so there is
+ * nothing to adopt verbatim — the canonical artifact is the VALUES, not a
+ * stylesheet.
+ *
+ * So the values are carried across exactly and given class names here. Every
+ * number below (paddings, sizes, letter-spacings, the grid track, the 860px
+ * min-width) is read off the source rather than chosen.
+ *
+ * ── COLOUR IS TOKENISED, AND THAT IS NOT A DEVIATION ─────────────────────
+ *
+ * The source writes literal `oklch(...)`. Those literals are the repo's own
+ * tokens — source `oklch(0.985 0.006 85)` IS `--paper`, `oklch(0.20 0.02 255)`
+ * IS `--ink`, `oklch(0.88 0.012 85)` IS `--rule`, `oklch(0.42 0.14 255)` IS
+ * `--accent`. The design was authored against this palette; inlining the
+ * literals would ship a light-only surface that renders white-on-white in dark
+ * mode, which is the exact defect #348 fixed on Pricing.
+ *
+ * Three values the shared tokens do not carry get surface-local definitions
+ * with dark counterparts: `--r14-faint` (spec §5 "faint"), and the two paper
+ * tints the source uses for chrome (0.972 / 0.975 / 0.978 collapse to two).
+ */
+
+.r14 {
+  /* spec §5 · faint — one step lighter than --ink-3 (spec's "muted") */
+  --r14-faint: oklch(0.68 0.012 255);
+  /* chrome tints: header strips, table head, group heads, footer */
+  --r14-chrome: oklch(0.975 0.010 85);
+  --r14-chrome-2: oklch(0.978 0.008 85);
+  --r14-rule-soft: oklch(0.92 0.010 85);
+  --r14-rule-softer: oklch(0.94 0.008 85);
+
+  /* spec §5 · task tones by hue. Semantic, and separate from --accent. */
+  --r14-tone-returned: oklch(0.45 0.10 155);
+  --r14-tone-info: oklch(0.45 0.10 232);
+
+  background: var(--paper-2);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .r14 {
+    --r14-faint: oklch(0.58 0.012 255);
+    --r14-chrome: oklch(0.205 0.013 255);
+    --r14-chrome-2: oklch(0.185 0.012 255);
+    --r14-rule-soft: oklch(0.30 0.013 255);
+    --r14-rule-softer: oklch(0.26 0.013 255);
+    --r14-tone-returned: oklch(0.78 0.11 155);
+    --r14-tone-info: oklch(0.78 0.11 232);
+  }
+}
+
+[data-theme="dark"] .r14 {
+  --r14-faint: oklch(0.58 0.012 255);
+  --r14-chrome: oklch(0.205 0.013 255);
+  --r14-chrome-2: oklch(0.185 0.012 255);
+  --r14-rule-soft: oklch(0.30 0.013 255);
+  --r14-rule-softer: oklch(0.26 0.013 255);
+  --r14-tone-returned: oklch(0.78 0.11 155);
+  --r14-tone-info: oklch(0.78 0.11 232);
+}
+
+/* ── page frame ─────────────────────────────────────────────────────────── */
+
+.r14-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  padding: 26px 32px 20px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--r14-chrome-2);
+}
+.r14-eyebrow {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--r14-faint);
+  white-space: nowrap;
+}
+.r14-greeting {
+  font-family: var(--font-display, "Newsreader", Georgia, serif);
+  font-size: 29px;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.r14-spacer { flex: 1; }
+
+.r14-btn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+  border-radius: 7px;
+  padding: 9px 15px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 5px 14px color-mix(in oklch, var(--accent) 22%, transparent);
+}
+.r14-btn:hover { background: var(--accent-hover, var(--accent)); }
+
+.r14-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  align-items: start;
+  gap: 26px;
+  padding: 24px 32px 64px;
+}
+@media (max-width: 1100px) {
+  .r14-body { grid-template-columns: minmax(0, 1fr); }
+  .r14-rail { position: static !important; }
+}
+
+/* ── your next move ─────────────────────────────────────────────────────── */
+
+.r14-next {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 18px 22px 19px;
+  cursor: pointer;
+  color: inherit;
+}
+.r14-next:hover { background: var(--paper-2); }
+.r14-next-head { display: flex; align-items: center; gap: 10px; }
+.r14-next-label {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.r14-next-signal {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  color: var(--r14-faint);
+}
+.r14-next-row { display: flex; align-items: flex-end; gap: 28px; margin-top: 10px; }
+.r14-next-title {
+  font-family: var(--font-display, "Newsreader", Georgia, serif);
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.r14-next-sub {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: 5px;
+  line-height: 1.55;
+  max-width: 60ch;
+}
+.r14-next-cta {
+  flex: none;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+  border-radius: 7px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── filter chips ───────────────────────────────────────────────────────── */
+
+.r14-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 22px 0 14px;
+}
+.r14-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink-3);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.r14-chip:hover { border-color: var(--ink-3); }
+.r14-chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.r14-chip-count {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  opacity: 0.75;
+}
+.r14-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 300px;
+  margin-left: 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  border-radius: 7px;
+  padding: 7px 11px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+/* ── the table ──────────────────────────────────────────────────────────── */
+
+.r14-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  /* Spec §4: NEVER overflow:hidden — Status must not be droppable. */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.r14-grid {
+  /* Spec §4, verbatim. */
+  min-width: 860px;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 2.1fr) minmax(0, 120px) minmax(0, 1.5fr)
+    minmax(0, 96px) minmax(0, 96px) minmax(0, 84px);
+}
+.r14-thead {
+  background: var(--r14-chrome);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--r14-faint);
+}
+.r14-thead > div { padding: 9px 10px; }
+.r14-thead > div:first-child { padding-left: 14px; }
+.r14-thead > div:last-child { padding-right: 14px; }
+.r14-num { text-align: right; }
+
+.r14-group-head {
+  min-width: 860px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--r14-chrome);
+  border-bottom: 1px solid var(--r14-rule-soft);
+}
+.r14-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.r14-dot-needs_you { background: var(--accent); }
+.r14-dot-with_customer { background: var(--r14-tone-info); }
+.r14-dot-no_action { background: var(--r14-faint); }
+.r14-group-label {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.r14-group-count {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9.5px;
+  color: var(--r14-faint);
+}
+.r14-group-hint { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+
+.r14-row {
+  border-bottom: 1px solid var(--r14-rule-softer);
+  color: inherit;
+}
+.r14-row:hover { background: var(--r14-chrome); }
+.r14-deal { display: flex; align-items: center; gap: 11px; padding: 11px 14px; min-width: 0; }
+.r14-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--paper-3);
+  color: var(--ink-2);
+}
+.r14-customer {
+  display: block;
+  font-family: var(--font-display, "Newsreader", Georgia, serif);
+  font-style: italic;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.r14-product {
+  display: block;
+  font-size: 13.5px;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.r14-cell { padding: 11px 10px; align-self: center; min-width: 0; }
+.r14-cell:last-child { padding-right: 14px; }
+.r14-stage {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.r14-quote {
+  display: block;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.r14-rev {
+  display: block;
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9.5px;
+  color: var(--r14-faint);
+  margin-top: 1px;
+}
+.r14-value {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * Spec + slice decision: Value is BLANK when Nexus cannot identify a governed
+ * selected / recommended / accepted tier. An em-dash states "we do not have
+ * this"; a number would be invented to fill a dashboard.
+ */
+.r14-value-none { color: var(--r14-faint); }
+.r14-status {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 3px 6px;
+  white-space: nowrap;
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+.r14-status-draft { }
+.r14-status-sent { color: var(--r14-tone-info); border-color: var(--r14-tone-info); }
+.r14-status-accepted { color: var(--r14-tone-returned); border-color: var(--r14-tone-returned); }
+.r14-status-complete { color: var(--r14-faint); }
+.r14-updated {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10.5px;
+  color: var(--r14-faint);
+  white-space: nowrap;
+}
+.r14-foot {
+  min-width: 860px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--r14-rule-soft);
+  background: var(--r14-chrome);
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--r14-faint);
+}
+.r14-empty { padding: 34px 20px; text-align: center; }
+.r14-empty-title { font-family: var(--font-display, "Newsreader", Georgia, serif); font-size: 17px; }
+.r14-empty-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+
+/* ── needs-you rail ─────────────────────────────────────────────────────── */
+
+.r14-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 24px;
+}
+.r14-panel {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.r14-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--r14-rule-soft);
+}
+.r14-panel-title { font-family: var(--font-display, "Newsreader", Georgia, serif); font-size: 16px; }
+/*
+ * TWO COUNTS, LABELLED — deliberately not reconciled.
+ *
+ * "4 deals" is breadth; "6 tasks" is workload. They answer different
+ * questions and forcing them to match would destroy one of the answers. The
+ * design source flagged the bare numbers reading as a contradiction; the fix
+ * is the words, not the arithmetic.
+ */
+.r14-panel-counts {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  color: var(--r14-faint);
+  text-align: right;
+  line-height: 1.5;
+}
+.r14-task {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--r14-rule-softer);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.r14-task:hover { background: var(--r14-chrome); }
+.r14-task-head { display: flex; align-items: center; gap: 7px; }
+.r14-tag {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+}
+.r14-tag-returned { color: var(--r14-tone-returned); }
+.r14-tag-info { color: var(--r14-tone-info); }
+.r14-tag-accent { color: var(--accent); }
+.r14-task-deal {
+  font-size: 11.5px;
+  color: var(--r14-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.r14-task-reason { font-size: 13px; margin-top: 6px; line-height: 1.5; }
+.r14-task-cta { font-size: 12px; color: var(--accent); margin-top: 6px; display: inline-block; }
+.r14-panel-empty { padding: 22px 16px; }
+.r14-panel-empty-title {
+  font-family: var(--font-display, "Newsreader", Georgia, serif);
+  font-size: 15px;
+}
+.r14-panel-empty-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+
+/*
+ * Deferred-capability note. V1 carries no computed task kinds, so an operator
+ * whose only work is cost or pricing sees an empty queue. Saying so beats an
+ * empty panel that reads as "nothing to do".
+ */
+.r14-deferred {
+  font-size: 11.5px;
+  color: var(--r14-faint);
+  line-height: 1.55;
+  padding: 12px 16px;
+  border-top: 1px solid var(--r14-rule-softer);
+}
