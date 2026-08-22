@@ -36,6 +36,23 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "DPS Quoting Tool",
   description: "Internal quoting tool for The DPS",
+  /*
+   * The Nexus mark as the app icon. The sign-in v2 handoff supplies these and
+   * says to use them "if that separate branding slice has not already landed" —
+   * it had not: `public/` held only `fonts/`, and the app was serving whatever
+   * default the framework provides.
+   *
+   * SVG first so it scales and follows the browser's own dark-mode handling;
+   * the PNGs are the fallback for the surfaces that will not take an SVG.
+   */
+  icons: {
+    icon: [
+      { url: "/icons/nexus-favicon.svg", type: "image/svg+xml" },
+      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/favicon-16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/nexus-app-180.png", sizes: "180x180" }],
+  },
 };
 
 export default function RootLayout({
