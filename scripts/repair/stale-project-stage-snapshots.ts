@@ -30,8 +30,16 @@
  *
  * ── USAGE ────────────────────────────────────────────────────────────────
  *
- *   node ... stale-project-stage-snapshots.ts            # preview, NO writes
+ *   node ... stale-project-stage-snapshots.ts            # preview
  *   node ... stale-project-stage-snapshots.ts --apply    # writes
+ *
+ * PREVIEW IS NOT WRITE-FREE, and calling it that was a real mistake on the
+ * first run. It makes no change to `projects` or `audit_log` — both are gated
+ * on `--apply` — but adjudicating a candidate means calling `syncDealById`,
+ * which UPSERTS `hubspot_deals_cache`. That is benign (the cache is a HubSpot
+ * mirror, and the row written is HubSpot's own current truth) but it is a
+ * write, and a dry run that claims otherwise teaches an operator to trust a
+ * guarantee it does not provide.
  */
 import { db } from "@/db";
 import { projects, users } from "@/db/schema";
@@ -81,7 +89,16 @@ const drifted = (await db.execute(sql.raw(`
   client_name: string | null; hubspot_owner_id: string | null; sales_rep_user_id: string | null;
 }>;
 
-console.log(`MODE ${APPLY ? "APPLY (writes)" : "PREVIEW (no writes)"}`);
+// The label states what is and is not written, because "PREVIEW (no writes)"
+// was FALSE and a future operator would have trusted it. Preview leaves
+// `projects` and `audit_log` alone, but `syncDealById` upserts the HubSpot
+// cache on every candidate it adjudicates — that is the point of calling it,
+// and it happens in both modes.
+console.log(
+  APPLY
+    ? "MODE APPLY — writes projects + audit_log, and refreshes hubspot_deals_cache"
+    : "MODE PREVIEW — no projects/audit_log writes; DOES refresh hubspot_deals_cache",
+);
 console.log(`CANDIDATES ${drifted.length}\n`);
 
 let repaired = 0, skipped404 = 0, skippedError = 0, unchanged = 0, outOfScope = 0;
