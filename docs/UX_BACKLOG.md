@@ -287,6 +287,25 @@ operational pre-flight.)
 
 ## Open
 
+- **Retire `legacy_live` as a runtime commercial-policy path**
+
+  **Driver:** markup boundary disposition, 2026-08-17. Step 5 of the pin
+  sequence; steps 1-4 are complete.
+
+  `resolveCommercialSettingsForLifecycle` resolves `draft → live`,
+  `non-draft + pin → pinned`, and `non-draft + no pin → legacy_live`. The
+  backfill closed the population — all 14 legacy quotes are pinned and
+  `legacy_live` currently resolves for nothing — **but the path still exists**,
+  so a future non-draft quote without a pin silently adopts current firm policy
+  again.
+
+  **Target:** non-draft + no pin becomes an explicit failure. Draft → live and
+  non-draft + pin → pinned are unchanged. `legacy_live` is migration-era
+  compatibility, not a permanent commercial state.
+
+  **Independent of the Direct Service workstream** — it can land at any point.
+  Kept here so an expanding scope does not lose it.
+
 - **V1.1 — Final Quote artifact on the NetSuite Sales Order**
 
   **Driver:** Edward, 2026-08-17. **V1.1 enhancement. Explicitly NOT part of
