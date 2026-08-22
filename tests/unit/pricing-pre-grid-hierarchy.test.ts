@@ -82,12 +82,20 @@ test("StateCallout and StateCard remain, and remain the substantive summary", as
 // ── one Apply action ──────────────────────────────────────────────────────
 
 test("the banner offers no CTA where the action lives on the page below it", async () => {
+  // RE-POINTED, and the guarantee got stronger.
+  //
+  // P-UX-1 suppressed the href by MODE, leaving the banner carrying the
+  // recommended action's label with no button. The below-floor slice found the
+  // cost of that: `preview_pdf` is filtered out of the action list in every
+  // mode, so `suggestion_led` — sendable by policy, and the copy said so — had
+  // no forward affordance anywhere on the surface.
+  //
+  // The banner now carries a PROGRESSION label instead of an action label, so
+  // it cannot duplicate a card below it whatever the mode. This asserts that
+  // property rather than the old expression, which no longer exists.
   const head = await code("components/pricing/pricing-page-head.tsx");
-  assert.match(
-    head,
-    /bannerState === "terminal" \|\| mode === "suggestion_led" \|\| mode === "blocked"\s*\?\s*undefined/,
-  );
-  // The in-page anchors were the duplication. Their absence is the fix.
+  assert.match(head, /!progression\.allowed\s*\?\s*undefined/);
+  // The in-page anchors were the duplication. Their absence is still the fix.
   assert.doesNotMatch(head, /#\$\{PSR_SUGGESTION_ANCHOR\}/);
   assert.doesNotMatch(head, /psr-suggestion-card/);
   assert.doesNotMatch(head, /PSR_ACTION_ANCHOR/);
@@ -98,7 +106,14 @@ test("the banner still STATES the move — only the second button went", async (
   // passed, this would be a removal of guidance rather than of duplication.
   const head = await code("components/pricing/pricing-page-head.tsx");
   assert.match(head, /label=\{bannerLabel\}/);
-  assert.match(head, /recommendedOrPrimary\.label/);
+  // INVERTED, deliberately. This used to require the banner to carry the
+  // recommended action's label — the surviving half of the duplicate pair.
+  // Carrying it is now the defect: it made the banner restate a card, and it
+  // was why the banner had nothing to say about moving forward. The action's
+  // label belongs to the card that performs it.
+  assert.doesNotMatch(head, /bannerLabel[\s\S]{0,200}recommendedOrPrimary\.label/);
+  // Still states a move in every non-terminal state.
+  assert.match(head, /"Continue to Quote →"/);
   // And the banner renders its heading independently of the CTA.
   const banner = await code("components/nav/your-next-move-banner.tsx");
   assert.match(banner, /\{label \?\? "—"\}/);

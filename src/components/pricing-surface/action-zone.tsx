@@ -506,7 +506,7 @@ export function AcceptRiskBanner() {
       <span>
         <strong>Accept-risk is unavailable on this quote.</strong> Firm
         policy prohibits below-floor sends on margin-protected accounts.
-        Use admin override or apply the recommended lift.
+        Request approval, or apply the recommended lift.
       </span>
     </div>
   );

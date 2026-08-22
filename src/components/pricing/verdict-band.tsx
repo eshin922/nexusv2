@@ -208,7 +208,7 @@ export function VerdictBand({ editable }: { editable: boolean }) {
             {flaggedCount === 1 ? "" : "s"} below floor
           </div>
 
-          {/* Admin override path — BELOW_FLOOR only */}
+          {/* Approval path — BELOW_FLOOR only */}
           {status === "BELOW_FLOOR" && (
             <div
               style={{
@@ -232,10 +232,10 @@ export function VerdictBand({ editable }: { editable: boolean }) {
                   marginBottom: 4,
                 }}
               >
-                ⚿ Admin override path
+                ⚿ Approval path
               </div>
               Send is blocked at the firm-wide floor (
-              {floorPct.toFixed(0)}%). Request admin override to proceed; the
+              {floorPct.toFixed(0)}%). Request approval to proceed; the
               request logs to the quote audit. Approval routing wires up in
               Slice 12 (Mark-Accepted writeback).
             </div>

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Justification capture for the existing "Request admin override" action.
+ * Justification capture for the "Request approval" action.
  *
  * REUSES THE MODAL PATTERN, NOT `OverrideModal`. The mark-accepted modal carries
  * workflow-specific state this path does not share — a Slack DM preview block,
@@ -48,7 +48,7 @@ export function RequestOverrideModal({
       <ModalHead>
         <div className="titles">
           <p className="eyebrow" style={{ color: "var(--bad)" }}>
-            Request admin override · below floor
+            Request approval · below floor
           </p>
           <h2>Why should this be approved?</h2>
         </div>

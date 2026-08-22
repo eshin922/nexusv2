@@ -1235,7 +1235,21 @@ export function PricingSurfaceShell({
           // in the classifier: eligibility is policy (classifier's job),
           // whether one is already in flight is workflow state (not its job).
           .filter(
-            (a) => a.kind !== "request_override" || mayRequestApproval(approvalState),
+            (a) =>
+              a.kind !== "request_override" ||
+              // A REQUEST NEEDS A TIER TO BE ABOUT.
+              //
+              // The classifier emits this kind from `mode === "blocked"`, which
+              // is the worst CELL's band; `requestTier` is the worst tier by
+              // BLEND, which is what the gate reads and what an authorization
+              // is scoped to. When a below-floor cell sits inside a tier whose
+              // blend is above floor, the first is true and the second is null
+              // — and the card rendered anyway, opening a modal mounted under
+              // `{requestTier && …}`. It did nothing at all.
+              //
+              // Suppressed rather than made to guess a tier: an authorization
+              // recorded against the wrong tier would satisfy no gate.
+              (requestTier !== null && mayRequestApproval(approvalState)),
           )
           .map((action) => (
             <ActionCard
