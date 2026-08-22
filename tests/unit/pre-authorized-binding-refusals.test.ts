@@ -255,8 +255,31 @@ test("the race handler classifies all three post-write states", async () => {
 
 // ── provisioning atomicity ────────────────────────────────────────────────
 
+/**
+ * The provisioning MECHANISM. It used to live in the CLI script; Admin →
+ * Users → Add User needed the same behaviour, so it was extracted rather than
+ * written a second time, and these assertions followed it.
+ *
+ * Repointed, NOT relaxed — the test below still requires the script to reach
+ * the mechanism, so "the script no longer does this" cannot become a way to
+ * pass by doing nothing.
+ */
 const PROVISION = () =>
+  readFile(new URL("../../src/lib/auth/provision-pending-user.ts", import.meta.url), "utf8");
+
+const PROVISION_CLI = () =>
   readFile(new URL("../../scripts/gate-1b/provision-pending-user.ts", import.meta.url), "utf8");
+
+test("the CLI provisioner is a front door onto that mechanism", async () => {
+  const src = codeOnly(await PROVISION_CLI());
+  assert.match(src, /provisionPendingUser\(/);
+  assert.doesNotMatch(
+    src,
+    /\.insert\(users\)/,
+    "a copy of the insert here would agree with the mechanism today and drift " +
+      "the first time either is edited without the other in view",
+  );
+});
 
 test("the pending row and its audit commit together or not at all", async () => {
   const src = codeOnly(await PROVISION());
@@ -286,7 +309,8 @@ test("provisioning grants no authority beyond the role", async () => {
 });
 
 test("provisioning does not build SQL by interpolating its argument", async () => {
-  const src = codeOnly(await PROVISION());
+  // Both halves: the mechanism receives the argument, the CLI hands it over.
+  const src = codeOnly(await PROVISION()) + codeOnly(await PROVISION_CLI());
   assert.doesNotMatch(
     src,
     /sql\.raw\(/,

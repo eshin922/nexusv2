@@ -1,8 +1,12 @@
 /**
- * #327 — provision ONE pre-authorized Nexus user. WRITES.
+ * #327 — provision ONE pre-authorized Nexus user from the command line. WRITES.
  *
- * The admin act the binding design assumes: create the row, with its role and
- * authorities, before the person has ever reached Clerk.
+ * A FRONT DOOR, not a mechanism. The provisioning itself lives in
+ * `src/lib/auth/provision-pending-user.ts` and is shared verbatim with the
+ * Admin → Users → Add User action. Reimplementing the insert here would have
+ * produced two enrollment paths that agree today and drift the first time
+ * either is touched — and the one that drifts is whichever gets edited without
+ * the other in view.
  *
  * Usage:
  *   node … provision-pending-user.ts --email cally@thedps.co --name "Cally Hou" --role logistics
@@ -17,34 +21,17 @@
  *
  *   merge -> deploy -> provision -> sign in
  *
- * ── WHAT IT REFUSES ──────────────────────────────────────────────────────
+ * ── AUTHORIZATION ────────────────────────────────────────────────────────
  *
- * Non-corporate address, an address already present in any case, and any
- * attempt to set authority beyond `role`. `commercial_approver`,
- * `can_edit_specs` and `can_create_leaves` are NOT settable here: they default
- * false and are granted separately and deliberately. BV-005 keeps commercial
- * approval independent of role, and a provisioning flag would be the first
- * place that independence eroded.
+ * This front door is authorized by database access: running it requires the
+ * production connection string. The Admin UI front door uses the role-based
+ * admin guard. The shared mechanism deliberately holds NEITHER, because a guard
+ * inside it would give this caller one it cannot satisfy.
  */
-import { sql } from "drizzle-orm";
-import { db } from "@/db";
-import { users } from "@/db/schema";
-import { writeAuditEntry } from "@/lib/audit";
-import { CORPORATE_DOMAIN, isCorporateEmail, normalizeCorporateEmail } from "@/lib/auth/corporate-email";
+import { userRole } from "@/db/schema";
+import { provisionPendingUser } from "@/lib/auth/provision-pending-user";
 
-const ROLES = [
-  "admin",
-  "pm",
-  "purchasing",
-  "production",
-  "accounting",
-  "logistics",
-  "sales",
-  "read_only",
-] as const;
-type Role = (typeof ROLES)[number];
-
-/** The admin performing the provisioning; the audit must name a real actor. */
+/** The administrator accountable for a CLI provisioning. */
 const ACTOR_USER_ID = "e60b5670-86d8-437b-9654-36a1284c7b19";
 
 function arg(flag: string): string | null {
@@ -53,104 +40,37 @@ function arg(flag: string): string | null {
 }
 
 async function main() {
-  const rawEmail = arg("--email");
+  const email = arg("--email");
   const name = arg("--name");
-  const role = arg("--role") as Role | null;
+  const role = arg("--role");
 
-  if (!rawEmail || !name || !role) {
-    console.error("usage: --email <addr> --name <name> --role <" + ROLES.join("|") + ">");
-    process.exit(1);
-  }
-  if (!ROLES.includes(role)) {
-    console.error(`REFUSED — "${role}" is not a Nexus role. One of: ${ROLES.join(", ")}`);
-    process.exit(1);
-  }
-
-  const email = normalizeCorporateEmail(rawEmail);
-  if (!isCorporateEmail(email)) {
+  if (!email || !name || !role) {
     console.error(
-      `REFUSED — ${email} is not a ${CORPORATE_DOMAIN} address. Enterprise SSO ` +
-        `only resolves the corporate domain, so a row for anything else could ` +
-        `never be bound.`,
+      `usage: --email <addr> --name <name> --role <${userRole.enumValues.join("|")}>`,
     );
     process.exit(1);
   }
 
-  // Parameterized. The value comes from a CLI argument, and building SQL by
-  // interpolating it would be an injection whether or not this caller is
-  // trusted today.
-  const clash = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      bindingState: users.bindingState,
-      clerkUserId: users.clerkUserId,
-    })
-    .from(users)
-    .where(sql`lower(${users.email}) = ${email}`);
-  if (clash.length > 0) {
-    console.error(`REFUSED — a Nexus user already exists for ${email}:`);
-    console.error("  " + JSON.stringify(clash[0]));
-    console.error(
-      "  Provisioning a second would be unrepresentable anyway (users_email_lower_unique).",
-    );
-    process.exit(1);
-  }
-
-  // ONE TRANSACTION. The row and the record of who created it commit together
-  // or not at all: a pending user with no provenance is an unexplained grant of
-  // future access, and an audit row for a user that does not exist is a claim
-  // about nothing. Same rule the binding follows on the other side of the flow.
-  const created = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(users)
-      .values({
-        email: rawEmail.trim(),
-        name,
-        role,
-        // The whole point: no identity yet, and the state SAYS so.
-        clerkUserId: null,
-        bindingState: "pending_first_sign_in" as const,
-        // Left to their defaults (false), stated here so a reader sees the
-        // omission is deliberate rather than forgotten.
-        commercialApprover: false,
-        canEditSpecs: false,
-        canCreateLeaves: false,
-      })
-      .returning();
-
-    await writeAuditEntry(
-      {
-        userId: ACTOR_USER_ID,
-        entityType: "user",
-        entityId: row.id,
-        action: "user_pre_authorized",
-        diffJson: {
-          email: row.email,
-          name: row.name,
-          role: row.role,
-          binding_state: row.bindingState,
-          commercial_approver: row.commercialApprover,
-          can_edit_specs: row.canEditSpecs,
-          can_create_leaves: row.canCreateLeaves,
-          audit_source: "admin_provisioning",
-        },
-        summary: `Pre-authorized ${row.email} as ${row.role}, pending first sign-in.`,
-      },
-      tx,
-    );
-
-    return row;
+  const result = await provisionPendingUser({
+    name,
+    email,
+    role,
+    actorUserId: ACTOR_USER_ID,
   });
 
+  if (!result.ok) {
+    console.error(`REFUSED (${result.code}) — ${result.message}`);
+    process.exit(1);
+  }
+
   console.log("PROVISIONED — pending first sign-in");
-  console.log("  nexus user id     :", created.id);
-  console.log("  email             :", created.email);
-  console.log("  name              :", created.name);
-  console.log("  role              :", created.role);
-  console.log("  binding_state     :", created.bindingState);
-  console.log("  clerk_user_id     :", created.clerkUserId);
-  console.log("  commercial_approver:", created.commercialApprover);
+  console.log("  nexus user id     :", result.userId);
+  console.log("  email             :", result.email);
+  console.log("  name              :", name.trim());
+  console.log("  role              :", result.role);
+  console.log("  binding_state     : pending_first_sign_in");
+  console.log("  clerk_user_id     : null");
+  console.log("  commercial_approver: false");
   process.exit(0);
 }
 

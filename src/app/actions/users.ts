@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { auditLog, users } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { requireAdminAction } from "@/lib/admin-guard";
+import { provisionPendingUser } from "@/lib/auth/provision-pending-user";
 import {
   ActionGuardError,
   ERR,
@@ -94,5 +95,56 @@ export async function updateUserPhone(
 
     revalidatePath("/admin/users");
     return updated;
+  });
+}
+
+/**
+ * Admin → Users → Add User. Pre-authorize ONE employee before they sign in.
+ *
+ * A FRONT DOOR over the certified mechanism in
+ * `src/lib/auth/provision-pending-user.ts` — the same function the CLI
+ * provisioner runs, so the UI cannot enroll anyone by a path the certified
+ * evidence does not cover.
+ *
+ * ── AUTHORITY ────────────────────────────────────────────────────────────
+ *
+ * `requireAdminAction()` — the ROLE-based guard, reading `users.role` from the
+ * database. Deliberately NOT `isAdmin(email)` / ADMIN_EMAILS: that env list
+ * only ever seeds the first role assignment, so using it as the write
+ * authority would let anyone listed there create users regardless of what
+ * their Nexus role actually is, and would keep granting that after a
+ * demotion the database already recorded.
+ *
+ * ── WHAT IT DOES NOT DO ──────────────────────────────────────────────────
+ *
+ * Creation only. No role editing, no deletion, no disabling, no
+ * commercial-approver grant, no Slack or HubSpot mapping, no spec/leaf
+ * authority. Every one of those is a separate decision with its own
+ * accountability, and folding any into a create form would grant it as a
+ * side effect of hiring someone.
+ */
+export async function addUser(
+  formData: FormData,
+): Promise<ActionResult<{ userId: string; email: string; role: string }>> {
+  return runAction(async () => {
+    const admin = await requireAdminAction();
+
+    const result = await provisionPendingUser({
+      name: String(formData.get("name") ?? ""),
+      email: String(formData.get("email") ?? ""),
+      role: String(formData.get("role") ?? ""),
+      actorUserId: admin.id,
+    });
+
+    if (!result.ok) {
+      // Refusals arrive as values, not exceptions, and are re-thrown here so
+      // `runAction` renders them in the same shape as every other action's
+      // refusal. The mechanism's message is passed through verbatim: it
+      // explains WHY, which a generic "validation failed" would discard.
+      throw new ActionGuardError(ERR.VALIDATION, result.message);
+    }
+
+    revalidatePath("/admin/users");
+    return { userId: result.userId, email: result.email, role: result.role };
   });
 }

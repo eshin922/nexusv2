@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { updateUserPhone } from "@/app/actions/users";
+import { AddUserModal } from "./add-user-modal";
 
 // Slice RI.8 step 4 — Round 5 vocabulary on /admin/users. CSS classes
 // `.r5-users-*` mirror `.r5-md-*` shape conventions (click-Edit row
@@ -14,11 +16,23 @@ type Row = {
   name: string | null;
   role: string;
   phone: string | null;
+  /**
+   * Enrollment state, shown in words. The Clerk id is NOT carried here: it is
+   * an identity-provider key, of no use to an administrator and not something
+   * an ordinary admin surface should be handing out. "Pending sign-in" vs
+   * "Active" is the whole of what this page needs to say.
+   */
+  bindingState: "pending_first_sign_in" | "bound";
 };
 
 export function UsersTable({ users }: { users: Row[] }) {
+  const router = useRouter();
   const [editId, setEditId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const withPhone = users.filter((u) => u.phone !== null && u.phone !== "").length;
+  const pendingCount = users.filter(
+    (u) => u.bindingState === "pending_first_sign_in",
+  ).length;
 
   return (
     <div className="r5-users-table">
@@ -26,6 +40,7 @@ export function UsersTable({ users }: { users: Row[] }) {
         <div>Name</div>
         <div>Email</div>
         <div>Role</div>
+        <div>Status</div>
         <div>Phone</div>
         <div></div>
       </div>
@@ -40,7 +55,7 @@ export function UsersTable({ users }: { users: Row[] }) {
             fontStyle: "italic",
           }}
         >
-          No users yet — provision via Clerk sign-in.
+          No users yet — add one to pre-authorize their first sign-in.
         </div>
       ) : (
         users.map((u) => (
@@ -57,26 +72,28 @@ export function UsersTable({ users }: { users: Row[] }) {
 
       <div className="r5-users-foot">
         <span>
-          {users.length} user{users.length === 1 ? "" : "s"} · {withPhone} with
-          phone
+          {users.length} user{users.length === 1 ? "" : "s"} · {pendingCount}{" "}
+          pending sign-in · {withPhone} with phone
         </span>
         <button
           type="button"
-          disabled
-          title="Clerk auto-provisions on first sign-in. Admin-invite flow is post-v1."
-          style={{
-            color: "var(--ink-4)",
-            background: "none",
-            border: "none",
-            cursor: "not-allowed",
-            fontFamily: "inherit",
-            fontSize: "inherit",
-            letterSpacing: "0.04em",
-          }}
+          className="r5-users-add"
+          onClick={() => setAdding(true)}
         >
-          + INVITE USER
+          + ADD USER
         </button>
       </div>
+
+      {adding ? (
+        <AddUserModal
+          onClose={(created) => {
+            setAdding(false);
+            // Re-read from the server rather than splicing the new row in
+            // locally: the row an admin sees should be the row that exists.
+            if (created) router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -111,6 +128,7 @@ function UserRow({
           {user.role}
         </span>
       </div>
+      <EnrollmentCell state={user.bindingState} />
       <div className="phone">
         {user.phone ? (
           user.phone
@@ -168,6 +186,7 @@ function EditingRow({
           {user.role}
         </span>
       </div>
+      <EnrollmentCell state={user.bindingState} />
       <div className="phone">
         <div className="r5-users-edit">
           <input
@@ -216,6 +235,26 @@ function EditingRow({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Enrollment state in words.
+ *
+ * "Pending sign-in" says the record exists and is waiting for the person;
+ * "Active" says it has bound to their identity. Neither exposes the Clerk id
+ * that distinguishes them in the database — an administrator has no use for an
+ * identity-provider key, and a surface that prints one invites it into
+ * screenshots and support threads.
+ */
+function EnrollmentCell({ state }: { state: Row["bindingState"] }) {
+  const pending = state === "pending_first_sign_in";
+  return (
+    <div className="status">
+      <span className={`enrollment ${pending ? "pending" : "active"}`}>
+        {pending ? "Pending sign-in" : "Active"}
+      </span>
     </div>
   );
 }
