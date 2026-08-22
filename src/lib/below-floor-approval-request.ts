@@ -53,7 +53,6 @@ export type DecisionVerdict =
         | "already_decided"
         | "superseded"
         | "not_approver"
-        | "self_approval"
         | "reason_required";
       message: string;
     };
@@ -81,9 +80,17 @@ export function isNoOp(verdict: DecisionVerdict): boolean {
  *  2. superseded       — a decision that cannot apply is not one anyone can be
  *     accused of self-approving. Naming self-approval on stale economics sends
  *     the operator to find a second person when they need a fresh request.
- *  3. authority        — the governed permission, never the role.
- *  4. self-approval    — requester ≠ reviewer.
- *  5. reason           — required on reject.
+ *  3. authority        - the governed permission, never the role.
+ *  4. reason           - required on reject.
+ *
+ * THERE IS NO INDEPENDENCE STEP. Governing policy, 2026-08-22: a commercial
+ * approver may decide any below-floor request, including one they raised. The
+ * earlier rule ("requester != reviewer") was a proxy for a separation of duties
+ * the firm does not operate — designated approvers are not quote operators —
+ * and it was removed rather than relaxed, so nothing here half-enforces it.
+ *
+ * `requestedByUserId` stays on the record as provenance and is not read for
+ * authority.
  *
  * Authority is NOT re-implemented here: callers pass the value read from the
  * database at decision time via `mayAuthorizeBelowFloor`.
@@ -120,14 +127,6 @@ export function evaluateApprovalDecision(input: {
       code: "not_approver",
       message:
         "Commercial Approver authority is required. Administrator access does not confer it.",
-    };
-  }
-
-  if (actor.userId === request.requestedByUserId) {
-    return {
-      ok: false,
-      code: "self_approval",
-      message: "A below-floor request cannot be decided by the person who raised it.",
     };
   }
 

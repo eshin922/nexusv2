@@ -33,18 +33,19 @@
  * asymmetry. They are guidance about where to look, not a claim about what the
  * firm will permit.
  *
- * ── WHAT IT CANNOT DECIDE, AND MUST NOT APPEAR TO ────────────────────────
+ * ── WHAT `allowed: true` MEANS ───────────────────────────────────────────
  *
- * SELF-APPROVAL. Independence is measured against the person who COMMITS the
- * below-floor outcome, and that person is unknown while someone is looking at a
- * pricing page. There is deliberately no `actingUserId` parameter: a function
- * without it cannot accidentally grow a branch that answers a question it has
- * no information about.
+ * That a valid authorization exists for every tier that needs one — right
+ * version, right tier, current fingerprint, not invalidated.
  *
- * `allowed: true` therefore means "a valid authorization exists for every tier
- * that needs one", never "you personally may proceed".
- * `evaluateBelowFloorAuthorization` remains the only thing that answers that,
- * and it is still evaluated at the moment of commitment.
+ * It is a PREDICTION of the gate, never a substitute for it. The commercial
+ * state can move between this render and the send, which is exactly what the
+ * fingerprint catches, so `evaluateBelowFloorAuthorization` is still evaluated
+ * at the moment of commitment and remains authoritative.
+ *
+ * It carries no view on WHO approved. Policy (2026-08-22) places no
+ * independence requirement on below-floor approval, so there is nothing about
+ * the acting user for this function to know or to ask.
  */
 
 import type { ApprovalTierState } from "./below-floor-approval-state";

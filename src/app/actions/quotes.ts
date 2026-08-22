@@ -1519,7 +1519,6 @@ export async function sendQuote(
     await requireBelowFloorAuthorizedToSend({
       quoteId,
       quoteVersionNumber: quote.versionNumber,
-      actingUserId: user.id,
     });
 
     // Resolve the send's commercial policy onto canonical quote_leaves.id
@@ -2497,16 +2496,14 @@ export async function markAccepted(
     if (tierRollup.blendedMarginStatus === "BELOW_FLOOR") {
       // TRACK A · BV-005 1c — the override the comment above used to promise.
       //
-      // Still blocked by default. What changed is that there is now a governed
-      // door: an authorization recorded by a Commercial Approver, scoped to this
-      // quote version, this tier and this commercial state, and — checked HERE
-      // rather than at authorization time — decided by someone other than the
-      // person recording acceptance.
+      // Still blocked by default. What opens the door is an authorization
+      // recorded by a commercial approver and scoped to this quote version,
+      // this tier and this commercial state.
       //
-      // NO FALLBACK. There is deliberately no branch in which the absence of an
-      // eligible independent approver resolves permissively. An estate with one
-      // person cannot sell below floor; that is the correct outcome, not an edge
-      // case to route around.
+      // WHO approved is not part of the question. Policy (2026-08-22) places no
+      // independence requirement on below-floor approval — misuse is handled
+      // organisationally — so the authority flag, the scope and the fingerprint
+      // are the whole control.
       const authorizations = await db
         .select({
           id: belowFloorAuthorizations.id,
@@ -2527,7 +2524,6 @@ export async function markAccepted(
           totalCost: tierRollup.totalCost,
           blendedMarginPct: tierRollup.blendedMarginPct,
         }),
-        actingUserId: user.id,
       });
 
       if (!verdict.ok) {

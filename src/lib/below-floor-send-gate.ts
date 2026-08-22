@@ -34,13 +34,12 @@ import {
  * them only at acceptance — after the customer has seen the price, which is the
  * expensive moment to discover it.
  *
- * ── SELF-APPROVAL IS CHECKED HERE TOO ────────────────────────────────────
+ * ── WHAT IT CHECKS, AND WHAT IT NO LONGER DOES ───────────────────────────
  *
- * `actingUserId` is the person sending. `evaluateBelowFloorAuthorization`
- * measures independence against whoever commits the below-floor outcome, and
- * sending a below-floor price to a customer is committing it — an approver who
- * authorized the tier may not then be the one who puts it in front of the
- * client on their own authority.
+ * That a valid authorization exists for every below-floor tier: right version,
+ * right tier, current fingerprint, not invalidated. It does NOT ask who is
+ * sending — policy places no independence requirement on approval, so the
+ * sender's identity is not part of the question.
  *
  * The same function, the same verdict, at a second commitment point. No second
  * implementation, and specifically no relaxed variant for send.
@@ -48,7 +47,6 @@ import {
 export async function requireBelowFloorAuthorizedToSend(input: {
   quoteId: string;
   quoteVersionNumber: number;
-  actingUserId: string;
 }): Promise<void> {
   const bundle = await getCostingBundle(input.quoteId);
   if (!bundle.ok) {
@@ -91,7 +89,6 @@ export async function requireBelowFloorAuthorizedToSend(input: {
         totalCost: tier.totalCost,
         blendedMarginPct: tier.blendedMarginPct,
       }),
-      actingUserId: input.actingUserId,
     });
     if (!verdict.ok) refusals.push(`${tier.label} — ${verdict.message}`);
   }

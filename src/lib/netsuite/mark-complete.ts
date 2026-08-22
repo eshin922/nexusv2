@@ -281,7 +281,6 @@ export async function runMarkComplete(
         totalCost: tierRollup.totalCost,
         blendedMarginPct: tierRollup.blendedMarginPct,
       }),
-      actingUserId: actorUserId,
     });
 
     if (!verdict.ok) {

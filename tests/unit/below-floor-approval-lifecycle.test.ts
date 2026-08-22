@@ -60,10 +60,12 @@ test("a non-commercialApprover cannot decide", () => {
   assert.equal(v.ok === false && v.code, "not_approver");
 });
 
-test("the requester cannot approve their own request", () => {
+test("an approver may decide a request they raised themselves", () => {
+  // REPLACES "the requester cannot approve their own request". Policy
+  // 2026-08-22 removed independence entirely; `requestedByUserId` stays on the
+  // record as provenance and is not consulted for authority.
   const v = decide({ actor: { userId: REQUESTER, commercialApprover: true } });
-  assert.equal(v.ok, false);
-  assert.equal(v.ok === false && v.code, "self_approval");
+  assert.equal(v.ok, true);
 });
 
 test("authority is the governed permission, never the role", () => {

@@ -32,7 +32,7 @@ export interface BelowFloorAuthorizationRecord extends AuthorizationScope {
   invalidatedAt: Date | string | null;
 }
 
-/** Only what authority depends on — nothing else about the user is relevant. */
+/** Only what authority depends on - nothing else about the user is relevant. */
 export interface ApproverIdentity {
   id: string;
   commercialApprover: boolean;
@@ -43,8 +43,7 @@ export interface ApproverIdentity {
 export type BelowFloorBlockCode =
   | "NO_AUTHORIZATION"
   | "INVALIDATED"
-  | "STATE_CHANGED"
-  | "SELF_APPROVAL";
+  | "STATE_CHANGED";
 
 export type BelowFloorVerdict =
   | { ok: true; authorizationId: string }
@@ -95,24 +94,36 @@ export function fingerprintCommercialState(input: {
 }
 
 /**
- * Is there a valid, independent authorization for this actor to proceed?
+ * Is there a valid authorization for this quote version and tier?
  *
- * `actingUserId` is the user performing the GATED ACTION — recording acceptance,
- * or completing. That is what "self-approval" is measured against: not who
- * drafted the quote, which the system knows only indirectly, but who is about
- * to commit the below-floor outcome. The person who authorised it may not also
- * be the person who acts on it.
+ * ── NO INDEPENDENCE REQUIREMENT ──────────────────────────────────────────
  *
- * Order of refusal is deliberate. Scope and invalidation come first because a
- * decision that does not apply is not a decision anyone can be accused of
- * self-approving; naming self-approval on a stale record would tell an operator
- * to find a second person when what they actually need is a fresh decision.
+ * Governing policy, 2026-08-22: a user holding `commercial_approver` may
+ * authorize any below-floor request, including one they raised themselves and
+ * one on a quote they priced. Approval authority is the whole control.
+ *
+ * Two earlier separation-of-duties rules were removed rather than relaxed, so
+ * that nothing in this file half-enforces a policy the firm does not hold:
+ *
+ *   - approver != requester   (a proxy: designated approvers are not quote
+ *                              operators, so it barred approvers from deciding
+ *                              requests they had merely routed)
+ *   - approver != the quote's commercial operator
+ *
+ * What remains is not weaker in the dimensions the firm does rely on. An
+ * authorization is still bound to ONE quote version, ONE tier and ONE
+ * fingerprint of the commercial state, still refuses once invalidated, and is
+ * still granted only by someone the database says may grant it.
+ *
+ * Order of refusal is deliberate: scope, then invalidation, then staleness. A
+ * decision that does not apply and a decision that has been withdrawn send an
+ * operator to different places, and collapsing them into one "blocked" would
+ * lose the instruction.
  */
 export function evaluateBelowFloorAuthorization(input: {
   authorizations: readonly BelowFloorAuthorizationRecord[];
   scope: AuthorizationScope;
   currentFingerprint: string;
-  actingUserId: string;
 }): BelowFloorVerdict {
   const inScope = input.authorizations.filter(
     (a) =>
@@ -125,7 +136,7 @@ export function evaluateBelowFloorAuthorization(input: {
       ok: false,
       code: "NO_AUTHORIZATION",
       message:
-        "This tier is below the firm's margin floor. A Commercial Approver other than you must authorize it before acceptance can be recorded.",
+        "This tier is below the firm's margin floor. An authorized commercial approver must authorize it before it can proceed.",
     };
   }
 
@@ -139,8 +150,6 @@ export function evaluateBelowFloorAuthorization(input: {
     };
   }
 
-  // Any live authorization matching the current state will do; there is no
-  // quorum, so one is sufficient and the rest are history.
   const matching = live.filter(
     (a) => a.stateFingerprint === input.currentFingerprint,
   );
@@ -153,23 +162,7 @@ export function evaluateBelowFloorAuthorization(input: {
     };
   }
 
-  // INDEPENDENCE. Checked here rather than at authorization time because the
-  // acting user is not known then — an approver may legitimately authorize a
-  // deal that someone else goes on to accept.
-  //
-  // NO FALLBACK. There is deliberately no branch that relaxes this when no
-  // other approver exists: an estate with one approver is an estate that cannot
-  // sell below floor, which is the correct outcome and not an edge case to
-  // route around.
-  const independent = matching.filter((a) => a.approvedByUserId !== input.actingUserId);
-  if (independent.length === 0) {
-    return {
-      ok: false,
-      code: "SELF_APPROVAL",
-      message:
-        "You authorized this below-floor tier yourself. A different Commercial Approver must authorize it before you can record acceptance.",
-    };
-  }
-
-  return { ok: true, authorizationId: independent[0].id };
+  // Any live authorization matching the current state will do; there is no
+  // quorum, so one is sufficient and the rest are history.
+  return { ok: true, authorizationId: matching[0].id };
 }
