@@ -565,3 +565,91 @@ shown on the quote surface, never discovered by pressing a disabled button
 
 The 56 shells are **not materialised**. This is the dry run; nothing was
 written.
+
+---
+
+# Addendum 3 · dispositions recorded 2026-08-22
+
+Decisions taken on the trace and dry-run. **Recorded only — no shell
+materialisation has occurred.**
+
+## D1 · Terminal preserved projects stay out of the default active-work view
+
+**Approved.** The open question in Addendum 2 is settled.
+
+A project whose HubSpot deal has left the active pipeline but which carries
+governed Nexus history is **preserved, stored and truthful** — and it does
+**not** belong in the Organizer's default active-work surface. *Closed lost* and
+*Won — In production* records are history, not queue.
+
+"Don't hide history" means they remain stored, discoverable and accurate. It
+does not mean a terminal deal sits alongside live quoting work.
+
+**Express this through the existing stage/status filtering model. Do NOT
+introduce a second archive mechanism.** The distinction the Organizer already
+needs — `projects.status` becoming a real filter, plus the shell/quote-less
+chips — is the same machinery; terminal-but-preserved is another band within it,
+not a new concept.
+
+Concretely, for the shell implementation:
+
+- preserved-terminal projects keep their rows, their quotes and their audit;
+- they are excluded from the default view by the same filtering layer that
+  excludes quote-less shells;
+- they remain reachable through an explicit filter, and carry a chip naming the
+  terminal stage so the reason is visible rather than inferred;
+- **no new archive column, table or lifecycle verb.** `status` plus the deal's
+  own stage already carry it.
+
+**Current shape, from the dry run:** 8 projects would land in this band —
+4 *Closed lost*, 4 *Won*, 1 *Delivered* (Epicuren, found later, makes the
+terminal population larger than the original nine).
+
+## D2 · The `unclassified` enum and its rendering are atomic — SHIPPED (fix half)
+
+**Merge blocker for any commit introducing the enum value.**
+
+The rendering half landed ahead of the enum in PR #362. A `<select>` whose
+`defaultValue` matches no `<option>` silently selects the FIRST one, so an
+unrecognised category rendered as **"Packaging"** — a false claim about the
+project on the page an operator reads to learn what it is. Fifty-six shells
+would each have asserted it on sight.
+
+The picker now derives membership from its own option list and renders an
+explicit **disabled** `Unclassified — not set` for anything it does not
+recognise. Disabled is what makes it safe to land first: the state displays
+truthfully without offering a value the database would reject.
+
+`tests/unit/category-select-no-fallthrough.test.ts` asserts the pairing **from
+both sides**, so it cannot be half-shipped in either direction:
+
+- enum has `unclassified` → the picker and `VALID_CATEGORIES` must too;
+- enum does not → the picker must not offer it.
+
+When the shell slice adds the enum value, that test fails until the option list
+and the write validator are updated in the same commit. The atomicity is
+enforced, not remembered.
+
+## D3 · Stage-snapshot drift repaired — SHIPPED
+
+Ten projects repaired in production (PR #362), not nine: adjudicating every
+project rather than only cache-absent ones surfaced `Epicuren - Pro Masks`
+(New → Won), invisible to the narrower predicate because it *is* cached, at a
+non-active stage.
+
+**This changes the standing argument for the shell slice.** The drift is
+repaired, but nothing prevents its recurrence: `refreshFromHubspot` still has
+zero callers, so there is still no control an operator can press. The next
+snapshot to drift will drift silently, exactly as these ten did.
+
+Materialisation is what makes propagation continuous. Until it ships, the
+repair script is the only remedy and it has to be run by hand.
+
+## Still open
+
+- **Tier 3 draft editing** — settled: allowed. The governed boundary is
+  commitment and progression, not draft manipulation.
+- **`ACTIVE_STAGE_IDS`** — confirmed unchanged; `Delivered` is deliberately not
+  added merely because a project sits there. Active-pipeline relevance and
+  preservation of Nexus history are separate concerns.
+- **Nothing materialised.** The 56 shells remain un-created.
