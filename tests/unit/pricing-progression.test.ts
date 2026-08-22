@@ -235,14 +235,23 @@ test("progression cannot decide self-approval, and has no way to try", () => {
   assert.equal(v.allowed, true);
 });
 
-test("the block message names the authority, not the admin role", () => {
+test("the block message states the condition and nothing else", () => {
   const v = evaluateProgression({
     tiers: [T("a", "BELOW_FLOOR")],
     approvalByTier: {},
     unknownCellCount: 0,
   });
   const m = !v.allowed ? v.message : "";
-  assert.match(m, /authorized commercial approver/i);
   assert.doesNotMatch(m, /admin/i);
-  assert.match(m, /other than you/i, "independence must be stated where it is felt");
+  // The verdict states the CONDITION. What to do about it is the two paths'
+  // job, and duplicating it here is the repetition R13 removes.
+  assert.doesNotMatch(m, /approver/i);
+  assert.doesNotMatch(m, /lift it|request approval/i);
+  assert.match(m, /below the firm's margin floor/);
+  // INVERTED 2026-08-22. This required the message to say "other than you" —
+  // an independence rule the business then removed. The assertion now runs the
+  // other way, because copy describing a control the system does not enforce
+  // is the defect this file is meant to catch.
+  assert.doesNotMatch(m, /other than you/i);
+  assert.doesNotMatch(m, /yourself|you raised|you priced/i);
 });

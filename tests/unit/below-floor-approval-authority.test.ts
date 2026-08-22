@@ -239,3 +239,37 @@ test("the requester is recorded but never read for authority", async () => {
   assert.doesNotMatch(src, /actor\.userId === [^\n]*requestedByUserId/);
   assert.doesNotMatch(src, /requestedByUserId === [^\n]*actor\.userId/);
 });
+
+// ── the copy must not describe a control that was removed ─────────────────
+
+test("no operator-facing copy claims an independence rule", async () => {
+  // The rendered page said "have an authorized commercial approver OTHER THAN
+  // YOU approve it" for a day after independence was removed — in two places,
+  // because the banner restated the verdict. Copy describing a control the
+  // system does not enforce is worse than none: an operator plans around it,
+  // and nothing fails to tell them otherwise.
+  //
+  // Swept over the surfaces an operator actually reads, not the whole tree:
+  // the governed modules explain the REMOVAL in their comments, which is
+  // exactly the history worth keeping.
+  const surfaces = [
+    "src/lib/pricing-progression.ts",
+    "src/components/pricing/pricing-page-head.tsx",
+    "src/components/pricing-surface/verdict-bar.tsx",
+    "src/components/pricing-surface/approval-state-card.tsx",
+    "src/components/pricing-surface/request-override-modal.tsx",
+  ];
+  const claims = [
+    /other than you/i,
+    /cannot be decided by the person who raised/i,
+    /someone other than the approver/i,
+    /you priced this quote/i,
+    /independent(ly)? approv/i,
+  ];
+  for (const f of surfaces) {
+    const src = codeOnly(await readFile(new URL(`../../${f}`, import.meta.url), "utf8"));
+    for (const claim of claims) {
+      assert.doesNotMatch(src, claim, `${f} still promises an independence rule`);
+    }
+  }
+});

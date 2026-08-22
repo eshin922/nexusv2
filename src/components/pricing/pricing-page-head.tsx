@@ -137,9 +137,14 @@ export function PricingPageHead({
   // action because it owns the state that justifies it.
   const bannerHref = undefined;
 
-  // The qualifier, never a restatement of the label.
+  // The qualifier, never a restatement — of the label OR of the verdict.
+  //
+  // This carried `progression.message` when blocked, which is the same string
+  // the verdict bar states directly below it. Two identical sentences a few
+  // pixels apart is the repetition R13 exists to remove, and the capture caught
+  // it. The verdict owns the reason; the banner names the move.
   const bannerHelp = !progression.allowed
-    ? progression.message
+    ? undefined
     : progression.authorizedTiers.length > 0
       ? // The independence promise that used to close this sentence is gone
         // with the rule (policy 2026-08-22). What still binds the approval is
