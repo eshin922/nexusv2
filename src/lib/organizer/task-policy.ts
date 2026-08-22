@@ -16,7 +16,13 @@
  */
 
 export const TASK_POLICY = {
-  /** A delivered approval request is worth chasing after this long. */
+  /**
+   * A delivered approval request is worth chasing after this long.
+   *
+   * DORMANT in V1: `approval_stale` is fingerprint-gated and fails quiet (see
+   * TASK_KINDS). Kept because the threshold is policy, not a by-product of the
+   * kind — it returns unchanged when a freshness signal exists.
+   */
   approvalStaleAfterMs: 1 * 60 * 60 * 1000,
   /** A sent quote with no acceptance is "with the customer" until this long. */
   customerSilentAfterMs: 48 * 60 * 60 * 1000,
@@ -25,20 +31,20 @@ export const TASK_POLICY = {
 } as const;
 
 /**
- * The complete V1 task vocabulary. EIGHT kinds, pinned.
+ * The complete V1 task vocabulary. FOUR kinds, pinned.
  *
  * Pinned because the organizer's whole claim is that it surfaces governed state
- * and invents nothing: a ninth kind appearing without a governed predicate
+ * and invents nothing: a fifth kind appearing without a governed predicate
  * behind it is the failure this list exists to make visible. A test asserts
  * this array and the rank map agree, so a kind cannot be added in one place and
  * forgotten in the other.
  *
  * ── WHAT V1 DELIBERATELY DOES NOT CARRY ──────────────────────────────────
  *
- * Every kind here reads state Nexus has ALREADY PERSISTED — a status, a
- * timestamp, an approval row. None requires computing commercial state.
+ * Every kind here reads state Nexus has ALREADY PERSISTED, and — critically —
+ * state whose CURRENT VALIDITY is provable from that persistence alone.
  *
- * Four kinds were designed, proven against live data, and then REMOVED from V1
+ * Four COMPUTED kinds were designed, proven against live data, and removed
  * rather than approximated:
  *
  *   pricing_blocked            needs `evaluateProgression`
@@ -46,31 +52,44 @@ export const TASK_POLICY = {
  *   costs_unresolved_freight   needs `loadUnresolvedQuoteCosts`
  *   (unresolved configuration) folded into the above
  *
- * Measured: computing them live for the 43 draft quotes across 21 real projects
- * costs 44.8s and ~344 queries against a `max: 3` pool — on a DEFAULT LANDING
- * ROUTE. Serving them from a persisted projection is the right answer and is
- * designed in `docs/organizer-read-model-proposal.md`, but that is a read model
- * with its own writer registry and refresh system, and it is not this slice.
+ * Computing them live for the 43 draft quotes across 21 real projects costs
+ * 44.8s and ~344 queries against a `max: 3` pool — on a DEFAULT LANDING ROUTE.
+ * Serving them from a persisted projection is the right answer and is designed
+ * in `docs/organizer-read-model-proposal.md`; that is not this slice.
  *
- * They are DEFERRED, NOT APPROXIMATED. A cheaper stand-in for the floor
- * predicate would be a second implementation of a governed rule — the exact
- * two-bases defect (Pattern 50) that the below-floor work existed to close —
- * and it would be wrong in the direction that matters: telling an operator a
- * quote is fine when the SEND gate will refuse it.
+ * Four APPROVAL kinds were then removed for a different and sharper reason:
  *
- * The visible consequence is that role/capability work queues ("Cally — 3
- * freight costs need your attention") do not exist in V1. That is a real
- * capability being held back, not an oversight.
+ *   approval_approved          "approved below floor and ready to send"
+ *   approval_decision          "Review approval"
+ *   approval_undelivered       "Contact approver"
+ *   approval_stale             "Chase approval"
  *
- * `customer_responded` is absent for a different reason — see `tasks.ts`.
+ * Each of those is FINGERPRINT-GATED. `projectApprovalTierState` returns
+ * `approved` only when a live authorization's `stateFingerprint` equals the
+ * fingerprint of CURRENT economics, and `pending` only when the request's
+ * fingerprint does; otherwise both collapse to `superseded`, because the SEND
+ * gate will refuse them. Computing that fingerprint needs the costing bundle —
+ * the read this surface must not make.
+ *
+ * And there is no durable substitute. `below_floor_authorizations.invalidated_at`
+ * looks like one, but NOTHING WRITES IT: it is read in six places across the
+ * codebase and set by none, so it is permanently NULL and proves nothing.
+ *
+ * So the organizer CANNOT establish that an approval is still live, and a task
+ * saying "Review approval" or "ready to send" about a request Pricing considers
+ * superseded is worse than no task — it is a positive instruction to do work
+ * that cannot succeed. These fail QUIET.
+ *
+ * `approval_rejected` SURVIVES, and the distinction is the whole point: the
+ * rejected branch of `projectApprovalTierState` never consults the fingerprint.
+ * It reads a terminal `status` and `decided_at`. A rejection is durable, final,
+ * and true regardless of where the economics have since moved.
+ *
+ * `customer_responded` is absent for a third reason — see `tasks.ts`.
  */
 export const TASK_KINDS = [
   "approval_rejected",
-  "approval_approved",
-  "approval_undelivered",
   "push_failed",
-  "approval_decision",
-  "approval_stale",
   "customer_silent",
   "quote_expiring",
 ] as const;
@@ -81,19 +100,9 @@ export type TaskKind = (typeof TASK_KINDS)[number];
  * Ranking — lower is more urgent. ORDERING ONLY; never a semantic. It decides
  * which item is read first, never whether an item exists.
  *
- * The design source ranks the surviving kinds explicitly:
- *
- *   approval returned → push failed → approval pending → customer silent
- *
- * and that relative order is preserved below. Three kinds the source does not
- * rank are placed with stated reasons:
- *
- *   `approval_rejected` before `approval_approved` — both are "returned", but
- *     a rejection is work to redo and an approval is work now unblocked.
- *   `approval_undelivered` above `push_failed` — the request reached nobody, so
- *     no clock has started and nothing is in flight; that outranks a failure of
- *     something that at least ran.
- *   `quote_expiring` last — the slowest decay, and the one with a date on it.
+ * The design source's order is preserved for the kinds that survive:
+ * returned → push failed → customer silent, with `quote_expiring` last as the
+ * slowest decay and the only one carrying a date.
  *
  * It is also what removes the old page's contradiction, where a red "check
  * inbox first" warning sat directly above a "Resume pricing" button. With one
@@ -102,12 +111,8 @@ export type TaskKind = (typeof TASK_KINDS)[number];
 export const TASK_RANK: Record<TaskKind, number> = {
   // Someone else acted; it is back with you.
   approval_rejected: 1,
-  approval_approved: 2,
-  approval_undelivered: 3,
-  push_failed: 4,
+  push_failed: 2,
   // Waiting on others, decaying with time.
-  approval_decision: 5,
-  approval_stale: 6,
-  customer_silent: 7,
-  quote_expiring: 8,
+  customer_silent: 3,
+  quote_expiring: 4,
 };

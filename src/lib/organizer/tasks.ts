@@ -18,12 +18,20 @@ import { TASK_POLICY, TASK_RANK, type TaskKind } from "./task-policy";
  *   Capability alone NEVER creates a task. An approver with nothing pending has
  *   an empty queue. The unresolved state comes first, always.
  *
- * ── V1 READS ONLY DURABLE STATE ──────────────────────────────────────────
+ * ── V1 READS ONLY STATE WHOSE VALIDITY IS PROVABLE ───────────────────────
  *
- * Every kind below is a status, a timestamp or an approval row that Nexus has
- * already persisted. Nothing here computes commercial state. The four kinds
- * that would have — pricing blocked, and the three unresolved-cost kinds — are
- * deferred with their measurement in `task-policy.ts`, not approximated.
+ * Every kind below reads state Nexus has already persisted AND whose CURRENT
+ * validity follows from that persistence alone. Two different failures are ruled
+ * out by that one sentence, and `task-policy.ts` carries both:
+ *
+ *   - four COMPUTED kinds (pricing blocked, the unresolved-cost kinds) would
+ *     need a 44.8s / ~344-query read on a landing route;
+ *   - four APPROVAL kinds are fingerprint-gated, and the organizer cannot
+ *     establish the fingerprint without that same read.
+ *
+ * The second is the sharper one: a task saying "Review approval" about a request
+ * Pricing considers superseded is not merely uninformative, it is a positive
+ * instruction to do work that cannot succeed. Those fail QUIET.
  *
  * ── WHY `customer_responded` IS NOT HERE ─────────────────────────────────
  *
@@ -56,6 +64,12 @@ export type TaskOwnership =
    *
    * `capability` is a REQUIREMENT, not a source: it filters who may see an
    * unresolved state, and can never conjure one.
+   *
+   * Reached by no V1 kind — `approval_decision` was the only capability-owned
+   * task and it fails quiet on freshness. Retained because this variant IS the
+   * governing rule ("unassigned, and the viewer's capability permits it"), which
+   * `visibleToViewer` still implements and tests still exercise; it carries the
+   * approval kinds back the moment a freshness signal exists.
    */
   | { kind: "capability"; capability: "commercial_approver" }
   /**
@@ -109,13 +123,18 @@ export interface QuoteFacts {
   pushFailed: boolean;
 }
 
+/**
+ * One tier's approval state as the organizer is able to know it.
+ *
+ * `kind` keeps the full union `projectApprovalTierState` returns, because the
+ * loader passes through whatever that function decided — narrowing the type
+ * here would hide, rather than handle, the states this surface cannot act on.
+ * Only `rejected` produces a task; everything else falls through.
+ */
 export interface ApprovalFacts {
   tierId: string;
   tierLabel: string;
   kind: "none" | "pending" | "approved" | "rejected" | "superseded";
-  requestedAt: Date | null;
-  /** `delivery_status === "delivered"`. */
-  delivered: boolean;
   rejectionReason: string | null;
 }
 
@@ -155,63 +174,32 @@ export function tasksForQuote(f: QuoteFacts, now: Date): Task[] {
       updatedAt: f.updatedAt,
     });
 
-  // ── approvals — from the request/authorization projection only ──────────
+  // ── approvals · ONLY the branch that does not depend on freshness ───────
+  //
+  // `projectApprovalTierState` gates `approved` and `pending` on the request or
+  // authorization's `stateFingerprint` matching the fingerprint of CURRENT
+  // economics — which needs the costing bundle, the read this surface must not
+  // make. Nor is there a durable substitute: `invalidated_at` is read in six
+  // places and written by none, so it proves nothing.
+  //
+  // So those FAIL QUIET. A "Review approval" or "ready to send" task about a
+  // request Pricing considers superseded is worse than no task — it instructs
+  // an operator to do work the SEND gate will refuse.
+  //
+  // A rejection consults no fingerprint. It is a terminal `status` and a
+  // `decided_at`: durable, final, and true regardless of where the economics
+  // have since moved.
   for (const a of f.approvals) {
-    if (a.kind === "pending") {
-      // A decision is unassigned work: policy places NO independence
-      // requirement on who approves, so it is offered to every approver.
-      add(
-        "approval_decision",
-        a.tierId,
-        `${a.tierLabel} is awaiting a below-floor approval decision`,
-        "Review approval",
-        "pricing",
-        { kind: "capability", capability: "commercial_approver" },
-      );
-
-      if (!a.delivered) {
-        add(
-          "approval_undelivered",
-          a.tierId,
-          `The approval request for ${a.tierLabel} was not delivered to Slack`,
-          "Contact approver",
-          "pricing",
-        );
-      } else if (
-        a.requestedAt &&
-        now.getTime() - a.requestedAt.getTime() > TASK_POLICY.approvalStaleAfterMs
-      ) {
-        add(
-          "approval_stale",
-          a.tierId,
-          `${a.tierLabel} has been awaiting approval since ${a.requestedAt.toISOString().slice(0, 16).replace("T", " ")} UTC`,
-          "Chase approval",
-          "pricing",
-        );
-      }
-    }
-
-    if (a.kind === "approved" && f.status === "draft") {
-      add(
-        "approval_approved",
-        a.tierId,
-        `${a.tierLabel} is approved below floor and ready to send`,
-        "Review & send",
-        "quote?tab=preview",
-      );
-    }
-
-    if (a.kind === "rejected") {
-      add(
-        "approval_rejected",
-        a.tierId,
-        a.rejectionReason
-          ? `${a.tierLabel} was declined — ${a.rejectionReason}`
-          : `${a.tierLabel} was declined below floor`,
-        "Re-price or re-request",
-        "pricing",
-      );
-    }
+    if (a.kind !== "rejected") continue;
+    add(
+      "approval_rejected",
+      a.tierId,
+      a.rejectionReason
+        ? `${a.tierLabel} was declined — ${a.rejectionReason}`
+        : `${a.tierLabel} was declined below floor`,
+      "Re-price or re-request",
+      "pricing",
+    );
   }
 
   if (f.pushFailed) {

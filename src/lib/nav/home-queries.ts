@@ -153,24 +153,7 @@ export async function getResumeContext(
   };
 }
 
-// Slice RI.9 §6 step 6 — Pushback 1 priority signal.
-// Count of `action_required` ("now-tier") warnings for this user,
-// across all their projects. Drives the "But check inbox first —
-// N now-tier items" chip on Resume card.
-//
-// v1: user-scope = all active warnings (no per-user filter on
-// quote_warnings; the inbox surfaces every PM's warnings). When
-// per-PM filtering lands (UX_BACKLOG: deal-organizer per-user
-// assignment), narrow this query.
-export async function getNowTierWarningCount(): Promise<number> {
-  const rows = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(quoteWarnings)
-    .where(
-      and(
-        eq(quoteWarnings.severity, "action_required"),
-        eq(quoteWarnings.status, "active"),
-      ),
-    );
-  return rows[0]?.n ?? 0;
-}
+// `getNowTierWarningCount` was removed with the R14 Deal Organizer. It fed the
+// "Check inbox first — N now-tier items" chip on the Resume card, an inbox that
+// never shipped. `getResumeContext` above is NOT removed: it still has a caller
+// in actions/surface-visits.ts.

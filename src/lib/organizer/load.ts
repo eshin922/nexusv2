@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -31,8 +31,8 @@ import {
  *
  * ── FIXED QUERY COUNT, BY CONSTRUCTION ───────────────────────────────────
  *
- * Five queries for the whole page, regardless of how many projects or quotes
- * exist. Nothing here is per-quote.
+ * Six queries for the whole page, regardless of how many projects or quotes
+ * exist — three in each of two batches. Nothing here is per-quote.
  *
  * The first draft of this file was per-quote: it called `getCostingBundle` and
  * `loadUnresolvedQuoteCosts` for every draft, to serve `pricing_blocked` and
@@ -56,22 +56,40 @@ import {
  *
  * No commercial question is answered by code in this file.
  *
- * ── ONE FINGERPRINT CAVEAT, STATED ───────────────────────────────────────
+ * ── APPROVAL FRESHNESS FAILS QUIET, STRUCTURALLY ─────────────────────────
  *
- * `projectApprovalTierState` normally takes the fingerprint of CURRENT
- * economics, so an approval whose numbers have moved reports as `superseded`.
- * Computing that needs the costing bundle, which is exactly what this loader
- * must not do. It therefore passes the request's OWN fingerprint, which answers
- * the narrower question "was this decided, and is it live?" and cannot answer
- * "does it still match today's numbers".
+ * `projectApprovalTierState` decides `approved` and `pending` by comparing a
+ * stored `stateFingerprint` against the fingerprint of CURRENT economics. That
+ * fingerprint comes from the costing bundle — the read this loader must not
+ * make — and no durable substitute exists: `invalidated_at` is read in six
+ * places across the codebase and written by none.
  *
- * The consequence is bounded and one-directional: a stale-but-undecided
- * approval may appear here as `pending` rather than `superseded`. It cannot
- * make an unapproved quote look approved, and it changes NOTHING about
- * authority — Pricing and the SEND gate both re-decide from the bundle. Named
- * here rather than left as a silent difference between two call sites of the
- * same function.
+ * An earlier draft passed the request's OWN fingerprint, which made the
+ * comparison trivially true and could report `pending` for a request Pricing
+ * considers superseded — a positive "Review approval" instruction to do work
+ * the SEND gate will refuse.
+ *
+ * So this passes a sentinel that CANNOT equal any real fingerprint. The
+ * function's own precedence then does the rest: `approved` cannot be reached,
+ * `pending` collapses to `superseded`, and neither raises a task. Fail-quiet is
+ * a consequence of the governed function's existing logic rather than a second
+ * freshness rule implemented here.
+ *
+ * `rejected` still surfaces, because that branch consults no fingerprint — it
+ * reads a terminal `status` and `decided_at`, which are durable and final.
+ *
+ * Authority is untouched either way: Pricing and the SEND gate both re-decide
+ * from the bundle.
  */
+
+/**
+ * Not a fingerprint. `fingerprintCommercialState` returns a hash of the tier's
+ * revenue, cost and blended margin, so no real value can collide with this —
+ * which is the point: every fingerprint comparison inside
+ * `projectApprovalTierState` is forced to fail, and the states that depend on
+ * one fall through to `superseded` instead of being asserted.
+ */
+const FRESHNESS_UNPROVABLE = "organizer:current-fingerprint-unavailable";
 
 export interface OrganizerProject {
   projectId: string;
@@ -85,8 +103,14 @@ export interface OrganizerProject {
   visibleTasks: Task[];
   /** `visibleTasks[0]`, by construction. */
   topTask: Task | null;
-  /** Most recently updated quote on the project, for the Latest-quote column. */
+  /**
+   * Most recently updated NON-DROPPED quote, for the Latest-quote column.
+   * Null both when the project has no quotes and when every scenario on it was
+   * dropped — `hasAnyQuotes` separates those two.
+   */
   latestQuote: { quoteId: string; scenarioLabel: string; versionNumber: number; status: string; updatedAt: Date } | null;
+  /** True when the project has quotes at all, including dropped ones. */
+  hasAnyQuotes: boolean;
 }
 
 export interface OrganizerData {
@@ -112,7 +136,7 @@ export async function loadOrganizer(
   viewer: Viewer,
   now = new Date(),
 ): Promise<OrganizerData> {
-  const [rows, hiddenRows] = await Promise.all([
+  const [rows, hiddenRows, anyQuoteRows] = await Promise.all([
     db
       .select({
         projectId: projects.id,
@@ -131,13 +155,35 @@ export async function loadOrganizer(
         pushStatus: quotes.netsuiteSoPushStatus,
       })
       .from(projects)
-      .leftJoin(quotes, eq(quotes.projectId, projects.id))
+      // DROPPED SCENARIOS ARE EXCLUDED IN THE JOIN, not filtered afterwards.
+      //
+      // A dropped scenario is superseded history: it must not become a row's
+      // "latest quote" and must not raise tasks. Putting the condition in the
+      // JOIN rather than the WHERE is what keeps a project whose scenarios are
+      // ALL dropped in the result — with every quote column null — so it can be
+      // told apart from a project with no quotes at all. `hasAnyQuotes` below
+      // carries that distinction to the row.
+      //
+      // Three live quotes in real projects are dropped today, so this is not
+      // hypothetical.
+      .leftJoin(
+        quotes,
+        and(eq(quotes.projectId, projects.id), ne(quotes.scenarioStatus, "dropped")),
+      )
       // The ONLY test-record filter: a column, set once by migration 0097.
       // Never a name, prefix, substring, `ZZ-`, `%test%` or HubSpot-linkage
       // match at runtime.
       .where(eq(projects.isTest, false)),
     db.select({ id: projects.id }).from(projects).where(eq(projects.isTest, true)),
+    // Which projects have ANY quote, dropped or not — so "every scenario was
+    // dropped" reads differently from "no quote yet".
+    db
+      .selectDistinct({ projectId: quotes.projectId })
+      .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
+      .where(eq(projects.isTest, false)),
   ]);
+  const projectsWithAnyQuote = new Set(anyQuoteRows.map((r) => r.projectId));
 
   const quoteIds = rows.flatMap((r) => (r.quoteId ? [r.quoteId] : []));
 
@@ -223,38 +269,21 @@ export async function loadOrganizer(
       const state = projectApprovalTierState({
         tierId: req.tierId,
         quoteVersionNumber: versionNumber,
-        // The request's own fingerprint — see the caveat in the header.
-        currentFingerprint: req.stateFingerprint,
+        // Cannot match — see FRESHNESS_UNPROVABLE.
+        currentFingerprint: FRESHNESS_UNPROVABLE,
         requests: quoteRequests,
         authorizations: quoteAuths,
       });
 
-      const tierLabel = labelById.get(req.tierId) ?? "A tier";
-      if (state.kind === "pending") {
+      // Only `rejected` is actionable from durable state. `approved` and
+      // `pending` cannot be reached under the sentinel, and `superseded` /
+      // `none` were never tasks — so this is the single mapping, not a filter
+      // applied after the fact.
+      if (state.kind === "rejected") {
         approvals.push({
           tierId: req.tierId,
-          tierLabel,
-          kind: "pending",
-          requestedAt: state.requestedAt,
-          delivered: state.delivered,
-          rejectionReason: null,
-        });
-      } else if (state.kind === "approved") {
-        approvals.push({
-          tierId: req.tierId,
-          tierLabel,
-          kind: "approved",
-          requestedAt: null,
-          delivered: true,
-          rejectionReason: null,
-        });
-      } else if (state.kind === "rejected") {
-        approvals.push({
-          tierId: req.tierId,
-          tierLabel,
+          tierLabel: labelById.get(req.tierId) ?? "A tier",
           kind: "rejected",
-          requestedAt: null,
-          delivered: true,
           rejectionReason: state.reason,
         });
       }
@@ -315,6 +344,7 @@ export async function loadOrganizer(
       allTasks,
       visibleTasks,
       topTask: visibleTasks[0] ?? null,
+      hasAnyQuotes: projectsWithAnyQuote.has(projectId),
       latestQuote: latest
         ? {
             quoteId: latest.quoteId,

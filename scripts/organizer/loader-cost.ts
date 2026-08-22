@@ -16,7 +16,10 @@ const ms = Date.now() - t;
 console.log(`ELAPSED_MS ${ms}`);
 console.log(`PROJECTS ${data.projects.length}  HIDDEN_TEST ${data.hiddenTestProjectCount}  UNOWNED_TASKS ${data.unownedTaskCount}`);
 console.log(`NEEDS_YOU_TASKS ${data.needsYou.length}  NEEDS_YOU_DEALS ${data.projects.filter(p=>p.group==="needs_you").length}`);
-console.log(`NEXT_MOVE_IS_NEEDSYOU0 ${data.nextMove === data.needsYou[0]}`);
+// `needsYou[0]` is `undefined` on an empty queue while `nextMove` is `null`,
+// so the identity is asserted against the same coalesce the loader applies.
+console.log(`NEXT_MOVE_IS_NEEDSYOU0 ${data.nextMove === (data.needsYou[0] ?? null)}`);
+console.log(`HAS_ANY_QUOTES_FALSE ${data.projects.filter(p=>!p.hasAnyQuotes).length}`);
 console.log("GROUPS", JSON.stringify(data.projects.reduce((a: any, p) => (a[p.group]=(a[p.group]??0)+1, a), {})));
 console.log("TASK_KINDS_PRESENT", JSON.stringify(data.needsYou.reduce((a: any, t) => (a[t.kind]=(a[t.kind]??0)+1, a), {})));
 console.log("TOP_5:");

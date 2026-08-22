@@ -33,11 +33,7 @@ const GROUP_ORDER = ["needs_you", "with_customer", "no_action"] as const;
 
 const TAG: Record<Task["kind"], { text: string; tone: string }> = {
   approval_rejected: { text: "declined", tone: "r14-tag-accent" },
-  approval_approved: { text: "approved", tone: "r14-tag-returned" },
-  approval_undelivered: { text: "not delivered", tone: "r14-tag-accent" },
   push_failed: { text: "push failed", tone: "r14-tag-accent" },
-  approval_decision: { text: "approval", tone: "r14-tag-info" },
-  approval_stale: { text: "waiting", tone: "r14-tag-info" },
   customer_silent: { text: "silent", tone: "r14-tag-info" },
   quote_expiring: { text: "expiring", tone: "r14-tag-info" },
 };
@@ -141,7 +137,7 @@ export function OrganizerSurface({
                 <div>
                   <div className="r14-next-title">Nothing needs you right now.</div>
                   <div className="r14-next-sub">
-                    No approval decision, delivery failure or ageing quote is waiting on you.
+                    No declined approval, failed push or ageing quote is waiting on you.
                   </div>
                 </div>
               </div>
@@ -258,9 +254,9 @@ export function OrganizerSurface({
             )}
 
             <p className="r14-deferred">
-              Pricing and cost work is not surfaced here yet — those need commercial state
-              Nexus does not persist, and computing it on this page is not viable. Open a
-              quote to see its pricing and cost status.
+              Pricing, cost and pending-approval work is not surfaced here yet — each
+              needs current commercial state that this page cannot establish without a
+              read it should not make. Open a quote to see where it stands.
             </p>
           </div>
         </aside>
@@ -295,8 +291,12 @@ function ProjectRow({ project: p, now }: { project: OrganizerProject; now: numbe
             <span className="r14-rev">rev {q.versionNumber}</span>
           </>
         ) : (
+          // Two different absences, said differently. "Every scenario was
+          // dropped" is a project someone worked on and set aside; "no quote
+          // yet" is one nobody has started. Collapsing them loses the only
+          // signal that distinguishes them.
           <span className="r14-quote" style={{ opacity: 0.6 }}>
-            no quote yet
+            {p.hasAnyQuotes ? "No active scenario" : "No quote yet"}
           </span>
         )}
       </div>

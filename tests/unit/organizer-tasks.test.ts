@@ -27,8 +27,9 @@ const read = (p: string) => readFile(new URL(`../../${p}`, import.meta.url), "ut
 //   either the work is assigned to that user, or it is unassigned and their
 //   capability permits it. CAPABILITY ALONE NEVER CREATES WORK.
 //
-// V1 narrows this further: every kind reads state Nexus has ALREADY
-// PERSISTED. Nothing computes commercial state on a landing route.
+// V1 adds a second condition of the same kind: the state's CURRENT VALIDITY
+// must follow from durable persistence alone. Anything needing a costing read
+// to know whether it is still true fails QUIET.
 // ═══════════════════════════════════════════════════════════════════════
 
 const NOW = new Date("2026-08-22T12:00:00Z");
@@ -57,20 +58,19 @@ const viewer = (o: Partial<Viewer> = {}): Viewer => ({
   ...o,
 });
 
-const pending = (o: Partial<QuoteFacts["approvals"][number]> = {}) =>
+const withApproval = (o: Partial<QuoteFacts["approvals"][number]> = {}) =>
   clean({
     approvals: [
-      {
-        tierId: "t1",
-        tierLabel: "50k",
-        kind: "pending" as const,
-        requestedAt: new Date("2026-08-22T11:55:00Z"),
-        delivered: true,
-        rejectionReason: null,
-        ...o,
-      },
+      { tierId: "t1", tierLabel: "50k", kind: "pending" as const, rejectionReason: null, ...o },
     ],
   });
+
+/** A capability-owned task, built directly. No V1 kind produces one — see below. */
+const capabilityTask = () =>
+  ({
+    kind: "approval_rejected",
+    ownership: { kind: "capability", capability: "commercial_approver" },
+  }) as unknown as Task;
 
 // ── capability never creates work ─────────────────────────────────────────
 
@@ -84,12 +84,14 @@ test("an approver with nothing pending has an empty queue", () => {
   assert.deepEqual(seen, [], "holding the approval capability conjured work");
 });
 
-test("an unresolved state is what creates the task — then capability filters it", () => {
-  const tasks = tasksForQuote(pending(), NOW);
-  const decision = tasks.filter((t) => t.kind === "approval_decision");
-  assert.equal(decision.length, 1, "a pending approval did not raise a decision task");
-  assert.equal(visibleToViewer(decision[0], viewer({ commercialApprover: false })), false);
-  assert.equal(visibleToViewer(decision[0], viewer({ commercialApprover: true })), true);
+test("capability filters visibility, and can never create it", () => {
+  // Asserted against `visibleToViewer` directly, because no V1 kind is
+  // capability-owned any more: `approval_decision` was the only one and it
+  // fails quiet on freshness. The RULE still has to hold for the kinds that
+  // return once a freshness signal exists, so it is tested rather than deleted.
+  const task = capabilityTask();
+  assert.equal(visibleToViewer(task, viewer({ commercialApprover: false })), false);
+  assert.equal(visibleToViewer(task, viewer({ commercialApprover: true })), true);
 });
 
 // ── ownership ─────────────────────────────────────────────────────────────
@@ -106,12 +108,12 @@ test("quote-derived work belongs to that quote's creator, not to a role", () => 
   );
 });
 
-test("an approval decision reaches every approver — there is no independence rule", () => {
-  const [decision] = tasksForQuote(pending(), NOW).filter((t) => t.kind === "approval_decision");
-  // Including the quote's own creator: policy places NO self-approval or
-  // operator-independence requirement on below-floor approvals.
-  assert.equal(visibleToViewer(decision, viewer({ userId: CREATOR, commercialApprover: true })), true);
-  assert.equal(visibleToViewer(decision, viewer({ userId: OTHER, commercialApprover: true })), true);
+test("capability-owned work reaches every holder — there is no independence rule", () => {
+  // Policy places NO self-approval or operator-independence requirement on
+  // below-floor approvals, so the quote's own creator sees it too.
+  const task = capabilityTask();
+  assert.equal(visibleToViewer(task, viewer({ userId: CREATOR, commercialApprover: true })), true);
+  assert.equal(visibleToViewer(task, viewer({ userId: OTHER, commercialApprover: true })), true);
 });
 
 test("a quote with no creator leaves its work unowned, visible to nobody", () => {
@@ -130,9 +132,51 @@ test("a quote with no creator leaves its work unowned, visible to nobody", () =>
   }
 });
 
-// ── V1 carries only durable state ─────────────────────────────────────────
+// ── approval freshness fails quiet ────────────────────────────────────────
 
-test("the four computed kinds are absent — deferred, not approximated", () => {
+test("fingerprint-gated approval states raise no task", () => {
+  // `pending` and `approved` are decided by comparing a stored fingerprint
+  // against CURRENT economics, which this surface cannot compute without the
+  // costing bundle. Surfacing them anyway would instruct an operator to act on
+  // a request Pricing may consider superseded — work the SEND gate refuses.
+  for (const kind of ["pending", "approved", "superseded", "none"] as const) {
+    assert.deepEqual(
+      tasksForQuote(withApproval({ kind }), NOW),
+      [],
+      `${kind} raised a task despite unprovable freshness`,
+    );
+  }
+});
+
+test("a rejection survives, because it consults no fingerprint", () => {
+  const rejected = tasksForQuote(
+    withApproval({ kind: "rejected", rejectionReason: "margin too thin" }),
+    NOW,
+  );
+  assert.deepEqual(
+    rejected.map((t) => t.kind),
+    ["approval_rejected"],
+  );
+  assert.match(rejected[0].reason, /margin too thin/);
+});
+
+test("the loader forces the fingerprint comparison to fail rather than faking it", async () => {
+  const src = codeOnly(await read("src/lib/organizer/load.ts"));
+  // Fail-quiet must come from the governed function's own precedence, not from
+  // a second freshness rule implemented in the loader.
+  assert.match(src, /FRESHNESS_UNPROVABLE/);
+  assert.match(src, /currentFingerprint: FRESHNESS_UNPROVABLE/);
+  assert.doesNotMatch(
+    src,
+    /currentFingerprint:\s*(req|request)\.stateFingerprint/,
+    "the loader passes a request's own fingerprint, making the comparison trivially true",
+  );
+  assert.doesNotMatch(src, /fingerprintCommercialState/, "the loader computes a fingerprint itself");
+});
+
+// ── V1 carries only provable state ────────────────────────────────────────
+
+test("the computed kinds are absent — deferred, not approximated", () => {
   for (const gone of [
     "pricing_blocked",
     "costs_unresolved_quote",
@@ -147,11 +191,22 @@ test("the four computed kinds are absent — deferred, not approximated", () => 
   }
 });
 
+test("every fingerprint-gated kind is absent from the vocabulary", () => {
+  for (const gone of [
+    "approval_approved",
+    "approval_decision",
+    "approval_undelivered",
+    "approval_stale",
+  ]) {
+    assert.equal((TASK_KINDS as readonly string[]).includes(gone), false, `${gone} is back`);
+  }
+});
+
 test("the organizer reaches for no costing or unresolved-cost computation", async () => {
   // The merge blocker, asserted structurally. Serving the computed kinds live
   // measured 44.8s and ~344 queries against a pool of 3 on the default landing
-  // route. A cheaper stand-in for the floor predicate is equally forbidden — it
-  // would be a second implementation of a governed rule (Pattern 50).
+  // route. A cheaper stand-in for a governed predicate is equally forbidden —
+  // it would be a second implementation of a rule that already has one.
   for (const file of [
     "src/lib/organizer/tasks.ts",
     "src/lib/organizer/load.ts",
@@ -179,6 +234,26 @@ test("test records are filtered by column only — no name heuristics", async ()
   }
 });
 
+// ── dropped scenarios are history, not work ──────────────────────────────
+
+test("dropped scenarios are excluded in the JOIN, so an all-dropped project survives", async () => {
+  const src = codeOnly(await read("src/lib/organizer/load.ts"));
+  // In the JOIN, not the WHERE. Filtering afterwards would drop the PROJECT
+  // too, and "every scenario was dropped" would become indistinguishable from
+  // "no quote yet".
+  assert.match(
+    src,
+    /leftJoin\(\s*quotes,\s*and\(\s*eq\(quotes\.projectId, projects\.id\),\s*ne\(quotes\.scenarioStatus, "dropped"\)/,
+    "dropped scenarios are not excluded in the join",
+  );
+  assert.match(src, /hasAnyQuotes/, "the all-dropped state cannot be distinguished");
+});
+
+test("the surface says all-dropped and no-quote differently", async () => {
+  const src = await read("src/components/deal-organizer/organizer-surface.tsx");
+  assert.match(src, /hasAnyQuotes \? "No active scenario" : "No quote yet"/);
+});
+
 // ── individual predicates ─────────────────────────────────────────────────
 
 test("valid_until null yields no expiry task, not a fabricated date", () => {
@@ -187,55 +262,8 @@ test("valid_until null yields no expiry task, not a fabricated date", () => {
     sentAt: new Date("2026-08-21T12:00:00Z"),
     validUntil: null,
   });
-  assert.deepEqual(tasksForQuote(sent, NOW).filter((t) => t.kind === "quote_expiring"), []);
-});
-
-test("an undelivered request is actionable, and does not also read as stale", () => {
-  const kinds = tasksForQuote(
-    pending({ delivered: false, requestedAt: new Date("2026-01-01T00:00:00Z") }),
-    NOW,
-  ).map((t) => t.kind);
-  assert.ok(kinds.includes("approval_undelivered"));
-  assert.equal(
-    kinds.includes("approval_stale"),
-    false,
-    "a request that reached nobody was also reported as awaiting a reply",
-  );
-});
-
-test("approval returned splits into approved and rejected", () => {
-  const approved = tasksForQuote(
-    clean({
-      approvals: [
-        { tierId: "t1", tierLabel: "50k", kind: "approved", requestedAt: null, delivered: true, rejectionReason: null },
-      ],
-    }),
-    NOW,
-  );
-  assert.deepEqual(approved.map((t) => t.kind), ["approval_approved"]);
-
-  const rejected = tasksForQuote(
-    clean({
-      approvals: [
-        { tierId: "t1", tierLabel: "50k", kind: "rejected", requestedAt: null, delivered: true, rejectionReason: "margin too thin" },
-      ],
-    }),
-    NOW,
-  );
-  assert.deepEqual(rejected.map((t) => t.kind), ["approval_rejected"]);
-  assert.match(rejected[0].reason, /margin too thin/);
-});
-
-test("a superseded approval raises nothing on its own", () => {
   assert.deepEqual(
-    tasksForQuote(
-      clean({
-        approvals: [
-          { tierId: "t1", tierLabel: "50k", kind: "superseded", requestedAt: null, delivered: true, rejectionReason: null },
-        ],
-      }),
-      NOW,
-    ),
+    tasksForQuote(sent, NOW).filter((t) => t.kind === "quote_expiring"),
     [],
   );
 });
@@ -265,16 +293,23 @@ test("the thresholds live in the policy layer, not in predicates", async () => {
 
 // ── vocabulary and ranking ────────────────────────────────────────────────
 
-test("the vocabulary is eight kinds, and rank covers exactly them", () => {
-  assert.equal(TASK_KINDS.length, 8);
+test("the vocabulary is four kinds, and rank covers exactly them", () => {
+  assert.equal(TASK_KINDS.length, 4);
   assert.deepEqual([...TASK_KINDS].sort(), Object.keys(TASK_RANK).sort());
-  assert.equal(new Set(Object.values(TASK_RANK)).size, 8, "two kinds share a rank");
+  assert.equal(new Set(Object.values(TASK_RANK)).size, 4, "two kinds share a rank");
 });
 
 test("ranking is most-urgent-first, oldest-first on ties", () => {
   const mk = (kind: Task["kind"], iso: string): Task => ({
-    kind, id: kind + iso, projectId: "p", quoteId: "q", scenarioLabel: "s",
-    ownership: { kind: "assigned", userId: CREATOR }, reason: "", cta: "", href: "",
+    kind,
+    id: kind + iso,
+    projectId: "p",
+    quoteId: "q",
+    scenarioLabel: "s",
+    ownership: { kind: "assigned", userId: CREATOR },
+    reason: "",
+    cta: "",
+    href: "",
     updatedAt: new Date(iso),
   });
   const ranked = rankTasks([
@@ -326,8 +361,14 @@ test("the highest-ranked VISIBLE task decides the row's group", () => {
 });
 
 test("a multi-scenario project keeps every task, owned by its own creator", () => {
-  const a = tasksForQuote(clean({ quoteId: "qa", scenarioLabel: "Primary", createdByUserId: CREATOR, pushFailed: true }), NOW);
-  const b = tasksForQuote(clean({ quoteId: "qb", scenarioLabel: "Alt 1", createdByUserId: OTHER, pushFailed: true }), NOW);
+  const a = tasksForQuote(
+    clean({ quoteId: "qa", scenarioLabel: "Primary", createdByUserId: CREATOR, pushFailed: true }),
+    NOW,
+  );
+  const b = tasksForQuote(
+    clean({ quoteId: "qb", scenarioLabel: "Alt 1", createdByUserId: OTHER, pushFailed: true }),
+    NOW,
+  );
   const all = [...a, ...b];
   assert.equal(all.length, 2, "the queue is not collapsed to one task per project");
   assert.deepEqual(
@@ -342,7 +383,14 @@ test("a multi-scenario project keeps every task, owned by its own creator", () =
 
 test("the organizer is read-only and the task layer is pure", async () => {
   const tasks = codeOnly(await read("src/lib/organizer/tasks.ts"));
-  for (const forbidden of [/from "@\/db"/, /\.insert\(/, /\.update\(/, /\.delete\(/, /Date\.now\(\)/, /new Date\(\)/]) {
+  for (const forbidden of [
+    /from "@\/db"/,
+    /\.insert\(/,
+    /\.update\(/,
+    /\.delete\(/,
+    /Date\.now\(\)/,
+    /new Date\(\)/,
+  ]) {
     assert.doesNotMatch(tasks, forbidden, `the task layer reaches for ${forbidden}`);
   }
   const load = codeOnly(await read("src/lib/organizer/load.ts"));
