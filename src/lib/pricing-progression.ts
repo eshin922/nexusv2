@@ -128,8 +128,17 @@ export function evaluateProgression(input: {
         code: "BELOW_FLOOR_UNAUTHORIZED",
         message:
           unauthorized.length === 1
-            ? `${names} is below the firm's margin floor. Lift it above the floor, or have an authorized commercial approver other than you approve it.`
-            : `${unauthorized.length} tiers are below the firm's margin floor (${names}). Lift them above the floor, or have an authorized commercial approver other than you approve each one.`,
+            // STATE ONLY. This carried "…or have an authorized commercial
+            // approver OTHER THAN YOU approve it" until 2026-08-22 — a rule the
+            // business removed, still being promised to operators.
+            //
+            // Deleted rather than reworded. The replacement clause ("or have an
+            // authorized commercial approver approve it") was accurate but still
+            // explained the mechanism here, where the verdict's job is to state
+            // the condition; the two paths directly beneath say what to do about
+            // it, and saying it twice is the repetition R13 exists to remove.
+            ? `${names} is below the firm's margin floor.`
+            : `${unauthorized.length} tiers are below the firm's margin floor (${names}).`,
         tiers: unauthorized.map((t) => ({
           tierId: t.tierId,
           label: t.label,
