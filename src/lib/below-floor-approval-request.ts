@@ -53,7 +53,8 @@ export type DecisionVerdict =
         | "already_decided"
         | "superseded"
         | "not_approver"
-        | "self_approval"
+        | "operator_unknown"
+        | "operator_approval"
         | "reason_required";
       message: string;
     };
@@ -81,9 +82,17 @@ export function isNoOp(verdict: DecisionVerdict): boolean {
  *  2. superseded       — a decision that cannot apply is not one anyone can be
  *     accused of self-approving. Naming self-approval on stale economics sends
  *     the operator to find a second person when they need a fresh request.
- *  3. authority        — the governed permission, never the role.
- *  4. self-approval    — requester ≠ reviewer.
- *  5. reason           — required on reject.
+ *  3. authority        - the governed permission, never the role.
+ *  4. operator-unknown - no operator of record, so independence is unanswerable.
+ *  5. independence     - the approver may not be the quote's commercial operator.
+ *  6. reason           - required on reject.
+ *
+ * STEP 5 IS NOT "requester != reviewer", corrected 2026-08-22. Designated
+ * approvers are not quote operators; barring an approver who merely routed a
+ * PM's request enforced a relationship the business does not have, while an
+ * operator who had someone else raise the request passed straight through.
+ * `requestedByUserId` remains on the record as provenance and is no longer read
+ * for authority.
  *
  * Authority is NOT re-implemented here: callers pass the value read from the
  * database at decision time via `mayAuthorizeBelowFloor`.
@@ -94,6 +103,11 @@ export function evaluateApprovalDecision(input: {
   action: DecisionAction;
   currentFingerprint: string;
   reason: string | null;
+  /**
+   * `quotes.created_by_user_id` for the version under decision. Null refuses -
+   * absence of an operator is never read as permission.
+   */
+  operatorUserId: string | null;
 }): DecisionVerdict {
   const { request, actor, action, currentFingerprint, reason } = input;
 
@@ -123,11 +137,21 @@ export function evaluateApprovalDecision(input: {
     };
   }
 
-  if (actor.userId === request.requestedByUserId) {
+  if (input.operatorUserId === null) {
     return {
       ok: false,
-      code: "self_approval",
-      message: "A below-floor request cannot be decided by the person who raised it.",
+      code: "operator_unknown",
+      message:
+        "This quote has no recorded commercial operator, so approval independence cannot be established.",
+    };
+  }
+
+  if (actor.userId === input.operatorUserId) {
+    return {
+      ok: false,
+      code: "operator_approval",
+      message:
+        "You priced this quote, so you cannot approve its below-floor exception. An independent commercial approver must decide it.",
     };
   }
 

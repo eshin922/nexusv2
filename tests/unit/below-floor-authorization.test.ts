@@ -22,7 +22,7 @@ import {
   type BelowFloorAuthorizationRecord,
 } from "../../src/lib/below-floor-authorization.ts";
 
-const PM = "user-pm";
+const PM = "user-pm"; // the quote version's commercial operator
 const APPROVER = "user-approver";
 const OTHER_APPROVER = "user-approver-2";
 const TIER = "tier-2";
@@ -52,7 +52,7 @@ test("1 · below-floor acceptance is blocked when no authorization exists", () =
     authorizations: [],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: PM,
+    operatorUserId: PM,
   });
   assert.equal(v.ok, false);
   assert.equal(v.ok === false && v.code, "NO_AUTHORIZATION");
@@ -83,7 +83,7 @@ test("3 · an authorized approver can authorize a quote another actor accepts", 
     authorizations: [auth()],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: PM,
+    operatorUserId: PM,
   });
   assert.equal(v.ok, true);
   assert.equal(v.ok === true && v.authorizationId, "auth-1");
@@ -91,15 +91,43 @@ test("3 · an authorized approver can authorize a quote another actor accepts", 
 
 // ───────────────────────────────────────────────── 4 · no self-approval
 
-test("4 · the same actor cannot authorize and then act on their own quote", () => {
+test("4 · the quote's OPERATOR cannot authorize their own pricing", () => {
+  // The separation of duties, corrected 2026-08-22: measured against whoever
+  // built the economics, not against whoever is acting. `APPROVER` is the
+  // operator in this case, so their own authorization cannot clear it.
   const v = evaluateBelowFloorAuthorization({
     authorizations: [auth({ approvedByUserId: APPROVER })],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: APPROVER,
+    operatorUserId: APPROVER,
   });
   assert.equal(v.ok, false);
-  assert.equal(v.ok === false && v.code, "SELF_APPROVAL");
+  assert.equal(v.ok === false && v.code, "OPERATOR_APPROVAL");
+});
+
+test("4a · an approver may act on a quote they authorized but did not price", () => {
+  // REMOVED RULE, asserted so it stays removed. The gate used to refuse when
+  // the approver was also the person clicking Send or Accept, which barred an
+  // approver from committing someone else's properly authorized quote. No
+  // policy asks for that, and it made the verdict depend on who held the mouse.
+  const v = evaluateBelowFloorAuthorization({
+    authorizations: [auth({ approvedByUserId: APPROVER })],
+    scope,
+    currentFingerprint: FINGERPRINT,
+    operatorUserId: PM,
+  });
+  assert.equal(v.ok, true);
+});
+
+test("4c · no operator of record refuses, whoever approved", () => {
+  const v = evaluateBelowFloorAuthorization({
+    authorizations: [auth({ approvedByUserId: OTHER_APPROVER })],
+    scope,
+    currentFingerprint: FINGERPRINT,
+    operatorUserId: null,
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.ok === false && v.code, "OPERATOR_UNKNOWN");
 });
 
 test("4b · an independent authorization alongside a self one still passes", () => {
@@ -112,7 +140,7 @@ test("4b · an independent authorization alongside a self one still passes", () 
     ],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: APPROVER,
+    operatorUserId: APPROVER,
   });
   assert.equal(v.ok, true);
   assert.equal(v.ok === true && v.authorizationId, "independent");
@@ -128,7 +156,7 @@ test("5 · the absence of any other approver creates NO fallback", () => {
     authorizations: [auth({ approvedByUserId: APPROVER })],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: APPROVER,
+    operatorUserId: APPROVER,
   });
   assert.equal(soleApproverActs.ok, false, "a lone approver cleared their own way");
 
@@ -136,7 +164,7 @@ test("5 · the absence of any other approver creates NO fallback", () => {
     authorizations: [],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: APPROVER,
+    operatorUserId: APPROVER,
   });
   assert.equal(nobodyAtAll.ok, false, "an empty approver set resolved permissively");
 });
@@ -149,7 +177,7 @@ test("7 · a material commercial change invalidates the authorization", () => {
     authorizations: [auth()],
     scope,
     currentFingerprint: priceMoved,
-    actingUserId: PM,
+    operatorUserId: PM,
   });
   assert.equal(v.ok, false);
   assert.equal(v.ok === false && v.code, "STATE_CHANGED");
@@ -162,7 +190,7 @@ test("7b · cost movement invalidates too — revenue is not the only lever", ()
     authorizations: [auth()],
     scope,
     currentFingerprint: costMoved,
-    actingUserId: PM,
+    operatorUserId: PM,
   });
   assert.equal(v.ok === false && v.code, "STATE_CHANGED");
 });
@@ -181,7 +209,7 @@ test("7d · an explicitly invalidated decision is refused as invalidated", () =>
     authorizations: [auth({ invalidatedAt: new Date() })],
     scope,
     currentFingerprint: FINGERPRINT,
-    actingUserId: PM,
+    operatorUserId: PM,
   });
   assert.equal(v.ok === false && v.code, "INVALIDATED");
 });
@@ -197,7 +225,7 @@ test("8 · acceptance succeeds ONLY while a valid, in-scope authorization exists
       authorizations: [record],
       scope: { quoteVersionNumber: VERSION, tierId: "tier-3" },
       currentFingerprint: FINGERPRINT,
-      actingUserId: PM,
+      operatorUserId: PM,
     }).ok,
     false,
     "an authorization for one tier covered another",
@@ -209,7 +237,7 @@ test("8 · acceptance succeeds ONLY while a valid, in-scope authorization exists
       authorizations: [record],
       scope: { quoteVersionNumber: VERSION + 1, tierId: TIER },
       currentFingerprint: FINGERPRINT,
-      actingUserId: PM,
+      operatorUserId: PM,
     }).ok,
     false,
     "an authorization survived a revision",
@@ -221,7 +249,7 @@ test("8 · acceptance succeeds ONLY while a valid, in-scope authorization exists
       authorizations: [record],
       scope,
       currentFingerprint: FINGERPRINT,
-      actingUserId: PM,
+      operatorUserId: PM,
     }).ok,
     true,
   );
@@ -233,13 +261,14 @@ test("every refusal names its cause distinctly", () => {
   // "blocked" would collapse three different instructions into one.
   const codes = new Set<string>();
   for (const v of [
-    evaluateBelowFloorAuthorization({ authorizations: [], scope, currentFingerprint: FINGERPRINT, actingUserId: PM }),
-    evaluateBelowFloorAuthorization({ authorizations: [auth({ invalidatedAt: new Date() })], scope, currentFingerprint: FINGERPRINT, actingUserId: PM }),
-    evaluateBelowFloorAuthorization({ authorizations: [auth()], scope, currentFingerprint: "different", actingUserId: PM }),
-    evaluateBelowFloorAuthorization({ authorizations: [auth()], scope, currentFingerprint: FINGERPRINT, actingUserId: APPROVER }),
+    evaluateBelowFloorAuthorization({ authorizations: [], scope, currentFingerprint: FINGERPRINT, operatorUserId: PM }),
+    evaluateBelowFloorAuthorization({ authorizations: [auth({ invalidatedAt: new Date() })], scope, currentFingerprint: FINGERPRINT, operatorUserId: PM }),
+    evaluateBelowFloorAuthorization({ authorizations: [auth()], scope, currentFingerprint: "different", operatorUserId: PM }),
+    evaluateBelowFloorAuthorization({ authorizations: [auth()], scope, currentFingerprint: FINGERPRINT, operatorUserId: APPROVER }),
+    evaluateBelowFloorAuthorization({ authorizations: [auth()], scope, currentFingerprint: FINGERPRINT, operatorUserId: null }),
   ]) {
     assert.equal(v.ok, false);
     if (v.ok === false) codes.add(v.code);
   }
-  assert.equal(codes.size, 4, "two refusals share a code");
+  assert.equal(codes.size, 5, "two refusals share a code");
 });

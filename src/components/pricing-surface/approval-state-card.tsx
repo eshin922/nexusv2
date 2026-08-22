@@ -70,12 +70,14 @@ export function ApprovalStateCard({
         <strong>Approved — {tierLabel}</strong>
         {when(state.decidedAt)}
         <div style={{ color: "var(--ink-2)", marginTop: 4 }}>
-          A Commercial Approver authorized this tier below the floor.
-          {/* Deliberately not "you may now accept": independence is evaluated
-              against whoever records acceptance, which is unknown here. */}
+          An authorized commercial approver — someone other than whoever priced
+          this quote — authorized this tier below the floor.
+          {/* Corrected 2026-08-22: this used to say acceptance "must be
+              recorded by someone other than the approver". That rule is gone.
+              Independence is measured against the quote's operator, so who
+              records the acceptance is no longer part of the question. */}
           {" "}
-          Acceptance is still checked against this authorization at the moment it
-          is recorded, and must be recorded by someone other than the approver.
+          It stays valid while the tier&rsquo;s economics are unchanged.
         </div>
       </div>
     );
@@ -94,6 +96,20 @@ export function ApprovalStateCard({
         <div style={{ color: "var(--ink-2)", marginTop: 4 }}>
           This tier is not authorized below the floor. Adjust the commercial
           state, or raise a new request if circumstances have changed.
+        </div>
+      </div>
+    );
+  }
+
+  if (state.kind === "operator_conflict") {
+    return (
+      <div style={{ ...WRAP, borderColor: "var(--bad)" }} role="status">
+        <strong>Not independently approved — {tierLabel}</strong>
+        <div style={{ color: "var(--ink-2)", marginTop: 4 }}>
+          The authorization on this tier was granted by the person who priced
+          the quote, so it does not satisfy the separation of duties and will be
+          refused at send. An authorized commercial approver who did not build
+          these numbers must decide it — raise a new request.
         </div>
       </div>
     );

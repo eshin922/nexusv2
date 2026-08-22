@@ -69,6 +69,7 @@ import type { DirectServiceIdentity } from "@/lib/product-structure/direct-servi
 import { NetsuiteError } from "./errors";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
+import { loadQuoteOperator } from "@/lib/quote-operator";
 import {
   planCostProjection,
   projectGovernedCosts,
@@ -281,7 +282,8 @@ export async function runMarkComplete(
         totalCost: tierRollup.totalCost,
         blendedMarginPct: tierRollup.blendedMarginPct,
       }),
-      actingUserId: actorUserId,
+      // The quote's commercial operator, not the actor completing it.
+      operatorUserId: await loadQuoteOperator(quote.id),
     });
 
     if (!verdict.ok) {

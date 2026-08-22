@@ -102,6 +102,7 @@ import { requireRevisable } from "@/lib/quote-guards";
 import { hasSendableCommercialStructure } from "@/lib/send-gate";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { requireBelowFloorAuthorizedToSend } from "@/lib/below-floor-send-gate";
+import { loadQuoteOperator } from "@/lib/quote-operator";
 import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
@@ -1519,7 +1520,6 @@ export async function sendQuote(
     await requireBelowFloorAuthorizedToSend({
       quoteId,
       quoteVersionNumber: quote.versionNumber,
-      actingUserId: user.id,
     });
 
     // Resolve the send's commercial policy onto canonical quote_leaves.id
@@ -2527,7 +2527,9 @@ export async function markAccepted(
           totalCost: tierRollup.totalCost,
           blendedMarginPct: tierRollup.blendedMarginPct,
         }),
-        actingUserId: user.id,
+        // Independence is measured against whoever priced this version, not
+        // against whoever is recording the acceptance.
+        operatorUserId: await loadQuoteOperator(quote.id),
       });
 
       if (!verdict.ok) {

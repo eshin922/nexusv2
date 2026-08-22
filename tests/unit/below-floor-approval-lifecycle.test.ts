@@ -21,6 +21,12 @@ import {
 const FP = "rev:5550.00|cost:2775.00|margin:0.500000";
 const REQUESTER = "user-requester";
 const APPROVER = "user-approver";
+/**
+ * The quote version's commercial operator. DISTINCT from the requester, which
+ * is the correction: an approver routing a PM's request is not the operator,
+ * and must be able to decide it.
+ */
+const OPERATOR = "user-operator";
 
 const request = (over: Partial<Parameters<typeof evaluateApprovalDecision>[0]["request"]> = {}) => ({
   id: "req-1",
@@ -37,6 +43,7 @@ const decide = (over: Partial<Parameters<typeof evaluateApprovalDecision>[0]> = 
     action: "approve",
     currentFingerprint: FP,
     reason: null,
+    operatorUserId: OPERATOR,
     ...over,
   });
 
@@ -60,10 +67,25 @@ test("a non-commercialApprover cannot decide", () => {
   assert.equal(v.ok === false && v.code, "not_approver");
 });
 
-test("the requester cannot approve their own request", () => {
-  const v = decide({ actor: { userId: REQUESTER, commercialApprover: true } });
+test("the quote's OPERATOR cannot approve its below-floor exception", () => {
+  const v = decide({ actor: { userId: OPERATOR, commercialApprover: true } });
   assert.equal(v.ok, false);
-  assert.equal(v.ok === false && v.code, "self_approval");
+  assert.equal(v.ok === false && v.code, "operator_approval");
+});
+
+test("an approver who merely RAISED the request may still decide it", () => {
+  // INVERTED, deliberately, 2026-08-22. This previously asserted that the
+  // requester could never approve — a proxy for separation of duties that
+  // enforced the wrong relationship. Designated approvers are not quote
+  // operators, so an approver routing a PM's request was permanently barred
+  // from deciding it while the operator who had someone else raise it was not.
+  const v = decide({ actor: { userId: REQUESTER, commercialApprover: true } });
+  assert.equal(v.ok, true, "the requester is not the operator here");
+});
+
+test("an unidentifiable operator refuses — absence is not permission", () => {
+  const v = decide({ operatorUserId: null });
+  assert.equal(v.ok === false && v.code, "operator_unknown");
 });
 
 test("authority is the governed permission, never the role", () => {

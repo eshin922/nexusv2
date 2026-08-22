@@ -32,7 +32,28 @@ export interface BelowFloorAuthorizationRecord extends AuthorizationScope {
   invalidatedAt: Date | string | null;
 }
 
-/** Only what authority depends on — nothing else about the user is relevant. */
+/**
+ * The quote VERSION's commercial operator - `quotes.created_by_user_id`.
+ *
+ * THE SEPARATION OF DUTIES, corrected 2026-08-22. The rule was previously "the
+ * approver may not be the person who pressed Request approval", which was a
+ * PROXY for this and enforced the wrong relationship: designated approvers are
+ * not quote operators, so an approver who merely routed a PM's request was
+ * permanently barred from deciding it, while an operator who had someone else
+ * raise the request was not.
+ *
+ * `created_by_user_id` is used because it is the only durable, per-version
+ * actor recording who built THIS version's economics - measured at 79 of 89
+ * quotes populated, against 9% for `projects.pm_user_id` (which no UI writes)
+ * and 15% for `sales_rep_user_id` (a commercial relationship, not authorship).
+ * A revision writes a fresh row, so responsibility follows the version, which
+ * is the granularity an authorization is already bound to.
+ *
+ * `null` is NOT permission. An unidentifiable operator refuses.
+ */
+export type QuoteOperator = string | null;
+
+/** Only what authority depends on - nothing else about the user is relevant. */
 export interface ApproverIdentity {
   id: string;
   commercialApprover: boolean;
@@ -44,7 +65,10 @@ export type BelowFloorBlockCode =
   | "NO_AUTHORIZATION"
   | "INVALIDATED"
   | "STATE_CHANGED"
-  | "SELF_APPROVAL";
+  /** The approver is the quote version's commercial operator. */
+  | "OPERATOR_APPROVAL"
+  /** No operator of record, so independence cannot be established at all. */
+  | "OPERATOR_UNKNOWN";
 
 export type BelowFloorVerdict =
   | { ok: true; authorizationId: string }
@@ -95,24 +119,34 @@ export function fingerprintCommercialState(input: {
 }
 
 /**
- * Is there a valid, independent authorization for this actor to proceed?
+ * Is there a valid, independent authorization for this quote version and tier?
  *
- * `actingUserId` is the user performing the GATED ACTION — recording acceptance,
- * or completing. That is what "self-approval" is measured against: not who
- * drafted the quote, which the system knows only indirectly, but who is about
- * to commit the below-floor outcome. The person who authorised it may not also
- * be the person who acts on it.
+ * Independence is measured against the quote's COMMERCIAL OPERATOR - the person
+ * who built the economics - not against whoever happens to be acting.
  *
- * Order of refusal is deliberate. Scope and invalidation come first because a
- * decision that does not apply is not a decision anyone can be accused of
- * self-approving; naming self-approval on a stale record would tell an operator
- * to find a second person when what they actually need is a fresh decision.
+ * WHY `actingUserId` IS GONE. It used to refuse when the approver was also the
+ * person recording acceptance. That barred an approver from committing someone
+ * else's properly authorized quote, which no policy asks for, and it made the
+ * verdict depend on who was holding the mouse rather than on who owned the
+ * pricing. The separation of duties is between AUTHORSHIP and APPROVAL, and
+ * nothing about it concerns who commits the result.
+ *
+ * Order of refusal is deliberate. Scope, invalidation and staleness come first,
+ * because a decision that does not apply is not one anyone can be accused of
+ * approving for themselves; naming an operator conflict on a stale record would
+ * send an operator to find a second person when what they need is a fresh
+ * decision.
+ *
+ * Operator-unknown then precedes the independence test, because with no
+ * operator of record the question cannot be answered at all - and an
+ * unanswerable separation-of-duties question fails closed.
  */
 export function evaluateBelowFloorAuthorization(input: {
   authorizations: readonly BelowFloorAuthorizationRecord[];
   scope: AuthorizationScope;
   currentFingerprint: string;
-  actingUserId: string;
+  /** `quotes.created_by_user_id`. Null refuses; it is never inferred. */
+  operatorUserId: QuoteOperator;
 }): BelowFloorVerdict {
   const inScope = input.authorizations.filter(
     (a) =>
@@ -125,7 +159,7 @@ export function evaluateBelowFloorAuthorization(input: {
       ok: false,
       code: "NO_AUTHORIZATION",
       message:
-        "This tier is below the firm's margin floor. A Commercial Approver other than you must authorize it before acceptance can be recorded.",
+        "This tier is below the firm's margin floor. An authorized commercial approver, other than whoever priced this quote, must authorize it first.",
     };
   }
 
@@ -153,21 +187,33 @@ export function evaluateBelowFloorAuthorization(input: {
     };
   }
 
-  // INDEPENDENCE. Checked here rather than at authorization time because the
-  // acting user is not known then — an approver may legitimately authorize a
-  // deal that someone else goes on to accept.
+  // OPERATOR OF RECORD. Absence is not permission: with nobody identified as
+  // responsible for this version's economics there is no relationship to be
+  // independent OF, and the only safe answer is no.
+  if (input.operatorUserId === null) {
+    return {
+      ok: false,
+      code: "OPERATOR_UNKNOWN",
+      message:
+        "This quote has no recorded commercial operator, so approval independence cannot be established. It cannot proceed below floor.",
+    };
+  }
+
+  // INDEPENDENCE. The approver may not be the person who built the pricing.
   //
-  // NO FALLBACK. There is deliberately no branch that relaxes this when no
-  // other approver exists: an estate with one approver is an estate that cannot
-  // sell below floor, which is the correct outcome and not an edge case to
-  // route around.
-  const independent = matching.filter((a) => a.approvedByUserId !== input.actingUserId);
+  // NO FALLBACK. There is deliberately no branch relaxing this when the
+  // operator is the only approver available: an estate where the person pricing
+  // is also the only one who can approve is an estate that cannot sell below
+  // floor, which is the correct outcome and not an edge case to route around.
+  const independent = matching.filter(
+    (a) => a.approvedByUserId !== input.operatorUserId,
+  );
   if (independent.length === 0) {
     return {
       ok: false,
-      code: "SELF_APPROVAL",
+      code: "OPERATOR_APPROVAL",
       message:
-        "You authorized this below-floor tier yourself. A different Commercial Approver must authorize it before you can record acceptance.",
+        "This below-floor tier was authorized by the same person who priced the quote. An independent commercial approver must authorize it.",
     };
   }
 

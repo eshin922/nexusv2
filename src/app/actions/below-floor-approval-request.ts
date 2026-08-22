@@ -27,6 +27,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { fingerprintCommercialState } from "@/lib/below-floor-authorization";
+import { loadQuoteOperator } from "@/lib/quote-operator";
 import {
   evaluateApprovalDecision,
   isNoOp,
@@ -229,7 +230,13 @@ export async function decideBelowFloorApproval(
 
   const state = await readTierState(request.quoteId, request.tierId);
 
+  // The operator of record for the version under decision. Read here rather
+  // than passed in: a caller that supplied it could supply the wrong one, and
+  // this is the value the whole separation of duties rests on.
+  const operatorUserId = await loadQuoteOperator(request.quoteId);
+
   const verdict = evaluateApprovalDecision({
+    operatorUserId,
     request: {
       id: request.id,
       status: request.status,

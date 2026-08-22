@@ -16,6 +16,7 @@ import {
   projectApprovalTierState,
   type ApprovalTierState,
 } from "./below-floor-approval-state";
+import { loadQuoteOperator } from "./quote-operator";
 
 export interface ApprovalStateByTier {
   /** tierId → operator-visible state. Absent tier ⇒ `{ kind: "none" }`. */
@@ -34,6 +35,9 @@ export async function loadApprovalStateByTier(args: {
   quoteVersionNumber: number;
   fingerprintByTier: ReadonlyMap<string, string>;
 }): Promise<ApprovalStateByTier> {
+  // The operator of record, read through the one reader the gates use.
+  const operatorUserId = await loadQuoteOperator(args.quoteId);
+
   const [requests, authorizations] = await Promise.all([
     db
       .select({
@@ -55,6 +59,7 @@ export async function loadApprovalStateByTier(args: {
         id: belowFloorAuthorizations.id,
         tierId: belowFloorAuthorizations.tierId,
         quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+        approvedByUserId: belowFloorAuthorizations.approvedByUserId,
         stateFingerprint: belowFloorAuthorizations.stateFingerprint,
         invalidatedAt: belowFloorAuthorizations.invalidatedAt,
       })
@@ -70,6 +75,7 @@ export async function loadApprovalStateByTier(args: {
       currentFingerprint,
       requests,
       authorizations,
+      operatorUserId,
     });
   }
   return { states };

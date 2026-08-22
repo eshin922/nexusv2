@@ -28,12 +28,24 @@ const req = (o: Partial<ApprovalRequestRow> = {}): ApprovalRequestRow => ({
   stateFingerprint: FP, requestedAt: T0, decidedAt: null, decisionReason: null,
   deliveryStatus: "delivered", authorizationId: null, ...o,
 });
+/** The quote version's commercial operator, and the approver — distinct. */
+const OPERATOR = "user-operator";
+const APPROVER = "user-approver";
+
 const auth = (o: Partial<AuthorizationRow> = {}): AuthorizationRow => ({
-  id: "auth-1", tierId: TIER, quoteVersionNumber: V, stateFingerprint: FP,
-  invalidatedAt: null, ...o,
+  id: "auth-1", tierId: TIER, quoteVersionNumber: V, approvedByUserId: APPROVER,
+  stateFingerprint: FP, invalidatedAt: null, ...o,
 });
-const project = (requests: ApprovalRequestRow[], authorizations: AuthorizationRow[], fp = FP) =>
-  projectApprovalTierState({ tierId: TIER, quoteVersionNumber: V, currentFingerprint: fp, requests, authorizations });
+const project = (
+  requests: ApprovalRequestRow[],
+  authorizations: AuthorizationRow[],
+  fp = FP,
+  operatorUserId: string | null = OPERATOR,
+) =>
+  projectApprovalTierState({
+    tierId: TIER, quoteVersionNumber: V, currentFingerprint: fp,
+    requests, authorizations, operatorUserId,
+  });
 
 // ── the five reachable states ─────────────────────────────────────────────
 

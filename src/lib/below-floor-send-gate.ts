@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { belowFloorAuthorizations } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { ActionGuardError, ERR } from "@/lib/action-result";
+import { loadQuoteOperator } from "@/lib/quote-operator";
 import {
   evaluateBelowFloorAuthorization,
   fingerprintCommercialState,
@@ -34,13 +35,13 @@ import {
  * them only at acceptance — after the customer has seen the price, which is the
  * expensive moment to discover it.
  *
- * ── SELF-APPROVAL IS CHECKED HERE TOO ────────────────────────────────────
+ * ── INDEPENDENCE IS THE OPERATOR'S, NOT THE SENDER'S ─────────────────────
  *
- * `actingUserId` is the person sending. `evaluateBelowFloorAuthorization`
- * measures independence against whoever commits the below-floor outcome, and
- * sending a below-floor price to a customer is committing it — an approver who
- * authorized the tier may not then be the one who puts it in front of the
- * client on their own authority.
+ * This used to pass the sending user, so that an approver could not also be the
+ * one putting their own authorization in front of a client. That parameter is
+ * gone with the separation-of-duties correction: independence is measured
+ * against the quote version's COMMERCIAL OPERATOR — whoever priced it — and
+ * nothing about the policy concerns who commits the result.
  *
  * The same function, the same verdict, at a second commitment point. No second
  * implementation, and specifically no relaxed variant for send.
@@ -48,7 +49,6 @@ import {
 export async function requireBelowFloorAuthorizedToSend(input: {
   quoteId: string;
   quoteVersionNumber: number;
-  actingUserId: string;
 }): Promise<void> {
   const bundle = await getCostingBundle(input.quoteId);
   if (!bundle.ok) {
@@ -76,6 +76,10 @@ export async function requireBelowFloorAuthorizedToSend(input: {
     .from(belowFloorAuthorizations)
     .where(eq(belowFloorAuthorizations.quoteId, input.quoteId));
 
+  // Read ONCE for the whole quote: the operator is a property of the version,
+  // not of the tier, so re-reading per tier could only produce disagreement.
+  const operatorUserId = await loadQuoteOperator(input.quoteId);
+
   const refusals: string[] = [];
   for (const tier of belowFloor) {
     const verdict = evaluateBelowFloorAuthorization({
@@ -91,7 +95,7 @@ export async function requireBelowFloorAuthorizedToSend(input: {
         totalCost: tier.totalCost,
         blendedMarginPct: tier.blendedMarginPct,
       }),
-      actingUserId: input.actingUserId,
+      operatorUserId,
     });
     if (!verdict.ok) refusals.push(`${tier.label} — ${verdict.message}`);
   }

@@ -125,7 +125,11 @@ test("the send gate re-uses the authorization core; it does not re-implement it"
 test("the send gate checks EVERY below-floor tier, and the acting sender", async () => {
   const src = codeOnly(await SEND_GATE());
   assert.match(src, /for \(const tier of belowFloor\)/, "every tier, not the first");
-  assert.match(src, /actingUserId: input\.actingUserId/, "independence is measured at send too");
+  assert.match(
+    src,
+    /operatorUserId,/,
+    "independence is measured against the quote's operator at send too",
+  );
   assert.match(src, /refusals\.join/, "report all failing tiers at once");
 });
 

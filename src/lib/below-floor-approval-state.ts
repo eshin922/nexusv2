@@ -32,6 +32,7 @@ export interface AuthorizationRow {
   id: string;
   tierId: string;
   quoteVersionNumber: number;
+  approvedByUserId: string;
   stateFingerprint: string;
   invalidatedAt: Date | null;
 }
@@ -58,7 +59,17 @@ export type ApprovalTierState =
    * fingerprint no longer matches — both leave the operator in the same place:
    * proceed from current economics, raise a fresh request if still needed.
    */
-  | { kind: "superseded"; requestId: string | null };
+  | { kind: "superseded"; requestId: string | null }
+  /**
+   * A live, current authorization exists — and the person who granted it is the
+   * one who priced the quote. The gate will refuse it.
+   *
+   * Projected rather than reported as `approved`, because the whole point of
+   * this module is that what the surface shows and what the gate decides must
+   * not disagree. Showing "approved" here would open progression on an
+   * authorization that cannot survive SEND.
+   */
+  | { kind: "operator_conflict"; requestId: string | null; authorizationId: string };
 
 /**
  * Project one tier's state.
@@ -82,6 +93,8 @@ export function projectApprovalTierState(input: {
   currentFingerprint: string;
   requests: readonly ApprovalRequestRow[];
   authorizations: readonly AuthorizationRow[];
+  /** `quotes.created_by_user_id`. Null means independence is unestablishable. */
+  operatorUserId: string | null;
 }): ApprovalTierState {
   const { tierId, quoteVersionNumber, currentFingerprint } = input;
 
@@ -97,6 +110,18 @@ export function projectApprovalTierState(input: {
     const req = input.requests
       .filter(inScope)
       .find((r) => r.authorizationId === liveAuth.id);
+    // Independence, on the gate's own terms. A null operator fails closed here
+    // exactly as it does there: unknown responsibility is not clearance.
+    if (
+      input.operatorUserId === null ||
+      liveAuth.approvedByUserId === input.operatorUserId
+    ) {
+      return {
+        kind: "operator_conflict",
+        requestId: req?.id ?? null,
+        authorizationId: liveAuth.id,
+      };
+    }
     return {
       kind: "approved",
       requestId: req?.id ?? liveAuth.id,
@@ -155,7 +180,14 @@ export function projectApprovalTierState(input: {
 
 /** True when the existing Request action should remain actionable. */
 export function mayRequestApproval(state: ApprovalTierState): boolean {
-  return state.kind === "none" || state.kind === "rejected" || state.kind === "superseded";
+  return (
+    state.kind === "none" ||
+    state.kind === "rejected" ||
+    state.kind === "superseded" ||
+    // A conflicted authorization cannot be salvaged by waiting: the quote needs
+    // a decision from someone who did not price it, which means a fresh request.
+    state.kind === "operator_conflict"
+  );
 }
 
 export type { ApprovalRequestStatus };
