@@ -118,7 +118,7 @@ export function OrganizerSurface({
           <div className="r14-greeting">Good morning, {userName}.</div>
         </div>
         <div className="r14-spacer" />
-        <Link href="/projects/import" className="r14-btn" style={{ textDecoration: "none" }}>
+        <Link href="/import" className="r14-btn" style={{ textDecoration: "none" }}>
           Import from HubSpot
         </Link>
       </header>

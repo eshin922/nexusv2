@@ -69,6 +69,18 @@ export default async function ProjectDetailPage({
   }>;
 }) {
   const { id } = await params;
+
+  // A malformed id is a 404, not a 500.
+  //
+  // `projects.id` is a uuid, so any non-uuid segment makes Postgres reject the
+  // query before the `notFound()` below is ever reached — the request dies as
+  // an unhandled server exception instead of a missing page. That is how a
+  // single wrong href ("/projects/import", which lands here as id="import")
+  // took down a route in production rather than 404ing.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    notFound();
+  }
+
   const { copy_from: copyFromQuoteId } = await searchParams;
 
   const salesRep = alias(users, "sales_rep");
