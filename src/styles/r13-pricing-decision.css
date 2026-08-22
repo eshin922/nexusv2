@@ -12,11 +12,43 @@
  * 0.62 0.13 70). So the tokens are referenced rather than the literals repeated,
  * and the surface follows a theme change instead of fighting one.
  *
- * The one literal is the breach wash, `oklch(0.975 0.018 25)` — lighter than
- * `--bad-soft`, and deliberately so: it tints a whole panel rather than a chip,
- * and at --bad-soft's saturation a full-width band reads as an error state
- * rather than as the place the work is.
+ * The verdict's three washes are the only values not already in the token file,
+ * because a full-width band wants a lighter tint than the *-soft tokens, which
+ * were drawn for chips. They are declared HERE as theme-aware tokens rather
+ * than as literals.
+ *
+ * That distinction is not cosmetic. Shipped as literals, they rendered as a
+ * light band under `--ink`, which is LIGHT in dark mode — the verdict headline
+ * was invisible in production dark mode while light mode was correct. Caught in
+ * the post-deploy capture, 2026-08-22. A colour whose only definition is a
+ * literal cannot follow a theme, and every colour on this surface now resolves
+ * through a token that has both.
  */
+
+:root {
+  --r13-breach-wash: oklch(0.975 0.018 25);
+  --r13-breach-edge: oklch(0.86 0.05 25);
+  --r13-pending-wash: var(--warn-soft);
+  --r13-pending-edge: oklch(0.86 0.05 70);
+  --r13-ok-wash: var(--good-soft);
+  --r13-ok-edge: oklch(0.86 0.04 155);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --r13-breach-wash: oklch(0.26 0.045 25);
+    --r13-breach-edge: oklch(0.42 0.09 25);
+    --r13-pending-edge: oklch(0.44 0.09 70);
+    --r13-ok-edge: oklch(0.42 0.07 155);
+  }
+}
+
+[data-theme="dark"] {
+  --r13-breach-wash: oklch(0.26 0.045 25);
+  --r13-breach-edge: oklch(0.42 0.09 25);
+  --r13-pending-edge: oklch(0.44 0.09 70);
+  --r13-ok-edge: oklch(0.42 0.07 155);
+}
 
 /* ── verdict ─────────────────────────────────────────────────────────── */
 
@@ -28,16 +60,16 @@
   overflow: hidden;
 }
 .r13-verdict.breach {
-  border-color: oklch(0.86 0.05 25);
-  background: oklch(0.975 0.018 25);
+  border-color: var(--r13-breach-edge);
+  background: var(--r13-breach-wash);
 }
 .r13-verdict.pending {
-  border-color: oklch(0.86 0.05 70);
-  background: var(--warn-soft);
+  border-color: var(--r13-pending-edge);
+  background: var(--r13-pending-wash);
 }
 .r13-verdict.ok {
-  border-color: oklch(0.86 0.04 155);
-  background: var(--good-soft);
+  border-color: var(--r13-ok-edge);
+  background: var(--r13-ok-wash);
 }
 
 .r13-verdict-head {
