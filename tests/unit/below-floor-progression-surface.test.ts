@@ -28,13 +28,13 @@ const PAGE = () => read("src/app/projects/[id]/quotes/[quoteId]/pricing/page.tsx
 
 // ── the surface reads one verdict ─────────────────────────────────────────
 
-test("the banner's CTA comes from the progression verdict, not the classifier mode", async () => {
+test("the banner's copy comes from the progression verdict, not the classifier mode", async () => {
   const src = codeOnly(await HEAD());
-  const href = src.slice(src.indexOf("const bannerHref"), src.indexOf("const bannerHelp"));
-  assert.match(href, /!progression\.allowed/);
-  // The old predicate. `mode === "suggestion_led"` suppressing the href is
+  const label = src.slice(src.indexOf("const bannerLabel"), src.indexOf("const bannerHref"));
+  assert.match(label, /progression\.allowed/);
+  // The old predicate. `mode === "suggestion_led"` suppressing the CTA is
   // exactly the bug: below target is sendable by policy and had no way forward.
-  assert.doesNotMatch(href, /mode ===/);
+  assert.doesNotMatch(label, /mode ===/);
 });
 
 test("gated chrome follows progression, so below-target is not dressed as blocked", async () => {

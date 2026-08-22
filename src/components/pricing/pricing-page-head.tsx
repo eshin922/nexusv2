@@ -2,7 +2,6 @@
 
 import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
-import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
 import { usePricingClassifier } from "@/components/pricing-surface/pricing-classifier-context";
 import { usePricingProgression } from "@/components/pricing-surface/pricing-progression-context";
 
@@ -118,23 +117,25 @@ export function PricingPageHead({
     bannerState === "terminal"
       ? ""
       : progression.allowed
-        ? "Continue to Quote →"
+        ? state.summary_card?.recommended_tier == null
+          ? "Set a recommended tier, then continue to Quote →"
+          : "Continue to Quote →"
         : progression.code === "DATA_INCOMPLETE"
           ? "Finish cost inputs on Costs →"
           : "Approval required before this quote can go out";
 
-  // Slice 12 Step 9 — `?tab=preview` so the Send-lifecycle entry is explicit
-  // rather than relying on the umbrella's default tab.
+  // NO href, in any state.
   //
-  // The href appears ONLY when progression is allowed. A blocked banner states
-  // the block and offers no button, per P-UX-1: the banner states the move, the
-  // card performs it. Nothing here enforces anything — `sendQuote` re-decides
-  // from the database, and must, because the rail links to `/quote`
-  // unconditionally and always did.
-  const bannerHref =
-    bannerState === "terminal" || !progression.allowed
-      ? undefined
-      : `${resolveSurfaceHref("customer_view", projectId, quoteId)}?tab=preview`;
+  // P-UX-1's rule was "the banner states the move, the card performs it", with
+  // one exception: the banner kept its CTA where it navigated to ANOTHER
+  // surface, because nothing else on the page could. R13 removed the exception
+  // by giving the verdict bar that navigation — so keeping it here produced two
+  // identical `Continue to Quote` buttons a few hundred pixels apart, which is
+  // the duplication P-UX-1 existed to remove, arriving from the other side.
+  //
+  // Caught in the post-deploy capture, 2026-08-22. The verdict bar owns the
+  // action because it owns the state that justifies it.
+  const bannerHref = undefined;
 
   // The qualifier, never a restatement of the label.
   const bannerHelp = !progression.allowed

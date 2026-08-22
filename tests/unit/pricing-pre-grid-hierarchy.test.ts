@@ -102,7 +102,8 @@ test("the banner offers no CTA where the action lives on the page below it", asy
   // it cannot duplicate a card below it whatever the mode. This asserts that
   // property rather than the old expression, which no longer exists.
   const head = await code("components/pricing/pricing-page-head.tsx");
-  assert.match(head, /!progression\.allowed\s*\?\s*undefined/);
+  // STRONGER after R13: the banner carries no href in ANY state.
+  assert.match(head, /const bannerHref = undefined;/);
   // The in-page anchors were the duplication. Their absence is still the fix.
   assert.doesNotMatch(head, /#\$\{PSR_SUGGESTION_ANCHOR\}/);
   assert.doesNotMatch(head, /psr-suggestion-card/);
@@ -128,14 +129,22 @@ test("the banner still STATES the move — only the second button went", async (
   assert.match(banner, /!isTerminal && label && href && \(/);
 });
 
-test("navigation to ANOTHER surface keeps its CTA", async () => {
-  // Suppressing every CTA would strip the banner of the one job only it can
-  // do: getting the operator to the Quote umbrella.
-  const head = await code("components/pricing/pricing-page-head.tsx");
-  assert.match(
-    head,
-    /resolveSurfaceHref\("customer_view", projectId, quoteId\)\}\?tab=preview/,
-  );
+test("exactly one control navigates to the Quote umbrella", () => {
+  // INVERTED. P-UX-1 kept the banner's CTA because nothing else on the page
+  // could reach another surface. R13's verdict bar can, so keeping it produced
+  // TWO identical `Continue to Quote` buttons — the duplication P-UX-1 removed,
+  // arriving from the other side. Caught in the post-deploy capture.
+  //
+  // The assertion now runs the other way: the banner must NOT navigate, and the
+  // verdict must.
+  return Promise.all([
+    code("components/pricing/pricing-page-head.tsx"),
+    code("components/pricing-surface/verdict-bar.tsx"),
+  ]).then(([head, verdict]) => {
+    assert.doesNotMatch(head, /resolveSurfaceHref\("customer_view"/);
+    assert.match(verdict, /quote\?tab=preview/);
+    assert.match(verdict, /Continue to Quote/);
+  });
 });
 
 // ── governance is untouched ───────────────────────────────────────────────
