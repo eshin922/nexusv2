@@ -1874,6 +1874,77 @@ deliberately rather than rediscovered by the next omission.
 
 ---
 
+### OD-030
+
+**Should the Deal Organizer expose a dedicated "Resume where I left off"
+affordance alongside Your Next Move?**
+
+Raised 2026-08-22 during the R14 Deal Organizer certification. Banked, not
+answered — explicitly out of scope for #353.
+
+The old home rendered a Resume card reading `user_surface_visits`: *the surface
+you last touched on this quote*. R14 replaced it with Your Next Move: *what
+unresolved state needs you*. Those answer different questions, and the second
+does not subsume the first.
+
+The V1 vocabulary sharpens the question rather than settling it. Only four
+durable task kinds survive, so twelve of thirteen users currently have an empty
+queue — for them the new home offers no route back to work in progress at all
+beyond scanning the deal table.
+
+`ResumeCard` and `getResumeContext` are retained in the codebase precisely
+because resume-context is a distinct capability. **Nothing mounts the card**, and
+per direction it must not be re-mounted merely to satisfy the old checklist.
+
+What would settle it: whether operators actually resume a surface mid-task often
+enough to want it on the landing page, or whether the deal table plus the inner
+rail already carry that. Worth revisiting once the persisted read model
+(`organizer-read-model-proposal.md`) restores the computed kinds and queues stop
+being mostly empty — the answer may differ under a full queue.
+
+---
+
+### OD-031
+
+**Should the HubSpot deal-stage mapping be persisted rather than fetched?**
+
+Raised 2026-08-22, same certification pass.
+
+`projects.deal_stage` stores HubSpot's internal stage id (`195274339`), because
+stage labels are editable in HubSpot's UI and the runtime key has to be stable.
+The id→label mapping is HubSpot's own pipelines table, read through
+`listDealStages()` and held in `_pipelineStagesCache` — a module-level cache, so
+one API call per Node instance lifetime.
+
+Verified against the live portal: 8 stages, and all four ids in use on non-test
+projects resolve — `195274338` New (Acquiring Info), `195274340` Quote Request,
+`195274339` Development & Quoting, `195274343` Delivered. A fabricated id fails
+closed to the unknown-stage label rather than echoing itself back.
+
+**The open question is the cold-start dependency.** `loadHubspotStageCatalog`
+returns `[]` rather than throwing if HubSpot is unreachable, so a cold instance
+that cannot reach HubSpot renders *every* row's Stage as "Unknown HubSpot stage".
+On the project detail page that degrades one field; on the landing route it
+degrades a whole column.
+
+Three options, in increasing cost:
+
+1. **Leave it.** Matches the project detail page, degrades gracefully, and the
+   cache warms on first success.
+2. **Persist a `hubspot_pipeline_stages` table**, refreshed on the existing
+   HubSpot refresh path. The landing route becomes database-only.
+3. **Persist `deal_stage_label` alongside `deal_stage` on `projects`** at import
+   and refresh time. This has direct in-repo precedent —
+   `hubspot_deals_cache.business_segment_label` already stores a resolved label
+   beside its id for exactly this reason (see the comment at `schema.ts:1832`).
+
+Option 3 is the smallest and the most consistent with what is already there.
+Not urgent: the mapping resolves correctly today and the failure mode is
+visible-and-honest rather than wrong.
+
+---
+
+
 ## Closed
 
 *(Entries move here with the disposition and a pointer to where the decision
