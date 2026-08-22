@@ -46,6 +46,7 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
     // saying so beats the same sentence repeated once per production cell.
     // `description` carries it, which is what that field exists for.
     configuration.push({
+      source: "configuration",
       quoteLeafId: null,
       assemblyLeafId: null,
       tierId: tiers[0]?.id ?? "",
@@ -59,7 +60,7 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
 
   const freight: UnresolvedQuoteCost[] = [];
   const unresolved = (subcategoryId: string, label: string, tierId: string, tierLabel: string, description: string) =>
-    freight.push({ quoteLeafId: null, assemblyLeafId: subcategoryId, tierId, tierLabel, lineGroupId: subcategoryId, leafSku: null, leafName: label, description });
+    freight.push({ source: "freight", quoteLeafId: null, assemblyLeafId: subcategoryId, tierId, tierLabel, lineGroupId: subcategoryId, leafSku: null, leafName: label, description });
 
   for (const subcategory of workbook.subcategories) {
     const selected = workbook.destinations.filter(
@@ -104,7 +105,15 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
   // Configuration first: an operator told "enter the missing costs" when the
   // real problem is an unset firm default would go and enter costs that were
   // never missing.
-  return [...configuration, ...packaging, ...freight];
+  //
+  // `source` is stamped HERE for packaging because the select cannot carry a
+  // literal; the array it comes from is the proof, exactly as it is for the
+  // other two.
+  return [
+    ...configuration,
+    ...packaging.map((row) => ({ ...row, source: "packaging" as const })),
+    ...freight,
+  ];
 }
 
 export async function requireResolvedQuoteCosts(quoteId: string): Promise<void> {

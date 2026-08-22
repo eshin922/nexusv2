@@ -462,6 +462,17 @@ export const projects = pgTable(
     }),
     projectCategory: projectCategory("project_category").notNull().default("packaging"),
     status: projectStatus("status").notNull().default("active"),
+    /**
+     * Fixture, certification lineage or smoke artefact — not customer work.
+     *
+     * Set once, from an explicit list of 13 project ids (migration 0097), and
+     * read as a column thereafter. The Deal Organizer hides these by default.
+     *
+     * DELIBERATELY NOT A NAME MATCH. `MISTR - Sachet Rollstock Test Roll` is a
+     * real customer deal, so any `%test%` heuristic hides real work — a queue
+     * that silently drops a live deal is worse than one that shows a fixture.
+     */
+    isTest: boolean("is_test").notNull().default(false),
     // Snapshot of HubSpot deal stage; refreshed via the Refresh button.
     // Stored to avoid hitting HubSpot on every page render (rate-limit hygiene
     // and Slice 13 portfolio list performance).

@@ -449,6 +449,14 @@ const classifiedIdentityFiles = new Set([
   // `assembly_leaves`, resolves nothing through the legacy junction, and writes
   // nothing.
   "scripts/gate-1b/testing-walk-preflight.ts",
+  // CLASSIFIED — read-only Deal Organizer evidence probe. It reads BOTH
+  // identities deliberately: it resolves each unresolved-cost row's true origin
+  // by asking whether `assemblyLeafId` names a `freight_subcategories` row or an
+  // `assembly_leaves` row, which is the falsification proving that the payload's
+  // null-pattern is an INFERENCE and its declared `source` field is not. Queries
+  // id sets only, resolves nothing through the legacy junction for any
+  // commercial purpose, and writes nothing.
+  "scripts/organizer/freight-discriminator-evidence.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

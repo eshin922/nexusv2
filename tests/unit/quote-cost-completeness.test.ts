@@ -9,6 +9,7 @@ import {
 } from "../../src/lib/quote-cost-completeness-contract.ts";
 
 const unresolved: UnresolvedQuoteCost = {
+  source: "packaging",
   quoteLeafId: "quote-leaf-1",
   assemblyLeafId: "assembly-leaf-1",
   tierId: "tier-1",
