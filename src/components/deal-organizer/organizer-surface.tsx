@@ -31,11 +31,28 @@ const GROUP_META = {
 // Group order is the reading order, not a ranking of importance.
 const GROUP_ORDER = ["needs_you", "with_customer", "no_action"] as const;
 
-const TAG: Record<Task["kind"], { text: string; tone: string }> = {
-  approval_rejected: { text: "declined", tone: "r14-tag-accent" },
-  push_failed: { text: "push failed", tone: "r14-tag-accent" },
-  customer_silent: { text: "silent", tone: "r14-tag-info" },
-  quote_expiring: { text: "expiring", tone: "r14-tag-info" },
+/**
+ * Each kind's label and its TONE, per design spec §5 — blocked 25 · missing 70 ·
+ * returned 155 · informational 232.
+ *
+ * The tone says what KIND of attention the item wants, which the label alone
+ * does not carry at scan speed: a failed push and an expiring quote are both
+ * "yours" but they are not the same urgency, and rendering both in the accent
+ * throws that distinction away.
+ *
+ * `var` is the CSS custom property the next-move card's left border reads, so
+ * the page's most prominent element is coloured by its own task rather than
+ * uniformly blue.
+ */
+const TAG: Record<Task["kind"], { text: string; tone: string; var: string }> = {
+  // A failure that stopped something mid-flight.
+  push_failed: { text: "push failed", tone: "r14-tag-blocked", var: "--r14-tone-blocked" },
+  // Came back to you with a decision on it.
+  approval_rejected: { text: "declined", tone: "r14-tag-returned", var: "--r14-tone-returned" },
+  // A clock is running down.
+  quote_expiring: { text: "expiring", tone: "r14-tag-missing", var: "--r14-tone-missing" },
+  // Nothing is wrong; it is just quiet.
+  customer_silent: { text: "silent", tone: "r14-tag-info", var: "--r14-tone-info" },
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -110,10 +127,20 @@ export function OrganizerSurface({
         <div style={{ minWidth: 0 }}>
           {/* ── your next move · data.needsYou[0], used as-is ───────────── */}
           {data.nextMove ? (
-            <button className="r14-next" onClick={() => router.push(data.nextMove!.href)}>
+            <button
+              className="r14-next"
+              onClick={() => router.push(data.nextMove!.href)}
+              style={
+                {
+                  "--r14-next-tone": `var(${TAG[data.nextMove.kind].var})`,
+                } as React.CSSProperties
+              }
+            >
               <div className="r14-next-head">
                 <span className="r14-next-label">Your next move</span>
-                <span className="r14-next-signal">{TAG[data.nextMove.kind].text}</span>
+                <span className={`r14-tag ${TAG[data.nextMove.kind].tone}`}>
+                  {TAG[data.nextMove.kind].text}
+                </span>
               </div>
               <div className="r14-next-row">
                 <div style={{ minWidth: 0 }}>

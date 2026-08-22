@@ -14,6 +14,8 @@ import {
   type ApprovalRequestRow,
   type AuthorizationRow,
 } from "@/lib/below-floor-approval-state";
+import { loadHubspotStageCatalog } from "@/lib/hubspot-stage-label";
+import { presentHubspotStage } from "@/lib/crm-presentation";
 import {
   groupForProject,
   rankTasks,
@@ -31,8 +33,9 @@ import {
  *
  * ── FIXED QUERY COUNT, BY CONSTRUCTION ───────────────────────────────────
  *
- * Six queries for the whole page, regardless of how many projects or quotes
- * exist — three in each of two batches. Nothing here is per-quote.
+ * Six database queries for the whole page, regardless of how many projects or
+ * quotes exist — three in each of two batches — plus one HubSpot stage-catalog
+ * call served from a per-instance cache. Nothing here is per-quote.
  *
  * The first draft of this file was per-quote: it called `getCostingBundle` and
  * `loadUnresolvedQuoteCosts` for every draft, to serve `pricing_blocked` and
@@ -136,7 +139,7 @@ export async function loadOrganizer(
   viewer: Viewer,
   now = new Date(),
 ): Promise<OrganizerData> {
-  const [rows, hiddenRows, anyQuoteRows] = await Promise.all([
+  const [rows, hiddenRows, anyQuoteRows, stageCatalog] = await Promise.all([
     db
       .select({
         projectId: projects.id,
@@ -182,6 +185,19 @@ export async function loadOrganizer(
       .from(quotes)
       .innerJoin(projects, eq(projects.id, quotes.projectId))
       .where(eq(projects.isTest, false)),
+    // HUBSPOT STAGE LABELS. `projects.deal_stage` stores HubSpot's INTERNAL ID
+    // ("195274339"), because labels are editable in HubSpot's UI and the
+    // runtime key has to be stable. Rendering that id to an operator is a
+    // defect — it is an internal identity, and it is what the first deploy of
+    // this surface did.
+    //
+    // `presentHubspotStage` is the existing resolver (the project detail page
+    // uses it) and fails closed to a readable unknown-stage label rather than
+    // leaking the id. `loadHubspotStageCatalog` is NOT a database query: it is
+    // one HubSpot pipelines call per Node instance lifetime, served from the
+    // same warm cache `markAccepted` and `getDealStage` already use, and it
+    // returns [] rather than throwing if HubSpot is unreachable.
+    loadHubspotStageCatalog(),
   ]);
   const projectsWithAnyQuote = new Set(anyQuoteRows.map((r) => r.projectId));
 
@@ -308,7 +324,11 @@ export async function loadOrganizer(
   const meta = new Map(
     rows.map((r) => [
       r.projectId,
-      { dealName: r.dealName, clientName: r.clientName, dealStage: r.dealStage },
+      {
+        dealName: r.dealName,
+        clientName: r.clientName,
+        dealStage: presentHubspotStage(r.dealStage, stageCatalog),
+      },
     ]),
   );
   const factsByProject = new Map<string, QuoteFacts[]>();

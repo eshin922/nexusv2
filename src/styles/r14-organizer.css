@@ -36,9 +36,28 @@
   --r14-rule-soft: oklch(0.92 0.010 85);
   --r14-rule-softer: oklch(0.94 0.008 85);
 
-  /* spec §5 · task tones by hue. Semantic, and separate from --accent. */
+  /*
+   * spec §5 · TASK TONES BY HUE — blocked 25 · missing 70 · returned 155 ·
+   * informational 232. All four, and semantic: they say what KIND of attention
+   * a row wants, which is information the label alone does not carry at scan
+   * speed.
+   *
+   * Separate from `--accent` on purpose. The accent is the app's voice for
+   * "act here"; these are the task's own voice for "and this is why". Collapsing
+   * them into the accent — which the first deploy of this surface did — makes
+   * every task read identically and throws the distinction away.
+   *
+   * Each has a `-soft` companion for chip fills, so a tag is legible as a tinted
+   * block rather than only as coloured text.
+   */
+  --r14-tone-blocked: oklch(0.48 0.16 25);
+  --r14-tone-blocked-soft: oklch(0.95 0.035 25);
+  --r14-tone-missing: oklch(0.50 0.12 70);
+  --r14-tone-missing-soft: oklch(0.95 0.05 70);
   --r14-tone-returned: oklch(0.45 0.10 155);
+  --r14-tone-returned-soft: oklch(0.94 0.045 155);
   --r14-tone-info: oklch(0.45 0.10 232);
+  --r14-tone-info-soft: oklch(0.94 0.04 232);
 
   background: var(--paper-2);
   color: var(--ink);
@@ -52,8 +71,14 @@
     --r14-chrome-2: oklch(0.185 0.012 255);
     --r14-rule-soft: oklch(0.30 0.013 255);
     --r14-rule-softer: oklch(0.26 0.013 255);
+    --r14-tone-blocked: oklch(0.76 0.15 25);
+    --r14-tone-blocked-soft: oklch(0.30 0.06 25);
+    --r14-tone-missing: oklch(0.80 0.12 70);
+    --r14-tone-missing-soft: oklch(0.30 0.05 70);
     --r14-tone-returned: oklch(0.78 0.11 155);
+    --r14-tone-returned-soft: oklch(0.28 0.05 155);
     --r14-tone-info: oklch(0.78 0.11 232);
+    --r14-tone-info-soft: oklch(0.28 0.05 232);
   }
 }
 
@@ -63,8 +88,14 @@
   --r14-chrome-2: oklch(0.185 0.012 255);
   --r14-rule-soft: oklch(0.30 0.013 255);
   --r14-rule-softer: oklch(0.26 0.013 255);
+  --r14-tone-blocked: oklch(0.76 0.15 25);
+  --r14-tone-blocked-soft: oklch(0.30 0.06 25);
+  --r14-tone-missing: oklch(0.80 0.12 70);
+  --r14-tone-missing-soft: oklch(0.30 0.05 70);
   --r14-tone-returned: oklch(0.78 0.11 155);
+  --r14-tone-returned-soft: oklch(0.28 0.05 155);
   --r14-tone-info: oklch(0.78 0.11 232);
+  --r14-tone-info-soft: oklch(0.28 0.05 232);
 }
 
 /* ── page frame ─────────────────────────────────────────────────────────── */
@@ -123,12 +154,19 @@
 
 /* ── your next move ─────────────────────────────────────────────────────── */
 
+/*
+ * The next-move card's left border takes the TONE OF ITS OWN TASK, so the one
+ * thing the page most wants read is coloured by what kind of attention it needs
+ * — not uniformly accent-blue regardless of whether it is a failure or a
+ * countdown. `--r14-next-tone` is set inline per task; the accent is the
+ * fallback for the empty state, which has no task and therefore no tone.
+ */
 .r14-next {
   display: block;
   width: 100%;
   text-align: left;
   border: 1px solid var(--rule);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--r14-next-tone, var(--accent));
   border-radius: 10px;
   background: var(--paper);
   padding: 18px 22px 19px;
@@ -450,9 +488,26 @@
   padding: 2px 6px;
   border: 1px solid currentColor;
 }
-.r14-tag-returned { color: var(--r14-tone-returned); }
-.r14-tag-info { color: var(--r14-tone-info); }
-.r14-tag-accent { color: var(--accent); }
+.r14-tag-blocked {
+  color: var(--r14-tone-blocked);
+  background: var(--r14-tone-blocked-soft);
+  border-color: transparent;
+}
+.r14-tag-missing {
+  color: var(--r14-tone-missing);
+  background: var(--r14-tone-missing-soft);
+  border-color: transparent;
+}
+.r14-tag-returned {
+  color: var(--r14-tone-returned);
+  background: var(--r14-tone-returned-soft);
+  border-color: transparent;
+}
+.r14-tag-info {
+  color: var(--r14-tone-info);
+  background: var(--r14-tone-info-soft);
+  border-color: transparent;
+}
 .r14-task-deal {
   font-size: 11.5px;
   color: var(--r14-faint);

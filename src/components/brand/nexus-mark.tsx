@@ -12,8 +12,13 @@
  * handoff's warning: `url(#gradient)` fills do not resolve through
  * `<use fill="inherit">`, so solid paints are required.
  *
- * Decorative in both placements — the wordmark and the "Sign in" eyebrow carry
- * the meaning — so it is hidden from assistive technology.
+ * Decorative wherever it appears — the wordmark, the "Sign in" eyebrow or the
+ * rail's own link title carry the meaning — so it is hidden from assistive
+ * technology.
+ *
+ * Lives under `brand/` rather than `auth/` because the outer rail uses it too:
+ * the rail had been rendering a literal letter "N" in display type since before
+ * the mark existed.
  */
 export function NexusMark({ size }: { size: number }) {
   return (

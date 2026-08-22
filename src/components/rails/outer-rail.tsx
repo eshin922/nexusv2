@@ -9,6 +9,7 @@ import {
 } from "@/lib/workspace-queries";
 import { ProjectGlyph } from "./project-glyph";
 import { ThemeToggle } from "../theme-toggle";
+import { NexusMark } from "@/components/brand/nexus-mark";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
 // visible to authenticated users. Composition (top to bottom):
@@ -60,9 +61,11 @@ export async function OuterRail() {
       <Link
         href="/"
         title="Nexus — All deals"
-        className="mb-2 flex h-9 w-9 items-center justify-center rounded font-display text-2xl font-medium text-ink hover:text-accent"
+        className="mb-2 flex h-9 w-9 items-center justify-center rounded text-ink hover:text-accent"
       >
-        N
+        {/* The real mark, not a letter. `currentColor` means it takes the
+            link's colour, including the hover state. */}
+        <NexusMark size={22} />
       </Link>
 
       {/* All-deals nav (links home; visually distinct from N mark
