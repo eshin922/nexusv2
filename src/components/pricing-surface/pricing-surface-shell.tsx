@@ -59,7 +59,6 @@ import {
   SendableSummary,
   SuggestionCard,
 } from "./action-zone";
-import { StateCallout, StateCard, StateLine } from "./state-zone";
 import {
   DetailZone,
   type BlendedTierComponents,
@@ -76,8 +75,9 @@ import { CellDrawer, type DrawerTarget } from "./cell-drawer";
 import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
 import { RequestOverrideModal } from "./request-override-modal";
-import { ApprovalStateCard } from "./approval-state-card";
 import { usePricingProgression } from "./pricing-progression-context";
+import { VerdictBar } from "./verdict-bar";
+import { RecommendedTierStrip } from "./recommended-tier-strip";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
 import {
@@ -185,6 +185,7 @@ export function PricingSurfaceShell({
   // below stage into this set. They are the surface's operator pricing levers,
   // and every one of them now goes through the same door.
   const {
+    stageLift,
     stageTierAdj,
     stageGlobalAdj,
     committed,
@@ -512,6 +513,12 @@ export function PricingSurfaceShell({
   }, [state.tiers, numericToUuid, tierMeta]);
 
   const progression = usePricingProgression();
+
+  /** Numeric tier id -> label, for the surfaces that speak the classifier's ids. */
+  const tierLabelsByNumericId = useMemo(
+    () => new Map(recommendableTiers.map((t) => [t.numericId, t.label])),
+    [recommendableTiers],
+  );
 
   const approvalState: ApprovalTierState = requestTier
     ? (approvalStates[requestTier.tierId] ?? { kind: "none" })
@@ -1186,100 +1193,65 @@ export function PricingSurfaceShell({
       */}
       <StagingBar label={cellLabel} tierLabel={tierLabel} />
 
-      {/* STATE — always visible. justUpdated chrome on mode transition. */}
-      <StateLine state={state} justUpdated={justUpdated} />
-
-      {state.mode === "suggestion_led" && <StateCallout state={state} />}
       {/*
-        CANNOT SEND is a claim about the WORKFLOW, so it follows progression —
-        not the classifier's compliance mode.
+        R13 · ONE VERDICT, THEN THE WAY OUT, THEN THE GRID.
+        ────────────────────────────────────────────────────────────────────
 
-        Certification, 2026-08-22, caught the two states contradicting each
-        other on one screen: an authorized below-floor quote showed
-        "Continue to Quote" in the banner and "CANNOT SEND" in the card,
-        because the card reads `mode === "blocked"` and the classifier does not
-        see approval. An operator reading both learns to trust neither.
+        What this replaced, and why the replacement is a deletion rather than a
+        rearrangement: the page stated one below-floor condition FIVE times
+        before the operator reached the grid — page sub-copy, the next-move
+        banner, StateLine, StateCallout/StateCard, and the ranked action cards
+        — pushing the grid roughly 1,100px down.
+
+        Repetition was not the worst of it. The certification run caught two of
+        those statements DISAGREEING on one screen: `Continue to Quote` above
+        `CANNOT SEND` on the same authorized quote, because the banner read
+        progression and the card read the classifier's compliance mode. Both
+        were locally correct. An operator reading two verdicts learns to trust
+        neither, so the fix is one verdict with one source.
+
+        `StateLine`, `StateCallout`, `StateCard`, `SendableSummary`,
+        `SuggestionCard`, the ActionCard list and `ApprovalStateCard` are all
+        gone from this surface. Their content did not vanish — it is stated
+        once in the verdict, offered once in the two paths, or disclosed under
+        `Why?` — and the grid is now the first substantial thing on the page.
       */}
-      {state.mode === "blocked" && !progression.allowed && <StateCard state={state} />}
-      {/*
-        R12 §8a — "What you're sending" is preserved in EVERY state, not only
-        the sendable one. The tiles describe the quote's composition; a PM
-        looking at a blocked verdict is exactly who needs to know its scope,
-        recommended tier and order value. It renders after the verdict and
-        before the corrective actions, as the prototype does.
-      */}
-      <SendableSummary
-        state={state}
-        tiers={recommendableTiers}
-        // Draft-only, from the same flag the staged levers use. A sent
-        // quote shows the recommendation and offers no way to change it.
-        onSetRecommended={committable ? onSetRecommended : undefined}
-        recommendedPending={recPending}
-        recommendedError={recError}
+      <VerdictBar
+        projectId={_projectId}
+        quoteId={quoteId}
+        resolveCell={resolveCell}
+        // The GOVERNED lift. This surface stages through the same path every
+        // other lift uses; it introduces no pricing mutation of its own.
+        onStageLift={(ref, pct) => stageLift(ref as Parameters<typeof stageLift>[0], pct)}
+        onRequestApproval={() => {
+          setRequestError(null);
+          setRequestOpen(true);
+        }}
+        onEditCellByCell={() => {
+          document
+            .getElementById("psr-compliance-grid")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+        approvalState={approvalState}
+        requestTierLabel={requestTier?.label ?? null}
+        editable={committable}
+        tierLabels={tierLabelsByNumericId}
       />
 
-      {/* ACTION — ranked actions per mode.
-          CB Patch round 3 BUG-C disposition: in suggestion_led mode
-          SuggestionCard IS the recommended-action presentation
-          surface. ActionCard list filters out the recommended
-          action so PMs see ONE ★ marker per render (the
-          SuggestionCard's). Other modes pass through unfiltered.
-          CB Patch round 3 BUG-D — `id` on the action zone container
-          + suggestion-card wrapper anchors the YOUR NEXT MOVE
-          banner's in-page navigation. */}
-      {/* ActionCard render — filters:
-          - `preview_pdf` kind is EXCLUDED everywhere; the top
-            YourNextMoveBanner already surfaces "Preview quote PDF →"
-            as its CTA in sendable mode (via classifier's primary
-            action lookup). Duplicating it as a middle-page action
-            card was confusing PMs. Kind stays in the classifier +
-            enum for banner label wiring.
-          - In `suggestion_led` mode, also drop the recommended
-            action because SuggestionCard IS the recommended-action
-            presentation surface (single ★ marker per render). */}
-      <div id="psr-actions" className="psr-actions">
-        {state.actions
-          .filter((a) => a.kind !== "preview_pdf")
-          .filter(
-            (a) => state.mode !== "suggestion_led" || !a.recommended,
-          )
-          // A request that is open, approved or already decided must not keep
-          // presenting an actionable Request card. Suppressed HERE rather than
-          // in the classifier: eligibility is policy (classifier's job),
-          // whether one is already in flight is workflow state (not its job).
-          .filter(
-            (a) =>
-              a.kind !== "request_override" ||
-              // A REQUEST NEEDS A TIER TO BE ABOUT.
-              //
-              // The classifier emits this kind from `mode === "blocked"`, which
-              // is the worst CELL's band; `requestTier` is the worst tier by
-              // BLEND, which is what the gate reads and what an authorization
-              // is scoped to. When a below-floor cell sits inside a tier whose
-              // blend is above floor, the first is true and the second is null
-              // — and the card rendered anyway, opening a modal mounted under
-              // `{requestTier && …}`. It did nothing at all.
-              //
-              // Suppressed rather than made to guess a tier: an authorization
-              // recorded against the wrong tier would satisfy no gate.
-              (requestTier !== null && mayRequestApproval(approvalState)),
-          )
-          .map((action) => (
-            <ActionCard
-              key={action.kind}
-              action={action}
-              onActivate={onActivate}
-            />
-          ))}
-      </div>
-
-      {state.mode === "suggestion_led" && (
-        <div id="psr-suggestion-card">
-          <SuggestionCard state={state} onApply={onApply} />
-        </div>
-      )}
-
+      {/*
+        Advisory, and only advisory. A below-TARGET tier does not block
+        progression, so it is a note beneath the verdict rather than a state of
+        its own — the grid is where the affected cells are actually located.
+      */}
       {state.flags.accept_risk_unavailable && <AcceptRiskBanner />}
+
+      <RecommendedTierStrip
+        tiers={recommendableTiers}
+        // Draft-only, from the same flag the staged levers use.
+        onSetRecommended={committable ? onSetRecommended : undefined}
+        pending={recPending}
+        error={recError}
+      />
 
       {/*
         COMPLIANCE — margin by cell, across every tier, always open.
@@ -1293,7 +1265,7 @@ export function PricingSurfaceShell({
         the removed control used to imply and no longer can: that the detail is
         always open, and that any number can be asked why.
       */}
-      <div className="r12-gridtop" style={{ marginTop: 16 }}>
+      <div className="r12-gridtop" id="psr-compliance-grid" style={{ marginTop: 16 }}>
         <p className="r10-sub" style={{ marginBottom: 10 }}>
           Pricing detail — compliance and composition across every tier, always
           open. Any number can say why it is what it is, and the trace opens
@@ -1344,10 +1316,13 @@ export function PricingSurfaceShell({
         renderStackMarginDelta={renderStackMarginDelta}
       />
 
-      {/* Workflow state, composed with — never folded into — classifier output. */}
-      {requestTier && approvalState.kind !== "none" && (
-        <ApprovalStateCard state={approvalState} tierLabel={requestTier.label} />
-      )}
+      {/*
+        The approval state used to be a card here, below the fold, while a
+        button above offered to request one. Two places for one fact, and an
+        operator had to reconcile them. It is now the LABEL of the Request
+        control in the verdict's second path — "Requested — awaiting a
+        decision" is the same information where the decision is made.
+      */}
 
       {/* THE ONE CELL DRAWER. Portalled, so where it sits in this tree is a
           statement about ownership rather than about layout: the shell holds

@@ -67,19 +67,24 @@ test("the strip renders nothing when it has nothing of its own to say", async ()
   );
 });
 
-test("StateCallout and StateCard remain, and remain the substantive summary", async () => {
-  // The one compliance summary before the grid: they name the worst tier, the
-  // blended margin, the target and the floor. Removing the strip must not have
-  // removed the thing the strip was redundant WITH.
-  const src = await code("components/pricing-surface/state-zone.tsx");
-  assert.match(src, /export function StateCallout/);
-  assert.match(src, /export function StateCard/);
+test("ONE verdict renders before the grid, from the progression predicate", async () => {
+  // SUPERSEDED by R13. P-UX-1 collapsed the strip and kept StateCallout /
+  // StateCard as the substantive summary; the certification run then caught
+  // StateCard's CANNOT SEND contradicting the banner's Continue to Quote on the
+  // same authorized quote, because the two read different predicates.
+  //
+  // The fix was not a third gate on StateCard — it was one verdict with one
+  // source. Neither component mounts on this surface any more.
   const shell = await code("components/pricing-surface/pricing-surface-shell.tsx");
-  assert.match(shell, /state\.mode === "suggestion_led" && <StateCallout/);
-  // Now additionally gated on progression: an AUTHORIZED below-floor quote
-  // must not show CANNOT SEND beside a Continue to Quote banner. Certification
-  // 2026-08-22 caught the two contradicting each other on one screen.
-  assert.match(shell, /state\.mode === "blocked" && !progression\.allowed && <StateCard/);
+  assert.doesNotMatch(shell, /<StateCallout/);
+  assert.doesNotMatch(shell, /<StateCard/);
+  assert.doesNotMatch(shell, /<StateLine/);
+  assert.doesNotMatch(shell, /<SendableSummary/);
+  assert.doesNotMatch(shell, /<SuggestionCard/);
+  assert.match(shell, /<VerdictBar/);
+
+  const verdict = await code("components/pricing-surface/verdict-bar.tsx");
+  assert.match(verdict, /usePricingProgression\(\)/, "the verdict must read progression");
 });
 
 // ── one Apply action ──────────────────────────────────────────────────────
@@ -136,13 +141,23 @@ test("navigation to ANOTHER surface keeps its CTA", async () => {
 // ── governance is untouched ───────────────────────────────────────────────
 
 test("below-floor governance stayed out of the presentation cleanup", async () => {
-  // The removed components carried no action of any kind — verified by sweep
-  // below — so the approval path could only have been lost by accident. Pinned
-  // because that is exactly how it would happen.
+  // The guard that matters most, and the one R13 had to be checked against:
+  // a presentation cleanup that quietly took the approval path with it is the
+  // expensive version of this work.
+  //
+  // RE-POINTED, not relaxed. `ApprovalStateCard` no longer mounts in the shell
+  // because the approval state became the LABEL of the Request control — one
+  // fact in one place instead of a button above and a notice below. The path
+  // itself is intact and is asserted where it now lives.
   const shell = await code("components/pricing-surface/pricing-surface-shell.tsx");
-  assert.match(shell, /<ApprovalStateCard/);
   assert.match(shell, /RequestOverrideModal/);
-  assert.match(shell, /mayRequestApproval\(approvalState\)/);
+  assert.match(shell, /onRequestApproval=/, "the shell must still open the request");
+  assert.match(shell, /approvalState=\{approvalState\}/);
+
+  const verdict = await code("components/pricing-surface/verdict-bar.tsx");
+  assert.match(verdict, /Request approval/, "the request affordance must exist");
+  assert.match(verdict, /Requested — awaiting a decision/, "in-flight state must show");
+  assert.match(verdict, /authorized commercial approver/);
 });
 
 test("the state zone still contains no action of any kind", async () => {
