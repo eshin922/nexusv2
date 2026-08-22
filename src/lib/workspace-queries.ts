@@ -24,6 +24,18 @@ export type ProjectGlyph = {
   hue: number;
 };
 
+/**
+ * The deterministic per-project glyph — letter + hue — used by the outer rail
+ * and the Deal Organizer table.
+ *
+ * Exported so both surfaces derive identity colour from ONE hash. The organizer
+ * first shipped flat-grey avatars, which made a table sitting next to a rail of
+ * coloured project chips look like a different application.
+ */
+export function projectGlyphFor(projectId: string, name: string | null): ProjectGlyph {
+  return { projectId, letter: letterFor(name), hue: hashHue(projectId) };
+}
+
 function hashHue(projectId: string): number {
   // Cheap stable hash → 0-360 hue. Deterministic per project id.
   let h = 0;

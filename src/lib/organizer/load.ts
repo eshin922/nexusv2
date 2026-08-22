@@ -16,6 +16,7 @@ import {
 } from "@/lib/below-floor-approval-state";
 import { loadHubspotStageCatalog } from "@/lib/hubspot-stage-label";
 import { presentHubspotStage } from "@/lib/crm-presentation";
+import { projectGlyphFor } from "@/lib/workspace-queries";
 import {
   groupForProject,
   rankTasks,
@@ -99,6 +100,8 @@ export interface OrganizerProject {
   dealName: string;
   clientName: string | null;
   dealStage: string | null;
+  /** Deterministic letter + hue, from the same hash the outer rail uses. */
+  glyph: { letter: string; hue: number };
   group: ProjectGroup;
   /** Every task the project raises — retained whole, per the one-row rule. */
   allTasks: Task[];
@@ -354,6 +357,7 @@ export async function loadOrganizer(
       dealName: m.dealName,
       clientName: m.clientName,
       dealStage: m.dealStage,
+      glyph: projectGlyphFor(projectId, m.clientName ?? m.dealName),
       group: groupForProject({
         visibleTasks,
         anySent: qs.some((f) => f.sentAt !== null),

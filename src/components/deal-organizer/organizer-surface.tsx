@@ -299,17 +299,36 @@ function ProjectRow({ project: p, now }: { project: OrganizerProject; now: numbe
     : `/projects/${p.projectId}`;
   const customer = p.clientName ?? "—";
 
+
   return (
     <Link href={href} className="r14-grid r14-row" style={{ textDecoration: "none" }}>
       <div className="r14-deal">
-        <span className="r14-avatar">{(customer[0] ?? "?").toUpperCase()}</span>
+        {/*
+          Identity colour from the SAME deterministic hash the outer rail uses,
+          so a deal's chip in the table and its glyph in the rail are the same
+          colour. Flat grey here read as a different application sitting beside
+          a coloured rail.
+        */}
+        <span
+          className="r14-avatar"
+          style={{
+            background: `oklch(0.55 0.12 ${p.glyph.hue})`,
+            color: `oklch(0.98 0.02 ${p.glyph.hue})`,
+          }}
+        >
+          {p.glyph.letter}
+        </span>
         <span style={{ minWidth: 0 }}>
           <span className="r14-customer">{customer}</span>
           <span className="r14-product">{p.dealName}</span>
         </span>
       </div>
       <div className="r14-cell">
-        {p.dealStage ? <span className="r14-stage">{p.dealStage}</span> : null}
+        {p.dealStage ? (
+          <span className="r14-stage" title={p.dealStage}>
+            {p.dealStage}
+          </span>
+        ) : null}
       </div>
       <div className="r14-cell">
         {q ? (
