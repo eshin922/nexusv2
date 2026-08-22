@@ -1,0 +1,273 @@
+/*
+ * R13 — the Pricing decision hierarchy.
+ *
+ * Source: CD's `Nexus Pricing Decision.dc.html` (inline-styled, so every value
+ * below is readable off the element it came from).
+ *
+ * NOT a verbatim Pattern 30 adoption, because the packet ships inline styles
+ * rather than a stylesheet — there is no canonical CSS file to copy. What made
+ * that safe is that CD drew the prototype from the Nexus token set: its palette
+ * is `design-tokens.css` value-for-value (paper 0.985 0.006 85, ink 0.20 0.02
+ * 255, accent 0.42 0.14 255, breach 0.55 0.18 25, ok 0.55 0.10 155, pending
+ * 0.62 0.13 70). So the tokens are referenced rather than the literals repeated,
+ * and the surface follows a theme change instead of fighting one.
+ *
+ * The one literal is the breach wash, `oklch(0.975 0.018 25)` — lighter than
+ * `--bad-soft`, and deliberately so: it tints a whole panel rather than a chip,
+ * and at --bad-soft's saturation a full-width band reads as an error state
+ * rather than as the place the work is.
+ */
+
+/* ── verdict ─────────────────────────────────────────────────────────── */
+
+.r13-verdict {
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.r13-verdict.breach {
+  border-color: oklch(0.86 0.05 25);
+  background: oklch(0.975 0.018 25);
+}
+.r13-verdict.pending {
+  border-color: oklch(0.86 0.05 70);
+  background: var(--warn-soft);
+}
+.r13-verdict.ok {
+  border-color: oklch(0.86 0.04 155);
+  background: var(--good-soft);
+}
+
+.r13-verdict-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 18px 14px;
+}
+.r13-verdict-head .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: none;
+}
+.r13-verdict.breach .dot { background: var(--bad); }
+.r13-verdict.pending .dot { background: var(--warn); }
+.r13-verdict.ok .dot { background: var(--good); }
+
+.r13-verdict-copy { min-width: 0; flex: 1; }
+.r13-verdict-copy h2 {
+  font-family: var(--display);
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+  margin: 0;
+  color: var(--ink);
+}
+.r13-verdict-copy p {
+  margin: 1px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.r13-verdict-go {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.r13-verdict-go .tierline {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+
+.r13-why {
+  flex: none;
+  font-family: var(--ui);
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 5px 13px;
+  cursor: pointer;
+}
+.r13-why:hover { border-color: var(--ink-4); }
+
+/* ── the two paths ───────────────────────────────────────────────────── */
+
+.r13-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0 18px 16px;
+}
+@media (max-width: 900px) {
+  .r13-paths { grid-template-columns: 1fr; }
+}
+
+.r13-path {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 13px 15px 14px;
+  display: flex;
+  flex-direction: column;
+}
+.r13-path .eyebrow {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.r13-path h3 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 3px 0 5px;
+  color: var(--ink);
+}
+.r13-path p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+/* Pushes the actions to a common baseline so the two cards' buttons align
+   even when their copy runs to different lengths. */
+.r13-path-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.r13-note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-4);
+}
+
+/* ── why (progressive disclosure) ────────────────────────────────────── */
+
+.r13-why-detail {
+  border-top: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 12px 18px 14px;
+}
+.r13-why-head {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 8px;
+}
+.r13-why-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 110px;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  border-top: 1px solid var(--paper-3);
+}
+.r13-why-row:first-of-type { border-top: none; }
+.r13-why-row .cell { color: var(--ink-2); }
+.r13-why-row .margin,
+.r13-why-row .gap {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.r13-why-row .margin { color: var(--bad); }
+.r13-why-row .gap { color: var(--ink-4); }
+
+/* ── recommended-tier strip ──────────────────────────────────────────── */
+
+.r13-strip {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 11px 18px 12px;
+  margin-bottom: 14px;
+}
+.r13-strip-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.r13-strip-cell.num { margin-left: auto; text-align: right; }
+.r13-strip-cell.num + .r13-strip-cell.num { margin-left: 0; }
+
+.r13-strip .lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+.r13-strip .val {
+  font-size: 13.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+/* "Set a tier" is an instruction, not a value — it must not read as a figure. */
+.r13-strip .val.unset {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-4);
+}
+
+.r13-strip-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 1px solid var(--rule);
+  padding-left: 20px;
+}
+.r13-strip-tiers .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.r13-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 4px 11px 5px;
+  cursor: pointer;
+  line-height: 1.25;
+}
+.r13-chip .sub {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--ink-4);
+}
+.r13-chip:hover:not(:disabled) { border-color: var(--ink-4); }
+.r13-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.r13-chip.on .sub { color: var(--accent-ink); }
+.r13-chip:disabled { cursor: default; opacity: 0.65; }

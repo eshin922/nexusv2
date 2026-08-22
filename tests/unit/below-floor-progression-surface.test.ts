@@ -84,14 +84,15 @@ test("a tier with no id mapping is omitted, never defaulted", async () => {
 
 // ── the dead Request control ──────────────────────────────────────────────
 
-test("the Request card renders only when there is a tier to request against", async () => {
-  const src = codeOnly(await SHELL());
-  const filter = src.slice(
-    src.indexOf('a.kind !== "request_override"'),
-    src.indexOf('.map((action) => ('),
-  );
-  assert.match(filter, /requestTier !== null/);
-  assert.match(filter, /mayRequestApproval\(approvalState\)/);
+test("the Request control renders only when there is a tier to request against", async () => {
+  // RE-POINTED for R13. The ranked ActionCard list is gone; the request lives
+  // in the verdict's second path, and the same condition holds — a request
+  // needs a tier to be about, or it opens a modal mounted under a null.
+  const shell = codeOnly(await SHELL());
+  assert.match(shell, /requestTierLabel=\{requestTier\?\.label \?\? null\}/);
+
+  const verdict = codeOnly(await read("src/components/pricing-surface/verdict-bar.tsx"));
+  assert.match(verdict, /enabled=\{editable && requestTierLabel !== null\}/);
 });
 
 // ── the gate the surface predicts ─────────────────────────────────────────
