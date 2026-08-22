@@ -175,7 +175,6 @@ export type AdapterAssemblyProductionInputRow = {
   assemblyId: string | null;
   quoteLeafId: string | null;
   tierId: string;
-  customerShipsRaws: boolean;
   allocateServiceFeesToCost: boolean;
   fillingBlendingCost: string | null;
   cmAssemblyTotal: string | null;
@@ -409,7 +408,6 @@ export function buildQuoteCostingInputFromNewModel(
     production.push({
       quoteSkuId: targetLeafId,
       tierId: api.tierId,
-      customerShipsRaws: api.customerShipsRaws,
       allocateServiceFeesToCost: api.allocateServiceFeesToCost,
       fillingBlendingCost: numOrNull(api.fillingBlendingCost),
       cmAssemblyTotal: numOrNull(api.cmAssemblyTotal),

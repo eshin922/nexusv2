@@ -377,7 +377,6 @@ test("a top-level service prices at cost x the governed Production markup", asyn
       {
         quoteSkuId: LEAF,
         tierId: TIER,
-        customerShipsRaws: false,
         allocateServiceFeesToCost: true,
         fillingBlendingCost: null,
         cmAssemblyTotal: null,

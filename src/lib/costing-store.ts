@@ -463,15 +463,14 @@ export type ProductionCellFields = Partial<
     StoredProductionRow,
     | "quoteSkuId"
     | "tierId"
-    | "customerShipsRaws"
     | "allocateServiceFeesToCost"
   >
 >;
+// `customerShipsRaws` was the other member. It is retired: no active path
+// writes it or reads it to influence economics. The column stays dormant until
+// a later hygiene migration.
 export type ProductionPolicyFields = Partial<
-  Pick<
-    StoredProductionRow,
-    "customerShipsRaws" | "allocateServiceFeesToCost"
-  >
+  Pick<StoredProductionRow, "allocateServiceFeesToCost">
 >;
 // Slice R6.2 — per-(leg, tier) rate fields. PM enters total freight
 // cost; units_in_shipment overrides tier.qty when yield mismatch.

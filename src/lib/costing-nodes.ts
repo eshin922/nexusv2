@@ -42,8 +42,9 @@
  * R10's notes say eight, R11 and Phase 3 say nine — but `app/r10/data.js:386`
  * emits `kind: "flagged-out"` and the renderer branches on it. Under Pattern 30
  * the canonical source is the contract, so `flagged-out` is a kind. Building to
- * the prose would produce a renderer with no branch for a kind that appears on
- * the live `customer_ships_raws` path.
+ * the prose would produce a renderer with no branch for a kind other producers
+ * still emit. (The `customer_ships_raws` path that first motivated it is
+ * retired; four other producers remain.)
  *
  * Three of these are not arithmetic, and that is the point of the vocabulary
  * rather than an awkwardness in it:

@@ -396,7 +396,6 @@ test("adding a section must not require a version bump", () => {
 const prod = (over: Partial<CostingProductionInput> = {}): CostingProductionInput => ({
   quoteSkuId: LEAF,
   tierId: TIER,
-  customerShipsRaws: false,
   allocateServiceFeesToCost: true,
   fillingBlendingCost: 1800,
   cmAssemblyTotal: 1200,
@@ -489,31 +488,28 @@ test("production · one aggregate markup, never a per-line one", () => {
 
 // ------------------------------------------------------------- bulk raw
 
-test("bulk raw · customer-shipped raws produce a flagged-out node, not a zero markup", () => {
+test("bulk raw · an entered cost is ALWAYS priced — there is no exclusion path", () => {
+  // Replaces three tests that asserted the `customer_ships_raws` exclusion.
+  // That branch is retired: it was false on every row in the database, so this
+  // is the path all live data already took. Asserted positively so the removal
+  // has a contract rather than just an absence.
   const r = computeQuoteCosting(
-    input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 5000 })] }),
+    input({ production: [prod({ bulkRawCost: 5000 })] }),
   );
   const n = rawNode(r);
-  assert.equal(n.kind, "flagged-out");
-  assert.equal(n.value, 0);
-  assert.equal(n.operands, undefined);
-  // The reason names WHAT was excluded. A reason without the amount tells an
-  // operator something was left out but not what it would have cost them.
-  assert.match(n.reason!, /\$5000/);
-  assert.match(n.reason!, /Customer ships raws/);
+  assert.equal(n.kind, "markup", "bulk raw is no longer excludable");
+  assert.notEqual(n.value, 0);
+  assert.ok(n.operands, "a priced node carries its operands");
 });
 
-test("bulk raw · an ABSENT cost and an EXCLUDED cost both read zero but differ in kind", () => {
+test("bulk raw · an ABSENT cost reads zero and is still a markup node", () => {
+  // The old pair was ABSENT vs EXCLUDED — identical scalars, different kinds,
+  // which was the whole argument for `flagged-out` being a kind. With the
+  // exclusion retired only the absent case remains, and it must NOT have
+  // become a flagged-out node by accident.
   const absent = computeQuoteCosting(input({ production: [prod({ bulkRawCost: null })] }));
-  const excluded = computeQuoteCosting(
-    input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 5000 })] }),
-  );
   assert.equal(rawNode(absent).value, 0);
-  assert.equal(rawNode(excluded).value, 0);
-  // Identical scalars, different facts. This is the entire argument for
-  // `flagged-out` being a kind rather than a value.
   assert.equal(rawNode(absent).kind, "markup");
-  assert.equal(rawNode(excluded).kind, "flagged-out");
 });
 
 test("bulk raw · a present cost allocates over tier units and equals the scalar", () => {
@@ -526,15 +522,13 @@ test("bulk raw · a present cost allocates over tier units and equals the scalar
   assert.equal(alloc.value, r.skuRollups[0].perTier[0].rawCostPerUnit);
 });
 
-test("bulk raw · carries its provisional warning in both shapes", () => {
+test("bulk raw · carries its provisional warning", () => {
   const priced = computeQuoteCosting(input({ production: [prod({ bulkRawCost: 4000 })] }));
-  const flagged = computeQuoteCosting(
-    input({ production: [prod({ customerShipsRaws: true, bulkRawCost: 4000 })] }),
-  );
-  // A-7 is open. The node states that it uses the pricing-active value and
-  // that quote-level ingredient rows are not its arithmetic source — in BOTH
-  // shapes, since the caveat does not stop applying when the input is excluded.
-  for (const n of [rawNode(priced), rawNode(flagged)]) {
+  const absent = computeQuoteCosting(input({ production: [prod({ bulkRawCost: null })] }));
+  // A-7 is open. The node states that it uses the pricing-active value and that
+  // quote-level ingredient rows are not its arithmetic source. Both shapes,
+  // since the caveat does not stop applying when nothing was entered.
+  for (const n of [rawNode(priced), rawNode(absent)]) {
     assert.equal(n.noteLevel, "warn");
     assert.match(n.note!, /unconnected representation/);
   }
@@ -546,7 +540,7 @@ test("increment 2 · the production and raw subtrees satisfy every traversal gua
   for (const p of [
     prod(),
     prod({ allocateServiceFeesToCost: false }),
-    prod({ customerShipsRaws: true, bulkRawCost: 5000 }),
+    prod({ bulkRawCost: 5000 }),
     prod({ bulkRawCost: 4000 }),
   ]) {
     const r = computeQuoteCosting(input({ packaging: THREE_LINES, production: [p] }));

@@ -57,9 +57,15 @@ const ACTION = "app/actions/assembly-production-inputs.ts";
 
 // ── the governed default ──────────────────────────────────────────────────
 
-test("the default is allocate ON, raws OFF", () => {
+test("the default is allocate ON, and raws is no longer a policy member", () => {
   assert.equal(DEFAULT_ASSEMBLY_POLICY.allocateServiceFeesToCost, true);
-  assert.equal(DEFAULT_ASSEMBLY_POLICY.customerShipsRaws, false);
+  // `customerShipsRaws` was the second member. Asserted ABSENT rather than
+  // simply dropped, so re-adding it to the policy shape fails here first.
+  assert.equal(
+    Object.hasOwn(DEFAULT_ASSEMBLY_POLICY, "customerShipsRaws"),
+    false,
+    "the retired raws flag is back in the governed default",
+  );
 });
 
 test("an unpersisted Item Group reads as the default, not as absent", () => {
@@ -148,14 +154,13 @@ test("the silent no-op is gone", async () => {
 
 // ── what must not have changed ────────────────────────────────────────────
 
-test("the raws fan-out still carries each assembly's OWN allocation", async () => {
-  // The anti-flatten guard. Untouched by this repair, asserted because the
-  // repair edits the same policy path.
+test("the raws fan-out is gone, along with the flag it carried", async () => {
+  // Was: the anti-flatten guard on the raws fan-out. There is no raws fan-out —
+  // `customer_ships_raws` is retired and its control removed. Asserted as an
+  // absence so the fan-out cannot return without failing here first.
   const src = await code(DRILL);
-  assert.match(
-    src,
-    /policyByAssembly\.get\(asm\.id\)\?\.allocateServiceFeesToCost/,
-  );
+  assert.doesNotMatch(src, /customerShipsRaws/, "the retired raws flag is back");
+  assert.doesNotMatch(src, /function flipToggle/);
 });
 
 test("the existing-row path is untouched", async () => {

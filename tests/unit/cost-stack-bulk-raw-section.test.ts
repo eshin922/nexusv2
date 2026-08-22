@@ -107,7 +107,6 @@ const prod = (
 ): CostingProductionInput => ({
   quoteSkuId: LEAF,
   tierId: TIER,
-  customerShipsRaws: false,
   allocateServiceFeesToCost: true,
   fillingBlendingCost: 1800,
   cmAssemblyTotal: 1200,

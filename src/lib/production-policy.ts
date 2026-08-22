@@ -34,12 +34,13 @@
  * control reports one thing and saves another.
  *
  * Unanimous across the three places that already answer this — the schema
- * defaults (`customer_ships_raws` false, `allocate_service_fees_to_cost`
+ * defaults (`allocate_service_fees_to_cost`
  * true), the policy action's own no-op comment, and the per-cell INSERT
  * branch's fallback when an assembly has no sibling row to inherit from.
  */
+// `customerShipsRaws` was the other member; it is retired. The column keeps its
+// own schema default until a later hygiene migration removes it.
 export const DEFAULT_ASSEMBLY_POLICY = {
-  customerShipsRaws: false,
   allocateServiceFeesToCost: true,
 } as const;
 

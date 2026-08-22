@@ -74,7 +74,6 @@ function bare(over: Partial<CostingProductionInput> = {}): CostingProductionInpu
   return {
     quoteSkuId: LEAF,
     tierId: TIER,
-    customerShipsRaws: false,
     // Separately billed, so the fee stays its own commercial line rather than
     // being absorbed into unit cost.
     allocateServiceFeesToCost: false,

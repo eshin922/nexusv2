@@ -851,7 +851,6 @@ export async function getQuoteCosting(
           // adapter recognises.
           quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
-          customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
@@ -1440,7 +1439,6 @@ export async function applyClientTargetSolveTierAdj(
           // adapter recognises.
           quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
-          customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
@@ -1770,7 +1768,6 @@ export async function getCostingBundle(
           // adapter recognises.
           quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
-          customerShipsRaws: r.customerShipsRaws,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
