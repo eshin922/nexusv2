@@ -70,12 +70,14 @@ export function ApprovalStateCard({
         <strong>Approved — {tierLabel}</strong>
         {when(state.decidedAt)}
         <div style={{ color: "var(--ink-2)", marginTop: 4 }}>
-          A Commercial Approver authorized this tier below the floor.
-          {/* Deliberately not "you may now accept": independence is evaluated
-              against whoever records acceptance, which is unknown here. */}
+          An authorized commercial approver authorized this tier below the
+          floor.
+          {/* This used to promise that acceptance "must be recorded by someone
+              other than the approver". Both independence rules were removed by
+              policy on 2026-08-22; what still binds the authorization is the
+              version, the tier and the fingerprint. */}
           {" "}
-          Acceptance is still checked against this authorization at the moment it
-          is recorded, and must be recorded by someone other than the approver.
+          It stays valid while the tier&rsquo;s economics are unchanged.
         </div>
       </div>
     );
