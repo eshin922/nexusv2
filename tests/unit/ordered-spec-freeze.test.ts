@@ -31,6 +31,8 @@ const SEND = () =>
   readFile(new URL("../../src/app/actions/quotes.ts", import.meta.url), "utf8");
 const MIGRATION = () =>
   readFile(new URL("../../drizzle/0094_ordered_spec_freeze.sql", import.meta.url), "utf8");
+const DELETE_GUARD = () =>
+  readFile(new URL("../../drizzle/0095_ordered_spec_delete_guard.sql", import.meta.url), "utf8");
 const SPEC_WRITER = () =>
   readFile(new URL("../../src/app/actions/leaf-specs.ts", import.meta.url), "utf8");
 
@@ -162,8 +164,29 @@ test("UPDATE is refused by the database, not merely by convention", async () => 
   assert.match(sql, /CREATE TRIGGER "qsls_no_update"/);
   assert.match(sql, /BEFORE UPDATE ON "quote_snapshot_leaf_specs"/);
   assert.match(sql, /RAISE EXCEPTION/);
-  // DELETE stays open so the snapshot FK can cascade.
-  assert.doesNotMatch(sql, /BEFORE DELETE ON "quote_snapshot_leaf_specs"/);
+});
+
+test("DIRECT DELETE is refused too — immutable is not UPDATE-only", async () => {
+  // 0094 blocked UPDATE and left DELETE open, which quietly redefined
+  // "immutable" as "UPDATE-only immutable": any query with write access could
+  // erase the record of what was ordered.
+  const sql = await DELETE_GUARD();
+  assert.match(sql, /CREATE TRIGGER "qsls_no_direct_delete"/);
+  assert.match(sql, /BEFORE DELETE ON "quote_snapshot_leaf_specs"/);
+  assert.match(sql, /RAISE EXCEPTION/);
+});
+
+test("the cascade is distinguished by trigger depth, not by trust", async () => {
+  const sql = await DELETE_GUARD();
+  // A direct delete runs this trigger outermost (depth 1); an FK cascade runs
+  // the parent's RI trigger first, so this one fires nested at depth > 1.
+  assert.match(sql, /pg_trigger_depth\(\) <= 1/);
+  assert.match(
+    sql,
+    /Verified empirically/,
+    "the whole immutability claim rests on this technique; the migration must " +
+      "record that it was exercised rather than assumed",
+  );
 });
 
 test("no code path updates a frozen spec", async () => {
@@ -248,4 +271,53 @@ test("the freeze module exposes the read the packet is meant to use", async () =
   const src = codeOnly(await FREEZE());
   assert.match(src, /export async function readFrozenOrderedSpecs/);
   assert.match(src, /quoteSnapshotLeafSpecs\.quoteSnapshotId/);
+});
+
+// ── SEND atomicity ────────────────────────────────────────────────────────
+
+test("snapshot, ordered specs and commercial state share ONE transaction", async () => {
+  const src = codeOnly(await SEND());
+  const txStart = src.indexOf("const result = await db.transaction(async (tx) => {");
+  assert.ok(txStart > 0, "the send transaction must be identifiable");
+  const snapshot = src.indexOf("insert(quoteSnapshots)", txStart);
+  const specs = src.indexOf("freezeOrderedSpecs(tx,", txStart);
+  const commercial = src.indexOf("freezeCommercialLineSet(tx,", txStart);
+  assert.ok(snapshot > txStart, "the snapshot is created inside the transaction");
+  assert.ok(specs > snapshot, "specs freeze after the snapshot they key to");
+  assert.ok(commercial > specs, "commercial state freezes after the specs");
+  // All three take `tx`, so a failure at any one rolls the others back. A spec
+  // freeze that took `db` instead would commit independently and leave a sent
+  // offer whose specifications were never recorded.
+  assert.match(src, /freezeOrderedSpecs\(tx,/);
+  assert.match(src, /freezeCommercialLineSet\(tx,/);
+});
+
+test("the freeze cannot escape the caller's transaction", async () => {
+  const src = codeOnly(await FREEZE());
+  const body = src.slice(src.indexOf("export async function freezeOrderedSpecs"));
+  const upToReturn = body.slice(0, body.indexOf("export async function readFrozen"));
+  assert.doesNotMatch(
+    upToReturn,
+    /db\s*\.\s*(insert|select|update|transaction)/,
+    "reaching the pool inside the freeze would commit independently of the send",
+  );
+});
+
+test("pdf_url is persisted only inside the transaction", async () => {
+  const src = codeOnly(await SEND());
+  const txStart = src.indexOf("const result = await db.transaction(async (tx) => {");
+  // The bytes are uploaded before the transaction — the signed URL cannot be
+  // minted for an object that does not exist yet. What matters is that NOTHING
+  // references the artifact unless the governed snapshot commits: on rollback
+  // the object is an unreachable orphan at a send-uuid-scoped path, with no row
+  // pointing at it.
+  const upload = src.indexOf("artifacts.put(");
+  assert.ok(upload > 0 && upload < txStart, "upload precedes the transaction");
+  assert.ok(src.indexOf("pdfUrl,", txStart) > txStart, "pdf_url is written inside it");
+  assert.match(
+    src,
+    /buildQuotePdfStoragePath\(quoteId, sendUuid\)/,
+    "the path is scoped per send attempt, so a rolled-back attempt's orphan can " +
+      "never be mistaken for a successful send's artifact",
+  );
 });

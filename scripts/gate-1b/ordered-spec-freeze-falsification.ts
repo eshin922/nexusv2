@@ -65,13 +65,38 @@ async function main() {
   ]);
   rec("no-op UPDATE also refused", noop ? "refused" : "ACCEPTED", "refused");
 
-  // DELETE must stay permitted, so the snapshot FK can cascade.
+  // DIRECT DELETE must be REFUSED. "Immutable" cannot mean "UPDATE-only
+  // immutable" — a row recording what was ordered must not be erasable by any
+  // query that happens to hold write access.
   const del = await attempt([
     ins(),
     `delete from quote_snapshot_leaf_specs where content_hash = 'hash-probe'`,
   ]);
-  rec("DELETE permitted (FK cascade)", del ? "refused" : "permitted", "permitted");
+  rec("direct DELETE refused", del ? "refused" : "ACCEPTED", "refused");
   if (del) console.log(`      ${del.split("\n")[0].slice(0, 110)}`);
+
+  // ...and the FK cascade must STILL work, or a snapshot could never be deleted
+  // because its own children blocked it. The guard tells them apart by trigger
+  // depth: direct is the outermost trigger, a cascade runs nested.
+  //
+  // Against a THROWAWAY snapshot, not the newest real one. The first attempt
+  // used the latest snapshot and was blocked by
+  // `netsuite_so_pushes_quote_snapshot_id_fk` (ON DELETE RESTRICT) before the
+  // child trigger was ever reached — so it proved nothing about this guard. A
+  // test that fails for an unrelated reason is not evidence about the thing it
+  // names.
+  const cascade = await attempt([
+    `insert into quote_snapshots (id, quote_id, version_number, sent_at, effective_from)
+       values ('00000000-0000-0000-0000-0000000000ff'::uuid,
+               (select id from quotes limit 1), 999, now(), now())`,
+    `insert into quote_snapshot_leaf_specs
+       (quote_snapshot_id, quote_leaf_id, spec_values, content_hash, disposition)
+     values ('00000000-0000-0000-0000-0000000000ff'::uuid, ${LEAF},
+             '{}'::jsonb, 'hash-cascade-probe', 'specified')`,
+    `delete from quote_snapshots where id = '00000000-0000-0000-0000-0000000000ff'::uuid`,
+  ]);
+  rec("parent-snapshot cascade permitted", cascade ? "BLOCKED" : "permitted", "permitted");
+  if (cascade) console.log(`      ${cascade.split("\n")[0].slice(0, 110)}`);
 
   // ONE ROW PER (snapshot, leaf) — a second freeze of the same offer must fail.
   const dupe = await attempt([ins(), ins()]);

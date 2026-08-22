@@ -205,6 +205,12 @@ const classifiedIdentityFiles = new Set([
   // resolves nothing through the identity, never queries `assembly_leaves`, and
   // asserts residue 0 afterwards.
   "scripts/gate-1b/ordered-spec-freeze-falsification.ts",
+  // CLASSIFIED — write-then-rollback atomicity proof, canonical identity only.
+  // Inserts probe rows carrying literal `quote_leaf_id` values to prove the send
+  // transaction commits snapshot, ordered specs and commercial state together or
+  // not at all. Never queries `assembly_leaves`, resolves nothing through the
+  // identity, and asserts zero residue for its probe ids before and after.
+  "scripts/gate-1b/send-atomicity-falsification.ts",
   // CLASSIFIED — verification, read-only. Asserts that the engine's leaf
   // population equals the canonical attachment set by identity. It resolves
   // the canonical-to-legacy mapping only to predict the id the engine emits,
