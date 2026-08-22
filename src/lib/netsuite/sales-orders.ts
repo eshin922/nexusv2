@@ -67,6 +67,15 @@ export interface SalesOrderPayloadInput {
   hubspotDealName: string;
   // 8c-2 cache field-fill (all optional; write only if populated)
   dealFolderUrl?: string | null;
+  /**
+   * The Nexus Order Packet URL for the exact frozen snapshot behind this order.
+   *
+   * SEPARATE FROM `dealFolderUrl`, and deliberately so. That one is the
+   * SharePoint DEAL folder — deal-scoped, shared by every order on the deal.
+   * This is ORDER-scoped: it resolves to one sent offer and keeps resolving to
+   * it after later revisions.
+   */
+  orderPacketUrl?: string | null;
   projectServiceS?: string | null;
   projectCategory?: string | null;
   // NetSuite internal id for the project_source custom list — NOT the
@@ -182,6 +191,23 @@ export function buildSalesOrderPayload(
   if (input.dealFolderUrl) {
     body.custbody_dps_accounting_files = input.dealFolderUrl;
     body.custbody_sharepoint_link = input.dealFolderUrl;
+  }
+
+  // ── THE NEXUS ORDER PACKET — ITS OWN FIELD, NOT A REUSED ONE ────────────
+  //
+  // `custbody_sharepoint_link` was the obvious candidate and is the wrong one.
+  // Measured before deciding: 456 of 716 Sales Orders carry it, every sampled
+  // value is a SharePoint DEAL-folder URL, and `custbody_dps_accounting_files`
+  // holds the identical value on the same 456 — a deliberate parity mapping
+  // against reference SO2646. Zero point at Nexus.
+  //
+  // Repurposing it would overwrite a field in use on 456 live orders, break the
+  // mirror so the twins disagree, and — decisively — replace DEAL-scoped
+  // semantics with ORDER-scoped ones. The two answer different questions and
+  // must coexist: SharePoint says where this deal's documents live, Nexus says
+  // what was on this order.
+  if (input.orderPacketUrl) {
+    body.custbody_nexus_order_packet = input.orderPacketUrl;
   }
   if (input.projectServiceS)
     body.custbody_dps_project_service_s = input.projectServiceS;

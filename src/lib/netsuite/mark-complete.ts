@@ -1,3 +1,4 @@
+import { orderPacketUrl } from "@/lib/order-packet/url";
 import { POSTED_RATE_SCALE } from "@/lib/commercial-rate";
 import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
@@ -1110,6 +1111,14 @@ export async function runMarkComplete(
       hubspotDealId: projectRow.hubspotDealId,
       hubspotDealName: dealCache.dealName,
       dealFolderUrl: dealCache.dealFolderUrl,
+      // ORDER-scoped, alongside the DEAL-scoped SharePoint link above. Both are
+      // written; neither replaces the other. Null when no base URL is
+      // configured — an empty field is visibly empty, whereas a link to the
+      // wrong host is not, and this value outlives the deploy that wrote it.
+      orderPacketUrl: orderPacketUrl(
+        acceptedSnapshotId,
+        process.env.NEXT_PUBLIC_APP_BASE_URL,
+      ),
       projectServiceS: dealCache.projectServiceS,
       projectCategory: dealCache.projectCategory,
       projectSourceId: resolvedProjectSourceId,
