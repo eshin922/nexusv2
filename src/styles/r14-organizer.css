@@ -37,27 +37,45 @@
   --r14-rule-softer: oklch(0.94 0.008 85);
 
   /*
-   * spec §5 · TASK TONES BY HUE — blocked 25 · missing 70 · returned 155 ·
-   * informational 232. All four, and semantic: they say what KIND of attention
-   * a row wants, which is information the label alone does not carry at scan
-   * speed.
+   * TASK / STATUS TONES — the design source's own values, not an interpretation.
    *
-   * Separate from `--accent` on purpose. The accent is the app's voice for
-   * "act here"; these are the task's own voice for "and this is why". Collapsing
-   * them into the accent — which the first deploy of this surface did — makes
-   * every task read identically and throws the distinction away.
+   * `Nexus Deal Organizer.dc.html` builds every tinted chip from a hue with a
+   * SOFT FILL and a STRONG FOREGROUND, and no border:
    *
-   * Each has a `-soft` companion for chip fills, so a tag is legible as a tinted
-   * block rather than only as coloured text.
+   *     STATUS.draft    bg oklch(0.95 0.05 70)     fg oklch(0.55 0.13 70)
+   *     STATUS.sent     bg oklch(0.94 0.04 255)    fg oklch(0.42 0.14 255)
+   *     STATUS.accepted bg oklch(0.94 0.035 155)   fg oklch(0.48 0.10 155)
+   *     STATUS.locked   bg oklch(0.955 0.008 85)   fg oklch(0.58 0.015 255)
+   *     tagStyle        bg oklch(0.945 0.04 h)     fg oklch(0.50 0.13 h)
+   *     dotStyle        bg oklch(0.62 0.13 h)
+   *     headStyle       color oklch(0.42 0.06 h)
+   *
+   * The first implementation shipped OUTLINED grey status chips and an
+   * untinted group header, which is why the table read as monochrome: Draft,
+   * Sent and Locked are on nearly every row, and they were carrying no colour
+   * at all. Draft is AMBER in the design; it was grey.
+   *
+   * Dark counterparts are Nexus-added — the source is light-only — and invert
+   * the pair rather than dimming it, so a chip stays a tinted block on either
+   * ground.
    */
-  --r14-tone-blocked: oklch(0.48 0.16 25);
-  --r14-tone-blocked-soft: oklch(0.95 0.035 25);
-  --r14-tone-missing: oklch(0.50 0.12 70);
-  --r14-tone-missing-soft: oklch(0.95 0.05 70);
-  --r14-tone-returned: oklch(0.45 0.10 155);
-  --r14-tone-returned-soft: oklch(0.94 0.045 155);
-  --r14-tone-info: oklch(0.45 0.10 232);
-  --r14-tone-info-soft: oklch(0.94 0.04 232);
+  --r14-t25-bg: oklch(0.945 0.04 25);
+  --r14-t25-fg: oklch(0.50 0.13 25);
+  --r14-t70-bg: oklch(0.95 0.05 70);
+  --r14-t70-fg: oklch(0.55 0.13 70);
+  --r14-t155-bg: oklch(0.94 0.035 155);
+  --r14-t155-fg: oklch(0.48 0.10 155);
+  --r14-t232-bg: oklch(0.945 0.04 232);
+  --r14-t232-fg: oklch(0.50 0.13 232);
+  --r14-t255-bg: oklch(0.94 0.04 255);
+  --r14-t255-fg: oklch(0.42 0.14 255);
+  --r14-tneutral-bg: oklch(0.955 0.008 85);
+  --r14-tneutral-fg: oklch(0.58 0.015 255);
+
+  /* Group identity hues — `GROUPS[].hue` in the source. */
+  --r14-hue-needs-you: 70;
+  --r14-hue-with-customer: 232;
+  --r14-hue-no-action: 155;
 
   background: var(--paper-2);
   color: var(--ink);
@@ -71,14 +89,30 @@
     --r14-chrome-2: oklch(0.185 0.012 255);
     --r14-rule-soft: oklch(0.30 0.013 255);
     --r14-rule-softer: oklch(0.26 0.013 255);
-    --r14-tone-blocked: oklch(0.76 0.15 25);
-    --r14-tone-blocked-soft: oklch(0.30 0.06 25);
-    --r14-tone-missing: oklch(0.80 0.12 70);
-    --r14-tone-missing-soft: oklch(0.30 0.05 70);
-    --r14-tone-returned: oklch(0.78 0.11 155);
-    --r14-tone-returned-soft: oklch(0.28 0.05 155);
-    --r14-tone-info: oklch(0.78 0.11 232);
-    --r14-tone-info-soft: oklch(0.28 0.05 232);
+  --r14-t25-bg: oklch(0.30 0.055 25);
+  --r14-t25-fg: oklch(0.80 0.13 25);
+  --r14-t70-bg: oklch(0.30 0.05 70);
+  --r14-t70-fg: oklch(0.83 0.13 70);
+  --r14-t155-bg: oklch(0.28 0.045 155);
+  --r14-t155-fg: oklch(0.80 0.11 155);
+  --r14-t232-bg: oklch(0.29 0.05 232);
+  --r14-t232-fg: oklch(0.80 0.12 232);
+  --r14-t255-bg: oklch(0.29 0.05 255);
+  --r14-t255-fg: oklch(0.80 0.13 255);
+  --r14-tneutral-bg: oklch(0.255 0.010 255);
+  --r14-tneutral-fg: oklch(0.72 0.015 255);
+    --r14-t25-bg: oklch(0.30 0.055 25);
+    --r14-t25-fg: oklch(0.80 0.13 25);
+    --r14-t70-bg: oklch(0.30 0.05 70);
+    --r14-t70-fg: oklch(0.83 0.13 70);
+    --r14-t155-bg: oklch(0.28 0.045 155);
+    --r14-t155-fg: oklch(0.80 0.11 155);
+    --r14-t232-bg: oklch(0.29 0.05 232);
+    --r14-t232-fg: oklch(0.80 0.12 232);
+    --r14-t255-bg: oklch(0.29 0.05 255);
+    --r14-t255-fg: oklch(0.80 0.13 255);
+    --r14-tneutral-bg: oklch(0.255 0.010 255);
+    --r14-tneutral-fg: oklch(0.72 0.015 255);
   }
 }
 
@@ -88,14 +122,6 @@
   --r14-chrome-2: oklch(0.185 0.012 255);
   --r14-rule-soft: oklch(0.30 0.013 255);
   --r14-rule-softer: oklch(0.26 0.013 255);
-  --r14-tone-blocked: oklch(0.76 0.15 25);
-  --r14-tone-blocked-soft: oklch(0.30 0.06 25);
-  --r14-tone-missing: oklch(0.80 0.12 70);
-  --r14-tone-missing-soft: oklch(0.30 0.05 70);
-  --r14-tone-returned: oklch(0.78 0.11 155);
-  --r14-tone-returned-soft: oklch(0.28 0.05 155);
-  --r14-tone-info: oklch(0.78 0.11 232);
-  --r14-tone-info-soft: oklch(0.28 0.05 232);
 }
 
 /* ── page frame ─────────────────────────────────────────────────────────── */
@@ -312,10 +338,19 @@
   background: var(--r14-chrome);
   border-bottom: 1px solid var(--r14-rule-soft);
 }
+/*
+ * The group header's LABEL is tinted by the group's own hue — `headStyle` sets
+ * `color: oklch(0.42 0.06 <hue>)` and `dotStyle` a saturated dot at the same
+ * hue. Rendering the label in plain ink threw away the one cue that tells the
+ * three bands apart at a glance.
+ */
 .r14-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-.r14-dot-needs_you { background: var(--accent); }
-.r14-dot-with_customer { background: var(--r14-tone-info); }
-.r14-dot-no_action { background: var(--r14-faint); }
+.r14-group-head-needs_you { color: oklch(0.42 0.06 var(--r14-hue-needs-you)); }
+.r14-group-head-with_customer { color: oklch(0.42 0.06 var(--r14-hue-with-customer)); }
+.r14-group-head-no_action { color: oklch(0.42 0.06 var(--r14-hue-no-action)); }
+.r14-dot-needs_you { background: oklch(0.62 0.13 var(--r14-hue-needs-you)); }
+.r14-dot-with_customer { background: oklch(0.62 0.13 var(--r14-hue-with-customer)); }
+.r14-dot-no_action { background: oklch(0.62 0.13 var(--r14-hue-no-action)); }
 .r14-group-label {
   font-family: var(--font-mono, "JetBrains Mono", monospace);
   font-size: 9.5px;
@@ -329,6 +364,17 @@
   color: var(--r14-faint);
 }
 .r14-group-hint { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+
+
+/* Group-label tints need lifting on a dark ground; the hue is unchanged. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .r14-group-head-needs_you { color: oklch(0.80 0.09 var(--r14-hue-needs-you)); }
+  :root:not([data-theme="light"]) .r14-group-head-with_customer { color: oklch(0.80 0.09 var(--r14-hue-with-customer)); }
+  :root:not([data-theme="light"]) .r14-group-head-no_action { color: oklch(0.80 0.09 var(--r14-hue-no-action)); }
+}
+[data-theme="dark"] .r14-group-head-needs_you { color: oklch(0.80 0.09 var(--r14-hue-needs-you)); }
+[data-theme="dark"] .r14-group-head-with_customer { color: oklch(0.80 0.09 var(--r14-hue-with-customer)); }
+[data-theme="dark"] .r14-group-head-no_action { color: oklch(0.80 0.09 var(--r14-hue-no-action)); }
 
 .r14-row {
   border-bottom: 1px solid var(--r14-rule-softer);
@@ -422,20 +468,29 @@
  */
 .r14-value-none { color: var(--r14-faint); }
 .r14-status {
+  /*
+   * FILLED, not outlined. The design's `statusStyle` sets `background` + `color`
+   * and no border at all; shipping it as a grey outline is what made Draft,
+   * Sent and Locked — which appear on nearly every row — carry no colour.
+   */
+  display: inline-block;
+  max-width: 100%;
   font-family: var(--font-mono, "JetBrains Mono", monospace);
   font-size: 9.5px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   border-radius: 4px;
-  padding: 3px 6px;
+  padding: 3px 7px;
   white-space: nowrap;
-  border: 1px solid var(--rule);
-  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--r14-tneutral-bg);
+  color: var(--r14-tneutral-fg);
 }
-.r14-status-draft { }
-.r14-status-sent { color: var(--r14-tone-info); border-color: var(--r14-tone-info); }
-.r14-status-accepted { color: var(--r14-tone-returned); border-color: var(--r14-tone-returned); }
-.r14-status-complete { color: var(--r14-faint); }
+.r14-status-draft { background: var(--r14-t70-bg); color: var(--r14-t70-fg); }
+.r14-status-sent { background: var(--r14-t255-bg); color: var(--r14-t255-fg); }
+.r14-status-accepted { background: var(--r14-t155-bg); color: var(--r14-t155-fg); }
+.r14-status-complete { background: var(--r14-tneutral-bg); color: var(--r14-tneutral-fg); }
 .r14-updated {
   font-family: var(--font-mono, "JetBrains Mono", monospace);
   font-size: 10.5px;
@@ -517,28 +572,11 @@
   text-transform: uppercase;
   border-radius: 4px;
   padding: 2px 6px;
-  border: 1px solid currentColor;
 }
-.r14-tag-blocked {
-  color: var(--r14-tone-blocked);
-  background: var(--r14-tone-blocked-soft);
-  border-color: transparent;
-}
-.r14-tag-missing {
-  color: var(--r14-tone-missing);
-  background: var(--r14-tone-missing-soft);
-  border-color: transparent;
-}
-.r14-tag-returned {
-  color: var(--r14-tone-returned);
-  background: var(--r14-tone-returned-soft);
-  border-color: transparent;
-}
-.r14-tag-info {
-  color: var(--r14-tone-info);
-  background: var(--r14-tone-info-soft);
-  border-color: transparent;
-}
+.r14-tag-blocked { background: var(--r14-t25-bg); color: var(--r14-t25-fg); }
+.r14-tag-missing { background: var(--r14-t70-bg); color: var(--r14-t70-fg); }
+.r14-tag-returned { background: var(--r14-t155-bg); color: var(--r14-t155-fg); }
+.r14-tag-info { background: var(--r14-t232-bg); color: var(--r14-t232-fg); }
 .r14-task-deal {
   font-size: 11.5px;
   color: var(--r14-faint);
