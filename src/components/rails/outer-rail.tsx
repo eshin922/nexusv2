@@ -10,18 +10,20 @@ import {
 import { ProjectGlyph } from "./project-glyph";
 import { ThemeToggle } from "../theme-toggle";
 import { NexusMark } from "@/components/brand/nexus-mark";
+import { CommandSearch } from "./command-search";
+import { UserMenu } from "./user-menu";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
 // visible to authenticated users. Composition (top to bottom):
 //   - Nexus N mark (link home)
 //   - All-deals nav icon (also links home)
-//   - Search icon (⌘K placeholder; functional later)
+//   - Deal search (⌘K command palette)
 //   - Pinned section header + glyphs (up to 8)
 //   - Recent section header + glyphs (up to 4, MRU)
 //   - (spacer)
 //   - Settings link (admin-gated; if admin, includes audit log + markup
 //     defaults stacked above)
-//   - Avatar (current user initials)
+//   - Account menu (initials → menu with Sign out)
 //
 // Renders server-side; queries Pinned + Recent from the workspace
 // state tables shipped in RI.1.
@@ -83,19 +85,8 @@ export async function OuterRail() {
         </svg>
       </Link>
 
-      {/* ⌘K search placeholder — functional later */}
-      <button
-        type="button"
-        title="Search · coming soon"
-        disabled
-        className="flex h-7 w-7 items-center justify-center rounded text-ink-4 disabled:cursor-not-allowed"
-        aria-label="Search — coming soon"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="6" cy="6" r="3.5" />
-          <line x1="9" y1="9" x2="12" y2="12" strokeLinecap="round" />
-        </svg>
-      </button>
+      {/* Deal search · ⌘K. Was a disabled "coming soon" stub. */}
+      <CommandSearch />
 
       {/* Pinned section */}
       {pinned.length > 0 && (
@@ -174,20 +165,27 @@ export async function OuterRail() {
         </Link>
       )}
 
-      {/* Avatar — current user initials */}
-      {authentication.ui.renderSignOutControl({
-        email,
-        children: (
-        <button
-          type="button"
-          title={email ?? "Sign out"}
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-paper-3 font-mono text-[10px] font-medium uppercase text-ink-2 hover:bg-paper-4"
-          aria-label={`Signed in as ${email ?? "user"}; click to sign out`}
-        >
-          {initials}
-        </button>
-        ),
-      })}
+      {/* Account menu.
+          The avatar OPENS a menu; the provider's sign-out control wraps the
+          menu's item rather than the avatar itself, so clicking your own
+          initials no longer signs you out on the first press. Clerk's redirect
+          behaviour is untouched — this still goes through
+          `renderSignOutControl`. */}
+      <UserMenu
+        initials={initials}
+        email={email}
+        signOutItem={authentication.ui.renderSignOutControl({
+          email,
+          children: (
+            <button
+              type="button"
+              className="w-full rounded px-2.5 py-2 text-left text-[12.5px] text-ink hover:bg-paper-2"
+            >
+              Sign out
+            </button>
+          ),
+        })}
+      />
     </aside>
   );
 }
