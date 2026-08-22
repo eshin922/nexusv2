@@ -3,8 +3,8 @@
 import { Eyebrow } from "@/components/nav/eyebrow";
 import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
-import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { usePricingClassifier } from "@/components/pricing-surface/pricing-classifier-context";
+import { usePricingProgression } from "@/components/pricing-surface/pricing-progression-context";
 
 // slice-pricing-surface-redesign Step 8 — Mark Accepted CTA + the
 // secondary customer-response chip removed from Pricing page header.
@@ -57,7 +57,7 @@ export function PricingPageHead({
   };
 }) {
   const { state } = usePricingClassifier();
-  const mode = state.mode;
+  const progression = usePricingProgression();
 
   // CB final-stretch ANOMALY-1 (2026-06-16) — sub-copy denominator
   // is TIER count (matches state-line lead), not cell/line count.
@@ -72,29 +72,43 @@ export function PricingPageHead({
     (t) => t.status === "below_target",
   ).length;
 
-  const subCopy =
-    mode === "sendable"
-      ? "All margins above floor — review and send."
-      : mode === "suggestion_led"
-        ? `${tiersBelowTarget > 0 ? tiersBelowTarget : "Some"} tier${tiersBelowTarget === 1 ? "" : "s"} below target — soft warning, sendable.`
-        : "Below floor — admin override required to send.";
+  const subCopy = progression.allowed
+    ? progression.authorizedTiers.length > 0
+      ? `Below floor on ${progression.authorizedTiers.map((t) => t.label).join(", ")} — approved to proceed.`
+      : tiersBelowTarget > 0
+        ? `${tiersBelowTarget} tier${tiersBelowTarget === 1 ? "" : "s"} below target — soft warning, sendable.`
+        : "All margins above floor — review and send."
+    : progression.code === "DATA_INCOMPLETE"
+      ? "Margins can't be checked yet — some cells have no margin."
+      : "Below floor — approval required before this quote can go out.";
 
   // Banner state derivation now via classifier mode.
+  // GATED means "the workflow will not let this through", which is now the
+  // progression verdict rather than the classifier's mode. A below-TARGET
+  // quote used to render gated chrome while being perfectly sendable.
   const bannerState: "default" | "gated" | "terminal" =
     quote.status === "accepted"
       ? "terminal"
-      : mode === "blocked"
-        ? "gated"
-        : "default";
+      : progression.allowed
+        ? "default"
+        : "gated";
 
-  // CB Patch round 3 BUG-D — banner label sourced from classifier's
-  // recommended/primary action.
+  // ── THE BANNER'S CTA IS PROGRESSION, NOT THE RANKED ACTION ─────────────
   //
-  // - suggestion_led + blocked: recommended action is always present
-  //   (invariant 2). Its label drives the banner.
-  // - sendable: no `recommended` action; primary is preview_pdf.
-  // - When state.actions is somehow empty (shouldn't happen but
-  //   defensive), fall back to SURFACE_META.
+  // It used to carry the recommended action's label — which in `blocked` and
+  // `suggestion_led` was an in-page anchor to a card a few hundred pixels
+  // below, carrying that card's own label. P-UX-1 removed the duplicate button
+  // and kept the heading, correctly.
+  //
+  // What it left behind was a surface with NO forward affordance in either
+  // mode: `preview_pdf` is filtered out of the action list in every mode, and
+  // the banner suppressed its own href. A quote above floor but below target —
+  // sendable by policy, and the copy said so — had no way to reach the Quote
+  // surface except the rail.
+  //
+  // So the banner now states the workflow's next move: continue, or what stands
+  // in the way. The recommended lift stays where P-UX-1 put it, on the one card
+  // that performs it, and is not restated here.
   const recommendedOrPrimary =
     state.actions.find((a) => a.recommended) ??
     state.actions.find((a) => a.primary) ??
@@ -103,42 +117,39 @@ export function PricingPageHead({
   const bannerLabel =
     bannerState === "terminal"
       ? ""
-      : recommendedOrPrimary
-        ? // CD prototype style: trailing arrow on banner CTA. Action
-          // labels already carry contextual qualifiers ("lift T1 to
-          // target" etc.); we append " →" to match the R9 banner
-          // chrome convention.
-          `${recommendedOrPrimary.label} →`
-        : bannerState === "gated"
-          ? SURFACE_META.costing.nextMove?.gatedLabel ??
-            SURFACE_META.costing.nextMove?.label ??
-            ""
-          : SURFACE_META.costing.nextMove?.label ?? "";
+      : progression.allowed
+        ? "Continue to Quote →"
+        : progression.code === "DATA_INCOMPLETE"
+          ? "Finish cost inputs on Costs →"
+          : "Approval required before this quote can go out";
 
-  // Slice 12 Step 9 — CTA rewire: `?tab=preview` so the Send-lifecycle entry
-  // is explicit rather than relying on the umbrella's default tab. The Quote
-  // umbrella is the single entry point to the send lifecycle (Preview → Send
-  // → Review → Accepted → Sales Order); the explicit param survives any future
-  // change to that default.
+  // Slice 12 Step 9 — `?tab=preview` so the Send-lifecycle entry is explicit
+  // rather than relying on the umbrella's default tab.
   //
-  // P-UX-1 (2026-08-17) — the banner STATES the next move; it does not offer a
-  // second button for it.
-  //
-  // In suggestion_led and blocked the CTA was an in-page anchor to a card a
-  // few hundred pixels below, carrying that card's own action label. Two
-  // identically-labelled primary buttons, of which only the lower one applies
-  // anything — an operator cannot tell them apart, and the upper one reads as
-  // the authoritative Apply because it is first and it is in the banner.
-  //
-  // Suppressing the href drops the button and keeps the heading, which is the
-  // half that was doing the work. `SuggestionCard` (suggestion_led) and the
-  // ActionCard list (blocked) are the one authoritative action before the
-  // grid. Where the banner navigates to ANOTHER SURFACE it keeps its CTA: that
-  // is real navigation the page cannot otherwise offer.
+  // The href appears ONLY when progression is allowed. A blocked banner states
+  // the block and offers no button, per P-UX-1: the banner states the move, the
+  // card performs it. Nothing here enforces anything — `sendQuote` re-decides
+  // from the database, and must, because the rail links to `/quote`
+  // unconditionally and always did.
   const bannerHref =
-    bannerState === "terminal" || mode === "suggestion_led" || mode === "blocked"
+    bannerState === "terminal" || !progression.allowed
       ? undefined
       : `${resolveSurfaceHref("customer_view", projectId, quoteId)}?tab=preview`;
+
+  // The qualifier, never a restatement of the label.
+  const bannerHelp = !progression.allowed
+    ? progression.message
+    : progression.authorizedTiers.length > 0
+      ? `${progression.authorizedTiers
+          .map((t) => t.label)
+          .join(", ")} ${progression.authorizedTiers.length === 1 ? "is" : "are"} below the floor and carry an approval. Independence is confirmed again when acceptance is recorded — the approver cannot be the person who accepts.`
+      : recommendedOrPrimary?.kind === "suggestion_infeasible"
+        ? recommendedOrPrimary.sublabel ??
+          "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface to recover, or request approval."
+        : recommendedOrPrimary?.kind === "suggestion_manual_only"
+          ? recommendedOrPrimary.sublabel ??
+            "Tier is above target overall — one SKU is dragging margin. Adjust cost inputs on the Costs surface, or send below-target acknowledging the risk."
+          : undefined;
 
   return (
     <>
@@ -181,17 +192,7 @@ export function PricingPageHead({
         state={bannerState}
         label={bannerLabel}
         href={bannerHref}
-        helpText={
-          bannerState === "gated"
-            ? "Below floor — admin override required before quote can be sent."
-            : recommendedOrPrimary?.kind === "suggestion_infeasible"
-              ? recommendedOrPrimary.sublabel ??
-                "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface to recover, or use admin override."
-              : recommendedOrPrimary?.kind === "suggestion_manual_only"
-                ? recommendedOrPrimary.sublabel ??
-                  "Tier is above target overall — one SKU is dragging margin. Adjust cost inputs on the Costs surface, or send below-target acknowledging the risk."
-                : undefined
-        }
+        helpText={bannerHelp}
       />
 
     </>

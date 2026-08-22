@@ -101,6 +101,7 @@ import {
 import { requireRevisable } from "@/lib/quote-guards";
 import { hasSendableCommercialStructure } from "@/lib/send-gate";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
+import { requireBelowFloorAuthorizedToSend } from "@/lib/below-floor-send-gate";
 import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
@@ -1505,6 +1506,21 @@ export async function sendQuote(
     // rendering/upload so a rejected send leaves no external artifact and no
     // snapshot, pin, audit, or status side effect.
     await requireResolvedQuoteCosts(quoteId);
+
+    // THE FLOOR, AT SEND. Previously enforced only at acceptance and
+    // completion — this action pinned `floorMarginPct` into the snapshot and
+    // never read it, so the only thing standing between a below-floor quote and
+    // a customer was the Pricing surface withholding a link. The inner rail
+    // links to `/quote` unconditionally, so it stood between nobody.
+    //
+    // Placed beside `requireResolvedQuoteCosts` for the same reason that gate
+    // is here: a refusal must leave no PDF, no snapshot, no pin, no audit and
+    // no status change.
+    await requireBelowFloorAuthorizedToSend({
+      quoteId,
+      quoteVersionNumber: quote.versionNumber,
+      actingUserId: user.id,
+    });
 
     // Resolve the send's commercial policy onto canonical quote_leaves.id
     // before producing an external artifact. Compatibility identity failures

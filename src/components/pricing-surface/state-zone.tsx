@@ -196,7 +196,7 @@ export function StateCard({ state }: { state: QuoteState }) {
             {gap.toFixed(1)}pp below the {floor}% floor ·{" "}
             {state.below_floor.length} cell
             {state.below_floor.length === 1 ? "" : "s"} affected. Resolve
-            below — admin override or surgical lift.
+            below — approval or surgical lift.
           </div>
         </div>
         <div className="right">

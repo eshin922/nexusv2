@@ -127,7 +127,7 @@ export function LinesRequiringReview() {
               letterSpacing: 0,
             }}
           >
-            Each line is below the {floorPct.toFixed(0)}% floor. Either tune up sell price, accept and request admin override, or push back on cost.
+            Each line is below the {floorPct.toFixed(0)}% floor. Either tune up sell price, request approval from an authorized commercial approver, or push back on cost.
           </div>
         </div>
         <button

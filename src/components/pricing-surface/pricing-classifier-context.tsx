@@ -648,7 +648,7 @@ function buildClassifierInputs({
   // `suggestionInfeasible=true` on the asymmetry corner, which
   // shipped misleading "math infeasible" copy for a state that has
   // real recovery paths (cost input adjustment, per-cell override,
-  // admin override). Refinement: distinguish the asymmetry corner
+  // request approval). Refinement: distinguish the asymmetry corner
   // from the genuine-structural-failure corner via `anyTierBelowTarget`,
   // and route the asymmetry to the new `suggestion_manual_only`
   // action kind (guidance-only) instead of `suggestion_infeasible`.

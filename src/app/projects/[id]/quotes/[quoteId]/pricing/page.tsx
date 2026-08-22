@@ -11,6 +11,7 @@ import {
 import { getCostingBundle } from "@/app/actions/costing";
 import { loadApprovalStateByTier } from "@/lib/below-floor-approval-loader";
 import { fingerprintCommercialState } from "@/lib/below-floor-authorization";
+import { PricingProgressionProvider } from "@/components/pricing-surface/pricing-progression-context";
 import { CostingStoreProvider } from "@/components/costing-store-provider";
 import { isProductionRealtimeConfigured } from "@/lib/integrations/realtime-composition";
 import { PricingPageHead } from "@/components/pricing/pricing-page-head";
@@ -242,6 +243,13 @@ export default async function CostingPage({
           `.card` still resolves through it; dropping it would unstyle surfaces
           that have not been migrated. It scopes, it does not lay out.
         */}
+        {/* ONE progression verdict, above both consumers. The banner and the
+            decision panel each read it; neither derives its own, which is what
+            stops them disagreeing about whether the quote may move forward. */}
+        <PricingProgressionProvider
+          approvalStates={approvalStates}
+          tiers={tiersForReframe}
+        >
         <main className="r2-pricing r10-body r11-page">
           <PricingPageHead
             projectId={projectId}
@@ -282,6 +290,7 @@ export default async function CostingPage({
             approvalStates={approvalStates}
           />
         </main>
+        </PricingProgressionProvider>
         </PricingStagingProvider>
         </PricingProvenanceProvider>
       </PricingClassifierProvider>

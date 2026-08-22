@@ -244,7 +244,7 @@ export type ActionKind =
   // revenue-weighted tier blends and worst-cell compliance. Copy
   // names the worst SKU + affected tier(s) + directs PM to the
   // three recovery paths (adjust cost inputs on Costs, set a
-  // per-cell sell price override, request admin override).
+  // per-cell sell price override, request approval).
   //
   // Distinct from `suggestion_infeasible` (which reserves its copy
   // for the overflow / zero-revenue / missing-data structural
@@ -774,7 +774,7 @@ export function classify(
         kind: "suggestion_infeasible",
         label: "Suggestion unavailable — math infeasible",
         sublabel:
-          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface, or use admin override.",
+          "Engine couldn't compute a viable lift path (zero-revenue tiers, missing cost data, or required adjustment exceeds the ±999% field range). Enter pricing on the Costs surface, or request approval.",
         recommended: true,
         primary: true,
         disabled: true,
@@ -793,17 +793,23 @@ export function classify(
     if (policy.allow_override) {
       actions.push({
         kind: "request_override",
-        label: "Request admin override",
-        sublabel: "Routes to firm admin · quote sits in waiting state",
+        // RENAMED, not re-scoped. "Admin override" named the wrong authority:
+        // BV-005 keeps approval independent of role, and admin confers none of
+        // it. The kind stays `request_override` because it is a concept
+        // reference — the workflow, the tables and the audit actions are all
+        // named for it, and renaming those would rewrite history to fix copy.
+        label: "Request approval",
+        sublabel:
+          "Routes to an authorized commercial approver · quote waits for their decision",
         recommended: false,
         primary: false,
       });
     } else {
       actions.push({
         kind: "override_unavailable",
-        label: "Admin override unavailable on this account",
+        label: "Below-floor approval unavailable on this account",
         sublabel:
-          "Firm policy prohibits below-floor overrides. Surgical lift is the only send path.",
+          "Firm policy prohibits below-floor approvals. Lifting above the floor is the only send path.",
         recommended: false,
         primary: false,
         disabled: true,
@@ -1087,11 +1093,14 @@ function computeRecommendedTierValue(
 //
 // Copy stopgap (2026-07-15) — recovery-paths phrasing pruned to
 // only actions the PM can actually take today. Original draft named
-// three paths (Costs adjustment, per-cell override, admin override);
-// the per-cell override UI wire is a v1-post-Slice-11 slice (data
-// model + write path already shipped; UI wire deferred). Admin-
-// override authorization is banked v1.1+. Both promises-without-
-// controls dropped. The remaining copy:
+// three paths (Costs adjustment, per-cell override, approval); the
+// per-cell override UI wire is a v1-post-Slice-11 slice (data model +
+// write path already shipped; UI wire deferred). Approval is NOT a
+// path here and never was: this action fires precisely when the tier's
+// BLEND is above floor, and `requestBelowFloorApproval` refuses a
+// request on a tier that is not below the floor. Naming it would send
+// the operator after a permission the workflow would decline to
+// consider. The remaining copy:
 //   - suggestion_led (below target): Costs adjustment OR
 //     send-below-target-with-risk (the demoted preview_pdf card is
 //     always present in suggestion_led; PMs can review + send).
