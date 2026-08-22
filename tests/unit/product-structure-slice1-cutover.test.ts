@@ -198,6 +198,19 @@ const classifiedIdentityFiles = new Set([
   // future change of population source must re-prove.
   "scripts/gate-1b/od-014-ordering-check.ts",
   "scripts/gate-1b/od-014-population-evidence.ts",
+  // CLASSIFIED — write-then-rollback falsification, canonical identity only.
+  // Inserts probe rows carrying a literal `quote_leaf_id` to prove the
+  // immutability trigger and the (snapshot, leaf) uniqueness actually refuse.
+  // Every statement runs inside a transaction that always rolls back; it
+  // resolves nothing through the identity, never queries `assembly_leaves`, and
+  // asserts residue 0 afterwards.
+  "scripts/gate-1b/ordered-spec-freeze-falsification.ts",
+  // CLASSIFIED — write-then-rollback atomicity proof, canonical identity only.
+  // Inserts probe rows carrying literal `quote_leaf_id` values to prove the send
+  // transaction commits snapshot, ordered specs and commercial state together or
+  // not at all. Never queries `assembly_leaves`, resolves nothing through the
+  // identity, and asserts zero residue for its probe ids before and after.
+  "scripts/gate-1b/send-atomicity-falsification.ts",
   // CLASSIFIED — verification, read-only. Asserts that the engine's leaf
   // population equals the canonical attachment set by identity. It resolves
   // the canonical-to-legacy mapping only to predict the id the engine emits,
@@ -365,6 +378,15 @@ const classifiedIdentityFiles = new Set([
   // frozen line. It performs no lookup by it, and a frozen line is a record
   // of what was sold rather than a handle used to resolve anything later.
   "src/lib/commercial-freeze.ts",
+  // CLASSIFIED — canonical identity only. Reads `quote_leaves` directly for the
+  // ordered-item set and joins the spec authority on `leaf_id` + `quote_id`,
+  // which is the authority's own key. It writes `quoteLeafId` verbatim onto the
+  // frozen row as the ORDERED ITEM's identity and never resolves anything
+  // through it afterwards. `assembly_leaves` is not queried at all — grouped and
+  // direct items are both reached as `quote_leaves` rows, which is what makes a
+  // Direct Component's specification present in the freeze rather than lost with
+  // the legacy junction.
+  "src/lib/ordered-spec-freeze.ts",
   // CLASSIFIED — read-only walk evidence, canonical identity only. All three
   // read `quote_leaf_id` as the governed owner of a service-owned production
   // row, or as the identity a frozen line records. None resolves the legacy

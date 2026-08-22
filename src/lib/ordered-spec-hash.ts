@@ -1,0 +1,74 @@
+import { createHash } from "node:crypto";
+
+/**
+ * Revision identity for a frozen ordered-item specification.
+ *
+ * A LEAF MODULE apart from `node:crypto`, so the rule that decides whether two
+ * specifications are "the same" can be asserted on its own, without a database
+ * or a send.
+ *
+ * ── WHAT THE HASH COVERS, AND WHY IT IS NOT JUST THE VALUES ──────────────
+ *
+ * `spec_values` alone is not the specification. The values are interpreted
+ * BY a schema, and `leaf_specs` pins that schema at attachment precisely
+ * because a later reclassification must not retroactively reinterpret what an
+ * operator authored.
+ *
+ * So identical values under a different Product Type or a different pinned
+ * schema are a DIFFERENT specification, and must hash differently. A hash over
+ * values alone would report two genuinely different orders as the same one —
+ * silently, and in the direction that loses the distinction.
+ *
+ * ── WHY CANONICALISATION IS PART OF THE IDENTITY ─────────────────────────
+ *
+ * JSON key order and whitespace carry no meaning, and `JSON.stringify` on a
+ * jsonb round trip does not guarantee either is stable. Hashing the raw
+ * rendering would make the revision identity depend on how Postgres happened
+ * to serialise the row, so two sends of untouched values could disagree. Keys
+ * are sorted at every depth and the encoding is fixed here.
+ */
+
+/** Bump only for a deliberate change in what the hash covers. */
+export const ORDERED_SPEC_HASH_VERSION = 1;
+
+export type OrderedSpecIdentity = {
+  specValues: unknown;
+  productTypeId: string | null;
+  specSchema: string | null;
+};
+
+/** Recursively key-sorted JSON. Arrays keep their order — it is meaningful. */
+export function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      out[k] = canonicalize((value as Record<string, unknown>)[k]);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * The deterministic revision identity.
+ *
+ * Fields are length-prefixed rather than concatenated with a separator, so no
+ * combination of values can be rearranged into the same digest as a different
+ * combination — a product type ending in a delimiter must not be able to
+ * impersonate one that starts with the next field.
+ */
+export function orderedSpecContentHash(identity: OrderedSpecIdentity): string {
+  // Presence is encoded EXPLICITLY rather than by a sentinel string. A null
+  // product type and the literal string "null" are different facts, and a
+  // sentinel that happens to spell one of them would collapse the two.
+  const present = (v: string | null) => (v === null ? "0" : `1${v}`);
+  const parts = [
+    `v${ORDERED_SPEC_HASH_VERSION}`,
+    JSON.stringify(canonicalize(identity.specValues ?? {})),
+    present(identity.productTypeId),
+    present(identity.specSchema),
+  ];
+  const payload = parts.map((p) => `${p.length}:${p}`).join("");
+  return createHash("sha256").update(payload, "utf8").digest("hex");
+}
