@@ -12,6 +12,7 @@ import {
   SERVICE_IDENTITY_DESTINATION,
 } from "@/lib/netsuite/bv011-destinations";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { selectActiveTierId } from "@/lib/costing-store";
 import { selectOtherServiceItems } from "@/lib/costing-store";
 import type { OtherServiceSelection } from "@/lib/commercial-projection";
 import { OtherServiceItemPicker } from "@/components/costs/other-service-item-picker";
@@ -83,11 +84,14 @@ function TierCell({
   tierId,
   value,
   disabled,
+  isActive,
 }: {
   quoteLeafId: string;
   tierId: string;
   value: string | null;
   disabled: boolean;
+  /** Same signal Packaging shades on: this is the tier column in focus. */
+  isActive: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -119,13 +123,41 @@ function TierCell({
     });
   }
 
+  const isEmpty = draft.trim() === "";
+
   return (
-    <div className="num cell">
+    /*
+      PACKAGING IS THE REFERENCE, LITERALLY. This was `<div className="num cell">`
+      wrapping an unstyled input, and `.r6-dt-row .cell` has no rule in the
+      canonical stylesheet — which produced all three reported defects at once:
+      browser-default typography instead of mono 12.5px, no editable-cell blue,
+      and an input at its default ~20ch intrinsic width blowing an 80px grid
+      track out across the neighbouring tier column (a grid item's `min-width`
+      is `auto`, so the track cannot shrink below its content).
+
+      `cell-num` is the class Packaging's tier cell uses, so it inherits that
+      rule rather than approximating it, and the inner-input style is the same
+      declaration set. The geometry contract is the shared one: the input is
+      `width: 100%` OF THE CELL, so it can never exceed its column.
+    */
+    <span
+      className={`cell-num ${isEmpty ? "empty" : ""}`}
+      style={isActive ? { background: "var(--accent-soft)" } : undefined}
+    >
       <input
         type="text"
         inputMode="decimal"
         value={draft}
         placeholder="—"
+        style={{
+          background: "transparent",
+          border: "none",
+          font: "inherit",
+          color: "inherit",
+          width: "100%",
+          textAlign: "right",
+          padding: 0,
+        }}
         /* Pattern 47(e): never `pending` on an input — a disabled element
            drops focus mid-save. Blur/Enter commit per the LegDateInput
            precedent, because per-keystroke saving a currency field writes
@@ -147,7 +179,7 @@ function TierCell({
           {error}
         </span>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -170,6 +202,9 @@ export function DirectServiceProduction({
   // frozen at render and would not reflect a save until a full page round
   // trip, so a just-chosen item would appear to vanish.
   const selections = useCostingStore(selectOtherServiceItems);
+  // The same store read Packaging's tier cell uses, so both sections shade the
+  // same column rather than each deciding what "active" means.
+  const activeTierId = useCostingStore(selectActiveTierId);
   const selectionByLeaf = new Map<string, { code: string; internalId: string }>(
     selections
       .filter((x: OtherServiceSelection) => x.quoteLeafId !== null)
@@ -312,6 +347,7 @@ export function DirectServiceProduction({
                     tierId={t.id}
                     value={svc.amountsByTier[t.id] ?? null}
                     disabled={!editable}
+                    isActive={activeTierId === t.id}
                   />
                 ))}
                 <div className="actions">
