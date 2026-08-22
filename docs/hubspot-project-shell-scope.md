@@ -440,3 +440,128 @@ Surfaced in three places, so it is never discovered by clicking:
   mode Tier 2 exists to prevent;
 - `copyQuoteFromProject` succeeds **from** a flagged project and refuses **into**
   one.
+
+---
+
+# Addendum 2 · dry-run result and the lifecycle schema / guard scope
+
+Run 2026-08-22 by `scripts/hubspot-shells/dry-run.ts`. **No writes** — every
+statement is a SELECT, and the HubSpot adjudication is a direct read-only GET
+rather than `syncDealById`, which would upsert the cache.
+
+## The finding that outranks the count
+
+Nine real projects have **no cache row**, and every one of their Nexus stage
+snapshots is **wrong**:
+
+| deal | Nexus says | HubSpot says |
+|---|---|---|
+| Afore - 30ml DermaReverse Serum | Development & Quoting | **Closed lost** |
+| Root - Powder Container | Quote Request | **Closed lost** |
+| Root - Powder Pouch w/ Seal | Quote Request | **Closed lost** |
+| SPRAE - 500ml Stove-Top Cleaner | Development & Quoting | **Closed lost** |
+| Kirby Beauty - Restoring Shampoo | Development & Quoting | **Won - In production** |
+| Kirby Beauty PO_ Reconstructing Mask | New (Acquiring Info) | **Won - In production** |
+| Nemah - 30ml Nipple and Lip Balm Jar | Quote Request | **Won - In production** |
+| SWW PO1033 Alkalized Greens | Development & Quoting | **Won - In production** |
+| SOL - Gen Z '68 Bag | Development & Quoting | **Delivered** |
+
+Operators are looking at nine deals labelled as live quoting work that are
+actually **closed-lost or already won**. Manual per-project refresh was the only
+thing that would have corrected this, and nobody pressed it.
+
+That is the real argument for the slice. Removing the Import step is
+convenience; ending silent stage drift is correctness.
+
+**This side of the report was missing from the first version.** The archive and
+deletion arms are decided by PROJECT-side absence, so a loop over cache rows
+could only ever print "archived: 0". The instrument could not express the
+answer. Both directions are now covered.
+
+## Dry-run result
+
+    cache rows examined                            76
+    already have a Nexus project                   20
+    WOULD CREATE (new shells)                      56
+
+    archived — cache side                           0
+    archived — absent-from-cache side               1   Kirby PO_ Reconstructing
+    preserved with governed history                 8
+    re-activated (stale cache)                      0
+    INDETERMINATE — untouched                       0
+
+    real projects before                           21
+    real projects after                            77
+
+**Zero deletions.** No deal returned 404; all nine absent deals exist and have
+simply moved on. **Zero indeterminate** — every HubSpot read succeeded, so
+nothing was skipped for safety, which means the safety path is untested against
+live data and a fixture must cover it.
+
+The single archive is exactly the project the predicate predicted: no quote, no
+work-audit, no pin.
+
+## Open question the numbers raise
+
+The 8 preserved projects keep `status = 'active'` and **have quotes**, so under
+the filter as scoped they would appear in the DEFAULT work-oriented Organizer —
+alongside genuinely active work, while their deals are Closed lost or Won.
+
+That satisfies "do not hide history" and strains "default view is
+work-oriented". **Proposal:** preserved-inactive projects stay visible but carry
+a `CRM INACTIVE · <stage>` chip, and the default view excludes them the way it
+excludes shells, with an explicit chip to bring them back. They are history, not
+queue. **Needs disposition** — it is the one place the two stated goals pull
+apart.
+
+## Lifecycle schema
+
+```sql
+-- 1 · CRM relationship state. NULL = healthy. Additive; no backfill.
+ALTER TABLE projects ADD COLUMN hubspot_deal_missing_since timestamptz;
+
+-- 2 · CRM-inactive (deal exists, outside the relevant pipeline). Distinct from
+--     missing: one is "moved on", the other is "gone". Conflating them loses
+--     the difference between a won deal and a deleted one.
+ALTER TABLE projects ADD COLUMN crm_inactive_since timestamptz;
+
+-- 3 · The unclassified category (see the ALTER TYPE transaction caveat above).
+ALTER TYPE project_category ADD VALUE 'unclassified';
+```
+
+**Enum-tolerance check, as requested — three consumers, none derived from the DB
+enum, and one is a silent-failure risk:**
+
+| consumer | effect |
+|---|---|
+| `VALID_CATEGORIES` (`actions/projects.ts:13`) | hand-maintained array; must gain the value or operators cannot set it |
+| `CATEGORIES` (`category-select.tsx:6`) | hand-maintained options. **A project set to `unclassified` renders with NO matching option, so the browser displays the first — "Packaging".** The exact false claim this section exists to avoid. Must be updated in the same change. |
+| NetSuite (`mark-complete.ts:1122`) | unaffected — reads `dealCache.projectCategory`, not the enum |
+
+Tolerable, not free.
+
+## Guard scope
+
+`assertCrmLinkActive(project)` — `src/lib/action-result.ts`, beside
+`assertDraft` and `assertNotFrozen`. Throws `ActionGuardError`, so it surfaces
+through the existing `ActionResult` path as displayable text.
+
+Refuses when `hubspot_deal_missing_since IS NOT NULL` **or**
+`crm_inactive_since IS NOT NULL`, with a message naming which — the operator
+needs to know whether the deal was deleted or merely closed, because the
+remedies differ.
+
+**Applied to Tier 1 only** (create quote/scenario, revise, copy-into, send,
+acceptance, complete, below-floor request, import/materialisation). Tier 2
+recovery and read paths untouched. **Tier 3 draft editing is explicitly NOT
+guarded**, per direction: the boundary is commitment and progression, not draft
+manipulation.
+
+An affected draft carries a persistent banner stating it cannot progress —
+shown on the quote surface, never discovered by pressing a disabled button
+(Pattern 47(f)).
+
+## Not yet done, deliberately
+
+The 56 shells are **not materialised**. This is the dry run; nothing was
+written.
