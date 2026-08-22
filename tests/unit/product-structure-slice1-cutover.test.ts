@@ -386,6 +386,14 @@ const classifiedIdentityFiles = new Set([
   // direct items are both reached as `quote_leaves` rows, which is what makes a
   // Direct Component's specification present in the freeze rather than lost with
   // the legacy junction.
+  // CLASSIFIED — read-only projection, canonical identity only. Reads
+  // `quote_snapshot_lines.quote_leaf_id` as the ordered item's identity and
+  // matches it against the frozen spec keyed on the same value. It resolves
+  // nothing THROUGH the identity — no lookup into live structure — never
+  // queries `assembly_leaves`, and writes nothing. Grouped and direct items are
+  // both reached as frozen lines, which is what keeps a Direct Component's
+  // specification in the packet.
+  "src/lib/order-packet/reader.ts",
   "src/lib/ordered-spec-freeze.ts",
   // CLASSIFIED — read-only walk evidence, canonical identity only. All three
   // read `quote_leaf_id` as the governed owner of a service-owned production

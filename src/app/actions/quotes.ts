@@ -1870,6 +1870,13 @@ export async function sendQuote(
         detailLevel: detailLevelSnapshot,
         includeSpecAddendum: includeSpecAddendumSnapshot,
         pdfUrl,
+        // The DURABLE artifact identity, written beside the signed URL rather
+        // than instead of it. `pdfUrl` expires in 30 days; these do not, and
+        // the order packet re-signs from this path on demand. Recording them
+        // here ends the previous arrangement where the only durable pointer
+        // lived in an audit row and had to be matched back by version.
+        pdfStoragePath: storagePath,
+        pdfStorageBucket: QUOTE_PDFS_BUCKET,
         acceptedSnapshotJson: null,
         createdByUserId: user.id,
       }).returning({ id: quoteSnapshots.id });

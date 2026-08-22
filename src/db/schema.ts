@@ -837,6 +837,24 @@ export const quoteSnapshots = pgTable(
     // storage path (in audit_log.diff_json.pdf.storagePath) is
     // permanent for regeneration.
     pdfUrl: text("pdf_url"),
+    /**
+     * The DURABLE identity of the customer PDF for this send.
+     *
+     * `pdfUrl` above is a 30-DAY SIGNED URL and the code that mints it says so:
+     * internal-only, refreshed by re-signing, while "the file itself lives
+     * forever". It is a convenience, never the authority.
+     *
+     * These carry the authority. The order packet re-signs from this path on
+     * demand rather than storing a link that expires under it.
+     *
+     * NULLABLE ON PURPOSE. NULL means the artifact identity could not be
+     * established for this snapshot — a state the packet route REPORTS rather
+     * than guesses around. Two historical snapshots are in it; both predate
+     * artifact persistence entirely. Forcing a value would mean inventing one,
+     * which is the failure this exists to prevent.
+     */
+    pdfStoragePath: text("pdf_storage_path"),
+    pdfStorageBucket: text("pdf_storage_bucket"),
     // Accepted-tier snapshot follows the version it binds against
     // (v3 §5.1 amendment 3 — moves from quotes.accepted_snapshot_json).
     // NULL until Mark Accepted; set at that transition (Step 7).
