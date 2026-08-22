@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { ContinueWithDps } from "@/components/auth/continue-with-dps";
 import { HeroLoop } from "@/components/auth/hero-loop";
-import { NexusMark } from "@/components/auth/nexus-mark";
+import { NexusMark } from "@/components/brand/nexus-mark";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 /**

@@ -43,7 +43,7 @@ test("the page hosts exactly one sign-in action", async () => {
 test("the presentation slice introduces no auth surface of its own", async () => {
   for (const f of [
     "src/components/auth/hero-loop.tsx",
-    "src/components/auth/nexus-mark.tsx",
+    "src/components/brand/nexus-mark.tsx",
   ]) {
     const src = codeOnly(await read(f));
     for (const forbidden of [
@@ -136,7 +136,7 @@ test("the mark appears in exactly two places, at the handoff's sizes", async () 
 });
 
 test("the mark inherits colour instead of shipping two coloured copies", async () => {
-  const src = codeOnly(await read("src/components/auth/nexus-mark.tsx"));
+  const src = codeOnly(await read("src/components/brand/nexus-mark.tsx"));
   assert.match(src, /stroke="currentColor"/);
   assert.match(src, /fill="currentColor"/);
   assert.doesNotMatch(src, /url\(#/, "gradient fills do not resolve through <use>");
