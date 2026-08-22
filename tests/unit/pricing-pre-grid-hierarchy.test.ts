@@ -76,7 +76,10 @@ test("StateCallout and StateCard remain, and remain the substantive summary", as
   assert.match(src, /export function StateCard/);
   const shell = await code("components/pricing-surface/pricing-surface-shell.tsx");
   assert.match(shell, /state\.mode === "suggestion_led" && <StateCallout/);
-  assert.match(shell, /state\.mode === "blocked" && <StateCard/);
+  // Now additionally gated on progression: an AUTHORIZED below-floor quote
+  // must not show CANNOT SEND beside a Continue to Quote banner. Certification
+  // 2026-08-22 caught the two contradicting each other on one screen.
+  assert.match(shell, /state\.mode === "blocked" && !progression\.allowed && <StateCard/);
 });
 
 // ── one Apply action ──────────────────────────────────────────────────────

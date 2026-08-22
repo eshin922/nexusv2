@@ -34,6 +34,7 @@ import {
 import { evaluateProgression } from "@/lib/pricing-progression";
 import { projectApprovalTierState } from "@/lib/below-floor-approval-state";
 import { loadApprovalStateByTier } from "@/lib/below-floor-approval-loader";
+import { requireBelowFloorAuthorizedToSend } from "@/lib/below-floor-send-gate";
 
 const QUOTE_ID = "f2db6e10-8a38-4f95-b81b-e016c448b677";
 const TIER_ID = "e0de4538-6ed6-48c7-89d4-af757b4797d0";
@@ -157,6 +158,29 @@ async function main() {
   const before = JSON.parse(readFileSync(BASELINE, "utf8")) as Awaited<ReturnType<typeof snapshot>>;
   const after = await snapshot();
 
+  // Approver-ness is read from the database, not assumed from an id.
+  const approvers = new Set(
+    ((await db.execute(sql`
+      select id::text as id from users where commercial_approver = true
+    `)) as unknown as Array<{ id: string }>).map((r) => r.id),
+  );
+  const decidedByApprover =
+    after.requests[0] != null &&
+    approvers.has(String((after.requests[0] as Row).decided_by_user_id));
+  const authByApprover =
+    after.auths[0] != null &&
+    approvers.has(String((after.auths[0] as Row).approved_by_user_id));
+
+  const [decisionAudit] = (await db.execute(sql`
+    select diff_json->>'acting_slack_user_id' as slack,
+           diff_json->>'signature_verified' as sig,
+           diff_json->>'source' as source
+      from audit_log
+     where entity_id = ${QUOTE_ID} and action = 'below_floor_approval_approved'
+  `)) as unknown as Array<Record<string, string | null>>;
+  const auditSlackProvenance = Boolean(decisionAudit?.slack) && decisionAudit?.source === "slack";
+  const auditSignatureVerified = decisionAudit?.sig === "true";
+
   // ── 1 · the approval record itself ──────────────────────────────────────
   rec("a request exists", after.requests.length, 1);
   const req = after.requests[0] as Row | undefined;
@@ -165,7 +189,10 @@ async function main() {
     rec("  delivered to Slack", req.delivery_status, "delivered");
     rec("  posted to the governed channel", req.posted, "true");
     rec("  status", req.status, "approved");
-    rec("  decided by Amy — NOT the requester", req.decided_by_user_id, AMY);
+    // Written when Amy was the intended approver. Policy 2026-08-22 removed
+    // independence entirely, so the assertion is now that a COMMERCIAL
+    // APPROVER decided it — not that a particular person did.
+    rec("  decided by a commercial approver", decidedByApprover, true);
     rec("  carries its authorization", req.authorization_id === null ? "null" : "set", "set");
     rec(
       "  fingerprint matches current economics",
@@ -177,7 +204,7 @@ async function main() {
   rec("exactly one authorization", after.auths.length, 1);
   const auth = after.auths[0] as Row | undefined;
   if (auth) {
-    rec("  approved by Amy", auth.approved_by_user_id, AMY);
+    rec("  authorization granted by a commercial approver", authByApprover, true);
     rec("  scoped to the blocking tier", auth.tier_id, TIER_ID);
     rec("  scoped to this version", auth.quote_version_number, before.quote?.version_number);
     rec("  fingerprint is current", auth.state_fingerprint, after.tier?.fingerprint);
@@ -185,12 +212,15 @@ async function main() {
   }
 
   // ── 2 · Slack identity: bound by the decision, and never authority ───────
-  const amyBefore = before.users.find((u) => u.email === "amy@thedps.co");
-  const amyAfter = after.users.find((u) => u.email === "amy@thedps.co");
-  rec("Amy had no Slack binding before", amyBefore?.slack_user_id === null ? "none" : "bound", "none");
-  rec("Amy's Slack id bound by her decision", amyAfter?.slack_user_id ? "bound" : "none", "bound");
-  rec("Amy's authority unchanged by binding", amyAfter?.commercial_approver, true);
-  rec("Amy's role unchanged", amyAfter?.role, amyBefore?.role);
+  // The decider's Slack identity is PROVENANCE. It must be present on the
+  // audit row and must not be what conferred authority — authority came from
+  // the database flag, re-read at decision time.
+  const decider = after.users.find((u) => u.email === "edward@thedps.co");
+  rec("decider holds commercial_approver", decider?.commercial_approver, true);
+  rec("decider's Slack id is bound", decider?.slack_user_id ? "bound" : "none", "bound");
+  rec("decider's role unchanged by deciding", decider?.role, before.users.find((u) => u.email === "edward@thedps.co")?.role);
+  rec("audit records the acting Slack id as provenance", auditSlackProvenance, true);
+  rec("audit records signature verification", auditSignatureVerified, true);
 
   // ── 3 · the gate, evaluated exactly as markAccepted/sendQuote evaluate ──
   const live = await db
@@ -276,6 +306,21 @@ async function main() {
   rec("commercial state unmoved · revenue", after.tier?.totalRevenue, before.tier?.totalRevenue);
   rec("commercial state unmoved · cost", after.tier?.totalCost, before.tier?.totalCost);
   rec("commercial state unmoved · fingerprint", after.tier?.fingerprint, before.tier?.fingerprint);
+
+  // ── 6 · the SEND gate itself, not a re-implementation of it ─────────────
+  // `requireBelowFloorAuthorizedToSend` is what `sendQuote` calls. Invoking it
+  // directly proves the gate recognizes the authorization without producing a
+  // PDF, a snapshot or a status change on the certification quote.
+  let sendVerdict = "threw nothing";
+  try {
+    await requireBelowFloorAuthorizedToSend({
+      quoteId: QUOTE_ID,
+      quoteVersionNumber: scope.quoteVersionNumber,
+    });
+  } catch (e) {
+    sendVerdict = e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : String(e);
+  }
+  rec("SEND gate accepts the authorization", sendVerdict, "threw nothing");
 
   const n = report("BELOW-FLOOR APPROVAL — LIVE CERTIFICATION");
   console.log("\nAudit actions on this quote:");

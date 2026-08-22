@@ -77,6 +77,7 @@ import { useProvenantNodes } from "./pricing-provenance-context";
 import { StagingBar } from "./staging-bar";
 import { RequestOverrideModal } from "./request-override-modal";
 import { ApprovalStateCard } from "./approval-state-card";
+import { usePricingProgression } from "./pricing-progression-context";
 import { StagedDelta, StagedMarginDelta } from "./staged-delta";
 import { usePricingStaging } from "./pricing-staging-context";
 import {
@@ -509,6 +510,8 @@ export function PricingSurfaceShell({
       blendedMarginPct: worst.blended_margin_pct,
     };
   }, [state.tiers, numericToUuid, tierMeta]);
+
+  const progression = usePricingProgression();
 
   const approvalState: ApprovalTierState = requestTier
     ? (approvalStates[requestTier.tierId] ?? { kind: "none" })
@@ -1187,7 +1190,17 @@ export function PricingSurfaceShell({
       <StateLine state={state} justUpdated={justUpdated} />
 
       {state.mode === "suggestion_led" && <StateCallout state={state} />}
-      {state.mode === "blocked" && <StateCard state={state} />}
+      {/*
+        CANNOT SEND is a claim about the WORKFLOW, so it follows progression —
+        not the classifier's compliance mode.
+
+        Certification, 2026-08-22, caught the two states contradicting each
+        other on one screen: an authorized below-floor quote showed
+        "Continue to Quote" in the banner and "CANNOT SEND" in the card,
+        because the card reads `mode === "blocked"` and the classifier does not
+        see approval. An operator reading both learns to trust neither.
+      */}
+      {state.mode === "blocked" && !progression.allowed && <StateCard state={state} />}
       {/*
         R12 §8a — "What you're sending" is preserved in EVERY state, not only
         the sendable one. The tiles describe the quote's composition; a PM

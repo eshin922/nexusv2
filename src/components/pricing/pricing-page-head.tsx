@@ -140,9 +140,12 @@ export function PricingPageHead({
   const bannerHelp = !progression.allowed
     ? progression.message
     : progression.authorizedTiers.length > 0
-      ? `${progression.authorizedTiers
+      ? // The independence promise that used to close this sentence is gone
+        // with the rule (policy 2026-08-22). What still binds the approval is
+        // the economics it was granted against, so that is what it now says.
+        `${progression.authorizedTiers
           .map((t) => t.label)
-          .join(", ")} ${progression.authorizedTiers.length === 1 ? "is" : "are"} below the floor and carry an approval. Independence is confirmed again when acceptance is recorded — the approver cannot be the person who accepts.`
+          .join(", ")} ${progression.authorizedTiers.length === 1 ? "is" : "are"} below the floor and ${progression.authorizedTiers.length === 1 ? "carries" : "carry"} an approval. It stays valid while the tier's economics are unchanged.`
       : recommendedOrPrimary?.kind === "suggestion_infeasible"
         ? recommendedOrPrimary.sublabel ??
           "Engine couldn't compute a viable lift path. Enter pricing on the Costs surface to recover, or request approval."
