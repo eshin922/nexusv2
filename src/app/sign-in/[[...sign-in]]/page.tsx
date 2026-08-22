@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { ContinueWithDps } from "@/components/auth/continue-with-dps";
+import { HeroLoop } from "@/components/auth/hero-loop";
+import { NexusMark } from "@/components/auth/nexus-mark";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 
 /**
@@ -73,20 +75,42 @@ export default async function SignInPage({
           style={{
             position: "relative",
             overflow: "hidden",
-            background: "oklch(0.18 0.012 255)",
+            // The ground stays dark beneath the loop: it is what shows while
+            // the first frame decodes, and what shows if autoplay is declined.
+            background: "oklch(0.16 0.012 255)",
             padding: "clamp(28px, 4vw, 54px) clamp(28px, 4.5vw, 62px)",
             display: "flex",
             flexDirection: "column",
           }}
         >
+          <HeroLoop />
+
+          {/*
+            DIRECTIONAL, and deliberately not a uniform overlay: near-opaque
+            behind the copy, 10% at the right edge so the render reads at full
+            strength where there is no text. Flattening it would either wash out
+            the video or put the headline on an unpredictable ground.
+          */}
           <div
             aria-hidden
             style={{
               position: "absolute",
               inset: 0,
+              background:
+                "linear-gradient(100deg, oklch(0.16 0.012 255 / 0.94) 0%, oklch(0.16 0.012 255 / 0.80) 34%, oklch(0.16 0.012 255 / 0.30) 62%, oklch(0.16 0.012 255 / 0.10) 100%)",
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              // 0.045 -> 0.035: the video supplies its own light now.
               backgroundImage:
-                "linear-gradient(oklch(0.985 0.006 85 / 0.045) 1px, transparent 1px), linear-gradient(90deg, oklch(0.985 0.006 85 / 0.045) 1px, transparent 1px)",
+                "linear-gradient(oklch(0.985 0.006 85 / 0.035) 1px, transparent 1px), linear-gradient(90deg, oklch(0.985 0.006 85 / 0.035) 1px, transparent 1px)",
               backgroundSize: "56px 56px",
+              pointerEvents: "none",
             }}
           />
           <div
@@ -99,7 +123,7 @@ export default async function SignInPage({
               height: 620,
               transform: "translate(-50%, -50%)",
               background:
-                "radial-gradient(circle, oklch(0.42 0.14 255 / 0.28), transparent 62%)",
+                "radial-gradient(circle, oklch(0.42 0.14 255 / 0.14), transparent 62%)",
               pointerEvents: "none",
             }}
           />
@@ -109,9 +133,13 @@ export default async function SignInPage({
               position: "relative",
               display: "flex",
               alignItems: "center",
-              gap: 12,
+              gap: 11,
             }}
           >
+            {/* Placement 1 of 2. Paper, because it inherits the wordmark's colour. */}
+            <span style={{ color: "oklch(0.975 0.006 85)", display: "flex" }}>
+              <NexusMark size={30} />
+            </span>
             <span
               style={{
                 fontFamily: "var(--display), Georgia, serif",
@@ -144,17 +172,25 @@ export default async function SignInPage({
               v1
             </span>
             <div style={{ flex: 1 }} />
-            <span
-              style={{
-                fontFamily: "var(--mono), monospace",
-                fontSize: 10.5,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "oklch(0.52 0.015 255)",
-              }}
-            >
-              The DPS
-            </span>
+            {/*
+              The white secondary lockup, not the mono "THE DPS" text it
+              replaces. It is the firm's mark on the firm's panel, and the panel
+              is now a video — a text label reads as a caption against moving
+              footage where a lockup reads as ownership.
+
+              Fixed height, auto width, at 56 — double the 28 it was first sized
+              to, per Edward. The source is a ROUNDEL with transparent padding on
+              every side, so its type sits well inside the box: sized to match
+              the v1 mono chip it read as a smudge, and even at 28 the lockup was
+              quieter than the Nexus mark opposite it. At 56 the two brand marks
+              carry equal weight across the panel head.
+            */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/dps-secondary-white.png"
+              alt="The DPS"
+              style={{ height: 56, width: "auto", opacity: 0.92, display: "block" }}
+            />
           </div>
 
           <div
@@ -344,6 +380,29 @@ export default async function SignInPage({
                 </div>
               </div>
             )}
+
+            {/*
+              Placement 2 of 2. An ink tile holding a paper mark — the only
+              place the mark appears on the light side, and the reason it can
+              stay `currentColor`: the tile sets the colour, the mark takes it.
+            */}
+            <div
+              aria-hidden
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 13,
+                background: "oklch(0.20 0.02 255)",
+                boxShadow: "0 10px 26px oklch(0.20 0.02 255 / 0.16)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "oklch(0.985 0.006 85)",
+                marginBottom: 20,
+              }}
+            >
+              <NexusMark size={32} />
+            </div>
 
             <div
               style={{
