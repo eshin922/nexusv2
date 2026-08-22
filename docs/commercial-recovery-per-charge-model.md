@@ -77,15 +77,71 @@ statement rather than a UI decision.
 | Tooling | `assembly_production_inputs.tooling_total` | one-time | Authority |
 | Project setup | `assembly_production_inputs.setup_fee_total` | one-time | Authority |
 | Artwork & plate | `assembly_production_inputs.artwork_total` | one-time | Authority |
-| — | `rd_total`, `testing_micros_total`, `other_service_total`, `tooling_artwork_total` | one-time | **unruled** |
+| — | `rd_total`, `testing_micros_total`, `other_service_total`, `tooling_artwork_total` | one-time | **BV-011 — see §1.5** |
 
-**The four unruled fees are the one thing I will not decide alone.** The
-Authority did not rule on them and BV-011 is the governing map for
-production/service-fee classification — inventing a recovery policy for them
-here would be exactly the second-source-of-truth error this slice exists to
-avoid. **V1 proposal: they are not presented as electable charges.** They keep
-today's per-assembly allocation behaviour, byte-identically. Listed in §8 as an
-open decision.
+`chargeId` is **not arbitrary line-level configurability.** The registry is a
+finite, closed set of known commercial charges, each carrying its own policy. A
+charge exists because it is governed, not because a field is numeric.
+
+---
+
+## 1.5 · BV-011 trace — the four fees the Authority does not rule on
+
+Traced before proposing policy, as directed. **BV-011 classifies all four.
+Classification is not recovery policy, and BV-011 says so itself.**
+
+### What BV-011 settles
+
+| Nexus field | BV-011 destination | Item type |
+|---|---|---|
+| `rd_total` | `OTC - Formulation` | Non-inventory Item |
+| `testing_micros_total` | `OTC - Testing` | Non-inventory Item |
+| `other_service_total` | `OTC - Other Service` | Non-inventory Item |
+| `tooling_artwork_total` | **spans two** — `OTC - Tooling` (Inventory) **and** `OTC - Artwork` (Non-inventory) | — |
+
+### What BV-011 explicitly withholds
+
+> *"This document **authorizes no implementation.** … no code, schema, or
+> migration may cite it as authority to do so. … Until then it governs only one
+> thing: what the categories **are**."* — BV-011 Status
+
+And §3 excludes by name *"any change to customer-facing presentation (Quote
+surface, customer PDF)"* — which is precisely what a recovery election is.
+
+**So BV-011 answers *what item type*, and deliberately does not answer *how it
+is recovered from the customer*.** Citing it to justify allowed modes would be
+the exact misuse it forbids in its own opening paragraph.
+
+### Disposition — non-elective, with governed refusals
+
+All four enter the registry so they are visible and accounted for, and all four
+carry `available: []` with a stated reason — never a guessed mode set:
+
+| charge | governed refusal reason |
+|---|---|
+| R&D / Formulation | *Recovery policy not yet dispositioned. BV-011 classifies this charge (`OTC - Formulation`) but does not authorize customer-facing recovery treatment (BV-011 §3).* |
+| Testing / Micros | *Recovery policy not yet dispositioned (BV-011 §3). No input surface exists for this field today (BV-011 §4.1).* |
+| Other Service | *Recovery policy not yet dispositioned. BV-011 classifies this charge (`OTC - Other Service`) but does not authorize customer-facing recovery treatment (BV-011 §3).* |
+| Tooling / artwork *(legacy)* | *Legacy combined field spans two governed destinations with different item types — `OTC - Tooling` (Inventory) and `OTC - Artwork` (Non-inventory), BV-011 §4.2. A single election cannot be applied coherently until the field is split.* |
+
+Each keeps today's behaviour exactly: they resolve through
+`allocate_service_fees_to_cost`, unchanged.
+
+The last is the strongest refusal in the registry, because it is not merely
+"undecided" — it is **structurally un-electable in its current shape**, and the
+reason names the migration that would change that.
+
+### One consequence to record, not bury
+
+BV-011 §4.9 states that `allocate_service_fees_to_cost` is *"a single boolean
+governing Setup, Tooling / artwork, R&D and Other service **together**"*, and
+that whether allocation stays uniform is a **workstream decision**.
+
+Making Setup, Tooling and Artwork electable while R&D and Other Service stay on
+the boolean is therefore **the first break in uniform allocation.** It follows
+directly from the Authority ruling on three of them and not the others — it is
+not smuggled in. Flagged in §8 so the Production / OTC workstream inherits it
+stated rather than discovered.
 
 ---
 
@@ -109,6 +165,23 @@ the amount the separate line carries.
 *absorbed charges add cost but no revenue* — absorbing is what pushes margin
 toward the floor, and therefore what can drive a quote below floor and require
 authorization.
+
+### `per_assembly` is not a fourth mode
+
+The recovery vocabulary is **exactly three**. `per_assembly` is not carried
+forward as a mode, because it is not a commercial election at all — it is the
+*absence* of one.
+
+Legacy service-fee behaviour resolves through the existing per-assembly
+`allocate_service_fees_to_cost` value when **no election row exists**. That
+preserves the mixed legacy quotes without confusing provenance with a new
+commercial choice: "nobody elected, so read the assembly setting" and "someone
+elected `included`" stay distinguishable, which a fourth enum member would
+collapse.
+
+**Explicit elections override projection only.** They never rewrite the
+underlying assembly values, so removing an election restores the legacy
+behaviour exactly rather than resurrecting nothing.
 
 The IEEE-754 discipline from D1 carries over unchanged and now applies per
 charge: **short-circuit the identity case** rather than computing `rate − 0`,
@@ -146,9 +219,15 @@ a bug, and is asserted as such.
 | Tooling | ✓ | ✓ | ✓ | — |
 | Project setup | ✓ | ✓ | ✓ | — |
 | Artwork & plate | ✓ | ✗ | ✓ | *Not separately invoiceable* |
+| R&D / Formulation | ✗ | ✗ | ✗ | BV-011 §3 — see §1.5 |
+| Testing / Micros | ✗ | ✗ | ✗ | BV-011 §3 + §4.1 — see §1.5 |
+| Other Service | ✗ | ✗ | ✗ | BV-011 §3 — see §1.5 |
+| Tooling / artwork *(legacy)* | ✗ | ✗ | ✗ | BV-011 §4.2 — see §1.5 |
 
-Refusal strings are taken **verbatim** from the Design Authority rather than
-paraphrased.
+Refusal strings for the first five are taken **verbatim** from the Design
+Authority rather than paraphrased. The last four are governed by BV-011 and are
+**non-elective** — present in the registry, visible in the surface, and refused
+with a reason, rather than absent or guessed.
 
 **The surface renders the denied mode as denied with its reason visible — it
 does not hide it.** A hidden option reads as an option that does not exist; a
@@ -197,12 +276,31 @@ quotes — `f2db6e10`, `f5f5ac14`, `a264a755` (sent) — are untouched.
 No backfill. No default written to any row. **All 89 quotes and all 29 snapshots
 are byte-identical with zero rows in the new table.**
 
-### Deployment order
+### Migration / reversal sequence
 
-Purely **additive** (new type, new tables, no constraint on existing tables), so
-it is safe ahead of the code that reads it — every existing writer of `quotes`
-and `quote_snapshots` continues to succeed without mentioning it. The *only*
-tightening step in this slice is the 0098 reversal, sequenced in §0.
+Two migrations, in this order. The ordering is set by **compatibility**, not by
+a fixed direction — an additive one may lead its code, a destructive one may
+not.
+
+| # | step | class | may it precede its code? |
+|---|---|---|---|
+| 1 | revert `schema.ts` + `commercial-recovery.ts` to drop the two-axis shape | code | — |
+| 2 | **deploy** step 1 — no reader of the 0098 columns remains | deploy | — |
+| 3 | `00NN_withdraw_0098.sql` — `DROP COLUMN` ×4, `DROP TYPE` ×2 | **destructive** | **no** — must follow step 2 |
+| 4 | `00NN_quote_charge_recovery.sql` — new enum + 2 new tables | **additive** | **yes** |
+| 5 | registry + policy + resolution + projection + freeze + workspace | code | — |
+
+Step 3 is behaviour-neutral in effect — all 89 quotes are NULL and nothing
+reads the columns — but it is destructive in *kind*, which is what decides its
+position. Step 4 is safe ahead of its code because every existing writer of
+`quotes` and `quote_snapshots` continues to succeed without mentioning the new
+tables.
+
+Migration filenames resolve against `drizzle/meta/_journal.json` at authoring
+time rather than being assumed from the brief. The journal row for 0098 is
+identified by its **verified `created_at`/`id`** — never by a
+`hash LIKE '%0098%'` predicate, which matches zero rows and silently leaves the
+journal claiming a migration whose objects are gone.
 
 ### Freeze list
 
@@ -240,6 +338,22 @@ guards every election writer.
 | 16 | sent revision, later revision elects | sent revision **unchanged** |
 | 17 | identity case (`0` charge) | rate left **untouched** — no `rate − 0` round trip |
 | 18 | registry ↔ drilldown | the drilldown reads the registry; classification has **one** owner |
+| 19 | the four BV-011 fees | `available` is **empty**, each with a governed refusal; none is electable |
+| 20 | legacy `freight_treatment` | **has no commercial consequence** — it cannot become a second recovery authority |
+| 21 | economics-changing election with a live approval | supersession fires through the **existing** mechanism; **no second invalidation write is added** |
+
+Case 20 is the one that keeps "one governed source" enforced rather than
+intended. It pins the property directly — that changing `freight_treatment`
+moves no customer-facing number — rather than asserting that some module does
+not import it, because an import ban is cheap to satisfy while still breaking
+what it was meant to protect.
+
+Case 21 is asserted as an **absence**: `projectApprovalTierState` already
+compares each authorization's stored fingerprint against current economics and
+returns `superseded` on any difference, so recovery changing revenue invalidates
+automatically. What gets built is only the **warning surface** — telling the
+operator at *edit* time that an election will supersede an approval they just
+chased, rather than at SEND. No new write.
 
 Cases 4, 5 and 6 together are what make the contract falsifiable: 5 asserts two
 constants and one change; 6 asserts the opposite of 5 on the same machinery.
@@ -284,12 +398,20 @@ This is the third instance this month of governed state with no consumer, after
 `refreshFromHubspot` (zero callers) and `freight_treatment` (persisted,
 operator-set, acted on by nothing).
 
-**Recommendation:** T&C is preserved and becomes a rendered element for the
-first time, and the Authority's document model is extended to carry it. The
-recovery workspace is where the operator would confirm it before freeze. Two
-things need deciding: whether it renders on the quote or as an addendum page,
-and that `tcs_default` is NULL today so **nothing would print until it is
-configured** — which is a Pattern 45 stub decision, not a rendering one.
+**Disposition — treat as a real Quote Presentation defect.** `tcs` is added to
+the new customer-facing Quote presentation as **its own governed element**,
+rendered from the governed contract state rather than left invisible.
+
+**It is not conflated with `TermsBlock`.** Those are the commercial terms
+*pairs* — payment terms, lead time, incoterms — which are short labelled values
+in a four-cell block. T&C is the actual terms-and-conditions body: different
+content, different length, different governance, and it carries its own
+snapshot column on the freeze list. Rendering it inside the pairs block would
+misrepresent both.
+
+Two sub-decisions remain (§8): whether it renders on the quote body or as an
+addendum page, and that `tcs_default` is **NULL today**, so nothing prints
+until it is configured — a Pattern 45 stub decision, not a rendering one.
 
 ### 7.2 · Post-production reconcile — retire; the trace supports it for a stronger reason than stated
 
@@ -347,21 +469,35 @@ But it is the footer of the **Quote workspace**, whose action is *Send to
 customer*. The Costs/Pricing bars advance toward that workspace; their action is
 *Continue to Quote*. Same grammar, different act.
 
-**So: adopt the footer's grammar, not its action** — and the headline on
-Costs/Pricing must not say "send", because the send happens one surface later.
-That is a correction to the standalone cleanup, and it is why it was worth
-checking first.
+**Adopt the footer's grammar, not its action semantics.** Costs and Pricing get
+**one consolidated next-action bar** carrying exactly three things:
+
+1. **readiness / status** — reporting, not re-evaluating;
+2. **current tier context**;
+3. **one action — `Continue to Quote`.**
+
+**It must not say `Send`.** SEND belongs to the Quote surface, one step later.
+That is the correction the check produced, and it is why the standalone cleanup
+was worth checking against this authority before implementing.
 
 ---
 
 ## 8 · Open decisions
 
-1. **The four unruled fees** — R&D, testing, other, legacy tooling/artwork.
-   Electable, or per-assembly behaviour preserved? BV-011 governs; V1 proposal
-   is to leave them unchanged and not present them as charges.
-2. **T&C** — quote page or addendum, and the NULL `tcs_default` stub decision.
-3. **Freight `separate` vs the Accounting instruction.** The data-source map
+1. **T&C placement** — quote body or addendum page, and the NULL `tcs_default`
+   stub decision.
+2. **Freight `separate` vs the Accounting instruction.** The data-source map
    carries a downstream `accounting.freight_billing` (`landed` /
    `at cost, separate`). If the recovery election also decides freight
-   presentation, these are two sources for one fact. They must be reconciled,
+   presentation, these are two sources for one fact. **BV-011 §4.5 already
+   flags this**, in its own words: which document governs freight's
+   *presentation* versus its *accounting destination* "needs stating
+   explicitly, or the two will be read as competing." They must be reconciled,
    not shipped in parallel.
+3. **Uniform allocation breaks here** (§1.5). Setup, Tooling and Artwork become
+   electable while R&D and Other Service stay on the shared
+   `allocate_service_fees_to_cost` boolean. BV-011 §4.9 records that uniformity
+   as a Production / OTC workstream decision; this slice is the first thing to
+   depart from it. Recorded so the workstream inherits it stated.
+
+*(The four BV-011 fees are no longer open — traced and dispositioned in §1.5.)*
