@@ -379,6 +379,58 @@ test("a multi-scenario project keeps every task, owned by its own creator", () =
   assert.equal(all.filter((t) => visibleToViewer(t, viewer({ userId: CREATOR }))).length, 1);
 });
 
+// ── theme coverage ────────────────────────────────────────────────────────
+
+test("every tone token is defined in all three theme states", async () => {
+  // ASSERTED BY SELECTOR CONTEXT, NOT BY COUNT.
+  //
+  // A count check passed while `[data-theme="dark"]` carried none of these and
+  // the media query carried them twice: three occurrences, two contexts. The
+  // instrument reported the right number for the wrong reason, and the defect it
+  // was meant to catch — an explicit dark toggle rendering light chip fills on a
+  // dark ground, the #348 class — sat underneath it.
+  const css = await read("src/styles/r14-organizer.css");
+
+  const contexts = new Map<string, Set<string>>();
+  const stack: string[] = [];
+  for (const raw of css.split(/\r?\n/)) {
+    const line = raw.trim();
+    const open = /^([^{}]+)\{$/.exec(line);
+    if (open) {
+      stack.push(open[1].trim());
+      continue;
+    }
+    if (line === "}") {
+      stack.pop();
+      continue;
+    }
+    const token = /^(--r14-t(?:25|70|155|232|255|neutral)-(?:bg|fg)):/.exec(line);
+    if (token) {
+      const key = stack.join(" > ");
+      const set = contexts.get(key) ?? new Set<string>();
+      set.add(token[1]);
+      contexts.set(key, set);
+    }
+  }
+
+  const keys = [...contexts.keys()];
+  const base = keys.find((k) => k === ".r14");
+  const media = keys.find((k) => k.startsWith("@media") && k.includes("prefers-color-scheme"));
+  const explicit = keys.find((k) => k.startsWith('[data-theme="dark"]'));
+
+  assert.ok(base, "no base (light) definition block");
+  assert.ok(media, "no prefers-color-scheme block — system-dark viewers get light fills");
+  assert.ok(explicit, 'no [data-theme="dark"] block — the theme toggle would not repaint chips');
+
+  for (const k of [base, media, explicit]) {
+    assert.equal(
+      contexts.get(k!)!.size,
+      12,
+      `${k} defines ${contexts.get(k!)!.size} of the 12 tone tokens`,
+    );
+  }
+});
+
 // ── the organizer writes nothing ──────────────────────────────────────────
 
 test("the organizer is read-only and the task layer is pure", async () => {
