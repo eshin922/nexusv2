@@ -40,7 +40,6 @@
 // page-level row (SentStatusBanner below), not jammed into the
 // header flex container.
 
-import Link from "next/link";
 
 export function CostsHeader({
   project,
@@ -99,23 +98,17 @@ export function CostsHeader({
           <span>Sync status pending · Slice 11</span>
         </div>
       </div>
-      <div className="actions">
-        {/* Slice RI.9 § 5.1 — "View as customer" canonical sideways
-            glance affordance. Routes to Quote, bypassing Pricing. */}
-        <Link
-          href={`/projects/${quote.projectId}/quotes/${quote.id}/quote`}
-          className="btn"
-        >
-          View as customer →
-        </Link>
-        <button
-          type="button"
-          className="btn primary"
-          title="Saved automatically"
-        >
-          Save draft
-        </button>
-      </div>
+      {/*
+        The action cluster is removed, container included.
+        "View as customer" was a sideways glance to the Quote surface — the
+        inner rail already links there, so it was a second route to one place.
+        "Save draft" had no `onClick` at all: Costs autosaves, so it was a
+        primary-weight button that did nothing, which is worse than absent —
+        an operator who pressed it learned nothing and may have believed it
+        was the thing that saved their work.
+        The empty `.actions` div goes too, so the header does not reserve
+        space for a cluster that no longer exists.
+      */}
       {children}
     </div>
   );
