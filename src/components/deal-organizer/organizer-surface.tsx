@@ -46,13 +46,13 @@ const GROUP_ORDER = ["needs_you", "with_customer", "no_action"] as const;
  */
 const TAG: Record<Task["kind"], { text: string; tone: string; var: string }> = {
   // A failure that stopped something mid-flight.
-  push_failed: { text: "push failed", tone: "r14-tag-blocked", var: "--r14-tone-blocked" },
+  push_failed: { text: "push failed", tone: "r14-tag-blocked", var: "--r14-t25-fg" },
   // Came back to you with a decision on it.
-  approval_rejected: { text: "declined", tone: "r14-tag-returned", var: "--r14-tone-returned" },
+  approval_rejected: { text: "declined", tone: "r14-tag-returned", var: "--r14-t155-fg" },
   // A clock is running down.
-  quote_expiring: { text: "expiring", tone: "r14-tag-missing", var: "--r14-tone-missing" },
+  quote_expiring: { text: "expiring", tone: "r14-tag-missing", var: "--r14-t70-fg" },
   // Nothing is wrong; it is just quiet.
-  customer_silent: { text: "silent", tone: "r14-tag-info", var: "--r14-tone-info" },
+  customer_silent: { text: "silent", tone: "r14-tag-info", var: "--r14-t232-fg" },
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -206,7 +206,7 @@ export function OrganizerSurface({
 
             {grouped.map((g) => (
               <div key={g.key}>
-                <div className="r14-group-head">
+                <div className={`r14-group-head r14-group-head-${g.key}`}>
                   <span className={`r14-dot r14-dot-${g.key}`} />
                   <span className="r14-group-label">{g.label}</span>
                   <span className="r14-group-count">{g.rows.length}</span>
