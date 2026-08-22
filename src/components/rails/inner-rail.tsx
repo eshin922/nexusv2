@@ -6,6 +6,7 @@ import {
   getProjectScenarios,
 } from "@/lib/workspace-queries";
 import { ProjectGlyph } from "./project-glyph";
+import { InnerRailCollapse } from "./inner-rail-collapse";
 
 // Slice RI.8 F-12 fix — mini activity feed cap. Project Detail page
 // (the full feed) uses limit=30; rail uses a smaller cap because the
@@ -98,12 +99,26 @@ export async function InnerRail({
 
   return (
     <aside
-      className="fixed left-14 top-0 z-20 flex h-screen w-60 flex-col overflow-y-auto px-3 py-3"
+      id="inner-rail"
+      // `w-60` is kept as the expanded width and `inner-rail` overrides it from
+      // a CSS variable, so the expanded geometry is literally today's geometry
+      // rather than a re-derivation of it.
+      className="inner-rail fixed left-14 top-0 z-20 flex h-screen w-60 flex-col overflow-y-auto px-3 py-3"
       style={{
         background: "var(--paper)",
         borderRight: "1px solid var(--rule)",
       }}
     >
+      <InnerRailCollapse />
+
+      {/*
+        Everything below is hidden when collapsed — display:none, not opacity or
+        width, so no content keeps occupying the reclaimed strip and nothing
+        stays reachable by keyboard behind a panel the operator has closed.
+        Route state is untouched: this is presentation only, and the links are
+        re-rendered by the server on the next navigation exactly as before.
+      */}
+      <div className="inner-rail-body">
       {/* Back to all deals */}
       <Link
         href="/"
@@ -335,6 +350,7 @@ export async function InnerRail({
             All activity →
           </Link>
         )}
+      </div>
       </div>
     </aside>
   );

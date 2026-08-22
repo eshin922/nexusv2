@@ -223,7 +223,7 @@ export default async function ProjectDetailPage({
        renders its own rail with no activeQuoteId (no sub-rail). */
     <div className="min-h-screen">
       <InnerRail projectId={project.id} />
-      <main className="pl-64 p-6">
+      <main className="inner-rail-offset p-6">
       {/* Header strip */}
       <div className="mb-6 flex items-start justify-between gap-4 border-b border-rule pb-4">
         <div className="min-w-0">

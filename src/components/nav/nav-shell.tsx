@@ -55,7 +55,7 @@ export function NavShell({
         activeScenarioLabel={activeScenarioLabel}
         activeQuoteId={quoteId}
       />
-      <div className="pl-64">{children}</div>
+      <div className="inner-rail-offset">{children}</div>
     </div>
   );
 }

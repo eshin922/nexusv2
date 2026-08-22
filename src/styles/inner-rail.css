@@ -1,0 +1,93 @@
+/*
+ * Secondary contextual panel — expanded / collapsed.
+ *
+ * Two custom properties on :root drive both the panel's width and the offset
+ * every content surface uses. The panel is `position: fixed` and the surfaces
+ * that offset for it live in unrelated trees, so a variable on the root is what
+ * lets one toggle move all of them without threading state through layouts.
+ *
+ * EXPANDED IS TODAY'S GEOMETRY, NOT A RE-DERIVATION. `--inner-rail-w: 15rem`
+ * is Tailwind's `w-60` and `--inner-rail-offset: 16rem` is `pl-64`, the exact
+ * values these surfaces already used. (They are not the same number — content
+ * has always underlapped the panel's right edge slightly. That is preserved
+ * rather than quietly "fixed", because changing it is not this change.)
+ */
+
+:root {
+  --inner-rail-w: 15rem; /* was w-60 */
+  --inner-rail-offset: 16rem; /* was pl-64 */
+}
+
+:root[data-inner-rail="collapsed"] {
+  --inner-rail-w: 2.25rem;
+  /* 3.5rem global rail + 2.25rem strip + a little air */
+  --inner-rail-offset: 6.25rem;
+}
+
+.inner-rail {
+  /* Beats Tailwind's `w-60` on the same element; the utility stays so the
+     expanded width is still legible in the markup. */
+  width: var(--inner-rail-w) !important;
+  transition: width 140ms ease;
+}
+
+.inner-rail-offset {
+  padding-left: var(--inner-rail-offset);
+  transition: padding-left 140ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inner-rail,
+  .inner-rail-offset {
+    transition: none;
+  }
+}
+
+/* Collapsed: the panel's contents do not exist. `display: none` rather than a
+   visual trick, so nothing is reachable by keyboard behind a closed panel and
+   nothing occupies the reclaimed width. */
+:root[data-inner-rail="collapsed"] .inner-rail-body {
+  display: none;
+}
+
+:root[data-inner-rail="collapsed"] .inner-rail {
+  padding-left: 0;
+  padding-right: 0;
+  align-items: center;
+  overflow: visible;
+}
+
+/* The affordance: quiet, at the panel's own edge, and always in the same place
+   in both states so it does not have to be re-found after collapsing. */
+.inner-rail-toggle {
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  margin-bottom: 4px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink-3);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.inner-rail-toggle:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+
+.inner-rail-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+:root[data-inner-rail="collapsed"] .inner-rail-toggle {
+  align-self: center;
+}

@@ -87,7 +87,15 @@ export default function RootLayout({
           <script
             // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{
-              __html: `try{var t=localStorage.getItem("nexus-theme");if(t==="dark"||t==="light"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}`,
+              // Both run BEFORE first paint. React mounts after paint, so
+              // state read in a component would land a frame late and every
+              // navigation would flash the panel open before collapsing it.
+              //
+              // Precedence for the panel: an explicit stored choice always
+              // wins, including on a narrow screen. Only when there is NO
+              // stored choice does the viewport decide, so a narrow default
+              // never silently overrides something the operator asked for.
+              __html: `try{var t=localStorage.getItem("nexus-theme");if(t==="dark"||t==="light"){document.documentElement.setAttribute("data-theme",t);}}catch(e){}try{var r=localStorage.getItem("nexus-inner-rail");if(r!=="expanded"&&r!=="collapsed"){r=window.matchMedia("(max-width: 1024px)").matches?"collapsed":"expanded";}document.documentElement.setAttribute("data-inner-rail",r);}catch(e){}`,
             }}
           />
         </head>
