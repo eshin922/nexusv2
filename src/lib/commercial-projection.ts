@@ -401,26 +401,14 @@ export function projectCommercial(
         const allocated = resolved.mode === "included";
 
         // `absorbed` means DPS carries the cost and takes NO revenue for the
-        // charge, so it emits no customer line.
+        // charge, so it emits no customer line below.
         //
-        // That is exact ONLY when the charge was not already inside the unit
-        // rate. When the baseline allocated it, the unit price is still
-        // recovering it, and suppressing the line here would drop the line
-        // while leaving the revenue in place — a silently wrong total rather
-        // than a visible failure. Removing it properly means re-amortising the
-        // unit rate, which is engine arithmetic this seam does not own.
-        //
-        // So that combination REFUSES rather than mis-prices. It is currently
-        // unreachable — the elections table is empty and no surface writes it
-        // — and it is the piece flagged for disposition before the workspace
-        // can offer `absorbed` on an allocated charge.
-        if (resolved.mode === "absorbed" && (row?.allocateServiceFeesToCost ?? true)) {
-          throw new Error(
-            `Cannot absorb '${OTC_FIELD_TO_CHARGE[fee.field]}' while it is ` +
-              `allocated into unit cost: the unit rate would still recover it. ` +
-              `Re-amortisation is not owned by the projection seam.`,
-          );
-        }
+        // The dangerous case — absorbing a charge the unit rate ALREADY
+        // recovers — is refused inside `resolveCharge` above, which is handed
+        // this same per-assembly allocation value. It is refused THERE and not
+        // here on purpose: it is a commercial rule about what an operator may
+        // elect, so it belongs to policy rather than to one producer. A guard
+        // repeated at the seam would be a second place to keep in step.
         allocationByTier.push(row ? (allocated ? "allocated" : "separately_billed") : null);
 
         const raw = row ? num((row as Record<string, unknown>)[fee.field]) : null;

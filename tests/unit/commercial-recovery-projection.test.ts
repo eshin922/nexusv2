@@ -123,17 +123,23 @@ test("every OTC fee column maps to exactly one governed charge", async () => {
   assert.match(mapBlock, /LEGACY_COMBINED_OTC_COLUMN\]:\s*"tooling_artwork_legacy"/);
 });
 
-test("absorbing an allocated charge refuses instead of mis-pricing", async () => {
+test("the seam delegates the absorb refusal to policy, holding none of its own", async () => {
   const src = await read(PROJECTION);
-  // The dangerous combination is `absorbed` on a charge the unit rate already
-  // recovers: suppressing the line there would drop the line and leave the
-  // revenue, which is a silently wrong total. It must throw, not proceed.
+
+  // The refusal moved into `resolveCharge`, which is handed this same
+  // per-assembly value — so it is enforced once, in the layer that owns what
+  // an operator may elect, rather than duplicated at a producer where the two
+  // copies could drift out of step.
   assert.match(
     src,
-    /resolved\.mode === "absorbed" && \(row\?\.allocateServiceFeesToCost \?\? true\)/,
-    "the absorb-while-allocated guard is gone",
+    /resolveCharge\(\s*OTC_FIELD_TO_CHARGE\[fee\.field\],[\s\S]{0,160}row\?\.allocateServiceFeesToCost,/,
+    "resolution is no longer handed the allocation state it refuses on",
   );
-  assert.match(src, /throw new Error\(\s*`Cannot absorb/);
+  assert.doesNotMatch(
+    src,
+    /throw new Error\(\s*`Cannot absorb/,
+    "the seam re-grew a local copy of the absorb refusal",
+  );
 });
 
 test("absorbed emits no customer line", async () => {

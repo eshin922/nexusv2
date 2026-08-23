@@ -11,9 +11,12 @@ import {
   type RecoveryChargeKey,
 } from "../../src/lib/commercial-recovery/registry.ts";
 import {
+  ALLOCATED_ABSORPTION_REFUSAL,
   RecoveryPolicyError,
   amountAbsorbed,
   amountToDecompose,
+  modeAvailability,
+  refusalFor,
   resolveCharge,
 } from "../../src/lib/commercial-recovery/resolve.ts";
 
@@ -279,6 +282,113 @@ test("case 22 — electing one charge does not move any sibling", () => {
 
 // ── Cases 5, 6, 17 · the arithmetic contract ───────────────────────────
 
+// -- Case 23 * `absorbed` on an already-allocated charge ----------------
+//
+// The mode is available on the charge and still refused HERE, because the
+// refusal is about the assembly's state, not the charge. Absorbing a charge
+// the unit rate already recovers would drop the customer line and leave its
+// revenue inside the rate — a silently wrong total, which is far worse than
+// a visible failure.
+
+test("case 23 — absorbed is refused while the charge is allocated into unit cost", () => {
+  // Statically permitted...
+  assert.equal(isModeAvailable("tooling", "absorbed"), true);
+  assert.equal(refusalReason("tooling", "absorbed"), null);
+
+  // ...and still refused in an allocating assembly.
+  assert.equal(
+    refusalFor("tooling", "absorbed", { perAssemblyAllocate: true }),
+    ALLOCATED_ABSORPTION_REFUSAL,
+  );
+
+  assert.throws(
+    () =>
+      resolveCharge("tooling", { chargeKey: "tooling", mode: "absorbed" }, true),
+    (e: unknown) => {
+      assert.ok(e instanceof RecoveryPolicyError);
+      assert.equal(e.reason, ALLOCATED_ABSORPTION_REFUSAL);
+      return true;
+    },
+    "absorbing an allocated charge must refuse, not silently mis-price",
+  );
+});
+
+test("case 23 — absorbed is ALLOWED when the charge is not allocated", () => {
+  assert.equal(
+    refusalFor("tooling", "absorbed", { perAssemblyAllocate: false }),
+    null,
+  );
+  const r = resolveCharge(
+    "tooling",
+    { chargeKey: "tooling", mode: "absorbed" },
+    false,
+  );
+  assert.equal(r.mode, "absorbed");
+  assert.equal(r.source, "election");
+  // And it is the mode that moves money — the whole reason it is separate.
+  assert.equal(amountAbsorbed(r, 1200), 1200);
+});
+
+test("case 23 — the default allocation state refuses, matching `?? true`", () => {
+  // A null/absent allocation value means allocated, per the pre-recovery
+  // default. It must refuse for the same reason an explicit `true` does,
+  // rather than falling through as if nothing were allocated.
+  for (const v of [null, undefined]) {
+    assert.equal(
+      refusalFor("tooling", "absorbed", { perAssemblyAllocate: v }),
+      ALLOCATED_ABSORPTION_REFUSAL,
+      `allocation ${String(v)} must not read as un-allocated`,
+    );
+  }
+});
+
+test("case 23 — the refusal does not touch included or separate", () => {
+  // included/separate continue to follow the governed contract regardless of
+  // allocation state. Only `absorbed` is context-sensitive.
+  for (const allocate of [true, false]) {
+    assert.equal(
+      refusalFor("tooling", "included", { perAssemblyAllocate: allocate }),
+      null,
+    );
+    assert.equal(
+      refusalFor("project_setup", "separate", { perAssemblyAllocate: allocate }),
+      null,
+    );
+  }
+});
+
+test("case 23 — landed charges have no allocation dimension to refuse on", () => {
+  // Freight/customs are quote-level. Their `absorbed` refusal is the static
+  // policy one, and it must not be replaced by the contextual message.
+  for (const key of ["container_freight", "duty_tariffs"] as RecoveryChargeKey[]) {
+    const reason = refusalFor(key, "absorbed", { perAssemblyAllocate: true });
+    assert.equal(reason, refusalReason(key, "absorbed"));
+    assert.notEqual(reason, ALLOCATED_ABSORPTION_REFUSAL);
+  }
+});
+
+test("case 23 — every mode is rendered with a verdict, none hidden", () => {
+  const rows = modeAvailability("tooling", { perAssemblyAllocate: true });
+  assert.equal(
+    rows.length,
+    RECOVERY_MODES.length,
+    "a mode was dropped from the surface",
+  );
+  for (const r of rows) {
+    // Exhaustive complements at the rendering boundary too: a denied mode
+    // without a reason would reach an operator as a silently missing option.
+    assert.equal(
+      r.available,
+      r.reason === null,
+      `${r.mode}: availability and reason disagree`,
+    );
+  }
+  assert.deepEqual(
+    rows.filter((r) => !r.available).map((r) => r.mode),
+    ["absorbed"],
+  );
+});
+
 test("case 5 — only `separate` decomposes; the amount lifted is the amount moved", () => {
   const included = resolveCharge("container_freight", null, null);
   const separate = resolveCharge(
@@ -294,7 +404,11 @@ test("case 5 — only `separate` decomposes; the amount lifted is the amount mov
 
 test("case 6 — only `absorbed` removes revenue", () => {
   const separate = resolveCharge("tooling", { chargeKey: "tooling", mode: "separate" }, null);
-  const absorbed = resolveCharge("tooling", { chargeKey: "tooling", mode: "absorbed" }, null);
+  // Read on the NOT-ALLOCATED baseline, which is the only state where
+  // `absorbed` is a legitimate election (case 23). Allocated + absorbed is
+  // refused rather than measured, so the revenue claim below is scoped to
+  // exactly the case that can actually reach a customer document.
+  const absorbed = resolveCharge("tooling", { chargeKey: "tooling", mode: "absorbed" }, false);
   assert.equal(amountAbsorbed(separate, 900), 0, "separate removed revenue");
   assert.equal(amountAbsorbed(absorbed, 900), 900);
   // And absorbed does NOT also decompose -- it is removed, not re-presented.

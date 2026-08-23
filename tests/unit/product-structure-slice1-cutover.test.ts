@@ -14,6 +14,14 @@ const classifiedIdentityFiles = new Set([
   // top-level sellable units. A member leaf is refused, so the legacy junction
   // never enters — there is nothing here for it to address.
   "src/app/actions/client-targets.ts",
+  // CLASSIFIED — recovery-election writer, canonical identity only. It reads
+  // `quote_leaves.id` for the quote so it can also find the production rows of
+  // top-level Direct Services, which store their policy on `quote_leaf_id`
+  // rather than on an assembly; without that half, a Direct Service's
+  // allocation state would be invisible to the refusal check and the election
+  // could be accepted while mis-pricing it. `assembly_leaves` is never queried,
+  // and the row it writes carries no leaf identity at all.
+  "src/app/actions/commercial-recovery.ts",
   "src/app/actions/costing.ts", "src/app/actions/freight-worksheet.ts",
   // CLASSIFIED — transitional. actions/freight.ts writes component-tier costs
   // keyed on canonical quoteLeafId, with the fail-closed identity guards

@@ -96,9 +96,35 @@ trail — every attempt (succeeded + failed) inserts a fresh row; the
 partial unique index `WHERE status='succeeded'` enforces at-most-one
 successful push per (quote, tier).
 
+### Sibling table frozen at checkpoint 1 — `quote_charge_recovery`
+
+Commercial recovery elections are per-quote ROWS rather than columns,
+so they do not appear in the checkpoint-1 table above — but they carry
+the same commitment and belong to the same checkpoint. They change what
+the customer document says, and `sendQuote` mirrors them into
+`quote_snapshot_charge_recovery` inside the send transaction so a sent
+revision can never inherit a later revision's election.
+
+| Table | Frozen at | Writer | Guard |
+|---|---|---|---|
+| `quote_charge_recovery` | draft → sent | `setChargeRecovery` (`src/app/actions/commercial-recovery.ts`) | `quoteByIdDraft` **and** `assertNotFrozen` |
+
+The writer calls **both** guards. `quoteByIdDraft` is the stronger
+condition and is the one that actually governs — an election is a
+quote-authoring decision, and a sent revision must not have its
+economics moved underneath it. `assertNotFrozen` is called as well
+because the §0.5 protocol below is a grep for that symbol, and a writer
+that satisfies the rule under a different name is invisible to the
+check that exists to find it.
+
+Absence of a row is load-bearing (no election → legacy per-assembly
+resolution), so there is **no backfill** and every pre-existing quote
+and snapshot resolves to the behaviour that produced it.
+
 ## Total
 
-**30 columns across the three checkpoints.**
+**30 columns across the three checkpoints, plus the
+`quote_charge_recovery` sibling table at checkpoint 1.**
 
 ## Guards — how to use
 
