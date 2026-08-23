@@ -90,6 +90,43 @@ For a $1,000 cost at a 1.4 rate the commercial layer must be able to say:
 not added or removed on one side. `absorbed` is the only mode that moves the
 total, which is exactly why it is the mode that can require an authorization.
 
+### The charge must be handed over explicitly, never recovered by subtraction
+
+**The cost / charge layer exposes charge economics as first-class values — the
+cost, and the governed recoverable sell amount. The sell constructor decides
+where that sell amount lives. It must never reverse-engineer a charge out of an
+already-aggregated unit price.**
+
+The shortcut this forbids is the obvious-looking one: let the cost layer hand
+over a finished unit price, and have the constructor subtract the charge back
+out when the election says `separate`. It is wrong twice over.
+
+**It recreates the coupling under a new name.** To subtract a charge out of a
+unit price you must know how it was put in — the amortisation basis, the
+markup, the rounding. That knowledge is exactly what
+`allocate_service_fees_to_cost` encodes today. A constructor that needs it has
+not removed the allocation coupling; it has moved it and given it a new name,
+and the next person to read the code will not be able to see that the two
+layers are still joined.
+
+**And subtraction does not reproduce the bits.** OD-025 is the case where a
+repair whose entire premise was that it moved no money moved `blendedMarginPct`
+on three real quotes, because `(v − f) × 1 + f` is exact algebra and inexact
+IEEE-754. `included ↔ separate` is *precisely* that shape — remove a component
+from one place, re-add it in another — so a constructor built on subtraction
+would fail the revenue-neutrality invariant on real data while passing every
+example anyone thought to write.
+
+Handing the charge over explicitly makes both problems disappear rather than
+managing them: the same value is placed in one of two positions, so
+revenue-neutrality is structural, and the identity case needs no short-circuit
+because nothing was ever taken apart.
+
+Practically: whatever the cost layer emits per (charge, tier, owner) must carry
+its cost and its recoverable sell amount as separate stated quantities. If a
+value can only be obtained by subtracting one total from another, the layer
+below has not finished its job.
+
 ### The single-consumer requirement
 
 **Every consumer must read the same post-recovery construction:**
@@ -141,12 +178,8 @@ lower; the registry, policy, storage, freeze and warning are unaffected.
    A distinct module consuming the costing result, or a second phase inside it
    with a documented internal boundary. The single-consumer requirement is the
    constraint; the file layout is not settled.
-2. **Whether `allocate_service_fees_to_cost` survives.** It is currently both a
-   cost-side instruction and a de-facto recovery election. Once recovery is
-   explicit, the boolean may become the legacy resolution source ONLY — read,
-   never written — or may be retired behind a migration. Retiring it is not
-   free: three real quotes, one already sent, carry mixed values, and absence of
-   an election is what preserves them.
+2. ~~Whether `allocate_service_fees_to_cost` survives.~~ **DISPOSITIONED
+   2026-08-23 — see §4.5 below.**
 3. **Freight and duty.** Still refused, still for open decision 2 / BV-011 §4.5:
    freight's presentation authority and its accounting destination are
    unreconciled and "will be read as competing" unless stated explicitly. This
@@ -155,6 +188,52 @@ lower; the registry, policy, storage, freeze and warning are unaffected.
    prevent.
 4. **The uniform-allocation departure** (BV-011 §4.9) is unchanged by this
    correction and still belongs to the Production / OTC workstream.
+
+---
+
+## 4.5 · `allocate_service_fees_to_cost` — dispositioned
+
+**Kept representable for legacy compatibility. It stops being the future
+commercial control.**
+
+It currently conflates two things:
+
+1. **where the old costing path placed the fee** — a fact about how existing
+   quotes were built;
+2. **how DPS intends to recover and present that charge** — a commercial
+   decision.
+
+The second responsibility moves to the recovery model. The first cannot simply
+disappear, because existing quotes — including the mixed and frozen cases — were
+built using it. It becomes **legacy provenance and compatibility state, not the
+new commercial authority.**
+
+| | rule |
+|---|---|
+| **existing / no-election quotes** | continue resolving through the boolean exactly as today |
+| **new explicit elections** | resolved by the sell-construction layer **without rewriting the boolean** |
+| **operator surface** | once the recovery workspace is certified, the boolean must **not** reappear as a separate commercial choice |
+| **retirement** | only after the sell constructor can derive charge economics independently of the boolean, **and** no governed legacy read still needs it |
+
+Two consequences worth stating plainly, because both are easy to lose:
+
+**"Without rewriting the boolean" is what keeps clearing an election
+meaningful.** An election that wrote the column would make its own removal
+unrecoverable — there would be nothing left to fall back to, and the three real
+mixed quotes (one already sent) would have been flattened by the first
+operator who tried a mode and changed their mind.
+
+**Two commercial controls for one decision is the failure mode the third row
+prevents.** If the workspace ships and the legacy toggle stays visible as a
+commercial choice, an operator has two ways to say the same thing and no way to
+know which one wins. The boolean may remain visible as *provenance* — what this
+quote was built with — but not as an *instruction*.
+
+The retirement condition is deliberately two-part. "The constructor no longer
+needs it" is necessary and not sufficient; a governed legacy read elsewhere
+would still break, and the audit for that is the cross-consumer sweep this
+codebase has already been caught by twice (queries + writes + realtime +
+publication + raw SQL outside `actions/`).
 
 ---
 
