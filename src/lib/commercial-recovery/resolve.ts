@@ -107,35 +107,123 @@ export function resolveCharge(
 }
 
 /**
- * ── CONTEXTUAL REFUSAL: `absorbed` ON AN ALREADY-ALLOCATED CHARGE ────────
+ * ── UNWIRED REFUSAL: `separate` ON A LANDED CHARGE ───────────────────────
  *
- * `absorbed` means DPS carries the cost and takes NO customer revenue for the
- * charge, so it emits no customer line. That is exact ONLY when the charge is
- * not already inside the unit rate.
+ * A DIFFERENT KIND OF REFUSAL from a policy one, and it says so rather than
+ * borrowing its language. The Authority PERMITS freight and duty to be billed
+ * separately; the registry records that. What refuses here is not policy — it
+ * is that electing it today would do NOTHING.
  *
- * When the assembly allocates service fees into cost, the unit price is
- * ALREADY recovering the charge. Suppressing the line there would drop the
- * line and leave the revenue in the rate — a silently wrong total rather than
- * a visible failure, which is the worse of the two by a wide margin.
+ * `projectCommercial` emits no freight or customs line: the whole landed cost
+ * sits inside the unit rate. So a stored `separate` election on a landed
+ * charge would be persisted, audited, shown as chosen, and change no number
+ * anyone sees. That is the worst available outcome — worse than refusing, and
+ * worse than a visible failure — because it looks settled.
  *
- * Removing it properly means RE-AMORTISING the unit rate. That is engine
- * arithmetic this layer does not own, and reaching for it here is exactly the
- * OD-025 shape: subtract a component, re-add it, and the bits do not come
- * back. So this refuses, and it refuses in the POLICY LAYER rather than at the
- * projection seam, because it is a commercial rule about what an operator may
- * elect — not an implementation detail of one producer.
+ * It is ALSO the open decision, not merely an implementation gap. Open
+ * decision 2 (BV-011 §4.5) records that freight's PRESENTATION authority and
+ * its ACCOUNTING destination are unreconciled and "will be read as competing"
+ * unless stated explicitly. Shipping a freight presentation election while
+ * that is open would create the second source of truth the decision exists to
+ * prevent. Refusing until it closes is the decision being honoured, not
+ * deferred.
  *
- * Two things this deliberately does NOT do, per the standing disposition:
- * it does not re-amortise unit pricing, and it does not auto-flip
- * `allocate_service_fees_to_cost`. The operator turns allocation off first;
- * the election is theirs to make, not ours to infer.
+ * `included` stays available for landed charges, because `included` IS what
+ * the projection does today — so electing it is honoured exactly.
  */
-export const ALLOCATED_ABSORPTION_REFUSAL =
-  "Already recovered in the unit price. Absorbing it would remove the " +
-  "customer line while leaving its revenue inside the unit rate, so the " +
-  "total would be silently wrong. Turn off “allocate service fees to " +
-  "cost” for this assembly first — re-amortising the unit rate is not " +
-  "owned by this layer.";
+const LANDED_SEPARATE_UNWIRED =
+  "Not available yet. Freight and duty are currently recovered inside the " +
+  "unit price, and no separate line is produced — electing this would " +
+  "change nothing the customer sees. It stays closed until freight's " +
+  "presentation authority is reconciled with its accounting destination " +
+  "(open decision 2, BV-011 §4.5).";
+
+/**
+ * A refusal that exists because the projection cannot honour the mode.
+ *
+ * Kept separate from policy refusals so the two are never confused: one says
+ * the firm does not permit it, this one says the system would not do it.
+ */
+export function unwiredRefusal(
+  key: RecoveryChargeKey,
+  mode: RecoveryMode,
+): string | null {
+  if (mode !== "separate") return null;
+  return chargePolicy(key).grain === "landed" ? LANDED_SEPARATE_UNWIRED : null;
+}
+
+export { LANDED_SEPARATE_UNWIRED };
+
+/**
+ * ── CONTEXTUAL REFUSAL: AN ELECTION THE ENGINE CANNOT HONOUR ─────────────
+ *
+ * THE FINDING THIS ENCODES, established by falsification rather than by
+ * reading the code: `tests/unit/commercial-recovery-election-effect.test.ts`.
+ *
+ * An election overrides PROJECTION only — deliberately, because writing
+ * `allocate_service_fees_to_cost` would destroy the legacy behaviour that
+ * clearing an election is supposed to restore. But the costing engine is what
+ * decides whether a one-time fee sits inside the unit price, and it never sees
+ * the election. So the projection can only suppress or emit the customer's
+ * separate line; it cannot move the charge between the two places.
+ *
+ * The measured consequences, per tier, on a $1,000 fee at a 1.4 rate:
+ *
+ *     included, assembly NOT allocating  ->  line suppressed, unit price
+ *                                            unchanged. The customer is
+ *                                            billed $1,400 LESS. The charge
+ *                                            is not moved; it is DELETED.
+ *
+ *     separate, assembly IS allocating   ->  line emitted, and the fee is
+ *                                            still inside the unit price.
+ *                                            $1,400 billed TWICE.
+ *
+ *     absorbed                           ->  see below.
+ *
+ * Both are silent: a plausible total, wrong by exactly one charge. So the only
+ * elections that are currently correct are the ones that AGREE with the legacy
+ * boolean — which is to say, the ones that change nothing.
+ *
+ * That is what this refuses down to. It is fail-closed and it is honest about
+ * being a floor: `included <-> separate` becomes genuinely revenue-neutral,
+ * and this refusal lifts, when the costing layer consumes the election. Until
+ * then an inert model is strictly better than a mis-pricing one.
+ *
+ * ── AND WHY `absorbed` IS REFUSED IN BOTH ALLOCATION STATES ──────────────
+ *
+ * Allocating: the unit rate already recovers the charge, so suppressing the
+ * line drops the line and leaves the revenue.
+ *
+ * NOT allocating: the charge WAS billed separately — and the engine records
+ * separately-billed fees as "billed as fixed charges; not part of the per-unit
+ * sell", so they were never in the tier revenue that
+ * `fingerprintCommercialState`, the floor gate and the below-floor
+ * authorization are all computed from. Absorbing therefore reduces what the
+ * customer pays while the measured margin does not move at all. The decrease
+ * is real and INVISIBLE to the control that exists to catch it, which is worse
+ * than either of the two above.
+ *
+ * Neither is a re-amortisation problem this layer could solve by trying
+ * harder. Both need the engine to consume the election.
+ */
+const ELECTION_DELETES_CHARGE =
+  "Not available yet. This charge is billed separately today and is not in " +
+  "the unit price, so presenting it as included would remove it from the " +
+  "customer's total rather than move it — the quote would be short by the " +
+  "full charge. It opens when the costing engine consumes the election.";
+
+const ELECTION_DOUBLE_BILLS =
+  "Not available yet. This charge is already inside the unit price, so " +
+  "adding a separate line would bill it twice. It opens when the costing " +
+  "engine consumes the election.";
+
+const ABSORB_INVISIBLE_TO_FLOOR =
+  "Not available yet. Absorbing this charge would reduce what the customer " +
+  "pays without moving the margin the floor and the below-floor " +
+  "authorization are measured from, so the reduction would pass every " +
+  "control unseen. It opens when the costing engine consumes the election.";
+
+export { ELECTION_DELETES_CHARGE, ELECTION_DOUBLE_BILLS, ABSORB_INVISIBLE_TO_FLOOR };
 
 /**
  * The state a refusal may depend on beyond the charge itself.
@@ -159,17 +247,26 @@ export function contextualRefusal(
   mode: RecoveryMode,
   ctx: ChargeContext,
 ): string | null {
-  if (mode !== "absorbed") return null;
   // Landed charges have no assembly dimension and no allocation boolean.
   if (chargePolicy(key).grain !== "one_time") return null;
+
   // `?? true` is the same pre-recovery default the projection carried.
-  return (ctx.perAssemblyAllocate ?? true) ? ALLOCATED_ABSORPTION_REFUSAL : null;
+  const allocate = ctx.perAssemblyAllocate ?? true;
+
+  if (mode === "absorbed") return ABSORB_INVISIBLE_TO_FLOOR;
+  // Anything that DISAGREES with the legacy boolean asks the projection to do
+  // something only the engine can do.
+  if (mode === "included" && !allocate) return ELECTION_DELETES_CHARGE;
+  if (mode === "separate" && allocate) return ELECTION_DOUBLE_BILLS;
+  return null;
 }
 
 /**
  * The one refusal question: may this charge carry this mode, here?
  *
- * Static policy first, then context. `null` means electable. Every caller —
+ * Three sources, in order: what the firm does not permit, what the system
+ * cannot yet honour, and what this assembly's state makes incoherent. `null`
+ * means electable. Every caller —
  * resolution, the action layer, the workspace — asks THIS, so a mode cannot be
  * refused at one boundary and quietly allowed at another.
  */
@@ -178,7 +275,11 @@ export function refusalFor(
   mode: RecoveryMode,
   ctx: ChargeContext = {},
 ): string | null {
-  return refusalReason(key, mode) ?? contextualRefusal(key, mode, ctx);
+  return (
+    refusalReason(key, mode) ??
+    unwiredRefusal(key, mode) ??
+    contextualRefusal(key, mode, ctx)
+  );
 }
 
 export type ModeAvailability = {
