@@ -47,6 +47,8 @@ import {
   projects,
   quotes,
   quoteReviewEvents,
+  quoteChargeRecovery,
+  quoteSnapshotChargeRecovery,
   quoteSnapshots,
   quoteSnapshotArtifacts,
   quoteSnapshotFreightInputs,
@@ -1945,6 +1947,31 @@ export async function sendQuote(
       // its line set would be a version whose commercial content has to be
       // recomputed to be known, which is the state this replaces.
       await freezeCommercialLineSet(tx, snapshot.id, resolved.commercial);
+
+      // THE RECOVERY ELECTIONS, mirrored into the snapshot.
+      //
+      // The live table stays editable on the next draft revision, so without
+      // this mirror a sent revision would inherit whatever the LATEST revision
+      // elected — the frozen document and the elections it was built under
+      // would drift apart with nothing reporting it. Copying them here makes
+      // that structural rather than a rule someone has to remember.
+      //
+      // Zero rows is the normal case and is not an omission: absence of an
+      // election means legacy per-assembly resolution, which is exactly what
+      // reproduces on replay.
+      const electionsToFreeze = await tx
+        .select()
+        .from(quoteChargeRecovery)
+        .where(eq(quoteChargeRecovery.quoteId, quoteId));
+      if (electionsToFreeze.length > 0) {
+        await tx.insert(quoteSnapshotChargeRecovery).values(
+          electionsToFreeze.map((e) => ({
+            snapshotId: snapshot.id,
+            chargeKey: e.chargeKey,
+            mode: e.mode,
+          })),
+        );
+      }
 
       // Phase 2 worksheet freight is frozen inside the same transaction as
       // the Quote snapshot. The one-to-one snapshot FK is the durable

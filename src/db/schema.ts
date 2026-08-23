@@ -4148,3 +4148,70 @@ export const quoteOtherServiceItems = pgTable(
     ),
   ],
 );
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-charge commercial recovery (migration 0100)
+//
+// The operator-selected layer between internal cost truth and customer
+// presentation. `recovery_charge` is a CLOSED set — a charge exists because
+// it is governed, not because a field is numeric — so adding one is a
+// migration, which the enum enforces.
+//
+// Note what is absent: filling/blending, CM assembly, bulk raw, packaging.
+// Per-unit COGS is not a charge, it is the unit price, and that boundary is
+// what stops recovery spreading to every numeric field.
+//
+// ABSENCE OF A ROW IS A VALUE. There is no `per_assembly` mode because it was
+// never an election — it is the absence of one. A missing row means "nobody
+// elected; read the legacy source", which keeps "nobody chose" apart from
+// "someone chose the same thing". No backfill: 89 quotes and 29 snapshots
+// resolve to exactly the behaviour that produced them with zero rows here.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const recoveryMode = pgEnum("recovery_mode", [
+  "included",
+  "separate",
+  "absorbed",
+]);
+
+export const recoveryCharge = pgEnum("recovery_charge", [
+  "container_freight",
+  "duty_tariffs",
+  "tooling",
+  "project_setup",
+  "artwork_plate",
+  "rd_formulation",
+  "testing_micros",
+  "other_service",
+  "tooling_artwork_legacy",
+]);
+
+export const quoteChargeRecovery = pgTable(
+  "quote_charge_recovery",
+  {
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    chargeKey: recoveryCharge("charge_key").notNull(),
+    mode: recoveryMode("mode").notNull(),
+    electedAt: timestamp("elected_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    electedByUserId: uuid("elected_by_user_id").references(() => users.id),
+  },
+  (t) => [primaryKey({ columns: [t.quoteId, t.chargeKey] })],
+);
+
+// The durable record, mirrored inside the send transaction so a sent revision
+// can never inherit a later revision's election.
+export const quoteSnapshotChargeRecovery = pgTable(
+  "quote_snapshot_charge_recovery",
+  {
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    chargeKey: recoveryCharge("charge_key").notNull(),
+    mode: recoveryMode("mode").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.snapshotId, t.chargeKey] })],
+);

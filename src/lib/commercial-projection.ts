@@ -12,6 +12,11 @@ import {
   SERVICE_IDENTITY_DESTINATION,
 } from "@/lib/netsuite/bv011-destinations";
 import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
+import {
+  resolveCharge,
+  type ChargeElection,
+} from "@/lib/commercial-recovery/resolve";
+import type { RecoveryChargeKey } from "@/lib/commercial-recovery/registry";
 
 /**
  * THE commercial projection — one governed boundary, two consumers.
@@ -182,13 +187,48 @@ const OTC_FEES = [
 
 export const OTC_FEE_FIELDS = OTC_FEES.map((f) => f.field);
 
+/**
+ * Which governed charge each OTC column is.
+ *
+ * The registry owns the policy; this owns only the correspondence between a
+ * persisted column and the charge it funds. Kept beside `OTC_FEES` so the two
+ * cannot drift: every field above must appear here, asserted by test.
+ *
+ * `toolingArtworkTotal` maps to the LEGACY charge, which is non-elective
+ * precisely because that one column spans two governed destinations with
+ * different item types (BV-011 §4.2).
+ */
+const OTC_FIELD_TO_CHARGE: Record<string, RecoveryChargeKey> = {
+  setupFeeTotal: "project_setup",
+  [LEGACY_COMBINED_OTC_COLUMN]: "tooling_artwork_legacy",
+  toolingTotal: "tooling",
+  artworkTotal: "artwork_plate",
+  rdTotal: "rd_formulation",
+  otherServiceTotal: "other_service",
+};
+
+export { OTC_FIELD_TO_CHARGE };
+
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection {
+export function projectCommercial(
+  bundle: HydrateSnapshot,
+  /**
+   * The quote's governed charge elections. EMPTY IS THE LEGACY CASE and is
+   * the default, so every existing caller keeps its exact behaviour without
+   * being touched.
+   *
+   * Passed explicitly rather than read off the bundle: the bundle is engine
+   * OUTPUT and recovery is not an engine input, so putting it there would
+   * blur the boundary this seam exists to draw. It also keeps the dependency
+   * visible at the single call site.
+   */
+  elections: readonly ChargeElection[] = [],
+): CommercialProjection {
   // Read straight off the snapshot. NOT a hand-written structural cast.
   //
   // It was a cast, and the cast named the tier key `id`. The engine emits
@@ -201,6 +241,13 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
   //
   // `costing` was never optional; the cast invented the optionality along with
   // the wrong field name.
+  // Indexed once. A charge appears at most once per quote — the election is
+  // per (quote, charge), not per line — so a later duplicate would be a data
+  // defect rather than a refinement, and Map.set would hide it. The action
+  // layer enforces uniqueness via the composite primary key.
+  const electionByCharge = new Map<RecoveryChargeKey, ChargeElection>();
+  for (const e of elections) electionByCharge.set(e.chargeKey, e);
+
   const costing: QuoteCostingResult = bundle.costing;
   const tiers = costing.tiers;
 
@@ -331,11 +378,41 @@ export function projectCommercial(bundle: HydrateSnapshot): CommercialProjection
 
       for (const t of tiers) {
         const row = byTier.get(t.tierId);
-        const allocated = row?.allocateServiceFeesToCost ?? true;
+
+        // ── RECOVERY RESOLUTION, AND WHY IT IS BYTE-IDENTICAL AT REST ─────
+        //
+        // With NO election, `resolveCharge` returns exactly
+        // `allocate ? "included" : "separate"` from this same per-assembly
+        // value — so `allocated` below is the identical boolean this line
+        // read before recovery existed. Not approximately: identically, and
+        // with NO arithmetic performed. That is what makes 89 existing quotes
+        // and 29 frozen snapshots byte-identical BY CONSTRUCTION rather than
+        // by floating-point luck (the OD-025 lesson).
+        //
+        // Resolution is per (charge, ASSEMBLY) because
+        // `allocate_service_fees_to_cost` is per-assembly and three real
+        // quotes — one already sent — carry OFF and ON simultaneously.
+        // Resolving once per quote would flatten exactly that state.
+        const resolved = resolveCharge(
+          OTC_FIELD_TO_CHARGE[fee.field],
+          electionByCharge.get(OTC_FIELD_TO_CHARGE[fee.field]) ?? null,
+          row?.allocateServiceFeesToCost,
+        );
+        const allocated = resolved.mode === "included";
+
+        // `absorbed` means DPS carries the cost and takes NO revenue for the
+        // charge, so it emits no customer line below.
+        //
+        // The dangerous case — absorbing a charge the unit rate ALREADY
+        // recovers — is refused inside `resolveCharge` above, which is handed
+        // this same per-assembly allocation value. It is refused THERE and not
+        // here on purpose: it is a commercial rule about what an operator may
+        // elect, so it belongs to policy rather than to one producer. A guard
+        // repeated at the seam would be a second place to keep in step.
         allocationByTier.push(row ? (allocated ? "allocated" : "separately_billed") : null);
 
         const raw = row ? num((row as Record<string, unknown>)[fee.field]) : null;
-        if (allocated || raw === null || raw <= 0) {
+        if (allocated || resolved.mode === "absorbed" || raw === null || raw <= 0) {
           // Allocated fees are already inside the unit lines. Emitting them
           // here as well would bill the same economics twice.
           cells.push({ state: "quote_on_request" });
