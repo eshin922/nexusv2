@@ -174,52 +174,82 @@ allocation-OFF fees while each stayed internally consistent.
 
 Under §4, `separate` puts the charge's cost into cost and its recovery into
 revenue. Today, allocation-OFF charges are in **neither**. So implementing §4
-faithfully **changes the computed margin of all 8 quotes in §2** — including a
+faithfully **changes the computed margin of every quote in §2** — including a
 `sent` quote and a `complete` one.
 
-The direction is knowable in advance. For a charge at a positive rate the
-recovery exceeds the cost, so including both raises revenue by more than it
-raises cost: **the blended margin of an allocation-OFF quote goes UP**, and
-today's figure **understates** DPS's actual profit on those quotes. The current
-treatment is not conservative — it hides margin rather than overstating it.
+### The direction — measured, and not what I first claimed
 
-Three ways to hold this, none of them free:
+An earlier draft of this section said the margin *"goes up"* and that today's
+figure *"understates DPS's profit."* **That is wrong**, and the sizing run
+(`scripts/gate-1b/alloc-off-margin-exposure.ts`) shows it going both ways.
 
-**(a) Legacy quotes keep the exclusion.** No-election quotes resolve exactly as
-today; the new construction applies only where an election exists. Preservation
-is total and S-7 stays at zero delta. The cost is that *margin means two
-different things depending on how a quote was authored*, with nothing on the
-surface saying which — and that is the shape of defect this whole workstream
-exists to remove.
+Adding a charge at cost `e` and recovery `e(1+r)` moves the margin **up only
+when the tier's current margin is below `r/(1+r)`** — the margin implied by the
+charge's own rate. At the governed `Production` rate of 40% that threshold is
+**28.57%**. Above it, adding the charge **dilutes** the margin downward.
 
-**(b) Recompute everything; frozen quotes are protected by their snapshots.**
-The 4 sent/complete quotes render from frozen state, so what the customer
-received cannot move. The 4 drafts' margins change — upward — and any that sit
-near the floor could cross it, which is a *governed* event that must go through
-the floor gate rather than appear silently. Honest, and it makes margin mean one
-thing. The cost is that S-7 will show real deltas that have to be reviewed
-line-by-line rather than being zero.
+So the exclusion does not modestly hide profit. It pulls the reported margin
+**away from the charge's own economics in whichever direction the quote sits** —
+understating thin quotes and **overstating** healthy ones. That is a stronger
+argument for repairing it, not a weaker one: an inconsistent distortion is worse
+than a consistent one, because no reader can correct for it.
 
-**(c) Treat the current exclusion as its own defect.** Repair it independently
-of recovery, with its own evidence and its own disposition, so that when the
-constructor lands both allocation states already agree about what margin
-includes. Cleanest separation of concerns, longest path, and it front-loads the
-$75,025 question rather than deferring it.
+### Measured exposure
+
+Governed `Production` rate 40% · firm target 35% · floor 25%:
+
+| quote | status | tier | excluded | margin now | estimate | Δ |
+|---|---|---|---|---|---|---|
+| `4781e4bb` | draft | 1–4 | $5,600–$6,500 | 29.04–31.92% | 28.88–31.64% | ↓ |
+| `52bd0077` | draft | 1–4 | $3,100–$4,000 | 38.96–42.37% | 35.93–41.26% | ↓ |
+| `93a5d4bb` | **sent** | 1 | $225 | 74.36% | 66.67% | **↓ 7.7pp** |
+| `97d25286` | **complete** | 1–3 | $100–$1,000 | 29.58–31.03% | 29.56–30.85% | ↓ |
+| `f2db6e10` | draft | 1 | $17,000 | 11.86% | 14.54% | **↑ 2.7pp** |
+| `f5f5ac14` | draft | 1 | $17,000 | 11.86% | 14.54% | **↑ 2.7pp** |
+
+**No tier changes floor or target status under the estimate.** The two
+`BELOW_FLOOR` tiers rise but stay below floor; the `GOOD` tiers fall but stay
+good. That is the gating answer the run was written to produce — the repair can
+proceed without triggering a governed floor event on the current population.
+
+Two cautions on that result. It is a statement about **today's** population, not
+a permanent property; a future quote sitting near a boundary would cross. And
+the estimate is a first-order reconstruction, not the engine's output — the
+repair must be certified against the engine, which is why the script says so in
+its own header.
+
+### Three ways to hold it
+
+**(a) Legacy quotes keep the exclusion.** Preservation is total, S-7 stays at
+zero delta. The cost is that *margin means two different things depending on how
+a quote was authored*, with nothing on the surface saying which — the shape of
+defect this workstream exists to remove.
+
+**(b) Recompute; frozen quotes are protected by their snapshots.** What the
+customer received cannot move. Draft margins move — in both directions — and any
+crossing is a *governed* event rather than a silent one. Margin means one thing.
+The cost is that S-7 shows real deltas requiring line-by-line review.
+
+**(c) Repair the exclusion as its own defect**, independently of recovery, so
+both allocation states already agree about what margin includes before the
+constructor lands.
 
 **Recommendation: (c), then (b) as the constructor's baseline.** (a) buys
-preservation with the one thing this workstream is trying to eliminate — a
-quantity that means two things depending on provenance. Separating the repair
-also means the margin change is reviewed on its own evidence, instead of
-arriving inside a slice about recovery where it would read as a side effect.
+preservation with the one thing this workstream is trying to eliminate.
+Separating the repair also means the margin movement is reviewed on its own
+evidence, rather than arriving inside a recovery slice where it would read as a
+side effect.
 
-**This needs Edward's disposition before implementation begins.**
+**DISPOSITIONED 2026-08-23 — (c) then (b), (a) rejected.** The repair is its own
+slice: [`allocation-off-margin-exclusion-repair.md`](allocation-off-margin-exclusion-repair.md).
+Nothing in this design is implemented until that slice is certified.
 
 ---
 
 ## 7 · Open, requiring disposition
 
-1. **§6 — the margin-recompute question.** Governs the slice. Nothing else
-   should start until it is settled.
+1. ~~§6 — the margin-recompute question.~~ **DISPOSITIONED** — (c) then (b).
+   The repair is a separate certified slice and is this design's prerequisite.
 2. **Whether the constructor is a distinct module or a second phase inside
    `computeQuoteCosting`.** The single-consumer requirement is the constraint;
    file layout is not settled. A distinct module is easier to prove and adds a
@@ -242,7 +272,8 @@ arriving inside a slice about recovery where it would read as a side effect.
 
 ## 8 · Sequence
 
-1. **§6 dispositioned.** Blocking.
+1. **The allocation-OFF exclusion repaired and certified** — its own slice,
+   its own evidence. Blocking.
 2. Per-charge economics emitted from the cost layer — additive, provable
    against S-7 at zero delta because nothing consumes them yet.
 3. The constructor, plus consumer cutover, proven by call-site count.
