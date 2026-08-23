@@ -376,8 +376,11 @@ test("case 23 — every refusal names what opens it, not just that it is closed"
   // A refusal an operator cannot act on and cannot date is indistinguishable
   // from a bug. Each of these says what has to change.
   for (const reason of [ELECTION_DELETES_CHARGE, ELECTION_DOUBLE_BILLS, ABSORB_INVISIBLE_TO_FLOOR]) {
-    assert.match(reason, /costing engine consumes the election/);
     assert.match(reason, /^Not available yet\./);
+    // What opens it, in terms an operator can hold — the capability, not the
+    // module that will provide it.
+    assert.match(reason, /It opens once /);
+    assert.doesNotMatch(reason, /engine|layer|projection/i);
   }
   // And they must not read as policy refusals — the firm permits these modes.
   for (const reason of [ELECTION_DELETES_CHARGE, ELECTION_DOUBLE_BILLS]) {

@@ -143,7 +143,9 @@ test("TRIPWIRE — if the refusal lifts, included and separate must be revenue-n
         `customer's total still moves by ${round(Math.abs(elected - baseline))}. ` +
         `included <-> separate must be revenue-neutral: the charge has to be ` +
         `MOVED between the unit price and its own line, not added to or removed ` +
-        `from one side. The costing engine has to consume the election.`,
+        `from one side — which needs the commercial sell-construction layer, ` +
+        `not the cost engine. Cost truth stays fixed; sell composition is what ` +
+        `recovery is allowed to move.`,
     );
   }
 });
@@ -164,8 +166,10 @@ test("TRIPWIRE — if absorbed opens, its reduction must reach the measured marg
     open,
     false,
     "`absorbed` was opened. Before this test is deleted, prove that the " +
-      "reduction moves quoteRollup.totalRevenue — separately-billed fees are " +
-      "recorded by the engine as 'not part of the per-unit sell', so today the " +
-      "customer pays less and the measured margin does not move at all.",
+      "reduction reaches the POST-RECOVERY revenue every consumer reads — " +
+      "quote rollup, margin, below-floor fingerprint, send gate, customer " +
+      "document and frozen matrix alike. Separately-billed fees are recorded " +
+      "as 'not part of the per-unit sell', so today the customer pays less " +
+      "and the measured margin does not move at all.",
   );
 });

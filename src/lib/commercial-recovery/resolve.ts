@@ -7,9 +7,33 @@
  *
  * ── THE INVARIANT THIS LAYER EXISTS TO PROTECT ───────────────────────────
  *
- * Layer 1 is INVARIANT under recovery. For one bundle and any two election
- * sets, every internal cost scalar is byte-identical; only revenue composition
- * and presentation move. Nothing here is readable by the costing engine.
+ * CORRECTED 2026-08-23. The earlier form of this was "Layer 1 is invariant
+ * under recovery", which treated one property as two:
+ *
+ *     Recovery must NEVER change cost truth.
+ *     Recovery MAY change sell composition and revenue.
+ *
+ * Cost truth — vendor cost, production cost, raw, duty and freight inputs —
+ * is invariant under every election, and that is the accounting guarantee.
+ * SELL CONSTRUCTION is not, and requiring it to be is what made recovery
+ * unimplementable: moving a charge between the unit price, its own line and
+ * nowhere is BY DEFINITION a change in how revenue is built.
+ *
+ * The stronger invariant was not merely inconvenient. It was the reason
+ * `included` deleted a charge and `separate` billed it twice — the projection
+ * was asked to relocate a charge while forbidden to touch the only layer that
+ * decides where the charge lives. See
+ * `tests/unit/commercial-recovery-election-effect.test.ts`.
+ *
+ * The boundary being carried forward is three parts, not two:
+ *
+ *     cost engine  ->  charge economics (invariant)
+ *     commercial   ->  sell / recovery construction (the election applies HERE)
+ *     projection   ->  render + freeze (consumes the result, decides nothing)
+ *
+ * The middle layer does not exist yet. Until it does, this file refuses every
+ * election that would require it — which is every election that changes
+ * anything.
  *
  * ── ABSENCE OF A ROW IS THE LOAD-BEARING STATE ───────────────────────────
  *
@@ -184,10 +208,15 @@ export { LANDED_SEPARATE_UNWIRED };
  * elections that are currently correct are the ones that AGREE with the legacy
  * boolean — which is to say, the ones that change nothing.
  *
- * That is what this refuses down to. It is fail-closed and it is honest about
- * being a floor: `included <-> separate` becomes genuinely revenue-neutral,
- * and this refusal lifts, when the costing layer consumes the election. Until
- * then an inert model is strictly better than a mis-pricing one.
+ * That is what this refuses down to. It is fail-closed, and it is honest about
+ * being a floor rather than a resting place.
+ *
+ * WHAT LIFTS IT is a commercial sell-construction layer between the cost
+ * engine and the projection — one that may recombine revenue while cost truth
+ * stays fixed. Not the cost engine "consuming the election", which would put a
+ * commercial decision inside the accounting layer and give away the guarantee
+ * this whole model exists to keep. Until that layer exists, an inert model is
+ * strictly better than a mis-pricing one.
  *
  * ── AND WHY `absorbed` IS REFUSED IN BOTH ALLOCATION STATES ──────────────
  *
@@ -204,24 +233,29 @@ export { LANDED_SEPARATE_UNWIRED };
  * than either of the two above.
  *
  * Neither is a re-amortisation problem this layer could solve by trying
- * harder. Both need the engine to consume the election.
+ * harder. Both need a sell-construction layer whose output every consumer
+ * reads — quote rollup, margin, below-floor fingerprint, send gate, customer
+ * document and frozen matrix alike. A recovery that only some of those can see
+ * is the divergence this seam was built to end, reintroduced one layer down.
  */
 const ELECTION_DELETES_CHARGE =
   "Not available yet. This charge is billed separately today and is not in " +
   "the unit price, so presenting it as included would remove it from the " +
   "customer's total rather than move it — the quote would be short by the " +
-  "full charge. It opens when the costing engine consumes the election.";
+  "full charge. It opens once recovery can move a charge between the unit " +
+  "price and a separate line.";
 
 const ELECTION_DOUBLE_BILLS =
   "Not available yet. This charge is already inside the unit price, so " +
-  "adding a separate line would bill it twice. It opens when the costing " +
-  "engine consumes the election.";
+  "adding a separate line would bill it twice. It opens once recovery can " +
+  "move a charge between the unit price and a separate line.";
 
 const ABSORB_INVISIBLE_TO_FLOOR =
   "Not available yet. Absorbing this charge would reduce what the customer " +
   "pays without moving the margin the floor and the below-floor " +
   "authorization are measured from, so the reduction would pass every " +
-  "control unseen. It opens when the costing engine consumes the election.";
+  "control unseen. It opens once absorbing a charge lowers the quoted margin " +
+  "as well as the customer's total.";
 
 export { ELECTION_DELETES_CHARGE, ELECTION_DOUBLE_BILLS, ABSORB_INVISIBLE_TO_FLOOR };
 
