@@ -139,12 +139,46 @@ is **correct and must be legible**, which rules out both easy answers:
 overwriting the snapshot destroys history, and suppressing the corrected figure
 reasserts the defect wherever anyone looks.
 
-**Requirement:** any surface or diagnostic that shows a live-recomputed margin
-for a frozen quote must be able to say which of the two it is showing. What that
-looks like — a badge, a paired figure, a diagnostic-only field — is a design
-question for implementation. **What is settled is that "corrected" and "as
-sent" must be distinguishable, and that neither is quietly substituted for the
-other.**
+**Requirement — settled:** wherever both can be surfaced, the frozen historical
+margin and the corrected analytical margin are **explicitly labelled**. Neither
+is quietly substituted for the other. The visual form is an implementation
+design question; the labelling is not optional.
+
+### Where both can be surfaced — enumerated, not assumed
+
+The scope is every surface that renders a margin from a LIVE
+`getCostingBundle` recompute while the quote is frozen. Found:
+
+| surface | reads | reachable when frozen |
+|---|---|---|
+| Pricing (`pricing/page.tsx:87`) | live bundle | **yes** — `editable = status === "draft"`, so a frozen quote renders read-only rather than being turned away |
+| Mark Accepted (`mark-accepted/page.tsx:94`) | live bundle | **yes, by definition** — the surface exists only after send |
+| Costs cost-stack header | live bundle | yes, same read-only pattern |
+
+The implementation sweep must confirm this list rather than inherit it; the
+method is *"calls `getCostingBundle` and renders a margin"*, and a surface added
+between now and then would not be in it.
+
+### The governed-gate coupling — named, because it is not merely analytical
+
+`markComplete` refuses on `tierRollup.blendedMarginStatus === "BELOW_FLOOR"`
+(`mark-complete.ts:255`), computed from a **live** bundle read at
+`mark-complete.ts:236` — on a quote that is already accepted. So the repair
+changes a value that a **governed gate enforces on**, not only one that a
+surface displays.
+
+On today's population that is safe: no affected tier changes classification
+(§2). It is named anyway, because "no crossing today" is a fact about data and
+this is a fact about structure.
+
+**The Sales Order amount is NOT affected**, and for a good reason that already
+exists. `currentAmount` was deliberately moved off the live rollup onto the
+**frozen** commercial total (`mark-complete.ts:313, 652`) — the comment there
+says *"a convention is not an authority."* `tierRollup` survives at that call
+site only for the margin verdicts and the per-unit cost basis. So the repair
+moves the gate's input and leaves the external write untouched, which is the
+right split and is already load-bearing rather than something this slice has to
+establish.
 
 The S-7 harness is the first consumer of this distinction: it compares live
 recomputation against a captured baseline, so it **will** report deltas for
@@ -155,37 +189,58 @@ line-by-line, and the baseline re-captured only once they are.
 
 ## 5 · Certification
 
-The evidence this slice must produce, before merge:
+The evidence this slice must produce, before merge. Ordered, and the order is
+load-bearing — the baseline is re-captured last, and only once everything above
+it has been certified.
 
-1. **Per (quote, tier), from the engine**: cost, revenue, margin and
-   floor/target status before and after. Not the §2 estimate — that is a
-   first-order reconstruction, and certifying against it would be certifying a
-   reimplementation. The script's own header says so.
-2. **Every status crossing enumerated**, or an explicit statement that there
-   are none. A crossing is a governed event and does not get to be a
-   side effect.
-3. **The customer-facing document is byte-identical** for all 8 quotes. This is
-   the control: any movement is a defect.
-4. **Frozen artifacts unchanged** — snapshots, frozen line sets, `pdf_url`
-   targets. Asserted, not assumed.
-5. **Consumer sweep** for both dead primitives and for `breakdown.serviceFees`:
-   queries, writes, realtime subscriptions, publication membership, raw SQL
-   outside `actions/`, and the PDF/SO projections. This codebase has been caught
-   twice by a sweep that covered only the first of those.
-6. **S-7 deltas reviewed line-by-line**, then the baseline re-captured as a
-   deliberate act with its own record — never as a way of making a diff go away.
+1. **Certify every affected quote/tier against the ENGINE**, not the sizing
+   script. Cost, revenue, margin and floor/target status, before and after. The
+   §2 estimate is a first-order reconstruction; certifying against it would be
+   certifying a reimplementation, and the script's own header says so.
+2. **Prove the PDF and customer totals are unchanged** for all 8 quotes. This is
+   the control, not an output — any movement is a defect in the repair.
+3. **Prove frozen snapshots are untouched** — `quote_snapshots`, frozen
+   commercial line sets, `pdf_url` targets. Asserted, not assumed.
+4. **Report exact margin deltas and floor/target classification before and
+   after**, per tier. Every crossing enumerated, or an explicit statement that
+   there are none. A crossing is a governed event and does not get to arrive as
+   a side effect.
+5. **Explicitly label frozen historical margin vs corrected analytical margin**
+   wherever both can be surfaced (§4).
+6. **Only then, deliberately re-capture the S-7 baseline** — as its own act with
+   its own record, after line-by-line review of the deltas. Never as a way of
+   making a diff go away.
+
+Alongside these, and not in place of them: a **consumer sweep** for both dead
+primitives and for `breakdown.serviceFees` — queries, writes, realtime
+subscriptions, publication membership, raw SQL outside `actions/`, and the
+PDF/SO projections. This codebase has been caught twice by a sweep that covered
+only the first of those.
 
 ---
 
 ## 6 · Open
 
-1. **The distinguishability mechanism** (§4) — badge, paired figure, or
-   diagnostic-only field.
+1. **The visual form of the labelling** (§4) — badge, paired figure, or
+   diagnostic-only field. The requirement is settled; the form is not.
 2. **Fill or replace the dead primitives** (§3).
-3. **Whether `93a5d4bb`'s 7.7pp correction warrants notifying anyone.** It is a
-   `sent` quote whose recorded margin was overstated. Nothing customer-facing
-   moves and no money changes hands, so this is a records question rather than a
-   commercial one — but it is Edward's call, not an implementation detail.
+
+### Dispositioned
+
+**`93a5d4bb` — record internally, do not notify externally.** (Edward,
+2026-08-23.)
+
+No external notification and **not treated as a commercial correction**: the
+customer-facing economics and the money charged do not change. It is recorded
+as a **certified historical analytical discrepancy** — the frozen quote remains
+the commercial record at 74.36%, while live recomputation shows the corrected
+66.67%.
+
+Both halves of that matter. We do not silently rewrite history, and we do not
+keep presenting 74.36% as analytically correct once the defect is fixed. It is
+the §4 distinction applied to the one quote where the gap is large enough to be
+noticed, and it is why §5 item 5 is a certification requirement rather than a
+polish item.
 
 ---
 
