@@ -507,3 +507,45 @@ test("Card 0 states the absence rather than substituting a tier", async () => {
   assert.match(resolver, /chargesAtCost: rec \? cost : null/);
   assert.match(resolver, /approvedRecovery: rec \? recovery : null/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// EVERY TOKEN THIS SURFACE REFERENCES MUST EXIST.
+//
+// The first fidelity pass wrote `var(--sans)`, `var(--rule-strong)`,
+// `var(--canvas)`, `var(--danger)` and `var(--ok)`. None of those tokens
+// exist. A `font:` shorthand containing an undefined custom property is
+// INVALID AT COMPUTED-VALUE TIME, so the whole declaration is dropped — every
+// size and leading in the stylesheet was silently discarded and the rail
+// inherited 14px/21px throughout.
+//
+// It read as "loose typography" rather than as broken, because the family
+// still inherited from `body`. Two rounds of transcribing exact values from
+// the reference changed nothing, and could not have.
+//
+// This is the check that makes the failure loud. It is a real gap in the
+// platform: nothing else asserts that a stylesheet's tokens resolve.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("every custom property the Customer View references is defined", async () => {
+  const css = await read("src/styles/r3-customer-view.css");
+  const tokens = await read("src/styles/design-tokens.css");
+
+  // Comments name the tokens that were WRONG, so they must not be scanned.
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const defined = new Set([...tokens.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
+  const used = new Set([...code.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]));
+
+  // Set at runtime by quote-host from the measured shell height.
+  used.delete("--cv-avail");
+
+  const missing = [...used].filter((t) => !defined.has(t)).sort();
+  assert.deepEqual(
+    missing,
+    [],
+    `undefined tokens — every declaration using one is silently dropped: ${missing.join(", ")}`,
+  );
+
+  // Non-vacuous: the scan sees real tokens.
+  assert.ok(used.size > 10, `only ${used.size} tokens scanned — the regex is not matching`);
+  assert.ok(defined.has("--ui"), "the token file was not read");
+});

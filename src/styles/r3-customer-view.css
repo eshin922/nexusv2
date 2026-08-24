@@ -9,6 +9,21 @@
  * View.dc.html` is the reference of record; `README.md` carries the measurements
  * quoted below; every value here is from one of the two.
  *
+ * ── TOKEN NAMES ARE VERIFIED, NOT GUESSED ──────────────────────────────
+ *
+ * The first pass wrote `var(--sans)`, `var(--rule-strong)`, `var(--canvas)`,
+ * `var(--danger)` and `var(--ok)`. NONE of those tokens exist. A `font:`
+ * shorthand containing an undefined custom property is invalid at
+ * computed-value time, so the WHOLE declaration is dropped — every size and
+ * leading in this file was silently discarded and the rail inherited 14px/21px
+ * throughout. The family still looked right because it inherits from `body`,
+ * which is why the surface read merely "loose" rather than obviously broken.
+ *
+ * The real names are `--ui`, `--rule-2`, `--paper-2`, `--bad`, `--good`. Nexus
+ * IS the reference's palette; only the names differ. Mapped by VALUE against
+ * the reference's token table, not by name similarity, and asserted by a test
+ * that every custom property this file references is defined.
+ *
  * ── WHAT IS DELIBERATELY NOT BUILT ──────────────────────────────────────
  *
  * The reference renders the document as a DOM page stack at 816×1056 with
@@ -49,13 +64,13 @@
   align-items: center;
   gap: 14px;
   padding: 9px 20px;
-  background: var(--paper-2);
+  background: var(--paper);
   border-bottom: 1px solid var(--rule);
 }
 /* The one internal marker the preview pane carries: the frame is internal,
    the contents are not. */
 .cv-frame-chip {
-  font: 400 10px/1 var(--mono, ui-monospace, monospace);
+  font: 400 10px/1 var(--mono);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--internal);
@@ -65,7 +80,7 @@
   white-space: nowrap;
 }
 .cv-preview-summary {
-  font: 400 12px/1.4 var(--sans);
+  font: 400 12px/1.4 var(--ui);
   color: var(--ink-3);
   min-width: 0;
 }
@@ -74,7 +89,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 400 11px/1 var(--mono, ui-monospace, monospace);
+  font: 400 11px/1 var(--mono);
   color: var(--ink-3);
   white-space: nowrap;
 }
@@ -86,8 +101,8 @@
   padding: 28px 0 60px;
   background: repeating-linear-gradient(
     -45deg,
-    var(--paper-3, oklch(0.955 0.008 85)) 0 8px,
-    var(--canvas, oklch(0.965 0.008 85)) 8px 16px
+    var(--paper-3) 0 8px,
+    var(--paper-2) 8px 16px
   );
 }
 /* 816px is Letter at 96dpi — the authority's document width. The sheet holds
@@ -114,7 +129,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--canvas, oklch(0.965 0.008 85));
+  background: var(--paper-2);
 }
 .cv-rail-scroll {
   flex: 1;
@@ -131,37 +146,40 @@
   flex: none;
   border-radius: 10px;
   overflow: hidden;
-  background: var(--paper-2);
+  /* The reference's SURFACE (0.985) — `--paper` in Nexus. The first pass used
+     --paper-2, which is the reference's CANVAS, so every card sat one step too
+     dark against a rail that was the same value. */
+  background: var(--paper);
   border: 1px solid var(--rule);
 }
 /* Card 0 · "owned elsewhere" — sunken ground, DASHED rule. The treatment is
    load-bearing: it is how the operator reads "not editable here" without a
    paragraph telling them so. */
 .cv-card-governed {
-  background: var(--paper-3, oklch(0.945 0.010 85));
-  border: 1px dashed var(--rule-strong, var(--rule));
+  background: var(--paper-3);
+  border: 1px dashed var(--rule-2);
   padding: 12px 14px;
 }
 /* Card 1 · heavier border — this is the consequential card. */
 .cv-card-recovery {
-  border-color: var(--rule-strong, var(--rule));
+  border-color: var(--rule-2);
 }
 /* Card 3 · internal violet — never printed. */
 .cv-card-accounting {
   background: var(--internal-soft);
-  border-color: var(--internal-rule, var(--internal));
+  border-color: var(--internal-rule);
 }
 
 .cv-card-head {
   padding: 11px 14px 10px;
-  border-bottom: 1px solid var(--rule-hair, var(--rule));
+  border-bottom: 1px solid var(--rule);
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 .cv-step {
-  font: 400 10px/1 var(--mono, ui-monospace, monospace);
-  color: var(--ink-4, var(--ink-3));
+  font: 400 10px/1 var(--mono);
+  color: var(--ink-4);
 }
 .cv-card-title {
   font-family: var(--display);
@@ -169,12 +187,12 @@
   color: var(--ink);
 }
 .cv-card-sub {
-  font: 400 11.5px/1.3 var(--sans);
+  font: 400 11.5px/1.3 var(--ui);
   color: var(--ink-3);
   margin-top: 1px;
 }
 .cv-eyebrow {
-  font: 400 9.5px/1 var(--mono, ui-monospace, monospace);
+  font: 400 9.5px/1 var(--mono);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -187,20 +205,20 @@
   align-items: baseline;
   gap: 10px;
   padding: 4px 0;
-  border-bottom: 1px solid var(--rule-hair, var(--rule));
+  border-bottom: 1px solid var(--rule);
 }
-.cv-gov-k { flex: 1; font: 400 12px/1.25 var(--sans); color: var(--ink-2); }
-.cv-gov-v { font: 400 11.5px/1 var(--mono, ui-monospace, monospace); color: var(--ink); }
+.cv-gov-k { flex: 1; font: 400 12px/1.25 var(--ui); color: var(--ink-2); }
+.cv-gov-v { font: 400 11.5px/1 var(--mono); color: var(--ink); }
 .cv-gov-src {
-  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  font: 400 9px/1 var(--mono);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--ink-4, var(--ink-3));
+  color: var(--ink-4);
   min-width: 58px;
   text-align: right;
 }
 .cv-gov-foot {
-  font: 400 11px/1.5 var(--sans);
+  font: 400 11px/1.5 var(--ui);
   color: var(--ink-3);
   margin-top: 9px;
 }
@@ -209,14 +227,14 @@
 /* Card 1 · one row per charge. */
 .cv-charge {
   padding: 10px 14px;
-  border-bottom: 1px solid var(--rule-hair, var(--rule));
+  border-bottom: 1px solid var(--rule);
 }
 .cv-charge-head { display: flex; align-items: baseline; gap: 8px; }
-.cv-charge-label { flex: 1; font: 400 13px/1.25 var(--sans); color: var(--ink); }
-.cv-charge-amt { font: 400 11.5px/1 var(--mono, ui-monospace, monospace); color: var(--ink-2); }
+.cv-charge-label { flex: 1; font: 400 13px/1.25 var(--ui); color: var(--ink); }
+.cv-charge-amt { font: 400 11.5px/1 var(--mono); color: var(--ink-2); }
 .cv-charge-policy {
-  font: 400 9.5px/1.2 var(--mono, ui-monospace, monospace);
-  color: var(--ink-4, var(--ink-3));
+  font: 400 9.5px/1.2 var(--mono);
+  color: var(--ink-4);
   margin: 2px 0 7px;
 }
 /*
@@ -238,20 +256,20 @@
 .cv-opts button {
   flex: 1;
   text-align: left;
-  font-family: var(--sans);
+  font-family: var(--ui);
   font-size: 11.5px;
   line-height: 1.2;
   padding: 5px 8px;
-  border: 1px solid var(--rule-strong, var(--rule));
+  border: 1px solid var(--rule-2);
   border-radius: 6px;
-  background: var(--paper-2);
+  background: var(--paper);
   color: var(--ink-2);
   cursor: pointer;
   transition: all 120ms;
 }
 .cv-opts button[aria-pressed="true"] {
   background: var(--ink);
-  color: var(--paper-2);
+  color: var(--paper);
   border-color: var(--ink);
 }
 /* Prohibited options are RENDERED, inert, and explain themselves. The
@@ -262,27 +280,27 @@
 }
 
 /* Margin after recovery — every governed tier, including ones not shown. */
-.cv-margin-block { padding: 11px 14px; background: var(--paper-3, oklch(0.975 0.010 85)); }
+.cv-margin-block { padding: 11px 14px; background: var(--paper-3); }
 .cv-margin-cards { display: flex; gap: 6px; margin-top: 7px; }
 .cv-margin {
   flex: 1;
   border-radius: 7px;
   padding: 7px 9px;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
 }
 .cv-margin-label { font-size: 10px; opacity: 0.75; }
 .cv-margin-pct { font-size: 14px; margin-top: 3px; }
 .cv-margin-state { font-size: 9px; margin-top: 2px; }
-.cv-margin[data-state="below_floor"] { background: var(--danger-soft, oklch(0.94 0.04 25)); color: var(--danger, oklch(0.55 0.18 25)); }
-.cv-margin[data-state="below_target"] { background: var(--warn-soft, oklch(0.94 0.05 70)); color: var(--warn, oklch(0.62 0.13 70)); }
-.cv-margin[data-state="on_target"] { background: var(--ok-soft, oklch(0.94 0.035 155)); color: var(--ok, oklch(0.55 0.10 155)); }
+.cv-margin[data-state="below_floor"] { background: var(--bad-soft); color: var(--bad); }
+.cv-margin[data-state="below_target"] { background: var(--warn-soft); color: var(--warn); }
+.cv-margin[data-state="on_target"] { background: var(--good-soft); color: var(--good); }
 .cv-margin[data-state="unknown"] { background: var(--paper-2); color: var(--ink-3); }
 .cv-margin[data-shown="no"] { opacity: 0.62; }
-.cv-gov-note { font: 400 11.5px/1.45 var(--sans); margin-top: 8px; color: var(--ink-3); }
-.cv-gov-note[data-blocked="yes"] { color: var(--danger, oklch(0.55 0.18 25)); }
+.cv-gov-note { font: 400 11.5px/1.45 var(--ui); margin-top: 8px; color: var(--ink-3); }
+.cv-gov-note[data-blocked="yes"] { color: var(--bad); }
 
 /* Card 2 / Card 3 bodies. */
-.cv-section { padding: 11px 14px; border-bottom: 1px solid var(--rule-hair, var(--rule)); }
+.cv-section { padding: 11px 14px; border-bottom: 1px solid var(--rule); }
 .cv-section:last-child { border-bottom: none; }
 .cv-field { display: flex; flex-direction: column; gap: 5px; }
 .cv-field + .cv-field { margin-top: 11px; }
@@ -291,33 +309,33 @@
 .cv-choice button {
   flex: 1;
   text-align: left;
-  font-family: var(--sans);
+  font-family: var(--ui);
   font-size: 12.5px;
   line-height: 1.2;
   padding: 8px 10px;
-  border: 1px solid var(--rule-strong, var(--rule));
+  border: 1px solid var(--rule-2);
   border-radius: 6px;
-  background: var(--paper-2);
+  background: var(--paper);
   color: var(--ink-2);
   cursor: pointer;
   transition: all 120ms;
 }
 .cv-choice button[aria-pressed="true"] {
   background: var(--ink);
-  color: var(--paper-2);
+  color: var(--paper);
   border-color: var(--ink);
 }
 .cv-choice button:disabled { opacity: 0.42; cursor: not-allowed; }
 .cv-note {
-  font: 400 11px/1.4 var(--sans);
+  font: 400 11px/1.4 var(--ui);
   color: var(--ink-3);
 }
 .cv-internal-chip {
-  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  font: 400 9px/1 var(--mono);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   background: var(--paper-2);
-  border: 1px solid var(--internal-rule, var(--internal));
+  border: 1px solid var(--internal-rule);
   color: var(--internal);
   padding: 2px 6px;
   border-radius: 4px;
@@ -329,10 +347,10 @@
   gap: 10px;
   padding: 4px 0;
 }
-.cv-agreement-k { flex: 1; font: 400 12px/1.4 var(--sans); color: var(--ink); }
-.cv-agreement-v { font: 400 11px/1 var(--mono, ui-monospace, monospace); color: var(--ink-2); }
+.cv-agreement-k { flex: 1; font: 400 12px/1.4 var(--ui); color: var(--ink); }
+.cv-agreement-v { font: 400 11px/1 var(--mono); color: var(--ink-2); }
 .cv-agreement-src {
-  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  font: 400 9px/1 var(--mono);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--internal);
@@ -343,44 +361,44 @@
 /* ── Finalize footer · pinned ──────────────────────────────────────────── */
 .cv-footer {
   flex: none;
-  border-top: 1px solid var(--rule-strong, var(--rule));
-  background: var(--paper-2);
+  border-top: 1px solid var(--rule-2);
+  background: var(--paper);
   padding: 12px 16px 15px;
   box-shadow: 0 -8px 24px oklch(0.20 0.02 255 / 0.05);
 }
 .cv-send-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .cv-send-chip {
-  font: 400 9.5px/1 var(--mono, ui-monospace, monospace);
+  font: 400 9.5px/1 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 3px 7px;
   border-radius: 5px;
 }
-.cv-send-chip[data-state="blocked"] { background: var(--danger-soft, oklch(0.94 0.04 25)); color: var(--danger, oklch(0.55 0.18 25)); }
-.cv-send-chip[data-state="draft"] { background: var(--warn-soft, oklch(0.94 0.05 70)); color: var(--warn, oklch(0.62 0.13 70)); }
-.cv-send-chip[data-state="frozen"] { background: var(--ok-soft, oklch(0.94 0.035 155)); color: var(--ok, oklch(0.55 0.10 155)); }
-.cv-send-line { font: 400 11.5px/1.4 var(--sans); color: var(--ink-3); }
+.cv-send-chip[data-state="blocked"] { background: var(--bad-soft); color: var(--bad); }
+.cv-send-chip[data-state="draft"] { background: var(--warn-soft); color: var(--warn); }
+.cv-send-chip[data-state="frozen"] { background: var(--good-soft); color: var(--good); }
+.cv-send-line { font: 400 11.5px/1.4 var(--ui); color: var(--ink-3); }
 .cv-checks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
-.cv-check { display: flex; align-items: center; gap: 7px; font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
+.cv-check { display: flex; align-items: center; gap: 7px; font: 400 12px/1.4 var(--ui); color: var(--ink-2); }
 .cv-mark {
   width: 15px; height: 15px; border-radius: 50%;
   display: inline-grid; place-items: center;
-  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  font: 400 9px/1 var(--mono);
   flex: none;
 }
-.cv-mark[data-ok="yes"] { background: var(--ok-soft, oklch(0.94 0.035 155)); color: var(--ok, oklch(0.55 0.10 155)); }
-.cv-mark[data-ok="no"] { background: var(--danger-soft, oklch(0.94 0.04 25)); color: var(--danger, oklch(0.55 0.18 25)); }
+.cv-mark[data-ok="yes"] { background: var(--good-soft); color: var(--good); }
+.cv-mark[data-ok="no"] { background: var(--bad-soft); color: var(--bad); }
 .cv-primary {
   width: 100%;
   border-radius: 7px;
   padding: 11px 14px;
-  font: 500 13.5px/1 var(--sans);
+  font: 500 13.5px/1 var(--ui);
   border: 1px solid transparent;
   cursor: pointer;
 }
-.cv-primary[data-state="ready"] { background: var(--accent); color: var(--paper-2); }
-.cv-primary[data-state="blocked"] { background: var(--danger-soft, oklch(0.94 0.04 25)); border-color: var(--danger, oklch(0.55 0.18 25)); color: var(--danger, oklch(0.55 0.18 25)); }
-.cv-primary[data-state="frozen"] { background: var(--canvas, var(--paper-2)); border-color: var(--rule-strong, var(--rule)); color: var(--ink-2); }
+.cv-primary[data-state="ready"] { background: var(--accent); color: var(--paper); }
+.cv-primary[data-state="blocked"] { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
+.cv-primary[data-state="frozen"] { background: var(--paper-2); border-color: var(--rule-2); color: var(--ink-2); }
 /* Inert for the visual review, and it must LOOK inert. A disabled full-width
    accent button still reads as the primary action; an operator would try it.
    The state colours above stay so the hierarchy can be judged, muted here so
@@ -392,7 +410,7 @@
 }
 .cv-primary:disabled::after {
   content: " · not wired yet";
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
   font-size: 9.5px;
   letter-spacing: 0.05em;
   opacity: 0.8;
@@ -401,26 +419,26 @@
 .cv-secondary { display: flex; gap: 7px; margin-top: 7px; }
 .cv-secondary button, .cv-secondary a {
   flex: 1;
-  border: 1px solid var(--rule-strong, var(--rule));
+  border: 1px solid var(--rule-2);
   background: var(--paper-2);
   color: var(--ink-2);
   border-radius: 7px;
   padding: 9px 10px;
-  font: 400 12.5px/1 var(--sans);
+  font: 400 12.5px/1 var(--ui);
   text-align: center;
   text-decoration: none;
   cursor: pointer;
 }
 .cv-secondary button:hover, .cv-secondary a:hover { border-color: var(--ink-3); }
 .cv-artifact {
-  font: 400 9.5px/1.4 var(--mono, ui-monospace, monospace);
+  font: 400 9.5px/1.4 var(--mono);
   letter-spacing: 0.05em;
-  color: var(--ink-4, var(--ink-3));
+  color: var(--ink-4);
   margin-top: 6px;
 }
 .cv-foot {
-  font: 400 11px/1.5 var(--sans);
-  color: var(--ink-4, var(--ink-3));
+  font: 400 11px/1.5 var(--ui);
+  color: var(--ink-4);
   margin-top: 7px;
 }
 
