@@ -425,3 +425,69 @@ test("every reader of the construction goes through the one traversal", async ()
     );
   }
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// SHIPPED DARK UNTIL THE CLICK PATH IS CERTIFIED.
+//
+// The card is a COMMERCIAL control: electing a contract changes what the
+// customer pays. It can only be certified on production, because that is the
+// one surface carrying a production session — a preview deployment cannot be
+// signed into, and the local dev Clerk instance would rebind the operator's
+// production user row.
+//
+// So it reaches production hidden. These assertions are what makes that a
+// GATE rather than a promise, and the third is what makes certifying as an
+// admin mean anything for operators.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("the card is not rendered unless the workspace is visible", async () => {
+  const tab = codeOnly(await read("src/components/quote-umbrella/tab-preview-quote.tsx"));
+  assert.match(
+    tab,
+    /\{recoveryWorkspaceVisible && \(\s*<RecoveryCard/,
+    "the recovery card renders unconditionally — operators can reach an uncertified commercial control",
+  );
+});
+
+test("visibility is derived from the viewer, not from a constant", async () => {
+  const page = codeOnly(
+    await read("src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx"),
+  );
+  assert.match(page, /const viewer = await ensureUser\(\);/);
+  assert.match(
+    page,
+    /recoveryWorkspaceVisible = viewer\.role === "admin"/,
+    "the gate is not derived from the authenticated viewer",
+  );
+  // A hardcoded `true` would satisfy the render check above while opening the
+  // surface to everyone.
+  assert.doesNotMatch(page, /recoveryWorkspaceVisible = true/);
+});
+
+test("what an admin certifies is what an operator will get", async () => {
+  // The whole basis for certifying behind the gate: the card branches on
+  // nothing but its own visibility, so the surface an admin walks is
+  // byte-identical to the one operators receive when the gate comes off.
+  const card = codeOnly(await read(CARD));
+
+  // Role BRANCHING, not the word. A first pass forbade /\brole\b/ and matched
+  // `role="alert"` -- an ARIA attribute, not a decision. A filter that cannot
+  // tell a mention from a use measures nothing, which is the same failure
+  // `codeOnly` exists for one level up.
+  for (const branch of [
+    /\.role\b/,
+    /isAdmin/,
+    /["']admin["']/,
+    /\brole\s*[=!]==/,
+  ]) {
+    assert.doesNotMatch(
+      card,
+      branch,
+      `the card branches on ${branch} -- certifying as an admin would not certify the operator's surface`,
+    );
+  }
+
+  // Non-vacuous: the filters are reading real source, not an empty string.
+  assert.match(card, /RecoveryChargeRow/);
+});

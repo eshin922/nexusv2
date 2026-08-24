@@ -294,7 +294,31 @@ export default async function CustomerViewPage({
     // button is un-gated (any authenticated PM); admin role no
     // longer required per §3 disposition. `ensureUser` here only
     // gates the surface itself.
-    await ensureUser();
+    const viewer = await ensureUser();
+
+    // ── THE RECOVERY WORKSPACE IS NOT YET RELEASED TO OPERATORS ─────────
+    //
+    // The card is a COMMERCIAL CONTROL: electing a contract changes what the
+    // customer pays. Its browser click-path has not been certified, because
+    // the only surface carrying a production Clerk session is production
+    // itself — a preview deployment cannot be signed into, and signing in on
+    // the local dev Clerk instance would rebind the operator's production
+    // user row.
+    //
+    // So it ships to production DARK. That is not a workaround for the
+    // certification gate; it is the gate honoured: operators cannot reach an
+    // uncertified commercial control, and the surface becomes reachable on a
+    // production surface where it CAN be certified.
+    //
+    // What an admin sees is byte-identical to what an operator will see — the
+    // card branches on nothing but this visibility — so certifying here
+    // certifies the operator's surface.
+    //
+    // REMOVAL: delete this flag and the prop once the click path, the SEND
+    // freeze and the S-7 recapture are certified. It is one line in three
+    // files and it is the last step of the Quote Presentation slice, not a
+    // permanent role boundary.
+    const recoveryWorkspaceVisible = viewer.role === "admin";
 
     console.log(
       `[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
@@ -323,6 +347,7 @@ export default async function CustomerViewPage({
           customerAcceptedTierIdDb={quote.customerAcceptedTierId}
           quoteRollup={quoteRollup}
           recoveryRows={recoveryRows}
+          recoveryWorkspaceVisible={recoveryWorkspaceVisible}
           recoverySupersessionWarning={recoverySupersessionWarning}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}

@@ -50,6 +50,7 @@ export function QuoteUmbrella({
   customerAcceptedTierIdDb,
   quoteRollup,
   recoveryRows,
+  recoveryWorkspaceVisible,
   recoverySupersessionWarning,
   acceptancePrefill,
   hubspotAcceptStageLabel,
@@ -113,6 +114,8 @@ export function QuoteUmbrella({
   quoteRollup: QuotePerTierRollup[];
   /** Recovery workspace rows, from the same bundle read as `view`. */
   recoveryRows: RecoveryChargeRow[];
+  /** False until the workspace's click path is certified — see page.tsx. */
+  recoveryWorkspaceVisible: boolean;
   /** Prediction of the existing authorization-supersession mechanism. */
   recoverySupersessionWarning: string | null;
   /** Slice 12 Step 8a — server-side prefill for the acceptance
@@ -303,6 +306,7 @@ export function QuoteUmbrella({
               versionChain={versionChain}
               onGo={onGo}
               recoveryRows={recoveryRows}
+              recoveryWorkspaceVisible={recoveryWorkspaceVisible}
               recoverySupersessionWarning={recoverySupersessionWarning}
             />
           )}
