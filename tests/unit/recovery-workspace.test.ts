@@ -128,12 +128,16 @@ test("a mode refused for ANY owner state is not offered", () => {
   const setup = rows.find((r) => r.chargeKey === "project_setup")!;
   const byMode = new Map(setup.options.map((o) => [o.mode, o]));
 
-  // The revenue-neutral pair is electable at both states.
-  assert.equal(byMode.get("included")!.available, true);
-  assert.equal(byMode.get("separate")!.available, true);
-  // `absorbed` is refused, and the surface is told WHY.
-  assert.equal(byMode.get("absorbed")!.available, false);
+  // Both allocation states are present, so a mode that agrees with one and
+  // disagrees with the other is refused — the conservative intersection. With
+  // relocation refused outright, nothing is electable here at all, and every
+  // refusal carries its reason.
+  for (const m of ["included", "separate", "absorbed"] as const) {
+    assert.equal(byMode.get(m)!.available, false, `${m} is offered`);
+    assert.ok((byMode.get(m)!.reason ?? "").length > 0, `${m} refused with no reason`);
+  }
   assert.match(byMode.get("absorbed")!.reason ?? "", /cost as well as/);
+  assert.match(byMode.get("included")!.reason ?? "", /price adjustment/);
 });
 
 test("every mode is returned with a verdict — none omitted", () => {

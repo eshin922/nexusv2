@@ -77,6 +77,7 @@ import {
   indexClientTargets,
   resolveClientTarget,
 } from "./client-target";
+import type { ChargeElection } from "./commercial-recovery/resolve";
 import type {
   CostingCellOverride,
   CostingCellTarget,
@@ -223,6 +224,22 @@ export type AdapterQuoteLeafLiftRow = {
 // model-agnostic per scoping inventory §1) + firm settings +
 // markup defaults bundled together.
 export type BuildQuoteCostingInputFromNewModelArgs = {
+  /**
+   * The quote's recovery elections.
+   *
+   * REQUIRED, not optional, and that is the point. The adapter builds the whole
+   * `QuoteCostingInput`, so a field it does not carry is a field the engine
+   * never sees — and `chargeElections` being optional on the input type meant
+   * an omission here read as "no elections" rather than as a mistake.
+   *
+   * That is exactly what happened: elections were loaded onto the bundle,
+   * threaded through the snapshot, and dropped HERE. The election persisted,
+   * the workspace reported it as elected, and the placement did not move. The
+   * unit tests passed because they call `computeQuoteCosting` directly.
+   *
+   * Required means every call site has to answer the question.
+   */
+  chargeElections: readonly ChargeElection[];
   quote: {
     id: string;
     globalPriceAdjPct: number;
@@ -484,6 +501,7 @@ export function buildQuoteCostingInputFromNewModel(
     quote: args.quote,
     firmSettings: args.firmSettings,
     markupDefaults: args.markupDefaults,
+    chargeElections: args.chargeElections,
     skus,
     tiers: args.tiers,
     packaging,

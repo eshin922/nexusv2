@@ -112,6 +112,11 @@ test("elections reach the ENGINE, and only the engine", async () => {
     // nothing and prices nothing — placement and amounts come from
     // `constructed`, asserted separately — so it is a label, not a decision.
     "src/lib/customer-view-resolver.ts",
+    // The adapter carries them into the input it builds. REQUIRED there, not
+    // optional: it builds the whole `QuoteCostingInput`, so a field it does not
+    // carry is a field the engine never sees — which is exactly how an election
+    // came to persist, read back as elected, and move nothing.
+    "src/lib/costing-adapter.ts",
   ].sort());
 });
 

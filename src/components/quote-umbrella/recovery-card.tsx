@@ -101,13 +101,16 @@ export function RecoveryCard({
     <section className="r8-card r9-recovery" data-testid="recovery-card">
       <h3 className="r9-recovery-title">Charge recovery</h3>
       <p className="r9-recovery-note">
-        {/* "a RECOVERED charge", deliberately. The unqualified sentence read as
-            a universal claim about the modes on this card — and `absorbed` is
-            rendered here too. It is a different economic act, not a third
-            placement of the same money, and its own refusal says so. */}
-        How each governed charge is recovered from the customer. Moving a
-        recovered charge between the unit price and its own line does not
-        change what the customer pays.
+        {/* The neutrality claim is GONE, not softened.
+            "Moving a recovered charge does not change what the customer pays"
+            was tightened from a broader version and then disproved outright by
+            certification: a charge inside the unit price is multiplied by the
+            quote's price adjustment, and one billed separately is not. At a
+            20% adjustment $140 became $168. Saying it here would tell an
+            operator something the numbers contradict. */}
+        How each governed charge is recovered from the customer. Where a charge
+        sits affects what the customer pays when a price adjustment applies, so
+        relocation is closed until that is settled.
       </p>
 
       {supersessionWarning && (
