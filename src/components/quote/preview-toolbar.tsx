@@ -20,6 +20,23 @@ function formatShortDate(iso: string | null): string {
 // send button (dev stub → real send path → in-DOM Modal Gate-0 hotfix
 // → context-read axis at Step 5d) lives in that file's header.
 
+/**
+ * F4 — the PURE / PASS-THROUGH / PARTIAL switcher is gone.
+ *
+ * The Quote Presentation Design Authority lists its removal as a requirement:
+ * "Remove the PURE / PASS-THROUGH / PARTIAL switcher (F4)", classified as
+ * dev scaffolding on an operator surface (Pattern 21).
+ *
+ * Removing it restores specified behaviour and changes none. `subState` was
+ * local state initialised to "pure", and these three buttons' only effect was
+ * to set it back: it fed no iframe parameter and no render branch. It was also
+ * already invisible in production —
+ * `showStateSwitcher = dev === "1" || NODE_ENV !== "production"`.
+ *
+ * Scoped to this surface. `mark-accepted-host.tsx` shares the prop NAME but
+ * its `subState` genuinely drives four render branches, so removing it there
+ * would change behaviour and is out of scope.
+ */
 export function PreviewToolbar({
   quoteId,
   quoteStatus,
@@ -27,11 +44,10 @@ export function PreviewToolbar({
   sentDate,
   pdfLayout,
   onPdfLayoutChange,
-  subState,
-  onSubStateChange,
-  showStateSwitcher,
   customerFacingNotes,
   internalNotes,
+  notesOpen,
+  onCloseNotes,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -39,18 +55,16 @@ export function PreviewToolbar({
   sentDate: string | null;
   pdfLayout: CustomerViewPdfLayout;
   onPdfLayoutChange: (next: CustomerViewPdfLayout) => void;
-  subState: CustomerViewSubState;
-  onSubStateChange: (next: CustomerViewSubState) => void;
-  showStateSwitcher: boolean;
   /** RI.9 §6 step 7 — current customer-facing notes (passed
    * through to the inline drawer; updates flow via updateQuoteNotes). */
   customerFacingNotes: string | null;
   /** Pass-through so the customer-notes save doesn't clobber
    * internal notes (action layer updates both fields together). */
   internalNotes: string | null;
+  /** Owned by QuoteHost so the Presentation panel's Voice group can open it. */
+  notesOpen: boolean;
+  onCloseNotes: () => void;
 }) {
-  const [notesOpen, setNotesOpen] = useState(false);
-  const notesEditable = quoteStatus === "draft";
   // Slice 11 Step 6 FU — sent quotes render the immutable snapshot;
   // the layout toggle would change the iframe URL but the resolver
   // ignores search params in the isSent branch. Disable so PMs
@@ -102,41 +116,6 @@ export function PreviewToolbar({
         </span>
       </div>
       <div className="right">
-        {showStateSwitcher && (
-          <div
-            className="state-sub"
-            title="Prototype navigation only — production renders whichever state the data is in."
-          >
-            <button
-              className={subState === "pure" ? "active" : ""}
-              onClick={() => onSubStateChange("pure")}
-            >
-              ① Pure
-            </button>
-            <button
-              className={subState === "passThrough" ? "active" : ""}
-              onClick={() => onSubStateChange("passThrough")}
-            >
-              ② Pass-through
-            </button>
-            <button
-              className={subState === "partial" ? "active" : ""}
-              onClick={() => onSubStateChange("partial")}
-            >
-              ③ Partial
-            </button>
-          </div>
-        )}
-        {notesEditable && (
-          <button
-            type="button"
-            className="btn sm"
-            title="Edit customer-facing notes inline. Internal notes stay on Setup."
-            onClick={() => setNotesOpen(true)}
-          >
-            ✎ Edit notes
-          </button>
-        )}
         <button
           type="button"
           className="btn sm"
@@ -189,7 +168,7 @@ export function PreviewToolbar({
           quoteId={quoteId}
           initialCustomerFacingNotes={customerFacingNotes}
           initialInternalNotes={internalNotes}
-          onClose={() => setNotesOpen(false)}
+          onClose={onCloseNotes}
         />
       )}
     </div>

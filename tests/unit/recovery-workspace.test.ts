@@ -10,7 +10,6 @@ import type { ChargeElection } from "../../src/lib/commercial-recovery/resolve.t
 
 const read = (p: string) => readFile(new URL(`../../${p}`, import.meta.url), "utf8");
 const VIEW = "src/lib/commercial-recovery/workspace-view.ts";
-const CARD = "src/components/quote-umbrella/recovery-card.tsx";
 
 const prod = (allocate: boolean, over: Record<string, unknown> = {}) =>
   ({
@@ -66,8 +65,8 @@ const ownsCharges = (skuId: string) => skuId.startsWith("leaf-");
 // THE WORKSPACE READS THE CONSTRUCTION. IT DERIVES NOTHING.
 // ═══════════════════════════════════════════════════════════════════════
 
-test("neither the read model nor the card performs rate arithmetic", async () => {
-  for (const f of [VIEW, CARD]) {
+test("the read model performs no rate arithmetic", async () => {
+  for (const f of [VIEW]) {
     const src = codeOnly(await read(f));
     for (const forbidden of [/resolveMarkupStrict/, /MARKUP_CATEGORY/, /1 \+ /, /\* \(1/]) {
       assert.doesNotMatch(
@@ -234,134 +233,9 @@ test("an unpriced charge reports null recovery, never $0", () => {
   assert.equal(setup.totalCost, 1000, "cost is known even when the rate is not");
 });
 
-test("the card renders the unpriced case as words, not a number", async () => {
-  const src = await read(CARD);
-  // "$0.00" would state that the charge recovers nothing. The truth is that
-  // nothing governs what it recovers (BV-013).
-  assert.match(src, /not priced/);
-  assert.match(src, /row\.totalRecovery === null/);
-});
-
 // ═══════════════════════════════════════════════════════════════════════
 // THE SURFACE IS NOT THE BOUNDARY, AND SAYS SO WHEN REFUSED.
 // ═══════════════════════════════════════════════════════════════════════
-
-test("the card surfaces the action's governed reason verbatim", async () => {
-  const src = codeOnly(await read(CARD));
-  assert.match(src, /if \(!res\.ok\) setError\(res\.error\.message\)/);
-  // It does not re-derive the refusal to display — the boundary said it.
-  assert.doesNotMatch(src, /refusalFor\(/);
-});
-
-test("denied modes render VISIBLY with their reason, not hidden", async () => {
-  const src = codeOnly(await read(CARD));
-  // A hidden option reads as an option that does not exist.
-  //
-  // Asserted as the PROPERTY, not the syntax. This was a grep for one literal
-  // conditional (`!opt.available && opt.reason && (`) and it failed on a
-  // refactor that preserved the behaviour exactly — a check that reports a
-  // problem when nothing is wrong is on its way to being ignored.
-  //
-  // What must hold: the reason is RENDERED into the reason element, not
-  // carried only by a `title` an operator has to hover to find, and no option
-  // is filtered away for being unavailable.
-  assert.match(
-    src,
-    /r9-recovery-reason[\s\S]{0,80}\{opt\.reason\}/,
-    "the refusal reason is not rendered into the visible reason element",
-  );
-  assert.doesNotMatch(
-    src,
-    /options\s*\.filter\([^)]*available/,
-    "the card filters denied modes out instead of showing them refused",
-  );
-  // Non-vacuous: the option list is mapped in full.
-  assert.match(src, /row\.options\.map\(/);
-});
-
-test("pending is action-scoped per charge (Pattern 47(f))", async () => {
-  const src = codeOnly(await read(CARD));
-  // One in-flight write must not disable an unrelated row's controls.
-  assert.match(src, /pendingKey === row\.chargeKey/);
-  // And every disabled control explains itself.
-  assert.match(src, /title=\{/);
-});
-
-test("a frozen quote renders read-only rather than being turned away", async () => {
-  const tab = codeOnly(await read("src/components/quote-umbrella/tab-preview-quote.tsx"));
-  assert.match(tab, /editable=\{quoteStatus === "draft"\}/);
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// THE LABEL NAMES THE CONTRACT, NOT THE PLACEMENT.
-//
-// Two states can both look "included" and have different economics: a legacy
-// allocated fee is reached by the quote-level adjustment, an elected one is
-// not. So electing `included` on a quote that already allocates changes what
-// the customer pays while the visible placement does not move — and a control
-// reading "In unit price ✓" would present that as confirming what is already
-// true.
-// ═══════════════════════════════════════════════════════════════════════
-
-test("a legacy placement is never rendered as a selected contract", async () => {
-  const src = codeOnly(await read(CARD));
-  // `selected` must require an ELECTION, not merely a matching placement.
-  assert.match(
-    src,
-    /selected\s*=\s*\n?\s*row\.source === "election" && row\.electedMode === opt\.mode/,
-    "selection is computed without requiring an election — a legacy state would render as in force",
-  );
-  // And it must not be derived from the placement set, which is the half that
-  // is identical across the economic change.
-  assert.doesNotMatch(
-    src,
-    /selected\s*=\s*row\.placements/,
-    "selection is derived from the placement, which cannot distinguish legacy from elected",
-  );
-});
-
-test("the mode labels describe the contract, not where the charge appears", async () => {
-  const src = codeOnly(await read(CARD));
-  // The placement-naming labels are gone. Each is checked on its own so a
-  // failure names which one came back.
-  assert.doesNotMatch(src, /"In unit price"/, "label names the placement");
-  assert.doesNotMatch(src, /"Billed separately"/, "label names the placement");
-  assert.doesNotMatch(src, /"Absorbed by DPS"/, "label names the placement");
-
-  assert.match(src, /Use governed amortization/);
-  assert.match(src, /governed rate/);
-  // Each available option states what changes, on the surface.
-  assert.match(src, /MODE_CONTRACT: Record<RecoveryMode, string>/);
-  assert.match(src, /no longer affected by quote-level/);
-});
-
-test("clearing is named as restoring the INHERITED treatment", async () => {
-  const src = codeOnly(await read(CARD));
-  assert.match(src, /Restore inherited pricing treatment/);
-  // "Clear" said what the code does, not what the operator gets back.
-  assert.doesNotMatch(src, />\s*Clear\s*</);
-});
-
-test("the card makes no neutrality claim it cannot support", async () => {
-  const src = await read(CARD); // prose included: this is ABOUT the prose
-  // The claim that relocation is closed became false when the lift landed.
-  assert.doesNotMatch(src, /relocation is closed/);
-  // And the unqualified neutrality claim is not restored: it holds between two
-  // ELECTED contracts and not between legacy and elected, which is the
-  // comparison an operator actually makes on this surface.
-  assert.doesNotMatch(
-    src,
-    /Moving a recovered charge between the unit price and its own line does not change/,
-  );
-  assert.match(src, /Between two elected\s*\n?\s*contracts/);
-});
-
-test("the legacy amortization's ungoverned amount is stated to the operator", async () => {
-  const src = codeOnly(await read(CARD));
-  // The one fact an operator cannot see anywhere else on the surface.
-  assert.match(src, /Currently amortized under legacy pricing/);
-  assert.match(src, /not independently governed/);
-});
 
 // ═══════════════════════════════════════════════════════════════════════
 // A CHARGE IS COUNTED ONCE.
@@ -426,68 +300,109 @@ test("every reader of the construction goes through the one traversal", async ()
   }
 });
 
-
 // ═══════════════════════════════════════════════════════════════════════
-// SHIPPED DARK UNTIL THE CLICK PATH IS CERTIFIED.
+// QUOTE PRESENTATION CARRIES NO ECONOMIC INPUT.
 //
-// The card is a COMMERCIAL control: electing a contract changes what the
-// customer pays. It can only be certified on production, because that is the
-// one surface carrying a production session — a preview deployment cannot be
-// signed into, and the local dev Clerk instance would rebind the operator's
-// production user row.
+// Edward's R5 disposition, 2026-08-24, preserving the Design Authority's
+// boundary rather than superseding it to fit what had been built:
 //
-// So it reaches production hidden. These assertions are what makes that a
-// GATE rather than a promise, and the third is what makes certifying as an
-// admin mean anything for operators.
+//   "fee_presentation remains a Layer-2, revenue-neutral presentation
+//    decision. If a control can change customer economics, it is not a Quote
+//    Presentation control."
+//
+// The recovery election is economically substantive — converting a charge
+// from legacy to a governed contract moves the customer's total — so it was
+// REMOVED from this surface, not restyled onto it. Its registered home is the
+// Pricing workspace, where the authority already shows the equivalent
+// `allocate_service_fees_to_cost` toggle.
+//
+// Asserted here because "we took it off" is a state that quietly reverses.
 // ═══════════════════════════════════════════════════════════════════════
 
-test("the card is not rendered unless the workspace is visible", async () => {
+test("the recovery card is gone, not relocated", async () => {
+  await assert.rejects(
+    read("src/components/quote-umbrella/recovery-card.tsx"),
+    "the recovery card still exists — the disposition was to remove it, not move it",
+  );
+
   const tab = codeOnly(await read("src/components/quote-umbrella/tab-preview-quote.tsx"));
-  assert.match(
-    tab,
-    /\{recoveryWorkspaceVisible && \(\s*<RecoveryCard/,
-    "the recovery card renders unconditionally — operators can reach an uncertified commercial control",
-  );
+  assert.doesNotMatch(tab, /RecoveryCard/);
+  assert.doesNotMatch(tab, /recoveryRows/);
+  // Non-vacuous: the file is real and still renders the surface.
+  assert.match(tab, /QuoteHost/);
 });
 
-test("visibility is derived from the viewer, not from a constant", async () => {
-  const page = codeOnly(
-    await read("src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx"),
-  );
-  assert.match(page, /const viewer = await ensureUser\(\);/);
-  assert.match(
-    page,
-    /recoveryWorkspaceVisible = viewer\.role === "admin"/,
-    "the gate is not derived from the authenticated viewer",
-  );
-  // A hardcoded `true` would satisfy the render check above while opening the
-  // surface to everyone.
-  assert.doesNotMatch(page, /recoveryWorkspaceVisible = true/);
-});
+test("the Presentation panel takes no handler that could write economics", async () => {
+  const panel = codeOnly(await read("src/components/quote/presentation-panel.tsx"));
 
-test("what an admin certifies is what an operator will get", async () => {
-  // The whole basis for certifying behind the gate: the card branches on
-  // nothing but its own visibility, so the surface an admin walks is
-  // byte-identical to the one operators receive when the gate comes off.
-  const card = codeOnly(await read(CARD));
-
-  // Role BRANCHING, not the word. A first pass forbade /\brole\b/ and matched
-  // `role="alert"` -- an ARIA attribute, not a decision. A filter that cannot
-  // tell a mention from a use measures nothing, which is the same failure
-  // `codeOnly` exists for one level up.
-  for (const branch of [
-    /\.role\b/,
-    /isAdmin/,
-    /["']admin["']/,
-    /\brole\s*[=!]==/,
+  // The authority: "Nothing in this panel is an input to economics."
+  for (const forbidden of [
+    /setChargeRecovery/,
+    /previewChargeRecovery/,
+    /RecoveryChargeRow/,
+    /electedMode/,
+    /recoverableSell/,
   ]) {
     assert.doesNotMatch(
-      card,
-      branch,
-      `the card branches on ${branch} -- certifying as an admin would not certify the operator's surface`,
+      panel,
+      forbidden,
+      `the Presentation panel reaches for ${forbidden} — it is an economic input again`,
     );
   }
 
-  // Non-vacuous: the filters are reading real source, not an empty string.
-  assert.match(card, /RecoveryChargeRow/);
+  // What it IS allowed to change: arrangement, aggregation, inclusion.
+  assert.match(panel, /onPdfLayoutChange/);
+  assert.match(panel, /onDetailLevelChange/);
+});
+
+test("the Accounting zone presents the frozen instruction and decides nothing", async () => {
+  const zone = codeOnly(await read("src/components/quote/accounting-zone.tsx"));
+
+  // It reads the sentence the freeze writes, from the same projection.
+  assert.match(zone, /instructionSentence\(/);
+
+  // And resolves nothing itself.
+  for (const forbidden of [/resolveMarkupStrict/, /MARKUP_CATEGORY/, /1 \+ /, /setChargeRecovery/]) {
+    assert.doesNotMatch(zone, forbidden, `the Accounting zone derives ${forbidden}`);
+  }
+
+  // The authority: "in a register that reads *not shown to the customer* —
+  // the surface already has this vocabulary and it should be reused, not
+  // reinvented."
+  assert.match(zone, /not shown to the customer/i);
+});
+
+test("F4 — the PURE / PASS-THROUGH / PARTIAL switcher is gone from Quote", async () => {
+  const toolbar = codeOnly(await read("src/components/quote/preview-toolbar.tsx"));
+  for (const gone of [/Pass-through/i, /subState/, /showStateSwitcher/]) {
+    assert.doesNotMatch(toolbar, gone, `F4 scaffolding survives: ${gone}`);
+  }
+
+  // Scoped to Quote. Mark Accepted shares the prop NAME but its subState
+  // drives four real render branches, so removing it there would change
+  // behaviour — which is why it is deliberately still present.
+  const macc = codeOnly(await read("src/components/mark-accepted/mark-accepted-host.tsx"));
+  assert.match(
+    macc,
+    /subState/,
+    "Mark Accepted lost its state switcher — that one is load-bearing, not scaffolding",
+  );
+});
+
+test("the document is dominant, at the authority's clamp", async () => {
+  const css = await read("src/styles/r3-quote-presentation.css");
+  // "Recommend clamp(816px, 100%, 1200px) — 816px is Letter at 96dpi and the
+  // floor below which the document re-compresses."
+  assert.match(css, /clamp\(816px, 100%, 1200px\)/);
+
+  const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
+  assert.match(host, /qp-workspace/);
+  assert.match(host, /qp-doc/);
+  // The 880px cap the authority calls "the binding constraint" is off the
+  // document. It survives on unrelated chrome, which is not what it bound.
+  assert.doesNotMatch(
+    host,
+    /maxWidth: 880,\s*\n\s*margin: "0 auto",\s*\n\s*border/,
+    "the document is still capped at 880px",
+  );
 });

@@ -66,7 +66,7 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
   "src/lib/costing.ts",
-  // CLASSIFIED — enduring, and NOT an attachment identity. Both build a leaf
+  // CLASSIFIED — enduring, and NOT an attachment identity. Each builds a leaf
   // predicate from the bundle's `skus` (`skuRole === "leaf"`) so a charge is
   // counted at the owner that holds it rather than again at the parent rollup
   // carrying the merge. Math-layer sku identity; they resolve and join
@@ -77,6 +77,7 @@ const classifiedIdentityFiles = new Set([
   // which is what keeps this list from accumulating stale claims.
   "scripts/gate-1b/frozen-instruction-contrast.ts",
   "scripts/gate-1b/recovery-impact-certify.ts",
+  "scripts/gate-1b/recovery-walk-state.ts",
   // CLASSIFIED — enduring, and NOT an attachment identity. The recovery impact
   // preview builds `leafIds` from `input.skus` where `skuRole === "leaf"` —
   // MATH-LAYER sku ids, so that a charge is summed once at the owner that holds

@@ -6,7 +6,10 @@ import type {
   CustomerViewDetailLevel,
   CustomerViewPdfLayout,
 } from "@/types/quote";
-import { PreviewToolbar, type CustomerViewSubState } from "./preview-toolbar";
+import { PreviewToolbar } from "./preview-toolbar";
+import { PresentationPanel } from "./presentation-panel";
+import { AccountingZone } from "./accounting-zone";
+import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
@@ -67,7 +70,7 @@ export function QuoteHost({
   view,
   quoteId,
   quoteStatus,
-  showStateSwitcher,
+  recoveryInstructions,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -75,7 +78,8 @@ export function QuoteHost({
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
-  showStateSwitcher: boolean;
+  /** Projected from the same construction the send transaction freezes. */
+  recoveryInstructions: readonly FrozenRecoveryInstruction[];
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   /** Slice 11 Step 8 Gate-0 hotfix — when false, the deal has no
@@ -97,11 +101,6 @@ export function QuoteHost({
     setDetailLevel,
     setIncludeSpecAddendum: setAddendumOn,
   } = useQuoteAxis();
-
-  // Cosmetic no-op — subState was used by the legacy DOM tree to
-  // preview "what state X would look like." New iframe renders real
-  // data; state variants fall out of the actual bundle content.
-  const [subState, setSubState] = useState<CustomerViewSubState>("pure");
 
   // Cache-buster: quote state (sentDate + status) — changes when
   // the quote transitions draft → sent, forcing the iframe to
@@ -127,9 +126,14 @@ export function QuoteHost({
 
   const showLinkageWarning = !isHubspotLinked && !isSent;
 
+  // Owned here so the Presentation panel's Voice group and the drawer
+  // agree about whether it is open.
+  const [notesOpen, setNotesOpen] = useState(false);
+
   return (
     <div className="r3-shared">
-      <div className="preview-chrome">
+      <div className="preview-chrome qp-workspace">
+        <div className="qp-doc">
         {showLinkageWarning && (
           <div
             role="alert"
@@ -160,88 +164,19 @@ export function QuoteHost({
           sentDate={view.quote.sentDate}
           pdfLayout={pdfLayout}
           onPdfLayoutChange={setPdfLayout}
-          subState={subState}
-          onSubStateChange={setSubState}
-          showStateSwitcher={showStateSwitcher}
           customerFacingNotes={view.quote.customerFacingNotes}
           internalNotes={internalNotes}
+          notesOpen={notesOpen}
+          onCloseNotes={() => setNotesOpen(false)}
         />
 
         <BoundaryGuardNotice />
-
-        {/* Detail-level + addendum toolbar chrome. Sits alongside
-            the AddendumToggle so PMs have all three iframe knobs in
-            one row. */}
-        <div
-          style={{
-            maxWidth: 880,
-            margin: "0 auto 18px",
-            padding: "10px 14px",
-            background: "var(--paper-2)",
-            border: "1px solid var(--rule)",
-            borderRadius: 6,
-            display: "flex",
-            gap: 16,
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-          }}
-        >
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              opacity: isSent ? 0.5 : 1,
-            }}
-            title={sentLockTooltip}
-          >
-            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
-              Detail:
-            </span>
-            <select
-              value={detailLevel}
-              onChange={(e) =>
-                setDetailLevel(e.target.value as CustomerViewDetailLevel)
-              }
-              disabled={isSent}
-              style={{ fontSize: 12 }}
-            >
-              <option value="itemized">Itemized</option>
-              <option value="turnkey_only">Turnkey only</option>
-            </select>
-          </label>
-
-          {addendumData ? (
-            <span
-              style={{ opacity: isSent ? 0.5 : 1 }}
-              title={sentLockTooltip}
-            >
-              <AddendumToggle
-                on={addendumOn}
-                onToggle={() => {
-                  if (isSent) return;
-                  setAddendumOn(!addendumOn);
-                }}
-                totalLeaves={addendumData.totalLeaves}
-                totalAssemblies={addendumData.totalAssemblies}
-                hasMeaningfulContent={addendumData.hasMeaningfulContent}
-              />
-            </span>
-          ) : (
-            <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
-              No addendum data.
-            </span>
-          )}
-        </div>
 
         {/* Preview iframe — the actual react-pdf output the customer
             receives. Height accommodates a Letter page (8.5in × 11in
             at 96dpi ≈ 1056px) plus overflow for multi-page. */}
         <div
           style={{
-            maxWidth: 880,
-            margin: "0 auto",
             border: "1px solid var(--rule)",
             background: "var(--paper)",
           }}
@@ -257,6 +192,29 @@ export function QuoteHost({
               display: "block",
             }}
           />
+        </div>
+        </div>
+
+        {/* Controls beside the document, per the authority's interaction
+            model. The Accounting zone sits beneath them in the `--internal`
+            register the surface already uses for customer-invisible content. */}
+        <div>
+          <PresentationPanel
+            pdfLayout={pdfLayout}
+            onPdfLayoutChange={setPdfLayout}
+            detailLevel={detailLevel}
+            onDetailLevelChange={setDetailLevel}
+            addendumOn={addendumOn}
+            onAddendumToggle={() => setAddendumOn(!addendumOn)}
+            addendumData={addendumData}
+            notesEditable={!isSent}
+            onEditNotes={() => setNotesOpen(true)}
+            locked={isSent}
+            lockReason={sentLockTooltip}
+          />
+          <div style={{ padding: "0 20px 24px" }}>
+            <AccountingZone instructions={recoveryInstructions} />
+          </div>
         </div>
       </div>
     </div>

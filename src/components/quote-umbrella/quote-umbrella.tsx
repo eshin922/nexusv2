@@ -19,8 +19,8 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
-import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
+import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { VersionRow } from "@/lib/quote-version-chain";
@@ -49,9 +49,6 @@ export function QuoteUmbrella({
   quoteSentAtDb,
   customerAcceptedTierIdDb,
   quoteRollup,
-  recoveryRows,
-  recoveryWorkspaceVisible,
-  recoverySupersessionWarning,
   acceptancePrefill,
   hubspotAcceptStageLabel,
   hubspotAcceptSyncSuppressed = false,
@@ -60,6 +57,7 @@ export function QuoteUmbrella({
   salesOrderPreflight,
   soPushMirror,
   showStateSwitcher,
+  recoveryInstructions,
   allowSimulatedComplete,
   internalNotes,
   addendumData,
@@ -112,12 +110,6 @@ export function QuoteUmbrella({
   /** Slice 12 Step 8a — per-tier rollup for the acceptance sub-tab's
    * tier chips (turnkey + margin + status). PM-facing only. */
   quoteRollup: QuotePerTierRollup[];
-  /** Recovery workspace rows, from the same bundle read as `view`. */
-  recoveryRows: RecoveryChargeRow[];
-  /** False until the workspace's click path is certified — see page.tsx. */
-  recoveryWorkspaceVisible: boolean;
-  /** Prediction of the existing authorization-supersession mechanism. */
-  recoverySupersessionWarning: string | null;
   /** Slice 12 Step 8a — server-side prefill for the acceptance
    * transcription textarea. See getLatestRespondedEventForPrefill. */
   acceptancePrefill: {
@@ -165,6 +157,8 @@ export function QuoteUmbrella({
     pushError: string | null;
   };
   showStateSwitcher: boolean;
+  /** For the Accounting zone — the sentences the send freeze will write. */
+  recoveryInstructions: readonly FrozenRecoveryInstruction[];
   /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
    * simulation. Computed server-side in page.tsx from VERCEL_ENV so
    * client-baked NODE_ENV can't be the sole gate (Vercel Preview
@@ -298,16 +292,13 @@ export function QuoteUmbrella({
               quoteId={quoteId}
               quoteStatus={quoteStatus}
               quoteNumberDb={quoteNumberDb}
-              showStateSwitcher={showStateSwitcher}
+              recoveryInstructions={recoveryInstructions}
               internalNotes={internalNotes}
               addendumData={addendumData}
               isHubspotLinked={isHubspotLinked}
               projectId={projectId}
               versionChain={versionChain}
               onGo={onGo}
-              recoveryRows={recoveryRows}
-              recoveryWorkspaceVisible={recoveryWorkspaceVisible}
-              recoverySupersessionWarning={recoverySupersessionWarning}
             />
           )}
           {activeTab === "send" && (

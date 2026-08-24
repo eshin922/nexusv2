@@ -101,15 +101,28 @@ test("the election writer has exactly ONE caller, and it is the workspace", asyn
     if (/setChargeRecovery/.test(src)) callers.push(f);
   }
 
-  // This asserted ZERO while the foundation was inert. The workspace exists
-  // now, so zero would be false — but "some number of callers" is not the
-  // property either. A "use server" export becomes a POST-able endpoint by
-  // being imported, so the question worth asking is whether the surface that
-  // may write an election is the ONLY thing that can.
+  // Zero, and back to zero deliberately.
+  //
+  // It asserted zero while the foundation was inert, then one while the
+  // recovery workspace existed on Quote Presentation. Edward's R5 disposition
+  // (2026-08-24) removed that surface: the election is economically
+  // substantive, and "if a control can change customer economics, it is not a
+  // Quote Presentation control." Its registered home is the Pricing workspace,
+  // which has not been built.
+  //
+  // So the capability is DORMANT, not deleted — engine, precedence, refusals,
+  // audit, freeze and impact preview all remain and remain certified. What is
+  // asserted here is that no surface writes an election in the meantime,
+  // because a "use server" export becomes a POST-able endpoint by being
+  // imported, and an unreachable-by-design writer that quietly acquires a
+  // caller is exactly the drift this check exists to catch.
+  //
+  // When Phase 3 lands, this becomes the Pricing surface — not a second Quote
+  // one. See docs/quote-presentation-restoration-brief.md §2.
   assert.deepEqual(
     callers,
-    ["src/components/quote-umbrella/recovery-card.tsx"],
-    "the election writer acquired a caller outside the recovery workspace",
+    [],
+    "the election writer acquired a caller while its home surface is unbuilt",
   );
 });
 
