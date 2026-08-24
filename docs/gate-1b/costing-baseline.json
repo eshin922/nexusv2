@@ -1,13 +1,13 @@
 {
-  "capturedOver": 33,
+  "capturedOver": 37,
   "failed": 0,
-  "globalDigest": "3d67a9869237443fafc6b24dcdeb6774ea77b5ddee29ed2a363fdb99823a7ccc",
+  "globalDigest": "59e2a49d10940edb1135926d34ee48937901621f8574f8d68371dad460964fc0",
   "entries": [
     {
       "quote_id": "071486be-e1a6-4475-8df6-2a2b78a21b58",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-pure-0727",
-      "digest": "a3e52036024aec4dc3c76fe5ed3cee7c",
+      "digest": "bc6f2174ecc95dc2025ccc22353ec980",
       "skus": 2,
       "tiers": 2
     },
@@ -15,7 +15,7 @@
       "quote_id": "0d76e2eb-5993-4ae9-851f-267f5108207e",
       "status": "sent",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 2",
-      "digest": "f7d7ee1420d60d999662caaf56ef6694",
+      "digest": "d046f58494aa61b5349531012f868ef7",
       "skus": 11,
       "tiers": 3
     },
@@ -23,7 +23,7 @@
       "quote_id": "180e6410-8999-4d38-95bc-8d18567431b9",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-addendum-0727",
-      "digest": "10d7487e75286b170138b30d37eea088",
+      "digest": "08abc3160deda5bbaa4c3fed5092aa27",
       "skus": 4,
       "tiers": 1
     },
@@ -31,7 +31,7 @@
       "quote_id": "27581262-14b3-4f3f-86e8-b12123f7d899",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / SAMPLE TEST 3 - ED",
-      "digest": "f503fa0665d77264226406be68c0e1ac",
+      "digest": "2c98d0b541eba6657574c33fdd803769",
       "skus": 11,
       "tiers": 3
     },
@@ -39,7 +39,7 @@
       "quote_id": "2de1dd81-e0cc-40b6-b3a0-df189d3a7865",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 4",
-      "digest": "f2cd1d5c1da906d063dce4e933ce1a6f",
+      "digest": "f7e7d8b23e60f927c0a342f6f1b0434b",
       "skus": 21,
       "tiers": 1
     },
@@ -47,15 +47,15 @@
       "quote_id": "2f29af72-805b-446c-866c-73e9b0991b1a",
       "status": "draft",
       "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / Primary",
-      "digest": "8514f4ae9e79d84d4e4d7aa54fca6bd5",
-      "skus": 10,
+      "digest": "6bccb032ae4270a955c0311049a980c9",
+      "skus": 9,
       "tiers": 3
     },
     {
       "quote_id": "54c38f67-3aa3-44e1-8be2-b85f85882ac1",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-gate0-happy-0727",
-      "digest": "66b17c148ea11fc08228fd62d3ea56ea",
+      "digest": "6d147e0a7fa75f99f9317651c81aad4e",
       "skus": 2,
       "tiers": 2
     },
@@ -63,7 +63,7 @@
       "quote_id": "600dd15c-e304-40d4-883b-5a13dd3ba214",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 5",
-      "digest": "4c4d52bf4f00c2c3ca31319f805abb83",
+      "digest": "cc0d0e64fbf0fbb9c6e3d92e761cb4c7",
       "skus": 20,
       "tiers": 1
     },
@@ -71,7 +71,7 @@
       "quote_id": "663b4dc2-6b62-4145-af9d-377bec24c7a5",
       "status": "sent",
       "label": "Ro - GLP-1 Epson Proofs / OD004 Grouped Certification",
-      "digest": "75886c35d60e3d90cb47483f18a990b7",
+      "digest": "052aa0ba1d10aee4e5bca26b64e5b4e0",
       "skus": 5,
       "tiers": 1
     },
@@ -79,15 +79,23 @@
       "quote_id": "7bba3cdd-b791-4a48-bda6-1262ae26457a",
       "status": "complete",
       "label": "Pattern Beauty - All Over Body Balm / OD004 Final Grouped Certification",
-      "digest": "fda106a430ebb2916054a652c24a1c37",
+      "digest": "7d37a4edff1525cf756201eeeaf4030f",
       "skus": 5,
+      "tiers": 1
+    },
+    {
+      "quote_id": "7d4983a7-14e8-4fd1-866a-48d261c10afd",
+      "status": "draft",
+      "label": "ZZ-VALIDATION — Nexus Certification Lineage / CERT-302 tooling artwork split",
+      "digest": "23009527a0d6fd3b058dca5b2ddf8d23",
+      "skus": 2,
       "tiers": 1
     },
     {
       "quote_id": "89688023-b8c4-40a7-83a9-29eb8e14d662",
       "status": "complete",
       "label": "Root - 2 Side Seal Sachets / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · single Item Group",
-      "digest": "97ba654ac6ffbb2c22e16d68360e0ee4",
+      "digest": "fcb7a011c5b106217eb539cd11c08b40",
       "skus": 3,
       "tiers": 1
     },
@@ -95,15 +103,23 @@
       "quote_id": "93a5d4bb-7006-4bc4-9215-216af4d39747",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-charges-0727",
-      "digest": "bc35422c90a342e4baff955c5dddb634",
+      "digest": "335161d15c26b983f7df2741012832e9",
       "skus": 2,
       "tiers": 2
+    },
+    {
+      "quote_id": "97d25286-2c42-4a72-8979-89f1a5c2cf26",
+      "status": "complete",
+      "label": "ZZ-VALIDATION — Nexus Certification Lineage / CERT-300 frozen line set",
+      "digest": "9372ff05a16d544a7da18a150ecb7e6a",
+      "skus": 3,
+      "tiers": 3
     },
     {
       "quote_id": "9af5fe52-b71c-4e25-ba53-271852708bcc",
       "status": "complete",
       "label": "Nemah - 15ml Nipple and Lip Balm Jar / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · Item Group + freight",
-      "digest": "a9060b03a5809234d83f96c298abdbc1",
+      "digest": "325ba6418ee53918de48bed6c3815796",
       "skus": 3,
       "tiers": 1
     },
@@ -111,7 +127,7 @@
       "quote_id": "9cff9b26-0506-4fbf-a925-185e82424f5b",
       "status": "draft",
       "label": "PSR Smoke Test / smoke-step-8",
-      "digest": "f2a5559713e149eb14c31eb47413966d",
+      "digest": "3a060de92556f0e98670210faff5e4f6",
       "skus": 2,
       "tiers": 2
     },
@@ -119,7 +135,7 @@
       "quote_id": "9de0a19d-8a2c-4911-8c32-ebbff908e5d4",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-snapshot3-0727",
-      "digest": "854a2891e3ca2b094d7907e9062bfd89",
+      "digest": "6d2231666dd21f731021446db21a6619",
       "skus": 2,
       "tiers": 1
     },
@@ -127,7 +143,7 @@
       "quote_id": "a264a755-c375-4674-9342-5dc02a96d20e",
       "status": "sent",
       "label": "MISTR - Sachet Rollstock Test Roll / smoke-matrix-pure-cluster1-0727",
-      "digest": "25979df6ced1cad0e0b8a5482340150b",
+      "digest": "10f58f3bff253b304d006d2e98007605",
       "skus": 4,
       "tiers": 2
     },
@@ -135,7 +151,7 @@
       "quote_id": "a4c36959-78e6-4347-a530-62892aecfa71",
       "status": "accepted",
       "label": "Root - 2 Side Seal Sachets / CERT-MIXED-DELETE-ME-2026-08-13T20-26-37",
-      "digest": "047d7f6d26956168caad59911ce22a8c",
+      "digest": "036bd7b5beba9b415af502d2add2ee39",
       "skus": 4,
       "tiers": 1
     },
@@ -143,7 +159,7 @@
       "quote_id": "ad6f7513-17fc-4e84-978e-a2492cdb8f29",
       "status": "complete",
       "label": "Hanks - Hydration Full Retail Rollout / CERT-MIXED-DELETE-ME-2026-08-13T21-26-07",
-      "digest": "7665bea43eddeac2510ddcac50bd3208",
+      "digest": "768de6c9dbaad44402b921225d89232a",
       "skus": 4,
       "tiers": 1
     },
@@ -151,7 +167,7 @@
       "quote_id": "bd95c0f2-d9d5-4564-b772-3c6ff385dd6d",
       "status": "complete",
       "label": "SMOKE-CB-STEP10-DELETE-ME-2026-07-29T17-43-34 / SMOKE-CB-STEP10",
-      "digest": "d31930392a773a943d3225f0e948d49a",
+      "digest": "fdf37f1cbd245212dff8c9eafd728b92",
       "skus": 4,
       "tiers": 2
     },
@@ -159,23 +175,31 @@
       "quote_id": "bfc6eebe-4b9b-4268-b8bd-0e1797dd34ea",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / SAMPLE TEST 2 - ED",
-      "digest": "3b828b8e4c9b3856d60a491dbbfa4d2f",
+      "digest": "2104f51c538e1e54fd9c83f4f4f4be4e",
       "skus": 11,
       "tiers": 3
     },
     {
       "quote_id": "c3c951c7-bb90-493a-a915-a18bee1f480c",
       "status": "complete",
-      "label": "Kirby Beauty - Restoring Shampoo and Conditioner Tandem / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · multi Item Group",
-      "digest": "c075938783baa20e2f48427bcfa39ecb",
+      "label": "Kirby Beauty PO4338 Restoring Shampoo and Conditioner Tandem / NEXUS V1 ACCOUNTING REVIEW — SANDBOX · multi Item Group",
+      "digest": "1097b387df2b09533688202aa4bfcd8c",
       "skus": 5,
       "tiers": 1
+    },
+    {
+      "quote_id": "cfa7b84d-18fb-4ef0-9bba-ce2a44cd266c",
+      "status": "complete",
+      "label": "ZZ-VALIDATION — UAT Case 1 (Direct Product) / UAT-1 direct product",
+      "digest": "952904f173ac8a14feefab5c3eb13ea5",
+      "skus": 4,
+      "tiers": 3
     },
     {
       "quote_id": "d6a3ba17-9216-40b0-b473-92f4472dbbba",
       "status": "complete",
       "label": "Smart Pressed Juice - Juice Cleanse Reorder 2026 / CERT-MIXED-DELETE-ME-2026-08-13T22-43-03",
-      "digest": "48c200043e24bd66463315c980b5b36a",
+      "digest": "16d71ddfae0dee4c11fa41d8b79944d5",
       "skus": 4,
       "tiers": 1
     },
@@ -183,7 +207,7 @@
       "quote_id": "d73b9f11-646c-4730-9ed0-15595525dd10",
       "status": "accepted",
       "label": "SMOKE-CB-8B-DELETE-ME-2026-07-28T18-00-15 / SMOKE-CB-8B",
-      "digest": "429ad2ecb8a001f3bf340c4e34e5abe5",
+      "digest": "d686a24bcc64f6eefe63bee84c2eca98",
       "skus": 2,
       "tiers": 2
     },
@@ -191,7 +215,7 @@
       "quote_id": "da56da37-ef4e-4e48-a177-ade3a677fcdd",
       "status": "sent",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 3",
-      "digest": "8148e56b9f3d2b301dc957cc33e7b3c3",
+      "digest": "68cc999b1223450612024b91826526b3",
       "skus": 11,
       "tiers": 3
     },
@@ -199,7 +223,7 @@
       "quote_id": "e23f0e2c-57e4-45fe-96c8-2380aadf5f3a",
       "status": "sent",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / 5K / 15K / 50K — China sources",
-      "digest": "677a06fa9728033958d1b99ac654e8f9",
+      "digest": "ec12501c4c3927bb28c9599407269432",
       "skus": 11,
       "tiers": 3
     },
@@ -207,7 +231,7 @@
       "quote_id": "e33d0f54-008a-437a-820c-4b2f3b5ac002",
       "status": "draft",
       "label": "SAMPLE — Aurora Botanica · Hydra-Glow Serum / Alt 1",
-      "digest": "aed1cd92d7e36b4bbcc94cc4d969a089",
+      "digest": "74bfcdf901a00644472a2b971a2eb461",
       "skus": 11,
       "tiers": 3
     },
@@ -215,15 +239,23 @@
       "quote_id": "e4b25292-7566-463b-8a2c-585a3f57b7c7",
       "status": "draft",
       "label": "PSR Smoke Test / smoke-gate0-0727b",
-      "digest": "806a723b77a986a895ed88689592d94d",
+      "digest": "e90766faca1264293426d2c120421961",
       "skus": 2,
       "tiers": 2
+    },
+    {
+      "quote_id": "f2db6e10-8a38-4f95-b81b-e016c448b677",
+      "status": "draft",
+      "label": "Nemah - 30ml Nipple and Lip Balm Jar / Below-floor certification",
+      "digest": "489f1e5a2568d278afdd8fb77368f62a",
+      "skus": 4,
+      "tiers": 1
     },
     {
       "quote_id": "f544128a-e4b3-4a42-836e-1d50ef474026",
       "status": "complete",
       "label": "Nemah - 30ml Nipple and Lip Balm Jar / OD-004 Case B Validation (do not quote)",
-      "digest": "acad4c9c392276f07853579de66bccac",
+      "digest": "1fc7f295aefccc004419489859a2f9c0",
       "skus": 5,
       "tiers": 1
     },
@@ -231,7 +263,7 @@
       "quote_id": "f5f5ac14-4d6b-4a48-98da-e6285a2cd9be",
       "status": "draft",
       "label": "Nemah - 30ml Nipple and Lip Balm Jar / Rendered coverage fixture (do not quote)",
-      "digest": "b9a8f3dc446bea38fc1abde4ce535bde",
+      "digest": "de19e9abbf8abab4df8c23c772c3b8b8",
       "skus": 4,
       "tiers": 1
     },
@@ -239,7 +271,7 @@
       "quote_id": "f84334bd-afa1-4016-9511-71f7d5600e35",
       "status": "draft",
       "label": "Epicuren - Pro Mask Boosters / Alt 1",
-      "digest": "70884ce5fe4ec63610d22fd2d4a1c242",
+      "digest": "e08034b3a8d4b3a17c67b8e0eae03e3d",
       "skus": 21,
       "tiers": 2
     },
@@ -247,7 +279,7 @@
       "quote_id": "f88c22e3-2d50-419e-b923-c771f5784531",
       "status": "draft",
       "label": "Nemah - 30ml Nipple and Lip Balm Jar / Ed's Test Scenario",
-      "digest": "194a366322947d35162d46f168a5b13a",
+      "digest": "f2e2b5e92bbb625df1a5e92e05a0e95c",
       "skus": 4,
       "tiers": 2
     },
@@ -255,7 +287,7 @@
       "quote_id": "f9c23c2f-765a-4404-9ecb-081a24ad73dc",
       "status": "draft",
       "label": "Nemah - 30ml Nipple and Lip Balm Jar / Alt 1",
-      "digest": "a25610f3d271dfa351256bf4334e8979",
+      "digest": "9a106bf22be3c8cf8ed361dabc86f73f",
       "skus": 21,
       "tiers": 1
     },
@@ -263,7 +295,7 @@
       "quote_id": "fa74cbe5-e3f6-456f-9855-b06dd1ef0d74",
       "status": "accepted",
       "label": "SMOKE-CB-DELETE-ME-2026-07-28T03-59-50 / SMOKE",
-      "digest": "1316c74b80db80c6bce5f9f24e524436",
+      "digest": "4d1225361fc75ea646e4ea236a08b61f",
       "skus": 4,
       "tiers": 2
     }
