@@ -205,8 +205,24 @@ it has been certified.
    after**, per tier. Every crossing enumerated, or an explicit statement that
    there are none. A crossing is a governed event and does not get to arrive as
    a side effect.
-5. **Explicitly label frozen historical margin vs corrected analytical margin**
-   wherever both can be surfaced (§4).
+5. ~~Explicitly label frozen historical margin vs corrected analytical
+   margin.~~ **WITHDRAWN 2026-08-24.** No dual-margin label ships and no
+   application data model was created.
+
+   The requirement assumed a frozen-margin authority to be in tension with.
+   There is none: `quote_snapshots` carries no margin, and the frozen
+   commercial line set carries revenue without cost. The 74.36% existed only
+   in a stale S-7 baseline.
+
+   What the evidence found instead is stronger — where a frozen commercial
+   record exists, live revenue now **reconciles to the frozen customer total
+   exactly** (§3 of the certification record). The historical contract was
+   already correct; only the analytical margin was wrong. Labelling a figure
+   "corrected" indefinitely would make a one-time defect repair look like a
+   permanent dual-authority model.
+
+   Replaced by: the historical discrepancy recorded in
+   [`allocation-off-margin-exclusion-certification.md`](allocation-off-margin-exclusion-certification.md) §4.
 6. **Re-prove `markComplete` specifically**, because it consumes live margin
    STATUS rather than merely displaying it (§4). The proof required is negative
    and must be stated as such: *the repair creates no unintended progression
