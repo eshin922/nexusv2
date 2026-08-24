@@ -26,7 +26,10 @@
 .cv-body {
   display: flex;
   min-height: 0;
-  height: calc(100vh - 50px);
+  /* Derived at runtime from where this element actually sits under the shell —
+     see quote-host.tsx. The fallback is only for the first paint before the
+     measurement lands; it is not a claim about the chrome's height. */
+  height: var(--cv-avail, 70vh);
   overflow: hidden;
 }
 

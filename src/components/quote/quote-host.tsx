@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useLayoutEffect, useRef } from "react";
 import type {
   CustomerView,
   CustomerViewDetailLevel,
@@ -150,6 +150,49 @@ export function QuoteHost({
 
   const showLinkageWarning = !isHubspotLinked && !isSent;
 
+  /**
+   * The height the shell actually leaves this workspace.
+   *
+   * ── WHY THIS IS MEASURED AND NOT A CONSTANT ─────────────────────────
+   *
+   * The authority's composition is viewport-bound: each pane scrolls on its
+   * own and the finalize footer is pinned bottom-right. That needs a real
+   * available height.
+   *
+   * The first attempt guessed `calc(100vh - 50px)`. The chrome above this
+   * surface is actually 261px — an outer bar, the umbrella sub-tab strip and a
+   * version band — so the body overhung the viewport by 211px and the page
+   * grew a second scrollbar. The operator had to scroll the whole page to
+   * reach "the act".
+   *
+   * 261 is the evidence that the assumption was wrong, not a better constant.
+   * The chain from `.r8-shell` down is `block`, so the shell's height never
+   * propagates and no pure-CSS `flex: 1` reaches here without changing chrome
+   * shared with other surfaces.
+   *
+   * So it is derived from where this element actually sits, and re-derived on
+   * resize. Another chrome change moves the number by itself instead of
+   * silently breaking the workspace.
+   *
+   * No feedback loop: setting the height of an element does not move its own
+   * top, so the measurement is stable across the write.
+   */
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      // A floor, so a mis-measure degrades to a small workspace rather than a
+      // collapsed one.
+      const avail = Math.max(420, Math.round(window.innerHeight - top));
+      el.style.setProperty("--cv-avail", `${avail}px`);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [presentationRestored]);
+
   // Owned here so the Presentation panel's Voice group and the drawer
   // agree about whether it is open.
   const [notesOpen, setNotesOpen] = useState(false);
@@ -165,7 +208,7 @@ export function QuoteHost({
            zoom stands in for the reference's stepper, because a DOM preview
            would be a second renderer able to disagree with the artifact the
            customer actually receives. */
-        <div className="cv-body">
+        <div className="cv-body" ref={workspaceRef}>
           <div className="cv-preview">
             <div className="cv-preview-bar">
               <span className="cv-frame-chip">What the customer receives</span>

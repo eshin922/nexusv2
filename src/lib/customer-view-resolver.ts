@@ -98,7 +98,7 @@ export type ResolveCustomerViewResult =
        */
       governed: {
         goodsSell: number | null;
-        chargesAtCost: number;
+        chargesAtCost: number | null;
         approvedRecovery: number | null;
         floorMarginPct: number;
         targetMarginPct: number;
@@ -435,16 +435,26 @@ export async function resolveCustomerView(args: {
       const rollups = bundle.data.costing.quoteRollup ?? [];
       // The recommended tier, or the last one — the authority shows goods sell
       // "· {recommended tier}" and needs a tier to name.
-      // `view.tiers` is the customer-facing tier list and carries the
-      // recommendation index; the rollups are the economics for the same tiers.
+      // ── NO SURROGATE FOR THE RECOMMENDED TIER ────────────────────────
+      //
+      // Card 0's goods-sell row is scoped to the RECOMMENDED tier. An earlier
+      // version fell back to the last rollup when no recommendation existed
+      // and labelled it "Tier 4" — which reads as a governed choice and is
+      // not one. "The last tier" and "the recommended tier" are different
+      // facts, and substituting one for the other is the shape of error this
+      // surface exists to avoid.
+      //
+      // With no recommendation the card states the absence and shows no
+      // tier-scoped amounts, because every one of them needs a tier basis and
+      // this quote has not named one. Making the recommendation authorable is
+      // G4's job, and the empty state is what makes that visible.
       const recId =
         view.recommendedTierIdx === null
           ? null
           : (view.tiers[view.recommendedTierIdx]?.id ?? null);
-      const rec =
-        rollups.find((t: { tierId: string }) => t.tierId === recId) ??
-        rollups[rollups.length - 1] ??
-        null;
+      const rec = recId
+        ? (rollups.find((t: { tierId: string }) => t.tierId === recId) ?? null)
+        : null;
 
       let cost = 0;
       let recovery: number | null = 0;
@@ -468,8 +478,10 @@ export async function resolveCustomerView(args: {
         // Goods sell is tier revenue less what the charges contributed.
         goodsSell:
           rec && recovery !== null ? rec.totalRevenue - recovery : null,
-        chargesAtCost: cost,
-        approvedRecovery: recovery,
+        // Both are per-tier in this model — a setup fee differs by tier — so
+        // without a named tier neither can be stated either.
+        chargesAtCost: rec ? cost : null,
+        approvedRecovery: rec ? recovery : null,
         floorMarginPct: bundle.data.firmSettings.floorMarginPct,
         targetMarginPct: bundle.data.firmSettings.targetMarginPct,
         recommendedTierLabel: rec?.label ?? null,
