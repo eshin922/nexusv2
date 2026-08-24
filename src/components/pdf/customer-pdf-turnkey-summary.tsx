@@ -226,7 +226,41 @@ export function TurnkeySummary({
                 // Text elements (no empty-object fallback in style
                 // array) sidesteps the trigger. See docs/cc-comm-
                 // cluster1-diagnosis.md for full evidence trail.
-                <Text style={styles.tkTotal}>{money(total)}</Text>
+                // CLUSTER-1, SECOND REPAIR (2026-08-24). The 2026-07-27 fix
+                // above changed this branch from an array with an empty-object
+                // fallback to a BARE style object. That changed the severity
+                // and not the cause: an operator found three of four tier
+                // headlines drawing their last SIX glyphs -- "$14,906.00" as
+                // "906.00" -- while the recommended tier, the only one still
+                // passing a two-element ARRAY, drew all ten.
+                //
+                // The producer is not implicated. `formatMoney`'s only return
+                // is `(rounded < 0 ? "-$" : "$") + digits`, so no input makes
+                // it emit a string with no currency symbol -- and the PDF's own
+                // font subset carries the charset "$14,906.35278", the union of
+                // the four COMPLETE strings. The subsetter was told about the
+                // "$" and the separators; the draw step dropped them. Evidence:
+                // docs/tier-headline-glyph-truncation.md.
+                //
+                // Shaped to DISCRIMINATE, not merely to hope. Two things differ
+                // between the branch that works and the one that does not: the
+                // style SHAPE (array vs bare) and the WEIGHT (600 vs 500).
+                // Passing an array here holds the computed style identical --
+                // `tkTotal` already sets 500 -- and changes only the shape, so
+                // the deployed result is evidence either way:
+                //
+                //   renders in full -> the shape was the trigger, and this
+                //                      completes the Cluster-1 repair
+                //   still truncated -> the shape is exonerated and the
+                //                      weight-500 slice is; look next at
+                //                      pdf-fonts.ts, where 400/500/600 all
+                //                      register the SAME variable-font src
+                //
+                // Certify against a DEPLOYED artifact. This has never
+                // reproduced locally, so a local pass is not evidence.
+                <Text style={[styles.tkTotal, styles.tkTotalStd]}>
+                  {money(total)}
+                </Text>
               )}
               {perUnit != null && (
                 <Text style={styles.tkPerunit}>

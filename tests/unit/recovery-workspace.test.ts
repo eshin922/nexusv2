@@ -653,6 +653,40 @@ test("the workspace height is derived from the shell, not assumed", async () => 
   assert.match(host, /addEventListener\("resize"/);
 });
 
+test("no advance bar means no reservation for one", async () => {
+  // `.r8-body` reserves 96px of bottom padding to clear the advance bar --
+  // the stylesheet says so in as many words. The restored surface retired that
+  // bar to the rail footer, so on that surface the reservation is 96px of dead
+  // page below the workspace. An operator reported exactly that.
+  //
+  // The reservation is CORRECT wherever the bar renders, so this is not a
+  // padding tweak: the modifier is keyed to the same condition that decides
+  // whether the bar renders at all, and this pins the two together.
+  const css = await readFile(
+    new URL("../../src/styles/r8-quote-umbrella.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.r8-body\.r8-body-no-advance \{ padding-bottom: 22px; \}/);
+  assert.match(css, /\.r8-body \{ flex: 1; padding: 22px 24px 96px; \}/, "base reservation kept");
+
+  const umbrella = await readFile(
+    new URL("../../src/components/quote-umbrella/quote-umbrella.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    umbrella,
+    /presentationRestored && activeTab === "preview" \? " r8-body-no-advance"/,
+    "the modifier must key on the same condition that suppresses the bar",
+  );
+
+  // The condition on the other side, so a change to one fails against the other.
+  const tab = await readFile(
+    new URL("../../src/components/quote-umbrella/tab-preview-quote.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(tab, /if \(presentationRestored\) \{/);
+});
+
 test("Continue to Send is superseded on the restored surface, not suppressed", async () => {
   // Disposition, Edward 2026-08-24: Freeze & send is the single canonical final
   // action on the restored Customer View, and the legacy bar is obsolete there.
