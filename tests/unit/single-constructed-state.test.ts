@@ -107,25 +107,105 @@ test("elections reach the ENGINE, and only the engine", async () => {
   ]);
 });
 
-test("every consumer of a commercial total is downstream of the construction", async () => {
-  // Not a totals comparison — a statement about where each consumer's number
-  // comes from. The rollup is built from the constructed operands; everything
-  // below reads the rollup or the projection, so none of them can hold an
-  // independent opinion about a charge.
-  const engine = codeOnly(await read("src/lib/costing.ts"));
-  assert.match(engine, /revenueOperands\.push\(\{[\s\S]{0,400}?value: sepRecovery/);
-  assert.match(engine, /costOperands\.push\(\{[\s\S]{0,400}?value: sepCost/);
+// ═══════════════════════════════════════════════════════════════════════
+// THE SEVEN-CONSUMER TRACE.
+//
+// Not "the totals agree" — a claim about where each consumer's number COMES
+// FROM. Each step below names the one before it, so a consumer that grew an
+// independent opinion about a charge breaks the chain rather than silently
+// agreeing with it until it does not.
+// ═══════════════════════════════════════════════════════════════════════
 
-  // fingerprint + SEND gate read the rollup the operands built
+test("1+2 · quoteRollup revenue, cost and margin derive from the construction", async () => {
+  const src = codeOnly(await read("src/lib/costing.ts"));
+
+  // BOTH placements, which is the half that was missing. `separate_line`
+  // reached the tier operands at the cutover; `unit_price` did not — it was
+  // still decided by `production.allocateServiceFeesToCost` at the unit-cost
+  // line, so half of one decision was made in two places and
+  // `constructed.unitPriceCost` was read by nothing at all.
+  assert.match(
+    src,
+    /allocatedServiceFeesPerUnit =[\s\S]{0,40}?constructed\.unitPriceCost \/ denom : 0;/,
+    "the allocated fee is decided by the boolean again, not by the placement",
+  );
+  assert.doesNotMatch(
+    src,
+    /production\.allocateServiceFeesToCost && denom > 0/,
+    "the unit-price half went back to reading the boolean directly",
+  );
+
+  assert.match(src, /const sepCost = pt\.constructed\.separateLineCost;/);
+  assert.match(src, /const sepRecovery = pt\.constructed\.separateLineRecovery \?\? 0;/);
+
+  // The operands the tier's revenue and cost are summed FROM.
+  assert.match(src, /revenueOperands\.push\(\{[\s\S]{0,400}?value: sepRecovery/);
+  assert.match(src, /costOperands\.push\(\{[\s\S]{0,400}?value: sepCost/);
+  // And margin is computed from those two totals, not from a third source.
+  assert.match(src, /revenue > 0 \? \(revenue - cost\) \/ revenue : null/);
+});
+
+test("3+4 · the fingerprint and the SEND gate read that rollup", async () => {
   const gate = codeOnly(await read("src/lib/below-floor-send-gate.ts"));
   assert.match(gate, /bundle\.data\.costing\.quoteRollup/);
-  assert.match(gate, /fingerprintCommercialState\(\{[\s\S]{0,200}?totalRevenue: tier\.totalRevenue/);
+  assert.match(
+    gate,
+    /fingerprintCommercialState\(\{[\s\S]{0,220}?totalRevenue: tier\.totalRevenue[\s\S]{0,120}?totalCost: tier\.totalCost/,
+    "the gate fingerprints something other than the rollup it just read",
+  );
+  // The fingerprint itself takes the three terms and derives nothing.
+  const fp = codeOnly(await read("src/lib/below-floor-authorization.ts"));
+  assert.match(fp, /export function fingerprintCommercialState\(input: \{[\s\S]{0,200}?totalRevenue: number/);
+  assert.doesNotMatch(fp, /getCostingBundle|computeQuoteCosting/, "the fingerprint recomputes its own inputs");
+});
 
-  // the frozen matrix is handed the projection instance, never a rebuild
+test("5 · the customer projection reads the construction and prices nothing", async () => {
+  const src = codeOnly(await read("src/lib/commercial-projection.ts"));
+  assert.match(src, /constructedFor\(assemblyId, t\.tierId\)/);
+  assert.match(src, /placed\.placement !== "separate_line"/);
+  assert.match(src, /placed\.revenueContribution/);
+  assert.doesNotMatch(src, /resolveCharge/, "the seam resolves placement");
+  assert.doesNotMatch(src, /1 \+ productionMarkupPct/, "the seam re-prices a charge");
+  assert.doesNotMatch(src, /ChargeElection|electionByCharge/i, "the seam can still be handed elections");
+});
+
+test("6 · the frozen matrix is handed the projection INSTANCE, never a rebuild", async () => {
   const send = codeOnly(await read("src/app/actions/quotes.ts"));
   assert.match(send, /freezeCommercialLineSet\(\s*tx,\s*snapshot\.id,\s*resolved\.commercial\s*\)/);
+  assert.doesNotMatch(
+    send,
+    /freezeCommercialLineSet\([^)]*projectCommercial\s*\(/,
+    "the send path constructs a second projection to freeze",
+  );
+  const freeze = codeOnly(await read("src/lib/commercial-freeze.ts"));
+  assert.doesNotMatch(freeze, /computeQuoteCosting|projectCommercial\(/, "the freeze recomputes");
+});
 
-  // and the SO amount reads the FROZEN total rather than a live recompute
+test("7 · the NetSuite projection reads the FROZEN total, not a live recompute", async () => {
   const complete = codeOnly(await read("src/lib/netsuite/mark-complete.ts"));
+  // The order amount comes from the frozen commercial record — decided before
+  // this work and load-bearing for it: the repair moved the gate's INPUT and
+  // left the external write untouched.
   assert.match(complete, /currentAmount = Number\(decimalFromCents\(frozenOrder\.totalCents\)\)/);
+  assert.doesNotMatch(
+    complete,
+    /currentAmount = Number\(tierRollup\.totalRevenue/,
+    "the SO amount went back to a live recompute",
+  );
+});
+
+test("the whole chain has ONE root, and it is the construction", async () => {
+  // Stated as a single assertion so the trace above cannot pass while the
+  // thing it traces has been duplicated somewhere new.
+  const sites: string[] = [];
+  for (const f of await srcFiles()) {
+    if (f === "src/lib/commercial-recovery/construct.ts") continue;
+    const src = codeOnly(await read(f));
+    for (const m of src.matchAll(/(constructCommercial|composeFromPlacements)\s*\(/g)) {
+      const before = src.slice(Math.max(0, m.index - 40), m.index);
+      if (/export function\s*$/.test(before)) continue;
+      sites.push(f);
+    }
+  }
+  assert.deepEqual([...new Set(sites)], ["src/lib/costing.ts"]);
 });

@@ -151,7 +151,14 @@ test("a priced separate charge books cost AND its governed recovery", () => {
   });
 
   assert.equal(leaf(withFees).separateServiceFeesPerUnit, 0.4);
-  assert.equal(leaf(withFees).separateServicesMarkupSumPerUnit, 0.4 * 1.4);
+  // 0.56 EXACTLY, not `0.4 * 1.4` — which is 0.5599999999999999.
+  //
+  // The old expression marked up a per-unit QUOTIENT; the construction marks
+  // up each charge's total and sums, then divides once. Same money, one fewer
+  // rounding, and the test now states the value rather than reproducing the
+  // arithmetic it is checking — an expectation computed the same wrong way as
+  // the code agrees with it by construction.
+  assert.equal(leaf(withFees).separateServicesMarkupSumPerUnit, 0.56);
 
   // THE UNIT BUILD-UP IS UNTOUCHED — asserted as an equality between the two
   // runs rather than against a hardcoded figure, so it keeps holding if the

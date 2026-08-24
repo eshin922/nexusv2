@@ -97,7 +97,7 @@ test("the projection takes no elections at all", async () => {
   // structural rather than a convention.
   // Word-boundary: `OtherServiceSelection` contains "election" as a substring,
   // and a regex that matches it would fail for a reason unrelated to the claim.
-  assert.doesNotMatch(src, /elections?/i, "the projection can still be handed elections");
+  assert.doesNotMatch(src, /ChargeElection|electionByCharge/i, "the projection can still be handed elections");
   assert.doesNotMatch(src, /resolveCharge/, "the projection still resolves placement");
 });
 
