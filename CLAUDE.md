@@ -5487,6 +5487,127 @@ were meant to protect.
 - Pattern 57 (a financial stack contains only independently governed
   quantities) — same family: ask what a display or a rule is really claiming.
 
+## Pattern 59 — "A cost that travels as its own line must not also travel inside a unit rate"
+
+**Standing rule — banked 2026-08-24 from the allocation-OFF margin repair.**
+
+> Before adding an amount to a per-unit cost or rate field, establish what
+> ALREADY carries that amount downstream. A charge that is separately
+> represented must not also be folded into an aggregate that reaches the same
+> consumer.
+
+**Reference moment.** The repair had to make an allocation-OFF one-time charge
+visible to cost, revenue and margin. The obvious implementation adds it to
+`contributionCostPerUnit`, which is where the allocated path puts its own
+charge, and every margin then reads correctly.
+
+It would have been wrong. `contributionCostPerUnit` **is** the unit cost Nexus
+sends NetSuite (`mark-complete.ts:624, 716`), and a separately-billed charge
+already travels as its **own OTC line carrying its own cost**, read live from
+`assembly_production_inputs`. The same cost would have been sent twice.
+
+**The failure mode is what makes this worth a pattern: each side looks correct
+alone.** The product line's unit cost is a defensible number. The OTC line's
+cost is a defensible number. Only their sum is wrong, and nothing in either
+record says so. There is no error, no crash, and no margin that looks odd — the
+double count lands in an external accounting system and is discoverable only by
+someone reconciling two documents nobody reconciles.
+
+**The fix was also the better shape independently.** A fixed charge billed once
+is not a per-unit cost. It joins the TIER totals as its own operand rather than
+being amortised into a rate and multiplied back out — which additionally avoids
+the `qty_per_parent` round trip (see below).
+
+**Recognition heuristic.** When adding an amount to an aggregate, ask:
+
+1. **Who reads this field, outside this module?** Especially: does it leave the
+   system — NetSuite, HubSpot, a PDF, an export?
+2. **Is the amount already represented for that reader by another route?** A
+   separate line, a separate field, a separate document.
+3. **If both, would either representation look wrong on its own?** If no, the
+   double count is invisible and will not be found by inspection.
+
+**Related trap, same repair.** An amount amortised at a leaf, bubbled up
+multiplied by `qty_per_parent`, and multiplied back out by tier quantity does
+NOT return the amount when `qty_per_parent != 1` — it returns
+`amount x qty_per_parent`. A one-time $225 fee could book as another number
+entirely with every margin still plausible. Certification asserted `booked ==
+stated` per charge rather than trusting the round trip
+(`scripts/gate-1b/alloc-off-repair-certify.ts`).
+
+**Cross-references.**
+- Pattern 58 (membership determines attribution, never arithmetic) — same
+  family: the question is what a value's presence in a place CLAIMS, not
+  whether the arithmetic is locally defensible.
+- "Exact reconciliation is necessary but not sufficient" — a double count in an
+  external system is precisely a case where each part reconciles and the whole
+  does not.
+
+---
+
+## Pattern 60 — "A control must distinguish absence from failure, and must capture everything it claims to protect"
+
+**Standing rule — banked 2026-08-24 from the allocation-OFF margin repair.**
+
+> A harness asserting that something did not change is only as good as what it
+> captures and how it handles the cases it cannot resolve. Two defects make one
+> silently useless: collapsing "could not resolve" into "resolved empty", and
+> capturing a narrower shape than the claim it is used to support.
+
+Both were present in the same control script, and both were found by a
+TYPE ERROR rather than by the control failing — which is the point. **A broken
+control passes.** It cannot report its own inadequacy, so nothing surfaces
+until someone reads it.
+
+**Defect 1 — absence vs failure.** The script reached for `view?.commercial` on
+a discriminated union whose `not_found` arm carries no projection. A quote that
+failed to resolve and a quote that resolved with an empty projection would have
+been recorded identically, and a quote silently dropping out of the capture is
+invisible in a byte-comparison of two captures that BOTH dropped it. Narrow on
+the discriminant and record the unresolved kind explicitly.
+
+This is the OD-027 lesson in a new place: *a lookup that catches errors and
+returns "missing" cannot establish nonexistence.* Here it was a control whose
+entire job is noticing differences.
+
+**Defect 2 — capture the whole claim.** The control was cited as proof that
+"the customer-facing document does not change", and captured one display name
+per line. A moved `displaySub` or `displayQtyLabel` would have passed. **A
+moved sub-caption is a moved document even when the arithmetic holds.** It now
+captures every customer-visible string on the line.
+
+**And a strengthened control does not inherit the old one's result.** The
+byte-identical figure from the weaker capture proved a weaker claim. Both sides
+were re-captured and re-compared (8,636 → 12,535 bytes). A control changed after
+it passes must be re-run, not assumed to still hold.
+
+**Checklist when writing or reviewing a control / harness / preservation
+check.**
+
+1. **Enumerate the failure it must be able to report**, then check the
+   implementation can express it. A filter that cannot match a failure reports
+   zero because it can only ever report zero.
+2. **Three outcomes, not two:** present, authoritatively absent, and
+   indeterminate. Never fold the third into the second.
+3. **Capture the full surface of the claim.** If the claim is "the document did
+   not change", labels and copy are part of the document.
+4. **Re-run after strengthening it.** The prior pass belongs to the prior shape.
+5. **Run it on BOTH sides of the change**, not against a stored baseline alone —
+   a stale baseline mixes pre-existing drift with the change under test and
+   makes neither legible.
+
+**Cross-references.**
+- "Merge and certification evidence must use repository-governed test commands"
+  — same family. `npx tsc --noEmit` runs `tsconfig.json` and does NOT cover
+  `scripts/gate-1b/`; `npm run verify:ci` runs both projects. Reporting "tsc
+  clean" from the narrower command is a green measurement taken with an
+  instrument that cannot express the failure, and it is what let both defects
+  above reach CI.
+- Pattern 58's measurement lessons (the grep that could not match a numeric
+  difference; the `catch` that reported "missing" for a read failure).
+
+---
+
 ## Migration impact analysis — two lessons banked from OD-017
 
 **Standing verification discipline — 2026-08-12.** Both were real misses in a
