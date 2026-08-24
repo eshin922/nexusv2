@@ -370,6 +370,31 @@ test("the Accounting zone presents the frozen instruction and decides nothing", 
   // the surface already has this vocabulary and it should be reused, not
   // reinvented."
   assert.match(zone, /not shown to the customer/i);
+
+  // R7, which this component broke inside the repair for R7: it printed
+  // `project_setup` and `tooling_artwork_legacy` -- charge KEYS -- as operator
+  // content. The registry's operator label is the only thing that reaches the
+  // surface.
+  assert.match(zone, /chargePolicy\(i\.chargeKey\)\.label/);
+
+  // Tier identity, which the authority's Accounting table requires:
+  // "which tier the printed price belongs to". Without it a four-tier quote
+  // printed one charge three times at three amounts, indistinguishably.
+  assert.match(zone, /tierLabel\.get\(i\.tierId\)/);
+  // And the tier is part of the dedup key, or two tiers collapse into one line
+  // and the fix removes the very rows it was added to distinguish.
+  assert.match(zone, /\$\{i\.chargeKey\}::\$\{i\.tierId\}::\$\{sentence\}/);
+});
+
+test("every control in the Presentation panel reads as a control", async () => {
+  const css = await read("src/styles/r3-quote-presentation.css");
+  // The Voice group's trigger is a bare `.qp-field button`. It inherited
+  // nothing and rendered as plain text: no border, no ground, no padding.
+  assert.match(css, /\.qp-field button \{/);
+  const rule = css.slice(css.indexOf(".qp-field button {"));
+  for (const prop of [/border:/, /padding:/, /background:/, /cursor: pointer/]) {
+    assert.match(rule.slice(0, 400), prop, `the bare panel button has no ${prop}`);
+  }
 });
 
 test("F4 — the PURE / PASS-THROUGH / PARTIAL switcher is gone from Quote", async () => {

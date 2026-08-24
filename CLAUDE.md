@@ -5606,6 +5606,34 @@ check.**
 - Pattern 58's measurement lessons (the grep that could not match a numeric
   difference; the `catch` that reported "missing" for a read failure).
 
+### A reading an instrument cannot produce is not a finding
+
+**Banked 2026-08-24 from the Quote Presentation visual pass.** Same family as
+the entries above, in a medium where it is easier to be fooled: the browser.
+
+An iframe holding a PDF reports `contentDocument.body.innerHTML.length === 10`
+and no `<embed>`, because Chrome renders PDFs in a plugin that exposes no DOM.
+That is indistinguishable, through that instrument, from a blank document — and
+"the customer preview renders nothing" was one sentence away from being
+reported as a production defect on a surface that was rendering correctly.
+
+The proof was at the route: `fetch(src)` returned `200 · application/pdf ·
+44,159 bytes · %PDF-1.3`, and the visible render matched the measured total.
+
+**The rule, which generalises past PDFs:** before reporting an absence observed
+through a tool, establish that the tool can express presence. A DOM query
+cannot see plugin content; a `catch` cannot distinguish deletion from a failed
+read; a grep for quoted strings cannot match a moved number; a type-stripping
+runner cannot represent a type error. Each of those produced a confident false
+reading in this project, and each was caught by asking the same question:
+*could this instrument have told me the opposite?*
+
+**Corollary for UI review:** a screenshot is also an instrument with a range.
+The same pass nearly reported a clipped side rail from a 1120px-wide capture of
+a 1669px viewport; the element's `getBoundingClientRect().right` against
+`window.innerWidth` settled it at zero overflow. Measure geometry; do not read
+it off an image whose scale you did not set.
+
 ---
 
 ## Migration impact analysis — two lessons banked from OD-017
