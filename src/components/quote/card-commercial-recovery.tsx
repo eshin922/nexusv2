@@ -57,7 +57,7 @@
  * on this control.
  */
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { setChargeRecovery } from "@/app/actions/commercial-recovery";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { RecoveryMode } from "@/lib/commercial-recovery/registry";
@@ -105,7 +105,23 @@ export function CardCommercialRecovery({
   targetMarginPct: number;
   editable: boolean;
 }) {
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  /**
+   * The pick in flight, held until the ENGINE answers -- not until the write
+   * returns.
+   *
+   * Clearing on the action's return looked right and was measured wrong: the
+   * write completed at ~2s and the re-rendered rows arrived at ~4s, so for two
+   * seconds the row showed no "saving", no busy state, and still the OLD
+   * selection. That is the operator's original complaint exactly, moved later
+   * in the timeline rather than removed.
+   *
+   * So this holds until the incoming rows say something -- either the picked
+   * mode is now in force, or the rows changed and said otherwise. It cannot
+   * hang waiting for an answer that never comes, because ANY fresh answer
+   * clears it.
+   */
+  const [pending, setPending] = useState<{ chargeKey: string; mode: RecoveryMode } | null>(null);
+  const writeDone = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -114,19 +130,39 @@ export function CardCommercialRecovery({
   /** Picking elects. The document and the margin cards are the confirmation. */
   function pick(chargeKey: string, mode: RecoveryMode) {
     setError(null);
-    setPendingKey(chargeKey);
+    writeDone.current = false;
+    setPending({ chargeKey, mode });
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("chargeKey", chargeKey);
     fd.set("mode", mode);
     startTransition(async () => {
       const res = await setChargeRecovery(fd);
-      setPendingKey(null);
       // The governed reason, verbatim. The surface refuses too, but the surface
-      // is not the boundary — this is what the boundary said.
-      if (!res.ok) setError(res.error.message);
+      // is not the boundary -- this is what the boundary said.
+      if (!res.ok) {
+        setError(res.error.message);
+        setPending(null);
+        return;
+      }
+      // NOT cleared here. The write is done; the surface has not caught up.
+      writeDone.current = true;
     });
   }
+
+  // The engine's answer ends the wait.
+  useEffect(() => {
+    if (!pending) return;
+    const row = rows.find((r) => r.chargeKey === pending.chargeKey);
+    if (row?.effectiveMode === pending.mode) {
+      setPending(null);
+      return;
+    }
+    // Fresh rows that say something ELSE are still an answer -- a charge can
+    // come back mixed, or unchanged. Holding out for the picked mode would
+    // leave "saving…" on screen forever.
+    if (writeDone.current) setPending(null);
+  }, [rows, pending]);
 
   // The gate reads EVERY governed tier. A display choice can never clear a
   // floor breach, so tiers the customer will not see are still evaluated and
@@ -166,7 +202,7 @@ export function CardCommercialRecovery({
         </p>
       ) : (
         present.map((row) => {
-          const busy = pendingKey === row.chargeKey;
+          const busy = pending?.chargeKey === row.chargeKey;
           const allowed = row.options.filter((o) => o.available).map((o) => MODE_LABEL[o.mode].toLowerCase());
           return (
             <div key={row.chargeKey} className="cv-charge" data-testid={`charge-${row.chargeKey}`}>

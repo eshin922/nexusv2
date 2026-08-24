@@ -368,6 +368,41 @@ test("an in-flight recovery pick says so", async () => {
   assert.match(css, /prefers-reduced-motion/);
 });
 
+test("the saving state ends when the engine answers, not when the write returns", async () => {
+  // Measured on production after the first acknowledgement shipped:
+  //
+  //   ~1.0s  saving shown, aria-busy set, selection OLD
+  //   ~2.0s  saving GONE, aria-busy cleared, selection STILL OLD
+  //   ~4.0s  selection moves
+  //
+  // Clearing on the action's return left a two-second window with no feedback
+  // and a stale selection -- the operator's original complaint, moved later in
+  // the timeline rather than removed. The write returning is not the answer;
+  // the re-rendered rows are.
+  const card = await readFile(
+    new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
+    "utf8",
+  );
+  // The intent carries the mode, so it can be compared against what comes back.
+  assert.match(card, /useState<\{ chargeKey: string; mode: RecoveryMode \} \| null>/);
+  // Success must NOT clear it. Compared on whitespace-normalised text, so
+  // the assertion does not depend on how the file happens to wrap.
+  const flat = card.replace(/\s+/g, " ");
+  assert.ok(
+    !flat.includes("writeDone.current = true; setPending(null)"),
+    "a successful write must not end the wait",
+  );
+  // A refusal DOES clear it, or the row would sit saving forever.
+  assert.ok(
+    flat.includes("setError(res.error.message); setPending(null);"),
+    "a refusal must end the wait",
+  );
+  // And any fresh answer clears it, so it cannot hang.
+  assert.match(card, /if \(writeDone\.current\) setPending\(null\)/);
+  // Still derived from the engine, never optimistic.
+  assert.match(card, /const active = row\.effectiveMode === opt\.mode/);
+});
+
 test("Card 1 reads the treatment in force, not the election row", async () => {
   const card = await readFile(
     new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
