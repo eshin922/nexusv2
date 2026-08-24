@@ -205,6 +205,33 @@ export const RECOVERY_CHARGES: readonly ChargePolicy[] = [
   },
 ] as const;
 
+/**
+ * The governed one-time-charge COLUMN, by charge.
+ *
+ * ── WHY THIS LIVES HERE AND NOT AT EITHER CONSUMER ──────────────────────
+ *
+ * Two layers need to turn a fee column into a charge identity: the cost engine,
+ * to emit that charge's economics, and the projection, to decide which customer
+ * line an amount belongs to. A copy in each is two answers to one question, and
+ * they would agree right up until a column was added to one of them.
+ *
+ * It is COMPLETE — all seven columns, including `testingMicrosTotal`, which the
+ * projection does not currently emit a line for (only a Direct Service leaf
+ * writes it, and it is not assembly-authorable). That asymmetry is a fact about
+ * what the projection RENDERS, not about what the charge IS, so the identity
+ * map carries it and the projection's own list stays the narrower thing it
+ * already was.
+ */
+export const OTC_COLUMN_TO_CHARGE: Readonly<Record<string, RecoveryChargeKey>> = {
+  setupFeeTotal: "project_setup",
+  toolingArtworkTotal: "tooling_artwork_legacy",
+  toolingTotal: "tooling",
+  artworkTotal: "artwork_plate",
+  rdTotal: "rd_formulation",
+  testingMicrosTotal: "testing_micros",
+  otherServiceTotal: "other_service",
+};
+
 const BY_KEY = new Map(RECOVERY_CHARGES.map((c) => [c.key, c]));
 
 export function chargePolicy(key: RecoveryChargeKey): ChargePolicy {

@@ -16,7 +16,10 @@ import {
   resolveCharge,
   type ChargeElection,
 } from "@/lib/commercial-recovery/resolve";
-import type { RecoveryChargeKey } from "@/lib/commercial-recovery/registry";
+import {
+  OTC_COLUMN_TO_CHARGE,
+  type RecoveryChargeKey,
+} from "@/lib/commercial-recovery/registry";
 
 /**
  * THE commercial projection — one governed boundary, two consumers.
@@ -198,14 +201,11 @@ export const OTC_FEE_FIELDS = OTC_FEES.map((f) => f.field);
  * precisely because that one column spans two governed destinations with
  * different item types (BV-011 §4.2).
  */
-const OTC_FIELD_TO_CHARGE: Record<string, RecoveryChargeKey> = {
-  setupFeeTotal: "project_setup",
-  [LEGACY_COMBINED_OTC_COLUMN]: "tooling_artwork_legacy",
-  toolingTotal: "tooling",
-  artworkTotal: "artwork_plate",
-  rdTotal: "rd_formulation",
-  otherServiceTotal: "other_service",
-};
+// Read from the registry, not restated here. The registry's map is COMPLETE
+// (it includes `testingMicrosTotal`, which `OTC_FEES` does not render); this
+// alias keeps the existing call sites reading naturally while there is exactly
+// one answer to "which charge is this column".
+const OTC_FIELD_TO_CHARGE = OTC_COLUMN_TO_CHARGE;
 
 export { OTC_FIELD_TO_CHARGE };
 
