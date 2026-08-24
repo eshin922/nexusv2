@@ -178,6 +178,17 @@ export function CardCommercialRecovery({
                 </span>
               </div>
               <div className="cv-charge-policy">
+                {/* SAYING SO WHILE IT HAPPENS.
+                    The write lands in about two seconds -- measured at 2369ms
+                    and 1999ms on production. For that whole time the selection
+                    did not move, the row's buttons were disabled, and nothing
+                    on screen said anything. An operator clicked, saw nothing,
+                    clicked again into dead buttons, and reported the control
+                    as broken. It was not: every click persisted.
+                    A consequential control that takes two silent seconds IS
+                    broken from where the operator sits, whatever the database
+                    did. */}
+                {busy && <span className="cv-charge-saving">saving… </span>}
                 policy: {allowed.length ? allowed.join(" / ") : "none available"} · cost governed
                 {/* Provenance is a caption, never the selected state. A quote
                     that inherited its treatment still HAS that treatment. */}
@@ -200,11 +211,20 @@ export function CardCommercialRecovery({
                       key={opt.mode}
                       type="button"
                       aria-pressed={active}
+                      // Pattern 47(e) permits `disabled` on BUTTONS -- the
+                      // double-click protection is real and focus stability is
+                      // not a button concern. 47(f) requires that a disabled
+                      // control communicate WHY, which is what `aria-busy` and
+                      // the title below now do.
+                      aria-busy={busy || undefined}
+                      data-busy={busy ? "yes" : undefined}
                       disabled={!editable || busy || !opt.available}
                       title={
                         !editable
                           ? "This quote is no longer a draft; recovery is frozen."
-                          : (opt.reason ?? undefined)
+                          : busy
+                            ? "Saving this change…"
+                            : (opt.reason ?? undefined)
                       }
                       data-testid={`recovery-${row.chargeKey}-${opt.mode}`}
                       data-available={opt.available ? "yes" : "no"}

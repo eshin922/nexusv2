@@ -277,6 +277,26 @@
   color: var(--paper);
   border-color: var(--ink);
 }
+/* In flight. Distinguishable from prohibited at a glance: prohibited is flat
+   and dimmed, in-flight keeps its weight and pulses. Without this the two read
+   identically, and a saving row looks like a forbidden one. */
+.cv-opts button[data-busy="yes"] {
+  opacity: 0.72;
+  cursor: progress;
+  animation: cv-saving 900ms ease-in-out infinite;
+}
+@keyframes cv-saving {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-opts button[data-busy="yes"] { animation: none; }
+}
+.cv-charge-saving {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 /* Prohibited options are RENDERED, inert, and explain themselves. The
    constraint must be visible, not hidden. */
 .cv-opts button:disabled {

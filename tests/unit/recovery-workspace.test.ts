@@ -335,6 +335,39 @@ test("no single treatment in force selects nothing — none is invented", () => 
   assert.equal(absent.effectiveMode, null);
 });
 
+test("an in-flight recovery pick says so", async () => {
+  // Operator report: clicking a permitted treatment "produces no visible
+  // change". Traced end to end on production -- every click persisted, POST
+  // 200, no refusal. The selection simply took 2369ms and 1999ms to move, and
+  // for that whole time nothing on screen acknowledged the click while the
+  // row's buttons sat disabled.
+  //
+  // So the repair is acknowledgement, NOT a change to how the selected state
+  // is derived. That must keep coming from the engine's effective placement,
+  // which the assertions below also pin.
+  const card = await readFile(
+    new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(card, /busy && <span className="cv-charge-saving">/, "the row must say it is saving");
+  assert.match(card, /aria-busy=\{busy \|\| undefined\}/, "assistive tech must hear it too");
+  // Pattern 47(f): a disabled control must communicate why.
+  assert.ok(
+    card.includes('"Saving this change…"'),
+    "a busy button must state its reason",
+  );
+  // And the selected state still derives from the engine, not from the click.
+  assert.match(card, /const active = row\.effectiveMode === opt\.mode/);
+
+  const css = await readFile(
+    new URL("../../src/styles/r3-customer-view.css", import.meta.url),
+    "utf8",
+  );
+  // In-flight must not read as prohibited -- they are different states.
+  assert.match(css, /\.cv-opts button\[data-busy="yes"\]/);
+  assert.match(css, /prefers-reduced-motion/);
+});
+
 test("Card 1 reads the treatment in force, not the election row", async () => {
   const card = await readFile(
     new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
