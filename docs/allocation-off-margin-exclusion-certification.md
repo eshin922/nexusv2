@@ -212,3 +212,10 @@ restores the prior one.
 - customer-facing control byte-identical across the repair
 - S-7 isolated by running it on **both** sides rather than against the stale
   baseline alone
+- **S-7 recaptured and green:** 37 quotes, *"every governed commercial scalar
+  identical"*, per-SKU freight attribution conserved, exit 0. Recaptured last,
+  after §1-§7 were established — never to clear a failure.
+
+  Carried forward from the verifier and not silenced: `override` and
+  `flagged-out` node kinds have zero rows in the database and cannot be
+  exercised by any quote, so a green run does not cover them.
