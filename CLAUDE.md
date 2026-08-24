@@ -5820,6 +5820,49 @@ to reconcile is not that contract.
 - Pattern 50 (compliance-basis intersection state) — two subsystems agreeing by
   coincidence rather than construction.
 
+## A PR's description is not its diff — enumerate the merge before approving it
+
+**Standing rule — Edward's directive, 2026-08-24.** Banked from PR #383.
+
+> Before merging a narrowly described PR, compare its head against `main` and
+> enumerate every commit and file actually entering the merge.
+
+**Reference moment.** `fix/one-time-fee-class-rule` was branched off
+`fix/customer-view-operator-findings`, and `fix/tier-headline-and-dead-space`
+was then branched off THAT. Each step felt local. The result was that PR #383 --
+titled and described as two fixes to the customer PDF and a padding modifier --
+squashed the one-time fee class rule and the Continue-to-Send supersession into
+`main` as well.
+
+Nothing improper landed: all four changes were explicitly dispositioned. But the
+approval was given against a description covering half of them, which makes the
+approval mean less than it appeared to.
+
+**Why it is invisible from inside the work.** A stacked branch is the normal
+consequence of continuing to work while a PR is open, and every individual
+`git checkout -b` is correct. Nothing warns you, `git log` on the branch looks
+right, and the PR page shows the full commit list to a reader who thinks to
+scroll it. The defect exists only in the gap between what the PR SAYS and what
+it CARRIES.
+
+**The check, before requesting or performing a merge:**
+
+```
+git log --oneline main..HEAD          # every commit entering the merge
+git diff --stat main...HEAD           # every file
+```
+
+If either exceeds what the description covers, either split the branch or widen
+the description. Say which, explicitly, when asking for the merge.
+
+**Cross-references.**
+- Memory `feedback_stacked_pr_retarget` — GitHub does not auto-retarget a
+  stacked PR unless its base is deleted. Same family: branch topology producing
+  a merge that differs from the intent.
+- "Walk-and-fix push discipline" — the sibling failure, where commits stranded
+  on a branch never reach the merge at all. This is the inverse: commits reach
+  a merge nobody described.
+
 ## Merge and certification evidence must use repository-governed test commands
 
 **Standing rule — banked 2026-08-06 from the Costs certification merge gate.**
