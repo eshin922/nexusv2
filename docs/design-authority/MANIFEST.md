@@ -78,6 +78,44 @@ permanently is cheap relative to being unable to answer that question.
 | **`freight-1a`** | Phase 2 — Costs Workspace, Freight section | **Option A** | Reviewed; findings open | [BUNDLE.md](freight-1a/BUNDLE.md) |
 | **`r12-pricing-workspace`** | Phase 3 — Pricing Workspace; Phase 4 — approval state model | R12 (R10, R11 are lineage) | Not yet implemented | [BUNDLE.md](r12-pricing-workspace/BUNDLE.md) |
 
+## Registered document authorities
+
+Not every governing specification arrives as a bundle. A **design return** is
+authored in-repo and governs without shipping JSX or CSS. It is authority on
+exactly the same terms and is registered on the same terms — the shape differs,
+the standing does not.
+
+| Document | Governs | Approved | Operator review | SHA-256 |
+|---|---|---|---|---|
+| [`../quote-presentation-profile-brief.md`](../quote-presentation-profile-brief.md) | **Quote Presentation / Customer View** — interaction model, presentation-profile state, SEND freeze boundary, Accounting handoff | PR #326, merged 2026-08-24 | Reviewed 2026-08-24; R5 dispositioned, see below | `86cc8020…4682` |
+
+**R5 disposition (Edward, 2026-08-24).** The Layer-2 boundary is **preserved,
+not superseded**:
+
+> `fee_presentation` remains a Layer-2, revenue-neutral presentation decision.
+> **If a control can change customer economics, it is not a Quote Presentation
+> control.**
+
+The commercial recovery election — which is economically substantive, and whose
+legacy → governed conversion changes the customer total — therefore belongs to
+the commercial recovery / pricing layer and **must be removed from Quote
+Presentation**, not restyled or relocated within it. The three concerns are
+separate and stay separate: recovery determines *how much* and under what
+governed treatment; presentation determines *how that already-established
+economics appears*; Accounting consumes the frozen combination of both plus an
+explicit instruction about what is embedded versus separately invoiceable.
+
+Full trace: [`../quote-presentation-authority-reconciliation.md`](../quote-presentation-authority-reconciliation.md).
+
+**Why no `_intake` archive or `SHA256SUMS` file.** Those exist to prove an
+*extracted* artifact still matches an archive received from outside the
+repository. A design return has no outside archive — git history is its
+provenance — so the checksum is recorded inline above instead. A mismatch
+against `sha256sum docs/quote-presentation-profile-brief.md` means the same
+thing it means for a bundle: the authority was edited in place, or a new
+version arrived unrecorded. Both require a disposition before implementation
+continues.
+
 ---
 
 ## Rules for this directory
@@ -97,6 +135,33 @@ permanently is cheap relative to being unable to answer that question.
 5. **Adding a bundle means adding a `BUNDLE.md` and `SHA256SUMS`.** A bundle
    without an authority record cannot be relied on, because nobody can tell
    what it governs or what was already dispositioned against it.
+
+6. **This file must list EVERY governing specification, bundle or document.**
+   It says above that it is the authoritative home of every executable design
+   specification. An implementer who checks it is making the correct check, so
+   an omission here is not a filing error — it converts the correct check into
+   a wrong answer.
+
+   The Quote Presentation authority was absent from this table for three days
+   while Quote Presentation was implemented. The implementer checked, found
+   `freight-1a` and `r12-pricing-workspace`, concluded no bundle governed the
+   surface, and built it from the engine model instead. Nothing overruled the
+   authority; it was never reachable.
+
+7. **No registered authority for a surface is a BLOCKER, not a licence to
+   invent one.** When work reaches an operator-facing surface and this file
+   lists nothing governing it, the correct next action is to **stop and ask**,
+   because the two possibilities are indistinguishable from inside the code:
+
+   - no design authority exists yet — and the surface needs one before it is
+     built; or
+   - one exists and is unregistered, unmerged, or somewhere nobody thought to
+     look — which is what happened here.
+
+   Inventing a surface is only correct under the first, and an implementer
+   cannot tell which they are in. Pattern 30's standing protocol says the same
+   thing one level down: a brief with no `§0 · Fidelity Discipline` section
+   must be flagged **before** implementation, not built around.
 
 ---
 

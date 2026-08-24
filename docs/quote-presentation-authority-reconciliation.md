@@ -247,7 +247,26 @@ redesign**.
 
 ---
 
-## 5 · What I cannot decide
+## 5 · What I cannot decide — DISPOSITIONED
+
+**Edward, 2026-08-24: preserve the Design Authority boundary. Do not supersede
+it to accommodate the current implementation.**
+
+> `fee_presentation` remains a Layer-2, revenue-neutral presentation decision.
+> If a control can change customer economics, it is not a Quote Presentation
+> control.
+
+So resolution **(a)/(b)** rather than my recommended (c): the recovery election
+is removed from Quote Presentation and belongs to the commercial recovery /
+pricing layer, where it remains subject to pricing, margin and approval
+controls. Implementation brief:
+[`quote-presentation-restoration-brief.md`](quote-presentation-restoration-brief.md).
+
+The reasoning below is retained as the record of what was weighed.
+
+---
+
+## 5a · The three resolutions as they stood
 
 **R5 is a product question, and it is Edward's.** One operator question has two
 governing models:
