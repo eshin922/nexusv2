@@ -173,17 +173,40 @@ test("every mode is returned with a verdict — none omitted", () => {
   }
 });
 
-test("the four BV-011 charges offer nothing, and say why", () => {
+test("every one-time fee row is active, with absorbed refused on the invariant", () => {
+  // Supersedes "the four BV-011 charges offer nothing, and say why". The
+  // one-time fee class rule (Edward, 2026-08-24) grants all three treatments;
+  // BV-011's silence was never a refusal.
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
     isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true],
   });
-  for (const key of ["rd_formulation", "testing_micros", "other_service", "tooling_artwork_legacy"]) {
+  const oneTime = [
+    "tooling",
+    "project_setup",
+    "artwork_plate",
+    "rd_formulation",
+    "testing_micros",
+    "other_service",
+    "tooling_artwork_legacy",
+  ];
+  for (const key of oneTime) {
     const r = rows.find((x) => x.chargeKey === key)!;
-    assert.equal(r.options.every((o) => !o.available), true, `${key} is electable`);
-    for (const o of r.options) assert.match(o.reason ?? "", /BV-011|Legacy combined/);
+    const usable = r.options.filter((o) => o.available).map((o) => o.mode);
+    assert.deepEqual(
+      [...usable].sort(),
+      ["included", "separate"],
+      `${key} — the row must offer the two treatments the system performs`,
+    );
+    // Absorbed is permitted by policy and refused by the invariant, and the
+    // operator is told which. A row that simply omitted it would read as a
+    // charge that cannot be absorbed at all.
+    const absorbed = r.options.find((o) => o.mode === "absorbed")!;
+    assert.equal(absorbed.available, false);
+    assert.match(absorbed.reason ?? "", /cost is retained/);
+    assert.doesNotMatch(absorbed.reason ?? "", /BV-011/, `${key} still cites a lifted refusal`);
   }
 });
 
@@ -628,6 +651,67 @@ test("the workspace height is derived from the shell, not assumed", async () => 
   assert.match(host, /getBoundingClientRect\(\)\.top/);
   assert.match(host, /setProperty\("--cv-avail"/);
   assert.match(host, /addEventListener\("resize"/);
+});
+
+test("no advance bar means no reservation for one", async () => {
+  // `.r8-body` reserves 96px of bottom padding to clear the advance bar --
+  // the stylesheet says so in as many words. The restored surface retired that
+  // bar to the rail footer, so on that surface the reservation is 96px of dead
+  // page below the workspace. An operator reported exactly that.
+  //
+  // The reservation is CORRECT wherever the bar renders, so this is not a
+  // padding tweak: the modifier is keyed to the same condition that decides
+  // whether the bar renders at all, and this pins the two together.
+  const css = await readFile(
+    new URL("../../src/styles/r8-quote-umbrella.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.r8-body\.r8-body-no-advance \{ padding-bottom: 22px; \}/);
+  assert.match(css, /\.r8-body \{ flex: 1; padding: 22px 24px 96px; \}/, "base reservation kept");
+
+  const umbrella = await readFile(
+    new URL("../../src/components/quote-umbrella/quote-umbrella.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    umbrella,
+    /presentationRestored && activeTab === "preview" \? " r8-body-no-advance"/,
+    "the modifier must key on the same condition that suppresses the bar",
+  );
+
+  // The condition on the other side, so a change to one fails against the other.
+  const tab = await readFile(
+    new URL("../../src/components/quote-umbrella/tab-preview-quote.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(tab, /if \(presentationRestored\) \{/);
+});
+
+test("Continue to Send is superseded on the restored surface, not suppressed", async () => {
+  // Disposition, Edward 2026-08-24: Freeze & send is the single canonical final
+  // action on the restored Customer View, and the legacy bar is obsolete there.
+  //
+  // The restored branch must RETURN before `AdvanceBar` is referenced. A
+  // conditional render would leave the old control one boolean away from
+  // coming back — and that boolean is the admin gate, which is going to be
+  // removed. Suppression that depends on a flag you intend to delete is not
+  // suppression, so this asserts the structure rather than the behaviour.
+  const src = await readFile(
+    new URL("../../src/components/quote-umbrella/tab-preview-quote.tsx", import.meta.url),
+    "utf8",
+  );
+  const restored = src.slice(
+    src.indexOf("if (presentationRestored) {"),
+    src.indexOf("const adv = computeUmbrellaAdvance"),
+  );
+  assert.ok(restored.length > 0, "the restored branch is not a distinct return");
+  assert.doesNotMatch(
+    restored,
+    /AdvanceBar/,
+    "the restored branch still reaches the superseded control",
+  );
+  // And the legacy path keeps it — only while that surface exists.
+  assert.match(src, /<AdvanceBar/);
 });
 
 test("the umbrella shell is sized by its container, not by the viewport", async () => {

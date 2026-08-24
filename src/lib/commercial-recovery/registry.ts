@@ -72,31 +72,62 @@ export type ChargePolicy = {
   refusals: Readonly<Partial<Record<RecoveryMode, string>>>;
 };
 
-function BV011_PENDING(destination: string): string {
-  return (
-    `Recovery policy not yet dispositioned. BV-011 classifies this charge ` +
-    `(${destination}) but does not authorize customer-facing recovery ` +
-    `treatment (BV-011 §3).`
-  );
-}
-
-const BV011_NO_SURFACE =
-  "Recovery policy not yet dispositioned (BV-011 §3). No input surface " +
-  "exists for this field today (BV-011 §4.1).";
-
-const BV011_SPLIT_REQUIRED =
-  "Legacy combined field spans two governed destinations with different item " +
-  "types — OTC - Tooling (Inventory) and OTC - Artwork (Non-inventory), " +
-  "BV-011 §4.2. A single election cannot be applied coherently until the " +
-  "field is split.";
-
 /**
- * Refusal strings for the five Design-Authority charges are VERBATIM from the
- * authority rather than paraphrased. The four BV-011 charges carry reasons
- * that cite the governing clause, because "not yet decided" is only a useful
- * refusal if it says who has not decided it.
+ * -- ONE-TIME FEES ARE A CLASS, NOT SEVEN SEPARATE DECISIONS -------------
+ *
+ * Business disposition, Edward 2026-08-24:
+ *
+ *   "All charges governed/classified as One-time fees permit all three
+ *    recovery treatments. This is the governing recovery policy for the
+ *    class, not a charge-by-charge exception."
+ *
+ * So `available` is DERIVED from `grain` for every one-time fee rather than
+ * written out per charge. A new one-time fee inherits all three
+ * automatically, and there is no per-charge field for a future author to
+ * narrow -- which is what makes this a class rule rather than seven copies
+ * of one decision.
+ *
+ * -- WHAT THIS SUPERSEDES -----------------------------------------------
+ *
+ * R&D / Formulation, Other service and Testing / Micros were non-elective
+ * pending a BV-011 disposition; Tooling / artwork (legacy) was refused
+ * because the combined field spans two governed destinations with different
+ * item types.
+ *
+ * Both refusals read BV-011's SILENCE as a prohibition. BV-011 answers what
+ * item type a charge is, and says of itself that it "authorizes no
+ * implementation" -- it never refused a recovery treatment. Treating its
+ * scope boundary as one turned the absence of a disposition into a policy.
+ * This disposition supplies the policy that was actually missing.
+ *
+ * The legacy field's downstream Accounting / NetSuite classification problem
+ * is real and unchanged. It is a question about which OTC line an amount
+ * lands on, not about how the customer is charged for it, and the two were
+ * conflated.
+ *
+ * Artwork & plate previously refused `separate` as "Not separately
+ * invoiceable" -- a Design Authority (tier 3) policy this tier-1 disposition
+ * outranks. Testing / Micros has no assembly-authorable input surface, so it
+ * is absent from live quotes and its row does not render; the class rule
+ * applies to it uniformly rather than carving it out.
+ *
+ * -- ABSORBED IS GRANTED HERE AND STILL REFUSED DOWNSTREAM --------------
+ *
+ * The disposition gates it: "Do not enable Absorbed merely at the UI if that
+ * invariant is not already satisfied end-to-end." It is not.
+ * `ConstructedCommercial.absorbedCost` is read by nothing, so absorbing would
+ * drop the charge's COST along with its revenue and the quote would stop
+ * reflecting money DPS still pays.
+ *
+ * `ABSORB_COST_UNCONSUMED` in `resolve.ts` therefore continues to refuse it --
+ * for the whole class, on the invariant, not per charge. Policy permits it;
+ * the system does not yet do it, and the refusal says which.
  */
-export const RECOVERY_CHARGES: readonly ChargePolicy[] = [
+/** A registry entry as authored. One-time fees omit their modes; see above. */
+type ChargePolicySpec = Omit<ChargePolicy, "available" | "refusals"> &
+  Partial<Pick<ChargePolicy, "available" | "refusals">>;
+
+const CHARGE_SPECS: readonly ChargePolicySpec[] = [
   {
     key: "container_freight",
     label: "Container freight",
@@ -118,92 +149,55 @@ export const RECOVERY_CHARGES: readonly ChargePolicy[] = [
     label: "Tooling",
     grain: "one_time",
     source: ["assembly_production_inputs.tooling_total"],
-    available: ["included", "separate", "absorbed"],
-    refusals: {},
   },
   {
     key: "project_setup",
     label: "Project setup",
     grain: "one_time",
     source: ["assembly_production_inputs.setup_fee_total"],
-    available: ["included", "separate", "absorbed"],
-    refusals: {},
   },
   {
     key: "artwork_plate",
     label: "Artwork & plate",
     grain: "one_time",
     source: ["assembly_production_inputs.artwork_total"],
-    available: ["included", "absorbed"],
-    refusals: { separate: "Not separately invoiceable" },
   },
 
-  // ── BV-011 charges — classified, but recovery policy NOT dispositioned ──
-  //
-  // BV-011 answers WHAT ITEM TYPE. It does not answer HOW A CHARGE IS
-  // RECOVERED FROM THE CUSTOMER, and it says so itself: it "authorizes no
-  // implementation", and its §3 scope boundary excludes "any change to
-  // customer-facing presentation (Quote surface, customer PDF)" by name —
-  // which is precisely what a recovery election is.
-  //
-  // So these are NON-ELECTIVE with governed refusals, rather than absent from
-  // the registry or assigned a guessed mode set. They stay visible, and they
-  // keep today's behaviour exactly: resolution falls through to the
-  // per-assembly `allocate_service_fees_to_cost` value.
   {
     key: "rd_formulation",
     label: "R&D / Formulation",
     grain: "one_time",
     source: ["assembly_production_inputs.rd_total"],
-    available: [],
-    refusals: {
-      included: BV011_PENDING("OTC - Formulation"),
-      separate: BV011_PENDING("OTC - Formulation"),
-      absorbed: BV011_PENDING("OTC - Formulation"),
-    },
   },
   {
     key: "testing_micros",
     label: "Testing / Micros",
     grain: "one_time",
     source: ["assembly_production_inputs.testing_micros_total"],
-    available: [],
-    refusals: {
-      included: BV011_NO_SURFACE,
-      separate: BV011_NO_SURFACE,
-      absorbed: BV011_NO_SURFACE,
-    },
   },
   {
     key: "other_service",
     label: "Other service",
     grain: "one_time",
     source: ["assembly_production_inputs.other_service_total"],
-    available: [],
-    refusals: {
-      included: BV011_PENDING("OTC - Other Service"),
-      separate: BV011_PENDING("OTC - Other Service"),
-      absorbed: BV011_PENDING("OTC - Other Service"),
-    },
   },
   {
-    // The strongest refusal in the registry, and the only one that is not
-    // merely "undecided". This single persisted field spans TWO governed
-    // destinations with DIFFERENT item types, so one election cannot be
-    // applied to it coherently at all. The reason names the migration that
-    // would change that, rather than deferring to an unnamed future.
     key: "tooling_artwork_legacy",
     label: "Tooling / artwork (legacy)",
     grain: "one_time",
     source: ["assembly_production_inputs.tooling_artwork_total"],
-    available: [],
-    refusals: {
-      included: BV011_SPLIT_REQUIRED,
-      separate: BV011_SPLIT_REQUIRED,
-      absorbed: BV011_SPLIT_REQUIRED,
-    },
   },
-] as const;
+];
+
+export const RECOVERY_CHARGES: readonly ChargePolicy[] = CHARGE_SPECS.map(
+  (spec): ChargePolicy =>
+    spec.grain === "one_time"
+      ? // The class rule. Not `spec.available ?? [...]` -- a fallback would
+        // let a future author narrow one charge while the shape still looked
+        // right, which is the thing a class rule exists to prevent.
+        { ...spec, available: [...RECOVERY_MODES], refusals: {} }
+      : { ...spec, available: spec.available ?? [], refusals: spec.refusals ?? {} },
+);
 
 /**
  * The governed one-time-charge COLUMN, by charge.

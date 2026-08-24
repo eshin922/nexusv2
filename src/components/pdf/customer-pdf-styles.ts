@@ -871,6 +871,16 @@ export const styles = StyleSheet.create({
   tkTotalRec: {
     fontWeight: 600,
   },
+  // The non-recommended weight, stated as its own entry rather than left
+  // implicit in `tkTotal`.
+  //
+  // Computed style is unchanged -- `tkTotal` already sets 500. What changes is
+  // that BOTH headline branches now pass react-pdf a two-element style array,
+  // which is the only shape observed to render the full string in the deployed
+  // runtime. See customer-pdf-turnkey-summary.tsx for the evidence.
+  tkTotalStd: {
+    fontWeight: 500,
+  },
   tkPerunit: {
     fontFamily: PDF_FONT_FAMILY.mono,
     fontSize: 7.5,

@@ -78,58 +78,68 @@ export function TabPreviewQuote({
   versionChain: VersionRow[];
   onGo: (id: SubTabId) => void;
 }) {
+  const host = (
+    <QuoteHost
+      view={view}
+      quoteId={quoteId}
+      quoteStatus={quoteStatus}
+      recoveryInstructions={recoveryInstructions}
+      recoveryRows={recoveryRows}
+      quoteRollup={quoteRollup}
+      governed={governed}
+      presentationRestored={presentationRestored}
+      internalNotes={internalNotes}
+      addendumData={addendumData}
+      isHubspotLinked={isHubspotLinked}
+    />
+  );
+  const picker = (
+    <VersionPicker
+      projectId={projectId}
+      versions={versionChain}
+      quoteNumber={quoteNumberDb}
+    />
+  );
+
+  // ── SUPERSESSION, NOT SUPPRESSION ──────────────────────────────────────
+  //
+  // Disposition, Edward 2026-08-24: on the restored Customer View the legacy
+  // `Continue to Send →` bar is OBSOLETE. Freeze & send is the single
+  // canonical final action, and the two are not to be reconciled or relocated.
+  //
+  // So the restored branch returns before `AdvanceBar` is ever referenced,
+  // rather than rendering it conditionally. A conditional would keep the old
+  // control one boolean away from returning — and the boolean in question is
+  // the admin gate, which is going to be removed. Suppression that depends on
+  // a flag you intend to delete is not suppression.
+  //
+  // The legacy branch below keeps the bar, and keeps it only while that
+  // surface exists.
+  if (presentationRestored) {
+    return (
+      <div className="r8-wrap">
+        {picker}
+        {host}
+      </div>
+    );
+  }
+
+  const adv = computeUmbrellaAdvance("preview", quoteStatus);
   return (
     <div className="r8-wrap">
-      <VersionPicker
-        projectId={projectId}
-        versions={versionChain}
-        quoteNumber={quoteNumberDb}
+      {picker}
+      {host}
+      {/* Slice 12 Step 9 CB P6 pattern-fix — advance target derived from
+          quoteStatus via computeUmbrellaAdvance, not hardcoded. Prior version
+          pinned "Continue to Send →" regardless of lifecycle position. */}
+      <AdvanceBar
+        weight="light"
+        mid={<span>previewing {quoteStatus}</span>}
+        caption={adv?.caption ?? "Umbrella read-only — no advance"}
+        label={adv?.label}
+        onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
+        disabled={!adv}
       />
-      <QuoteHost
-        view={view}
-        quoteId={quoteId}
-        quoteStatus={quoteStatus}
-        recoveryInstructions={recoveryInstructions}
-        recoveryRows={recoveryRows}
-        quoteRollup={quoteRollup}
-        governed={governed}
-        presentationRestored={presentationRestored}
-        internalNotes={internalNotes}
-        addendumData={addendumData}
-        isHubspotLinked={isHubspotLinked}
-      />
-      {/* Slice 12 Step 9 CB P6 pattern-fix — advance target derived
-          from quoteStatus via computeUmbrellaAdvance, not hardcoded.
-          Prior version pinned "Continue to Send →" regardless of
-          lifecycle position (Preview on an already-accepted quote
-          pointed backward). Helper handles complete-state null +
-          all four lifecycle positions uniformly across all 5 tabs. */}
-      {/* ── ONE ACT, NOT TWO ────────────────────────────────────────────
-          The restored composition puts the act in the rail's pinned footer —
-          "Bottom-right: the act". A page-level advance bar underneath it is a
-          second send-shaped control for the same step, and the operator
-          reported exactly that: two send buttons.
-
-          So on the restored surface the rail footer owns it. The legacy path
-          keeps the bar, because there the rail does not exist and it is the
-          only way forward.
-
-          It is also what sat below the workspace contributing to the page
-          overflow — removing it is a composition fix that happens to help the
-          measurement, not a fix aimed at the measurement. */}
-      {!presentationRestored && (() => {
-        const adv = computeUmbrellaAdvance("preview", quoteStatus);
-        return (
-          <AdvanceBar
-            weight="light"
-            mid={<span>previewing {quoteStatus}</span>}
-            caption={adv?.caption ?? "Umbrella read-only — no advance"}
-            label={adv?.label}
-            onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
-            disabled={!adv}
-          />
-        );
-      })()}
     </div>
   );
 }

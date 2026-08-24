@@ -294,7 +294,17 @@ export function QuoteUmbrella({
           onGo={onGo}
         />
         {showLegend && <Legend />}
-        <div className="r8-body">
+        {/* The bottom padding reserves room for the advance bar. Preview
+            Quote on the restored surface has none -- the act lives in the
+            rail footer -- so reserving there leaves a dead 96px strip.
+            Keyed to the SAME condition that decides whether the bar renders
+            (tab-preview-quote.tsx), so the two cannot drift apart. */}
+        <div
+          className={
+            "r8-body" +
+            (presentationRestored && activeTab === "preview" ? " r8-body-no-advance" : "")
+          }
+        >
           {activeTab === "preview" && (
             <TabPreviewQuote
               view={view}
