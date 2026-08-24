@@ -694,6 +694,13 @@
       "when": 1786320180000,
       "tag": "0100_quote_charge_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1786320181000,
+      "tag": "0101_frozen_recovery_instruction",
+      "breakpoints": true
     }
   ]
 }

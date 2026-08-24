@@ -49,6 +49,7 @@ import {
   quoteReviewEvents,
   quoteChargeRecovery,
   quoteSnapshotChargeRecovery,
+  quoteSnapshotRecoveryInstructions,
   quoteSnapshots,
   quoteSnapshotArtifacts,
   quoteSnapshotFreightInputs,
@@ -1959,6 +1960,43 @@ export async function sendQuote(
       // Zero rows is the normal case and is not an omission: absence of an
       // election means legacy per-assembly resolution, which is exactly what
       // reproduces on replay.
+      // THE FROZEN RECOVERY INSTRUCTION — what Accounting will act on.
+      //
+      // Projected from the construction the customer document was built from,
+      // and covering EVERY placed charge rather than every elected one. A
+      // legacy-placed charge has no election row, so an instruction built from
+      // elections would record nothing for the great majority of charges —
+      // and every live quote today is in exactly that state, so it would
+      // freeze nothing.
+      //
+      // Inside the send transaction: an accounting instruction recorded by a
+      // separately-failable write is an instruction the snapshot can exist
+      // without, and the next consumer would be reconstructing history.
+      if (resolved.recoveryInstructions.length > 0) {
+        await tx.insert(quoteSnapshotRecoveryInstructions).values(
+          resolved.recoveryInstructions.map((i) => ({
+            quoteSnapshotId: snapshot.id,
+            chargeKey: i.chargeKey,
+            ownerRef: i.ownerRef,
+            tierId: i.tierId,
+            treatment: i.treatment,
+            treatmentSource: i.treatmentSource,
+            cost: i.cost.toFixed(2),
+            governedRecovery:
+              i.governedRecovery === null ? null : i.governedRecovery.toFixed(2),
+            // 0 is the INSTRUCTION for an amortized charge, not an absence, so
+            // it is written rather than left null.
+            separateInvoiceAmount:
+              i.separateInvoiceAmount === null
+                ? null
+                : i.separateInvoiceAmount.toFixed(2),
+            amortizedPerUnit:
+              i.amortizedPerUnit === null ? null : i.amortizedPerUnit.toFixed(6),
+            tierQuantity: i.tierQuantity,
+          })),
+        );
+      }
+
       const electionsToFreeze = await tx
         .select()
         .from(quoteChargeRecovery)

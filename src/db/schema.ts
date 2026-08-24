@@ -4204,6 +4204,82 @@ export const quoteChargeRecovery = pgTable(
 
 // The durable record, mirrored inside the send transaction so a sent revision
 // can never inherit a later revision's election.
+export const recoveryTreatment = pgEnum("recovery_treatment", [
+  "unit_price",
+  "separate_line",
+  "absorbed",
+]);
+
+export const recoveryTreatmentSource = pgEnum("recovery_treatment_source", [
+  "election",
+  "legacy",
+]);
+
+/**
+ * The frozen recovery INSTRUCTION — what Accounting acts on.
+ *
+ * Distinct from `quoteSnapshotChargeRecovery`, which freezes the ELECTION. A
+ * legacy-placed charge has NO election row — absence of a row is the model's
+ * load-bearing state — so an elections-keyed table records nothing for the
+ * great majority of charges, and every live quote today is in exactly that
+ * state. Freezing only elections would freeze nothing.
+ *
+ * One row per placed charge per (owner, tier), because placement is decided
+ * there and a quote can hold one charge at several owners with different
+ * treatments. One row per charge would have to pick, and picking would write a
+ * false instruction.
+ */
+export const quoteSnapshotRecoveryInstructions = pgTable(
+  "quote_snapshot_recovery_instructions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
+    chargeKey: recoveryCharge("charge_key").notNull(),
+    /** Assembly or quote-leaf id as text — the two are different tables and a
+     * single FK cannot address both. Traceability, not a join key. */
+    ownerRef: text("owner_ref").notNull(),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+
+    treatment: recoveryTreatment("treatment").notNull(),
+    treatmentSource: recoveryTreatmentSource("treatment_source").notNull(),
+
+    /** What DPS pays. */
+    cost: numeric("cost", { precision: 14, scale: 2 }).notNull(),
+    /** What DPS intends to recover. NULL when no governed rate resolved — not
+     * 0, which would say the charge recovers nothing (BV-013). */
+    governedRecovery: numeric("governed_recovery", { precision: 14, scale: 2 }),
+    /** What Accounting bills separately. 0 for an amortized charge, and that 0
+     * IS the instruction rather than an absence. */
+    separateInvoiceAmount: numeric("separate_invoice_amount", {
+      precision: 14,
+      scale: 2,
+    }),
+    /** The basis, present only where the recovery is FIXED: an ELECTED
+     * unit-price placement, whose governed recovery is added after the pricing
+     * ladder. NULL for a separately-billed charge, which was not spread over
+     * anything, and NULL for a legacy allocated fee, whose recovered amount
+     * moves with the quote-level adjustment — 1400 becomes 1400 x (1 + gpa). */
+    amortizedPerUnit: numeric("amortized_per_unit", { precision: 14, scale: 6 }),
+    tierQuantity: integer("tier_quantity"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("quote_snapshot_recovery_instructions_unique").on(
+      t.quoteSnapshotId,
+      t.chargeKey,
+      t.ownerRef,
+      t.tierId,
+    ),
+  ],
+);
+
 export const quoteSnapshotChargeRecovery = pgTable(
   "quote_snapshot_charge_recovery",
   {

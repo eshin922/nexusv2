@@ -120,6 +120,19 @@ export type PlacedCharge = {
    * `perUnit` is derived here rather than left to a consumer because a consumer
    * dividing it again is a second derivation, and the quantity it divided by
    * would be the one it happened to have.
+   *
+   * ── ONLY FOR AN ELECTED PLACEMENT ───────────────────────────────────────
+   *
+   * A LEGACY allocated fee has no fixed per-unit recovery. It flows into the
+   * sell ladder, so the quote-level adjustment marks it up — measured at
+   * 1000/1.4 on 1000 units, the customer paid 1400 x (1 + gpa): 280 more at
+   * gpa 0.20 and 700 more at 0.50. Stating the governed $0.14 would be a
+   * number an accountant would act on beside a charge the customer paid
+   * $0.168 for, which is worse than stating nothing.
+   *
+   * An election IS fixed, because the precedence adds the governed recovery
+   * after the ladder. That is the commercial substance of electing, and the
+   * reason `source` is load-bearing here rather than mere provenance.
    */
   amortization: { totalRecovered: number; tierQuantity: number; perUnit: number } | null;
   /**
@@ -372,8 +385,24 @@ export function composeFromPlacements(
         // Stated only where it is a fact. A separately-billed charge has no
         // amortization basis, and inventing one — or emitting a zero — would
         // let a reader take it for an amortized charge spread over nothing.
+        //
+        // And NOT for a LEGACY unit-price placement, which is the subtle one.
+        // A legacy allocated fee flows into the sell ladder, so the quote-level
+        // adjustment marks it up: measured at 1000/1.4 on 1000 units, the
+        // customer paid 1400 x (1 + gpa) for it -- 280 more at gpa 0.20, 700
+        // more at 0.50. There is no fixed per-unit recovery to state, and
+        // stating the governed 0.14 would put a number an accountant would act
+        // on next to a charge the customer paid 0.168 for.
+        //
+        // An ELECTED unit-price placement IS fixed, because the precedence adds
+        // the governed recovery AFTER the ladder. That difference is the whole
+        // commercial value of electing, and it is why `source` is load-bearing
+        // here and not merely provenance.
         amortization:
-          placement === "unit_price" && e.recoverableSell !== null && tierQuantity > 0
+          placement === "unit_price" &&
+          source === "election" &&
+          e.recoverableSell !== null &&
+          tierQuantity > 0
             ? {
                 totalRecovered: e.recoverableSell,
                 tierQuantity,

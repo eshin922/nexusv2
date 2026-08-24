@@ -30,6 +30,7 @@ import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
 import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
+import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
@@ -84,6 +85,8 @@ export type ResolveCustomerViewResult =
       commercial: import("./commercial-projection").CommercialProjection;
       /** Recovery workspace rows, from the same bundle read. */
       recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
+      /** The frozen recovery instruction, projected from the construction. */
+      recoveryInstructions: import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
     }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "bundle_error"; message: string };
@@ -377,6 +380,22 @@ export async function resolveCustomerView(args: {
      * page to a single `getCostingBundle` — the 8-wide fan-out is documented as
      * the connection pool's limit.
      */
+    /**
+     * The frozen recovery instruction, from THIS bundle read.
+     *
+     * Returned rather than rebuilt at send for the same reason `commercial` is:
+     * the record Accounting later reads must be a projection of the
+     * construction the customer document was built from, not an equivalent one
+     * from a second read.
+     */
+    recoveryInstructions: projectFrozenInstructions(
+      bundle.data.costing,
+      (skuId) =>
+        (bundle.data.skus ?? []).some(
+          (s: { id: string; skuRole?: string }) =>
+            s.id === skuId && s.skuRole === "leaf",
+        ),
+    ),
     recoveryRows: buildRecoveryWorkspace({
       costing: bundle.data.costing,
       elections: bundle.data.chargeElections ?? [],

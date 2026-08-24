@@ -108,6 +108,64 @@ function total(allocate: boolean, elections: ChargeElection[] = []): number {
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
+/** The same customer total, at an arbitrary quote-level adjustment. */
+function totalAt(gpa: number, allocate: boolean, elections: ChargeElection[] = []): number {
+  const input = costingInput(allocate, elections);
+  input.quote = { ...input.quote, globalPriceAdjPct: gpa };
+  const costing = computeQuoteCosting(input);
+  const bundle = {
+    markupDefaults: input.markupDefaults,
+    skus: input.skus,
+    production: input.production,
+    costing,
+  } as unknown as HydrateSnapshot;
+  return projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!
+    .tierCommercialTotal;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE LEGACY ASYMMETRY IS PROPORTIONAL, NOT A FIXED OFFSET.
+//
+// `THE FINDING` below already asserts the asymmetry at this fixture's 0.20.
+// What was never measured is its SHAPE — whether the adjustment scales the
+// charge or shifts it — and that is the load-bearing part: a legacy
+// amortization freezes no per-unit basis precisely because the recovered
+// amount is a FUNCTION of the ladder rather than the governed rate plus a
+// constant. One measurement cannot distinguish the two.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("a LEGACY allocated fee is marked up by the quote-level adjustment", () => {
+  const recovery = SETUP * RATE; // 1400, the governed recoverable amount
+
+  for (const gpa of [0, 0.2, 0.5]) {
+    const allocated = totalAt(gpa, true); // fee inside the unit rate
+    const ownLine = totalAt(gpa, false); // fee on its own line
+    assert.equal(
+      round(allocated - ownLine),
+      round(recovery * gpa),
+      `legacy asymmetry at gpa ${gpa} is not recovery x gpa`,
+    );
+  }
+
+  // Non-vacuous in both directions: zero at gpa 0 is the coincidence the old
+  // fixture mistook for neutrality, and the spread at 0.50 is what a per-unit
+  // basis frozen from the governed rate would have misstated.
+  assert.equal(round(totalAt(0, true) - totalAt(0, false)), 0);
+  assert.equal(round(totalAt(0.5, true) - totalAt(0.5, false)), 700);
+});
+
+test("an ELECTED placement is neutral at every adjustment", () => {
+  // The other half of the same measurement. Legacy moves with the ladder;
+  // an election does not, which is what makes its amortization freezable.
+  for (const gpa of [0, 0.2, 0.5]) {
+    assert.equal(
+      round(totalAt(gpa, true, [{ chargeKey: "project_setup", mode: "included" }])),
+      round(totalAt(gpa, true, [{ chargeKey: "project_setup", mode: "separate" }])),
+      `elected relocation moved the total at gpa ${gpa}`,
+    );
+  }
+});
+
 // ── the magnitude at stake, measured through a legal path ───────────────
 
 test("THE FINDING · the LEGACY boolean is not revenue-neutral either", () => {

@@ -121,10 +121,54 @@ Absence of a row is load-bearing (no election → legacy per-assembly
 resolution), so there is **no backfill** and every pre-existing quote
 and snapshot resolves to the behaviour that produced it.
 
+### Sibling table frozen at checkpoint 1 — `quote_snapshot_recovery_instructions`
+
+The elections mirror above freezes **what the operator chose**. It cannot
+be the accounting record, for a reason that is easy to miss and was
+measured rather than assumed: **a legacy-placed charge has no election
+row at all.** Across the ten live quotes carrying a one-time charge, the
+projection emits **86 instructions and 0 of them are elected** — so a
+freeze keyed on elections would record 0 of 86, and Accounting could not
+distinguish *"amortized under legacy pricing, do not invoice separately"*
+from *"this charge does not exist on the quote."*
+
+So this table records the instruction for **every placed charge**, elected
+or not, one row per (charge, owner, tier).
+
+| Table | Frozen at | Writer | Guard |
+|---|---|---|---|
+| `quote_snapshot_recovery_instructions` | draft → sent | `sendQuote` (`src/app/actions/quotes.ts`), inside the send transaction | write-once by construction — inserted only at freeze, never updated |
+
+Frozen per row: `treatment`, `treatment_source`, `cost`,
+`governed_recovery`, `separate_invoice_amount`, `amortized_per_unit`,
+`tier_quantity`.
+
+Two encodings in it are load-bearing and must not be "tidied":
+
+- **`separate_invoice_amount = 0` is the instruction, not an absence.** For
+  an amortized charge it is exactly where the invoice line diverges from
+  the recovery; collapsing the two would tell Accounting to bill a charge
+  the customer already paid inside the rate.
+- **`amortized_per_unit` is NULL for a legacy amortization.** A legacy
+  allocated fee flows into the sell ladder, so the quote-level adjustment
+  reaches it — measured, the customer pays `recovery x (1 + gpa)`: +280 at
+  0.20 and +700 at 0.50 on a $1,400 recovery. There is no fixed per-unit
+  figure to freeze, and freezing the governed $0.14 would put a number an
+  accountant would act on beside a charge paid at $0.168. An **elected**
+  amortization IS fixed, because the precedence adds it after the ladder —
+  which is the accounting substance of electing.
+
+Guard note: this table needs no `assertNotFrozen`. Every other Pattern 52
+entry is a column on a mutable row that a later writer could reach; these
+are insert-only rows on an immutable snapshot, so the invariant is
+structural rather than conventional. If a future path ever updates one,
+it inherits the full guard obligation.
+
 ## Total
 
 **30 columns across the three checkpoints, plus the
-`quote_charge_recovery` sibling table at checkpoint 1.**
+`quote_charge_recovery` and `quote_snapshot_recovery_instructions`
+sibling tables at checkpoint 1.**
 
 ## Guards — how to use
 

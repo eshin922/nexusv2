@@ -96,8 +96,39 @@ authority.
 
 **Implemented already** (this branch): `PlacedCharge.amortization` carries
 `{ totalRecovered, tierQuantity, perUnit }`, present exactly when the placement
-is `unit_price` and the recovery is known. `placement` itself answers *"invoice
-separately?"*.
+is `unit_price`, the placement is **elected**, and the recovery is known.
+`placement` itself answers *"invoice separately?"*.
+
+### The legacy amortization has no per-unit figure to freeze
+
+Surfaced while building the freeze, and it changes what the record can say.
+
+A legacy allocated fee flows into the sell ladder, so the quote-level
+adjustment reaches it. Measured end to end on a $1,000 fee at a 1.4 rate over
+1,000 units:
+
+| gpa | allocated | own line | delta | |
+|---|---|---|---|---|
+| 0.00 | 2400 | 2400 | 0 | the coincidence the original fixture mistook for neutrality |
+| 0.20 | 2880 | 2600 | 280 | = 1400 x 0.20 |
+| 0.50 | 3600 | 2900 | 700 | = 1400 x 0.50 |
+
+The asymmetry is **proportional**, not a fixed offset — which is the load-bearing
+part, and one measurement could not have distinguished the two. So the customer
+pays `recovery x (1 + gpa)` for a legacy-amortized charge, and there is no fixed
+per-unit recovery to state.
+
+Freezing the governed `$0.14/unit` would therefore put a number an accountant
+would act on beside a charge the customer paid `$0.168/unit` for. **Worse than
+stating nothing**, so the basis is NULL for a legacy placement and the
+instruction says why: *"the recovered amount is not independently governed,
+because the quote-level price adjustment applies to it."*
+
+An **elected** amortization IS fixed, because §5's precedence adds the governed
+recovery after the ladder. That difference is the accounting substance of
+electing rather than a detail of it: **electing converts an amortization nobody
+can state into one that is frozen and reconcilable.** It is also the second
+reason `source` is load-bearing, alongside §3 point 7.
 
 Stated only where it is a fact — a separately-billed charge has no basis, and
 emitting a zero would let a reader take it for an amortized charge spread over
@@ -182,7 +213,16 @@ current state, and the surface should not present it as a confirmation.
 2. ~~implemented; legacy path untouched~~ **done** — S-7 shows no new movement
 3. ~~certified under all five conditions~~ **done**
 4. ~~relocation refusal lifted~~ **done**
-5. **freeze `totalRecovered` / `tierQuantity` / `perUnit` at SEND** — schema work,
-   for the held Accounting Invoice Guidance slice
+5. ~~freeze `totalRecovered` / `tierQuantity` / `perUnit` at SEND~~ **done** —
+   `quote_snapshot_recovery_instructions`, written inside the send transaction,
+   covering every PLACED charge rather than every elected one. Certified by
+   `npm run gate1b:frozen-instruction-certify`: 86 instructions across the 10
+   live quotes carrying a one-time charge, **0 of them elected** — so an
+   elections-keyed freeze would have recorded 0 of 86. See
+   `docs/pattern-52-freeze-list.md`.
 6. **repeat the real click-path certification** on a surface where the
    authenticated session already works
+7. **workspace copy states the CONTRACT, not the placement** — two states can
+   both look "included" with different economics (§6), and the price impact
+   must be shown before commit
+8. **recapture S-7** last
