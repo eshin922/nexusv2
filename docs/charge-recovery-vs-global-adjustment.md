@@ -207,7 +207,46 @@ current state, and the surface should not present it as a confirmation.
 
 ---
 
-## 7 · Sequence
+## 7 · The surface says which contract, and what it costs
+
+**Implemented 2026-08-24.** §6's consequence — that an election is not a no-op
+even when it agrees with the boolean — could not be left to the operator to
+infer.
+
+**Labels name the contract, not the placement.** "In unit price" described the
+half that is identical across the economic change. A charge amortized under
+legacy pricing and one amortized under a governed election both read "included"
+and recover different amounts.
+
+**The impact is measured before it is committed.** Clicking asks the server what
+that contract would do to the customer's total; the operator confirms against
+the figure. Two acts, because a single click with the number arriving afterwards
+is the harmless confirmation this surface must not be.
+
+**Measured, not calculated.** `recovery x gpa` is the delta in the ordinary case
+and wrong wherever a lift, a tier adjustment or a terminal override applies —
+and a closed form would be a second authority for the pricing ladder. On the
+live estate four of twelve contracts disagree with the formula; at gpa 0.00 on
+`f88c22e3` the formula reports no change and the total moves $77.03.
+
+### Two defects the work surfaced
+
+**The workspace was reporting double.** The card told operators $390 was
+recovered on `93a5d4bb`, whose one $150 setup fee at a pinned 0.30 recovers
+$195. An assembly's rollup carries the merge of its children's charges and the
+read model summed every rollup, so each charge was counted at its owner and
+again at its parent. It surfaced only because a second reader of the same
+construction disagreed — each figure was individually plausible, and the raw fee
+in the database settled it. The traversal is now shared, with `isLeaf` a
+required argument.
+
+**Exact comparison of two float sums.** Placement neutrality is exact in the
+constructor; the customer total is summed through the projection, where 2600 and
+2599.9999999999995 are the same money. The card compared exactly and rendered
+the artifact as a movement beside two identical printed figures. Both now
+compare at the precision the figure is printed at.
+
+## 8 · Sequence
 
 1. ~~pricing precedence dispositioned~~ **done**
 2. ~~implemented; legacy path untouched~~ **done** — S-7 shows no new movement
@@ -220,9 +259,11 @@ current state, and the surface should not present it as a confirmation.
    live quotes carrying a one-time charge, **0 of them elected** — so an
    elections-keyed freeze would have recorded 0 of 86. See
    `docs/pattern-52-freeze-list.md`.
-6. **repeat the real click-path certification** on a surface where the
+6. ~~workspace states the CONTRACT, not the placement, with the price impact
+   shown before commit~~ **done** — see §7. Certified by
+   `npm run gate1b:recovery-impact-certify`: 10 quotes, 12 contracts, baselines
+   agreeing with the workspace, elected placements neutral to the cent,
+   clearing inert, refused contracts never measured.
+7. **repeat the real click-path certification** on a surface where the
    authenticated session already works
-7. **workspace copy states the CONTRACT, not the placement** — two states can
-   both look "included" with different economics (§6), and the price impact
-   must be shown before commit
 8. **recapture S-7** last
