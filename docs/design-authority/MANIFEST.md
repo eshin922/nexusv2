@@ -105,6 +105,13 @@ rule 6 says an omission here is not a filing error.
 - **D2** — the primary action is **`Freeze & send`**, over §4's `Finalize presentation`.
 - **D3** — a control may move economics, be governed by Pricing, and live on this surface.
   *"Not a presentation control"* means *not in Card 2* — not *not on the workspace*.
+- **D5** — `Approved recovery` **is** the existing governed `recoverableSell`. Card 0
+  translates a governed fact into the authority's vocabulary; it does not mint a second
+  record. Unknown recovery stays unavailable, never `$0`.
+- **D6** — `fingerprintCommercialState` remains the **single** authority for whether an
+  approval survives. `setChargeRecovery` warns and predicts; it does not invalidate.
+- **D7** — the customer PDF **iframe stays**. The reference of record's page stack and zoom
+  stepper are visual intent, not authorization for a second rendering authority.
 - **D4** — the bundle's named supersessions apply: the internal ribbon, the `Send as:` pair,
   the boundary-guard paragraph, the old `Detail:` / addendum placement, and the 880px preview
   constraint. Legacy chrome is not preserved merely because it predates the bundle.

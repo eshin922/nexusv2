@@ -135,6 +135,65 @@ A control may move economics, be governed by Pricing, and live on this surface. 
 once. *"Not a presentation control"* means it does not belong in **Card 2** — not that it
 does not belong on the workspace.
 
+### D5 · `Approved recovery` is the existing governed `recoverableSell`
+
+**Edward, 2026-08-24.** Resolves gap G1.
+
+The authority's fixture reads charges as `cost → approved recovery` (`900 → 1,150`), which
+looks like two independently governed numbers. It is not to be implemented as two.
+
+> Use the existing governed `recoverableSell` / constructed recovery as the authority's
+> **Approved Recovery** amount. Do not introduce another persisted dollar amount or approval
+> mechanism.
+
+Card 0 **translates an existing governed economic fact into the authority's operator
+vocabulary** — it does not create a second record of it. The `pricing` source tag is
+therefore accurate: the amount is Pricing's, arrived at through the governed rate.
+
+Unknown recovery stays **unavailable, never `$0`** (BV-013). A charge with no governed rate
+renders as words, not as a number that would read as "recovers nothing".
+
+### D6 · The fingerprint is the single authority for approval survival
+
+**Edward, 2026-08-24.** Resolves gap G3.
+
+The authority says an election *"voids any prior approval"*. That outcome is correct; a second
+mechanism producing it is not.
+
+> `fingerprintCommercialState` comparison remains the single authority for whether an approval
+> survives. Do not add an explicit invalidation write to `setChargeRecovery`.
+
+The action may **warn and predict**; validity is *determined* from the fingerprint:
+
+- economic change → superseded
+- revenue-neutral / no economic change → approval survives
+
+This is stricter than the authority's literal rule and closer to its intent: an election that
+moves nothing does not invalidate an approval, and BV-005 already defines "material" once. Two
+writers of one verdict is the defect this avoids — the same shape as every other
+single-authority rule in this codebase.
+
+### D7 · The customer PDF iframe stays; no second render path
+
+**Edward, 2026-08-24.** Resolves gap G7.
+
+> Keep the existing customer PDF iframe / native PDF renderer. Do not add a DOM customer-document
+> renderer. Treat the reference-of-record page stack and zoom treatment as **visual and
+> interaction intent, not authorization for a second rendering authority.** Preserve the native
+> PDF toolbar and zoom while restoring the surrounding Customer View composition.
+
+Consequences to implement honestly rather than fake:
+
+- the authority's zoom stepper (`0.50–1.15`, step `0.08`, `transform: scale()`) is **not** built;
+  Chrome's own zoom serves that role
+- page breaks are not DOM facts here; the page count is still stated
+- everything *around* the document — the two-pane composition, the preview rail, the four-card
+  configuration rail, the finalize footer — is restored as specified
+
+The iframe is the same render path the customer receives. A DOM preview would be a second
+renderer that can disagree with the artifact, which is the failure the whole customer-view
+boundary exists to prevent.
+
 ### D4 · Explicit supersessions to apply
 
 `designer-notes.md` supersedes, by name, chrome still present in production:

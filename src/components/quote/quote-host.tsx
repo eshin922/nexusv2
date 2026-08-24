@@ -7,9 +7,11 @@ import type {
   CustomerViewPdfLayout,
 } from "@/types/quote";
 import { PreviewToolbar } from "./preview-toolbar";
-import { PresentationPanel } from "./presentation-panel";
-import { AccountingZone } from "./accounting-zone";
+import { CustomerViewRail } from "./customer-view-rail";
+import type { GovernedSummary } from "./customer-view-rail";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
+import type { QuotePerTierRollup } from "@/lib/costing";
 import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
@@ -71,6 +73,9 @@ export function QuoteHost({
   quoteId,
   quoteStatus,
   recoveryInstructions,
+  recoveryRows,
+  quoteRollup,
+  governed,
   presentationRestored,
   internalNotes,
   addendumData,
@@ -81,6 +86,12 @@ export function QuoteHost({
   quoteStatus: string;
   /** Projected from the same construction the send transaction freezes. */
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
+  /** Card 1 · one row per governed recoverable charge. */
+  recoveryRows: RecoveryChargeRow[];
+  /** Every governed tier — the gate evaluates all, not only those shown. */
+  quoteRollup: readonly QuotePerTierRollup[];
+  /** Card 0 · the read-only mirror. */
+  governed: GovernedSummary;
   /**
    * Render the authority's document-plus-panel layout.
    *
@@ -145,12 +156,68 @@ export function QuoteHost({
 
   return (
     <div className="r3-shared">
-      <div
-        className={
-          presentationRestored ? "preview-chrome qp-workspace" : "preview-chrome"
-        }
-      >
-        <div className={presentationRestored ? "qp-doc" : undefined}>
+      {presentationRestored ? (
+        /* ── The authority's composition ───────────────────────────────
+           "Left: the artifact. Right: the decisions about it.
+            Bottom-right: the act."
+
+           The preview keeps the customer PDF iframe (D7) — Chrome's native
+           zoom stands in for the reference's stepper, because a DOM preview
+           would be a second renderer able to disagree with the artifact the
+           customer actually receives. */
+        <div className="cv-body">
+          <div className="cv-preview">
+            <div className="cv-preview-bar">
+              <span className="cv-frame-chip">What the customer receives</span>
+              <span className="cv-preview-summary">
+                {detailLevel === "itemized" ? "Itemized" : "Turnkey"}
+                {" · "}
+                {pdfLayout === "tier_table" ? "all tiers" : "single tier"}
+                {addendumOn ? " · with specification addendum" : ""}
+              </span>
+              <span className="cv-preview-right">
+                {addendumOn ? 2 : 1} page PDF
+              </span>
+            </div>
+
+            {showLinkageWarning && (
+              <div role="alert" data-testid="quote-linkage-warning"
+                   style={{
+                     margin: "12px 20px 0", padding: "10px 14px",
+                     background: "var(--warn-soft, #fff4e5)",
+                     border: "1px solid var(--warn, #d97706)",
+                     color: "var(--warn, #92400e)",
+                     borderRadius: 6, fontSize: 13, lineHeight: 1.4,
+                   }}>
+                <strong>This deal isn&apos;t linked to HubSpot.</strong>{" "}
+                Push it to HubSpot before sending.
+              </div>
+            )}
+
+            <div className="cv-canvas">
+              <div className="cv-sheet">
+                <iframe key={iframeSrc} src={iframeSrc} title="Customer PDF preview" />
+              </div>
+            </div>
+          </div>
+
+          <CustomerViewRail
+            quoteId={quoteId}
+            quoteStatus={quoteStatus}
+            recoveryRows={recoveryRows}
+            recoveryInstructions={recoveryInstructions}
+            rollups={quoteRollup}
+            governed={governed}
+            pdfLayout={pdfLayout}
+            onPdfLayoutChange={setPdfLayout}
+            detailLevel={detailLevel}
+            onDetailLevelChange={setDetailLevel}
+            pdfHref={iframeSrc}
+            pageCount={addendumOn ? 2 : 1}
+          />
+        </div>
+      ) : (
+      <div className="preview-chrome">
         {showLinkageWarning && (
           <div
             role="alert"
@@ -255,11 +322,8 @@ export function QuoteHost({
           style={{
             border: "1px solid var(--rule)",
             background: "var(--paper)",
-            // Legacy: the 880px cap the authority calls "the binding
-            // constraint". The restored column is sized by `.qp-doc`.
-            ...(presentationRestored
-              ? {}
-              : { maxWidth: 880, margin: "0 auto" }),
+            maxWidth: 880,
+            margin: "0 auto",
           }}
         >
           <iframe
@@ -274,35 +338,8 @@ export function QuoteHost({
             }}
           />
         </div>
-        </div>
-
-        {/* Controls beside the document, per the authority's interaction
-            model. The Accounting zone sits beneath them in the `--internal`
-            register the surface already uses for customer-invisible content. */}
-        {presentationRestored && (
-        <div>
-          <PresentationPanel
-            pdfLayout={pdfLayout}
-            onPdfLayoutChange={setPdfLayout}
-            detailLevel={detailLevel}
-            onDetailLevelChange={setDetailLevel}
-            addendumOn={addendumOn}
-            onAddendumToggle={() => setAddendumOn(!addendumOn)}
-            addendumData={addendumData}
-            notesEditable={!isSent}
-            onEditNotes={() => setNotesOpen(true)}
-            locked={isSent}
-            lockReason={sentLockTooltip}
-          />
-          <div style={{ padding: "0 20px 24px" }}>
-            <AccountingZone
-              instructions={recoveryInstructions}
-              tiers={view.tiers}
-            />
-          </div>
-        </div>
-        )}
       </div>
+      )}
     </div>
   );
 }

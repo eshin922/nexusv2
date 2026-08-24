@@ -104,12 +104,16 @@ test("elections reach the ENGINE, and only the engine", async () => {
     "src/app/actions/costing.ts", // loads them onto the bundle
     "src/lib/costing-store.ts", // carries them on the snapshot
     "src/lib/costing.ts", // RESOLVES them into the construction
-    // NOT the customer-view resolver any more. It passed the bundle's elections
-    // to the workspace read model; that model fed the recovery card, and the
-    // card was removed from Quote Presentation by the R5 disposition. With no
-    // consumer, computing the projection on the customer-view path was work
-    // done for nobody, so it went with it. The resolver still projects the
-    // frozen instruction, which reads `constructed` and not elections.
+    // Back, and for the reason R5 got wrong. The resolver passes the bundle's
+    // elections to the workspace read model, which uses them ONLY to say which
+    // treatment is currently in force -- it resolves nothing and prices
+    // nothing, because placement and amounts come from `constructed`, asserted
+    // separately. A label, not a second decision.
+    //
+    // It was removed when R5 deleted Commercial recovery from this surface;
+    // the registered Customer View authority puts that card back as card 1 of
+    // four, so the read model has a consumer again.
+    "src/lib/customer-view-resolver.ts",
     // The adapter carries them into the input it builds. REQUIRED there, not
     // optional: it builds the whole `QuoteCostingInput`, so a field it does not
     // carry is a field the engine never sees — which is exactly how an election

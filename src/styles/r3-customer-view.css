@@ -1,0 +1,394 @@
+/*
+ * Customer View — the two-pane workspace.
+ *
+ * NEXUS-SIDE. `r3-shared.css` is verbatim-from-upstream under Pattern 30 and is
+ * never edited; this carries the composition the Customer View Design Authority
+ * specifies and the R3 shipment does not.
+ *
+ * AUTHORITY: docs/design-authority/customer-view/ — `design/Nexus Customer
+ * View.dc.html` is the reference of record; `README.md` carries the measurements
+ * quoted below; every value here is from one of the two.
+ *
+ * ── WHAT IS DELIBERATELY NOT BUILT ──────────────────────────────────────
+ *
+ * The reference renders the document as a DOM page stack at 816×1056 with
+ * `transform: scale(zoom)` and its own zoom stepper. Per D7 the customer PDF
+ * iframe stays and Chrome's native zoom serves that role: a DOM preview would be
+ * a second renderer that can disagree with the artifact the customer receives.
+ * So the document canvas keeps the authority's hatch and centring, and the sheet
+ * itself is the real PDF.
+ */
+
+/* ── The body · one axis, two roles ────────────────────────────────────
+   "Left: the artifact. Right: the decisions about it. Bottom-right: the act."
+   Each pane scrolls on its own; the rail never compresses and the document
+   never yields width to it. */
+.cv-body {
+  display: flex;
+  min-height: 0;
+  height: calc(100vh - 50px);
+  overflow: hidden;
+}
+
+.cv-preview {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--rule);
+  min-height: 0;
+}
+
+/* Preview rail — the four scattered bands folded into one. */
+.cv-preview-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 20px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+/* The one internal marker the preview pane carries: the frame is internal,
+   the contents are not. */
+.cv-frame-chip {
+  font: 400 10px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--internal);
+  background: var(--internal-soft);
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.cv-preview-summary {
+  font: 400 12px/1.4 var(--sans);
+  color: var(--ink-3);
+  min-width: 0;
+}
+.cv-preview-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 400 11px/1 var(--mono, ui-monospace, monospace);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* Document canvas — the diagonal hatch that says "not app chrome". */
+.cv-canvas {
+  flex: 1;
+  overflow: auto;
+  padding: 28px 0 60px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--paper-3, oklch(0.955 0.008 85)) 0 8px,
+    var(--canvas, oklch(0.965 0.008 85)) 8px 16px
+  );
+}
+/* 816px is Letter at 96dpi — the authority's document width. The sheet holds
+   and centres rather than stretching. */
+.cv-sheet {
+  width: min(816px, 100%);
+  margin: 0 auto;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  box-shadow: 0 24px 60px oklch(0.20 0.02 255 / 0.10);
+}
+.cv-sheet iframe {
+  width: 100%;
+  height: 1056px;
+  border: none;
+  display: block;
+}
+
+/* ── The rail · fixed, never compressed ────────────────────────────────
+   Default 452px (range 380–560 in the reference's `railWidth` prop). */
+.cv-rail {
+  flex: none;
+  width: 452px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas, oklch(0.965 0.008 85));
+}
+.cv-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+/* Cards never compress — the rail scrolls instead. */
+.cv-card {
+  flex: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+}
+/* Card 0 · "owned elsewhere" — sunken ground, DASHED rule. The treatment is
+   load-bearing: it is how the operator reads "not editable here" without a
+   paragraph telling them so. */
+.cv-card-governed {
+  background: var(--paper-3, oklch(0.945 0.010 85));
+  border: 1px dashed var(--rule-strong, var(--rule));
+  padding: 12px 14px;
+}
+/* Card 1 · heavier border — this is the consequential card. */
+.cv-card-recovery {
+  border-color: var(--rule-strong, var(--rule));
+}
+/* Card 3 · internal violet — never printed. */
+.cv-card-accounting {
+  background: var(--internal-soft);
+  border-color: var(--internal-rule, var(--internal));
+}
+
+.cv-card-head {
+  padding: 11px 14px 10px;
+  border-bottom: 1px solid var(--rule-hair, var(--rule));
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.cv-step {
+  font: 400 10px/1 var(--mono, ui-monospace, monospace);
+  color: var(--ink-4, var(--ink-3));
+}
+.cv-card-title {
+  font-family: var(--display);
+  font-size: 16px;
+  color: var(--ink);
+}
+.cv-card-sub {
+  font: 400 11.5px/1.4 var(--sans);
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+.cv-eyebrow {
+  font: 400 9.5px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Card 0 rows — label / value / source tag. A mirrored value with no source
+   label is worse than no mirror. */
+.cv-gov-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule-hair, var(--rule));
+}
+.cv-gov-k { flex: 1; font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
+.cv-gov-v { font: 400 11.5px/1 var(--mono, ui-monospace, monospace); color: var(--ink); }
+.cv-gov-src {
+  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-4, var(--ink-3));
+  min-width: 58px;
+  text-align: right;
+}
+.cv-gov-foot {
+  font: 400 11px/1.5 var(--sans);
+  color: var(--ink-3);
+  margin-top: 9px;
+}
+.cv-gov-foot strong { font-weight: 500; color: var(--ink-2); }
+
+/* Card 1 · one row per charge. */
+.cv-charge {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule-hair, var(--rule));
+}
+.cv-charge-head { display: flex; align-items: baseline; gap: 8px; }
+.cv-charge-label { flex: 1; font: 400 13px/1.35 var(--sans); color: var(--ink); }
+.cv-charge-amt { font: 400 11.5px/1 var(--mono, ui-monospace, monospace); color: var(--ink-2); }
+.cv-charge-policy {
+  font: 400 9.5px/1.35 var(--mono, ui-monospace, monospace);
+  color: var(--ink-4, var(--ink-3));
+  margin: 2px 0 7px;
+}
+.cv-opts { display: flex; gap: 5px; }
+.cv-opts button {
+  flex: 1;
+  font: 400 11px/1 var(--sans);
+  padding: 6px 4px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all 120ms;
+}
+.cv-opts button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft, var(--paper-2));
+  color: var(--ink);
+}
+/* Impermissible options are RENDERED, inert, and explain themselves. The
+   constraint must be visible, not hidden. */
+.cv-opts button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* Margin after recovery — every governed tier, including ones not shown. */
+.cv-margin-block { padding: 11px 14px; background: var(--paper-3, oklch(0.975 0.010 85)); }
+.cv-margin-cards { display: flex; gap: 6px; margin-top: 7px; }
+.cv-margin {
+  flex: 1;
+  border-radius: 7px;
+  padding: 7px 9px;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.cv-margin-label { font-size: 10px; opacity: 0.75; }
+.cv-margin-pct { font-size: 14px; margin-top: 3px; }
+.cv-margin-state { font-size: 9px; margin-top: 2px; }
+.cv-margin[data-state="below_floor"] { background: var(--danger-soft, oklch(0.94 0.04 25)); color: var(--danger, oklch(0.55 0.18 25)); }
+.cv-margin[data-state="below_target"] { background: var(--warn-soft, oklch(0.94 0.05 70)); color: var(--warn, oklch(0.62 0.13 70)); }
+.cv-margin[data-state="on_target"] { background: var(--ok-soft, oklch(0.94 0.035 155)); color: var(--ok, oklch(0.55 0.10 155)); }
+.cv-margin[data-state="unknown"] { background: var(--paper-2); color: var(--ink-3); }
+.cv-margin[data-shown="no"] { opacity: 0.62; }
+.cv-gov-note { font: 400 11.5px/1.45 var(--sans); margin-top: 8px; color: var(--ink-3); }
+.cv-gov-note[data-blocked="yes"] { color: var(--danger, oklch(0.55 0.18 25)); }
+
+/* Card 2 / Card 3 bodies. */
+.cv-section { padding: 11px 14px; border-bottom: 1px solid var(--rule-hair, var(--rule)); }
+.cv-section:last-child { border-bottom: none; }
+.cv-field { display: flex; flex-direction: column; gap: 5px; }
+.cv-field + .cv-field { margin-top: 11px; }
+.cv-choice { display: flex; gap: 5px; }
+.cv-choice button {
+  flex: 1;
+  font: 400 11px/1 var(--sans);
+  padding: 6px 4px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all 120ms;
+}
+.cv-choice button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft, var(--paper-2));
+  color: var(--ink);
+}
+.cv-choice button:disabled { opacity: 0.45; cursor: not-allowed; }
+.cv-note {
+  font: 400 11px/1.45 var(--sans);
+  color: var(--ink-3);
+}
+.cv-internal-chip {
+  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: var(--paper-2);
+  border: 1px solid var(--internal-rule, var(--internal));
+  color: var(--internal);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.cv-agreement-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+}
+.cv-agreement-k { flex: 1; font: 400 12px/1.4 var(--sans); color: var(--ink); }
+.cv-agreement-v { font: 400 11px/1 var(--mono, ui-monospace, monospace); color: var(--ink-2); }
+.cv-agreement-src {
+  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--internal);
+  min-width: 62px;
+  text-align: right;
+}
+
+/* ── Finalize footer · pinned ──────────────────────────────────────────── */
+.cv-footer {
+  flex: none;
+  border-top: 1px solid var(--rule-strong, var(--rule));
+  background: var(--paper-2);
+  padding: 12px 16px 15px;
+  box-shadow: 0 -8px 24px oklch(0.20 0.02 255 / 0.05);
+}
+.cv-send-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cv-send-chip {
+  font: 400 9.5px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 5px;
+}
+.cv-send-chip[data-state="blocked"] { background: var(--danger-soft, oklch(0.94 0.04 25)); color: var(--danger, oklch(0.55 0.18 25)); }
+.cv-send-chip[data-state="draft"] { background: var(--warn-soft, oklch(0.94 0.05 70)); color: var(--warn, oklch(0.62 0.13 70)); }
+.cv-send-chip[data-state="frozen"] { background: var(--ok-soft, oklch(0.94 0.035 155)); color: var(--ok, oklch(0.55 0.10 155)); }
+.cv-send-line { font: 400 11.5px/1.4 var(--sans); color: var(--ink-3); }
+.cv-checks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.cv-check { display: flex; align-items: center; gap: 7px; font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
+.cv-mark {
+  width: 15px; height: 15px; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  font: 400 9px/1 var(--mono, ui-monospace, monospace);
+  flex: none;
+}
+.cv-mark[data-ok="yes"] { background: var(--ok-soft, oklch(0.94 0.035 155)); color: var(--ok, oklch(0.55 0.10 155)); }
+.cv-mark[data-ok="no"] { background: var(--danger-soft, oklch(0.94 0.04 25)); color: var(--danger, oklch(0.55 0.18 25)); }
+.cv-primary {
+  width: 100%;
+  border-radius: 7px;
+  padding: 11px 14px;
+  font: 500 13.5px/1 var(--sans);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.cv-primary[data-state="ready"] { background: var(--accent); color: var(--paper-2); }
+.cv-primary[data-state="blocked"] { background: var(--danger-soft, oklch(0.94 0.04 25)); border-color: var(--danger, oklch(0.55 0.18 25)); color: var(--danger, oklch(0.55 0.18 25)); }
+.cv-primary[data-state="frozen"] { background: var(--canvas, var(--paper-2)); border-color: var(--rule-strong, var(--rule)); color: var(--ink-2); }
+.cv-secondary { display: flex; gap: 7px; margin-top: 7px; }
+.cv-secondary button, .cv-secondary a {
+  flex: 1;
+  border: 1px solid var(--rule-strong, var(--rule));
+  background: var(--paper-2);
+  color: var(--ink-2);
+  border-radius: 7px;
+  padding: 9px 10px;
+  font: 400 12.5px/1 var(--sans);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.cv-secondary button:hover, .cv-secondary a:hover { border-color: var(--ink-3); }
+.cv-artifact {
+  font: 400 9.5px/1.4 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.05em;
+  color: var(--ink-4, var(--ink-3));
+  margin-top: 6px;
+}
+.cv-foot {
+  font: 400 11px/1.5 var(--sans);
+  color: var(--ink-4, var(--ink-3));
+  margin-top: 7px;
+}
+
+/* Below the rail's minimum the two panes cannot both hold their floors, so the
+   rail moves under the document rather than squeezing it. Stated as a real
+   limit rather than a silent reflow: the authority's composition is a desktop
+   workspace. */
+@media (max-width: 1180px) {
+  .cv-body { display: block; height: auto; overflow: visible; }
+  .cv-preview { border-right: none; }
+  .cv-rail { width: 100%; border-top: 1px solid var(--rule); }
+  .cv-rail-scroll { overflow: visible; }
+}

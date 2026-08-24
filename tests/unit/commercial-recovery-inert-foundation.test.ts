@@ -101,28 +101,21 @@ test("the election writer has exactly ONE caller, and it is the workspace", asyn
     if (/setChargeRecovery/.test(src)) callers.push(f);
   }
 
-  // Zero, and back to zero deliberately.
+  // Card 1, and only Card 1.
   //
-  // It asserted zero while the foundation was inert, then one while the
-  // recovery workspace existed on Quote Presentation. Edward's R5 disposition
-  // (2026-08-24) removed that surface: the election is economically
-  // substantive, and "if a control can change customer economics, it is not a
-  // Quote Presentation control." Its registered home is the Pricing workspace,
-  // which has not been built.
+  // Zero while the foundation was inert, one when the workspace shipped, zero
+  // again when R5 removed it from Quote Presentation, and one again now that
+  // the registered Customer View authority puts Commercial recovery back in
+  // the rail as card 1 of four. The number is not the property; the property
+  // is that exactly ONE surface may write an election, because a "use server"
+  // export becomes a POST-able endpoint by being imported.
   //
-  // So the capability is DORMANT, not deleted — engine, precedence, refusals,
-  // audit, freeze and impact preview all remain and remain certified. What is
-  // asserted here is that no surface writes an election in the meantime,
-  // because a "use server" export becomes a POST-able endpoint by being
-  // imported, and an unreachable-by-design writer that quietly acquires a
-  // caller is exactly the drift this check exists to catch.
-  //
-  // When Phase 3 lands, this becomes the Pricing surface — not a second Quote
-  // one. See docs/quote-presentation-restoration-brief.md §2.
+  // See docs/design-authority/customer-view/BUNDLE.md D1 and D3: the election
+  // moves economics, is governed by Pricing, and lives on this surface.
   assert.deepEqual(
     callers,
-    [],
-    "the election writer acquired a caller while its home surface is unbuilt",
+    ["src/components/quote/card-commercial-recovery.tsx"],
+    "the election writer acquired a caller outside Card 1",
   );
 });
 
