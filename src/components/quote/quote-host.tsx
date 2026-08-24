@@ -295,7 +295,10 @@ export function QuoteHost({
             lockReason={sentLockTooltip}
           />
           <div style={{ padding: "0 20px 24px" }}>
-            <AccountingZone instructions={recoveryInstructions} />
+            <AccountingZone
+              instructions={recoveryInstructions}
+              tiers={view.tiers}
+            />
           </div>
         </div>
         )}

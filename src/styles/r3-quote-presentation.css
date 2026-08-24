@@ -122,6 +122,23 @@
   display: flex;
   gap: 6px;
 }
+/* A control has to look like one. The Voice group's trigger is a bare
+   `.qp-field button`, which inherited nothing and rendered as plain text --
+   no border, no ground, no padding. */
+.qp-field button {
+  font: 500 11px/1 var(--sans);
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+.qp-field button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
 .qp-choice button {
   flex: 1;
   font: 500 11px/1 var(--sans);
@@ -192,6 +209,21 @@
 }
 .qp-accounting-charge {
   font-weight: 600;
+}
+
+/* Which tier the instruction belongs to. The authority's Accounting table
+   requires it -- without it a four-tier quote prints the same charge name
+   three times at three amounts with nothing distinguishing them. */
+.qp-accounting-tier {
+  font: 500 9.5px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--internal, var(--ink-3));
+  border: 1px solid var(--internal-rule, var(--rule));
+  border-radius: 3px;
+  padding: 2px 5px;
+  margin-left: 8px;
+  white-space: nowrap;
 }
 .qp-accounting-instruction {
   color: var(--ink-2);
