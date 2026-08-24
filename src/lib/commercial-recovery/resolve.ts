@@ -214,9 +214,15 @@ export { LANDED_SEPARATE_UNWIRED };
  * and cost did not, which is what the mode means.
  */
 const ABSORB_COST_UNCONSUMED =
-  "Not available yet. Absorbing this charge would drop its cost as well as " +
-  "its revenue, so the quote would stop reflecting money DPS is still " +
-  "paying. It opens once an absorbed charge's cost is retained.";
+  // Leads with what absorbing IS, because the card renders this mode beside
+  // the two revenue-neutral placements and an operator reading only the
+  // refusal would otherwise take it for a third way of arranging the same
+  // money. It is not: it gives the money up.
+  "Not available yet. Absorbing is not a placement — DPS carries the charge " +
+  "and takes no revenue for it, so margin falls. Today it would also drop " +
+  "the charge's cost as well as its revenue, so the quote would stop " +
+  "reflecting money DPS is still paying. It opens once an absorbed charge's " +
+  "cost is retained.";
 
 export { ABSORB_COST_UNCONSUMED };
 

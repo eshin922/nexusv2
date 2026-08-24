@@ -101,8 +101,13 @@ export function RecoveryCard({
     <section className="r8-card r9-recovery" data-testid="recovery-card">
       <h3 className="r9-recovery-title">Charge recovery</h3>
       <p className="r9-recovery-note">
-        How each governed charge is recovered from the customer. Moving a charge
-        between the unit price and its own line does not change what they pay.
+        {/* "a RECOVERED charge", deliberately. The unqualified sentence read as
+            a universal claim about the modes on this card — and `absorbed` is
+            rendered here too. It is a different economic act, not a third
+            placement of the same money, and its own refusal says so. */}
+        How each governed charge is recovered from the customer. Moving a
+        recovered charge between the unit price and its own line does not
+        change what the customer pays.
       </p>
 
       {supersessionWarning && (
