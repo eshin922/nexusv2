@@ -11,6 +11,7 @@ import {
   isPerLineDestination,
 } from "../../src/lib/netsuite/bv011-destinations.ts";
 import { projectCommercial } from "../../src/lib/commercial-projection.ts";
+import { constructionRollup } from "../support/constructed-fixture.ts";
 import type { QuoteCostingResult } from "../../src/lib/costing.ts";
 import type { HydrateSnapshot } from "../../src/lib/costing-store.ts";
 
@@ -41,6 +42,11 @@ function bundle(production: Array<Record<string, unknown>>): HydrateSnapshot {
     costing: {
       tiers,
       skuRollups: [
+        // The engine's construction for the assembly, built by the engine's own
+        // functions. The projection reads one-time charge amounts from here
+        // rather than deriving them, so a fixture without it is incomplete in
+        // exactly the way a real bundle never is.
+        constructionRollup("asm", production as never, 0.4),
         {
           skuId: "leaf",
           canonicalQuoteLeafId: "leaf",

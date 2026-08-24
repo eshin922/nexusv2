@@ -13,6 +13,13 @@ import {
   OTC_COLUMN_TO_CHARGE,
   type RecoveryChargeKey,
 } from "./commercial-recovery/registry";
+import {
+  constructCommercial,
+  emptyConstructed,
+  mergeConstructed,
+  type ConstructedCommercialState,
+} from "./commercial-recovery/construct";
+import type { ChargeElection } from "./commercial-recovery/resolve";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -504,6 +511,16 @@ export type QuoteCostingInput = {
   // TypeError. Record is plain JSON, serializes cleanly. Caught
   // Slice 8 sub-step 4 verification.
   markupDefaults: Record<string, number>;
+  /**
+   * Recovery elections for this quote. OPTIONAL, and absent is the whole of
+   * production today — the writer refuses to create a row until the surface
+   * exists, so every live read supplies nothing and resolves to legacy.
+   *
+   * They arrive HERE, at the engine, rather than at the projection. Placement
+   * decided at the surface that renders it means the engine's revenue and the
+   * customer's document can only agree by getting the same answer twice.
+   */
+  chargeElections?: readonly ChargeElection[];
   skus: CostingSku[];
   tiers: CostingTier[];
   packaging: CostingPackagingInput[];
@@ -633,6 +650,21 @@ export type SkuPerTierRollup = {
    * against it, and its arrival must move no existing number.
    */
   chargeEconomics: ChargeEconomics[];
+  /**
+   * THE ONE CONSTRUCTED COMMERCIAL STATE for this (owner, tier).
+   *
+   * Built once, here, and consumed by everything downstream — the tier rollup's
+   * revenue and cost operands, and the customer projection's one-time lines.
+   * Before this existed the engine and the projection each derived the same
+   * amounts independently, and they disagreed: the engine marked up a per-unit
+   * QUOTIENT and the projection marked up the column TOTAL, which differ by
+   * ~1e-12 on real quotes. Both were defensible; neither was the other.
+   *
+   * `included <-> separate` is revenue-neutral because this state places one
+   * value in one bucket, and every consumer reads the placement rather than
+   * re-deciding it.
+   */
+  constructed: ConstructedCommercialState;
   contributionCostPerUnit: number;
   // Slice 9.3 — `requiredSellPerUnit` is the value used by all
   // downstream math (revenue, margin, partition). `computedSellPerUnit`
@@ -990,6 +1022,70 @@ export type ChargeEconomics = {
   rateCategory: string | null;
   ratePct: number | null;
 };
+
+/**
+ * Per-charge economics for one production row — the EXPLICIT HANDOFF.
+ *
+ * See docs/commercial-sell-construction-design.md §3.
+ *
+ * ── WHY BOTH NUMBERS ARE STATED, AND WHY THEY ARE TOTALS ────────────────
+ *
+ * `cost` and `recoverableSell` are both carried because neither is derivable
+ * from the other without knowing the rate, and a consumer that knows the rate
+ * is a consumer that can drift from it.
+ *
+ * They are TOTALS, not per-unit. A one-time charge is billed once; amortising
+ * it to a rate and multiplying it back out does not return the amount when
+ * `qty_per_parent != 1`, and a $225 fee booking as some other number while
+ * every margin still looks plausible is the specific failure this shape
+ * removes rather than guards against.
+ *
+ * ── EXPORTED SO NOTHING RESTATES IT ─────────────────────────────────────
+ *
+ * Test fixtures need the state the engine would produce. Rebuilding it in a
+ * helper would be a second implementation that agrees until one of them
+ * changes — and a fixture that disagrees with the engine tells the reader the
+ * engine is fine. So this is the one builder, and fixtures call it.
+ *
+ * ── EMITTED UNCONDITIONALLY ─────────────────────────────────────────────
+ *
+ * At BOTH allocation states. A record that appears only when a boolean is set
+ * would be the same coupling recovery exists to break — a consumer could read
+ * placement out of the presence of a row.
+ *
+ * `recoverableSell` is NULL when no governed rate resolves. Null is not zero:
+ * zero would say the charge is recovered at nothing, and the truth is that
+ * nothing governs what it is recovered at (BV-013).
+ *
+ * Zero-valued columns are omitted; a column carrying no charge is not a
+ * charge.
+ */
+export function chargeEconomicsFor(
+  production: CostingProductionInput | null | undefined,
+  ratePct: number | null,
+): ChargeEconomics[] {
+  const out: ChargeEconomics[] = [];
+  for (const [column, chargeKey] of Object.entries(OTC_COLUMN_TO_CHARGE)) {
+    // Every column in the map is `number | null` on `CostingProductionInput` —
+    // the adapter has already parsed the DB numerics — so the index is typed
+    // to that rather than to `unknown`. A column that stopped being numeric
+    // would break here rather than silently coercing.
+    const columns = production as unknown as
+      | Record<string, number | null | undefined>
+      | undefined;
+    const cost = num(columns?.[column]);
+    if (cost === 0) continue;
+    out.push({
+      chargeKey: chargeKey as RecoveryChargeKey,
+      sourceColumn: column,
+      cost,
+      recoverableSell: ratePct === null ? null : cost * (1 + ratePct),
+      rateCategory: ratePct === null ? null : PRODUCTION_MARKUP_CATEGORY,
+      ratePct,
+    });
+  }
+  return out;
+}
 
 export const PRODUCTION_MARKUP_CATEGORY = "Production";
 // Bulk raw used to resolve `Raw ingredients`, which has never had a default
@@ -1635,6 +1731,12 @@ function computeLeafPerTier(args: {
   tier: CostingTier;
   packaging: CostingPackagingInput[];
   production: CostingProductionInput | null;
+  /**
+   * Recovery elections for this quote. Resolved ONCE, here, into the
+   * constructed commercial state every consumer reads. Empty is the whole of
+   * production today; the writer refuses to create a row.
+   */
+  chargeElections: readonly ChargeElection[];
   // Slice R6.2 — multi-leg freight. The leg-group/leg/leg-tier
   // arrays are passed in pre-filtered to this quote; the math layer
   // iterates legs and resolves per-tier rate rows by tierId.
@@ -1721,6 +1823,7 @@ function computeLeafPerTier(args: {
     tier,
     packaging,
     production,
+    chargeElections,
     freightLegs,
     freightLegTiers,
     freightComponentTierCosts = [],
@@ -1994,48 +2097,40 @@ function computeLeafPerTier(args: {
       ? 0
       : separateServiceFees * (1 + productionMarkup);
 
-  // ── THE EXPLICIT CHARGE HANDOFF ────────────────────────────────────────
+  const chargeEconomics = chargeEconomicsFor(production, productionMarkupResolution.value);
+
+  // ── THE CONSTRUCTION, AT THE ONLY PLACE THAT CAN DO IT ─────────────────
   //
-  // One entry per governed one-time charge that has an amount, carrying its
-  // COST and what it WOULD recover — stated, not derivable. Emitted at both
-  // allocation states, because a record that appears only when a boolean is
-  // set would let a constructor read placement out of the presence of a row.
+  // Placement needs the OWNER's allocation state, which is known here and
+  // nowhere above: a parent has bubbled-up charges but not the boolean that
+  // placed them. So the constructor runs at the leaf and the RESULT travels,
+  // rather than the inputs travelling and each level re-deciding.
   //
-  // Totals, deliberately. Everything else on this record is per-unit; these
-  // are not, because a one-time charge is billed once and amortising it here
-  // only to multiply it back out later is the round trip that does not return
-  // the amount when qty_per_parent != 1.
+  // The cost layer still states no placement on `ChargeEconomics` itself — the
+  // record it hands over carries cost and recoverable sell and nothing about
+  // where they land. Placement is decided by this call, which is the
+  // commercial layer, and asserted to be its only caller.
   //
-  // Zero-valued columns are omitted; a column carrying no charge is not a
-  // charge. A column carrying zero DELIBERATELY is a statement the input layer
-  // does not currently distinguish from absence, and inventing that
-  // distinction here would be inventing data.
+  // With no election this is exactly the legacy mapping: allocating a fee into
+  // unit cost IS recovering it in the unit price; not allocating IS billing it
+  // separately. Restated, not re-decided.
   //
-  // NOTHING CONSUMES THIS YET.
-  const chargeEconomics: ChargeEconomics[] = [];
-  for (const [column, chargeKey] of Object.entries(OTC_COLUMN_TO_CHARGE)) {
-    // Every column in the map is `number | null` on `CostingProductionInput` —
-    // the adapter has already parsed the DB numerics — so the index is typed
-    // to that rather than to `unknown`. A column that stopped being numeric
-    // would break here rather than silently coercing.
-    const columns = production as unknown as
-      | Record<string, number | null | undefined>
-      | undefined;
-    const cost = num(columns?.[column]);
-    if (cost === 0) continue;
-    chargeEconomics.push({
-      chargeKey: chargeKey as RecoveryChargeKey,
-      sourceColumn: column,
-      cost,
-      // NULL, not zero. Zero would say the charge recovers nothing; the truth
-      // is that nothing governs what it recovers (BV-013).
-      recoverableSell:
-        productionMarkupResolution.value === null ? null : cost * (1 + productionMarkup),
-      rateCategory:
-        productionMarkupResolution.value === null ? null : PRODUCTION_MARKUP_CATEGORY,
-      ratePct: productionMarkupResolution.value,
-    });
-  }
+  // ELECTIONS ARE RESOLVED HERE AND NOWHERE ELSE. They used to reach the
+  // projection, which meant placement was decided at the surface that renders
+  // it — so the engine's revenue and the customer's document could only agree
+  // by both getting the same answer separately. Deciding it once, here, is
+  // what makes "one constructed state" true rather than "two states that
+  // match".
+  //
+  // Resolution refuses an election policy denies, and that refusal now
+  // surfaces on a costing read. That is the correct place for it: an election
+  // no longer honourable must not be silently applied, and there are zero
+  // election rows today because the writer refuses to create one.
+  const constructed = constructCommercial(
+    chargeEconomics,
+    chargeElections,
+    production?.allocateServiceFeesToCost,
+  );
 
   // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
   let productionSectionNode: CostingNode | undefined;
@@ -2898,6 +2993,7 @@ function computeLeafPerTier(args: {
     separateServiceFeesPerUnit: separateServiceFees,
     separateServicesMarkupSumPerUnit: separateServicesMarkupSum,
     chargeEconomics,
+    constructed,
     contributionCostPerUnit,
     computedSellPerUnit,
     requiredSellPerUnit,
@@ -2974,6 +3070,7 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     // No production row, so no charge. Empty is the honest value: an absent
     // list says "this owner has no governed charges", which is true.
     chargeEconomics: [],
+    constructed: emptyConstructed(),
     contributionCostPerUnit: 0,
     computedSellPerUnit: 0,
     requiredSellPerUnit: 0,
@@ -3009,6 +3106,7 @@ function rollUpAssemblyPerTier(
   // so the accumulation reads next to every other one rather than being
   // assembled at the return site.
   const childCharges: ChargeEconomics[] = [];
+  const childConstructed: ConstructedCommercialState[] = [];
   let contribution = 0;
   let requiredSell = 0;
   // Slice 9.3 — `computedSell` rolls up children's pure-markup values
@@ -3156,6 +3254,7 @@ function rollUpAssemblyPerTier(
 
     // COMPONENT-UNIT values — scaling is the conversion, and is correct.
     childCharges.push(...r.chargeEconomics);
+    childConstructed.push(r.constructed);
     packaging += r.packagingCostPerUnit * q;
     production += r.productionCostPerUnit * q;
     raw += r.rawCostPerUnit * q;
@@ -3217,6 +3316,10 @@ function rollUpAssemblyPerTier(
     // charge that stopped at the leaf would be invisible to the layer that
     // needs it.
     chargeEconomics: childCharges,
+    // MERGED, not rebuilt. Placement was decided where the owner's allocation
+    // state was known; a parent has no standing to revisit it, and re-deriving
+    // here would be a second authority for the same decision.
+    constructed: mergeConstructed(childConstructed),
     contributionCostPerUnit: contribution,
     computedSellPerUnit: computedSell,
     requiredSellPerUnit: requiredSell,
@@ -3521,6 +3624,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           tier,
           packaging: pkgs,
           production: prod,
+          chargeElections: input.chargeElections ?? [],
           freightLegs: sortedLegs,
           freightLegTiers: input.freightLegTiers,
           freightComponentTierCosts: input.freightComponentTierCosts ?? [],
@@ -3671,8 +3775,20 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // Both halves or neither: the cost is what DPS pays and the recovery is
       // what the customer is billed on the projection's separate line. Adding
       // one without the other would replace an exclusion with a bias.
-      const sepCost = pt.separateServiceFeesPerUnit * tQty;
-      const sepRecovery = pt.separateServicesMarkupSumPerUnit * tQty;
+      // FROM THE CONSTRUCTED STATE, not re-derived from a per-unit rate.
+      //
+      // This used to be `separateServiceFeesPerUnit * tQty` — a total divided
+      // by tier quantity at the leaf and multiplied back out here. The bare
+      // division round-trips exactly on every live row, but the MARKED-UP one
+      // does not: marking up the quotient and multiplying by quantity gives
+      // 23799.999999999996 where marking up the total gives 23800, on 8 real
+      // rows. The projection always did the latter, so the engine's revenue
+      // and the customer's document disagreed in the last places.
+      //
+      // Reading the construction removes the disagreement rather than
+      // tolerating it, and removes the round trip rather than trusting it.
+      const sepCost = pt.constructed.separateLineCost;
+      const sepRecovery = pt.constructed.separateLineRecovery ?? 0;
       if (sepCost !== 0 || sepRecovery !== 0) {
         revenueOperands.push({
           key: nodeKey("quote", tier.id, "revenue", top.id, "otc-separate"),
@@ -3707,7 +3823,11 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       breakdown.freightContainer +=
         pt.totalContainerFreightBeforeMarkup * tQty;
       breakdown.dutyAndTariff += pt.totalDutyTariffBeforeMarkup * tQty;
-      breakdown.serviceFees += pt.separateServiceFeesPerUnit * tQty;
+      // FROM THE CONSTRUCTION, like the tier operands above. This was
+      // `pt.separateServiceFeesPerUnit * tQty` — the same per-unit round trip,
+      // and leaving it here would have let the cost-stack display disagree
+      // with the tier total it sits under by the same ~1e-12.
+      breakdown.serviceFees += sepCost;
       // Slice RI.8 Option 2 — per-component marked-up sums.
       breakdown.packagingMarkupSum +=
         pt.packagingMarkupSumPerUnit * tQty;
@@ -3720,8 +3840,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         pt.freightContainerMarkupSumPerUnit * tQty;
       breakdown.dutyAndTariffMarkupSum +=
         pt.freightDutyTariffMarkupSumPerUnit * tQty;
-      breakdown.separateServicesMarkupSum +=
-        pt.separateServicesMarkupSumPerUnit * tQty;
+      breakdown.separateServicesMarkupSum += sepRecovery;
     }
     const revenueNode: CostingNode = {
       key: nodeKey("quote", tier.id, "revenue"),

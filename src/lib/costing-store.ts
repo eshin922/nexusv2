@@ -1,5 +1,6 @@
 import { createStore } from "zustand";
 import type { OtherServiceSelection } from "./commercial-projection";
+import type { ChargeElection } from "./commercial-recovery/resolve";
 import {
   computeQuoteCosting,
   type CostingCellOverride,
@@ -164,6 +165,12 @@ export type CostingStoreState = {
   // Slice 9.4b — sparse per-cell client target benchmarks. Mirror
   // shape to cellOverrides; mutated by updateCellTarget action below.
   cellTargets: CostingCellTarget[];
+  /**
+   * Recovery elections in effect on this quote. Read-only from the store's
+   * side — no action mutates them; the election writer is a server action and
+   * the change arrives on the next snapshot.
+   */
+  chargeElections: ChargeElection[];
   /**
    * Phase 3 · Package 1 — applied surgical lifts in effect on this quote.
    *
@@ -391,6 +398,15 @@ export type HydrateSnapshot = {
   freightShipmentBreaks: CostingFreightShipmentBreak[];
   // Slice 9.3 — sparse per-cell sell-price overrides (rows that exist
   // in DB at hydration time). Empty array if no overrides on this quote.
+  /**
+   * Recovery elections for this quote, loaded alongside the cost data.
+   *
+   * Carried on the snapshot rather than passed separately because the engine
+   * resolves them, and every path that builds a costing input from a snapshot
+   * must therefore supply them. `Required<QuoteCostingInput>` is what enforces
+   * that — an omission would be a silent reversion to legacy placement.
+   */
+  chargeElections: ChargeElection[];
   cellOverrides: CostingCellOverride[];
   // Slice 9.4b — sparse per-cell client target benchmarks (rows that
   // exist in DB at hydration time).
@@ -571,6 +587,7 @@ export function costingInputFromSnapshot(
     freightLegTiers: s.freightLegTiers,
     freightComponentTierCosts: s.freightComponentTierCosts,
     freightShipmentBreaks: s.freightShipmentBreaks,
+    chargeElections: s.chargeElections ?? [],
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
     lifts: s.lifts,
@@ -597,6 +614,7 @@ export function buildCostingInput(
     freightLegTiers: s.freightLegTiers,
     freightComponentTierCosts: s.freightComponentTierCosts,
     freightShipmentBreaks: s.freightShipmentBreaks,
+    chargeElections: s.chargeElections ?? [],
     cellOverrides: s.cellOverrides,
     cellTargets: s.cellTargets,
     // The lifts APPLIED to this quote — no longer empty by definition.
@@ -636,6 +654,7 @@ function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
     freightShipmentBreaks: snapshot.freightShipmentBreaks,
     cellOverrides: snapshot.cellOverrides,
     cellTargets: snapshot.cellTargets,
+        chargeElections: snapshot.chargeElections ?? [],
     lifts: snapshot.lifts,
   };
   return validateQuote(input, snapshot.costing);
@@ -671,6 +690,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     freightCustomerArrangesMeta: initial.freightCustomerArrangesMeta,
     cellOverrides: initial.cellOverrides,
     cellTargets: initial.cellTargets,
+    chargeElections: initial.chargeElections ?? [],
     lifts: initial.lifts,
     otherServiceItems: initial.otherServiceItems,
     // Slice 9.4a — view-state. Defaults to null on store creation;
@@ -720,6 +740,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
+        chargeElections: snapshot.chargeElections ?? [],
         lifts: snapshot.lifts,
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),
@@ -775,6 +796,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         freightCustomerArrangesMeta: snapshot.freightCustomerArrangesMeta,
         cellOverrides: snapshot.cellOverrides,
         cellTargets: snapshot.cellTargets,
+        chargeElections: snapshot.chargeElections ?? [],
         lifts: snapshot.lifts,
         costing: snapshot.costing,
         warnings: warningsFromSnapshot(snapshot),

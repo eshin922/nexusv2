@@ -8,6 +8,7 @@ import {
 } from "../../src/lib/commercial-projection.ts";
 import type { QuoteCostingResult } from "../../src/lib/costing.ts";
 import type { HydrateSnapshot } from "../../src/lib/costing-store.ts";
+import { constructionRollup } from "../support/constructed-fixture.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // The seven required proofs for the frozen commercial line set.
@@ -68,6 +69,20 @@ function bundle(opts: {
       tiers: costingTiers,
       skuRollups: opts.rollups.map((r) => {
         const s = skuById.get(r.skuId)!;
+        // The construction the ENGINE would attach for this owner, built by
+        // the engine's own functions. Charges live on the production row of a
+        // LEAF and bubble to the assembly that owns it, so an assembly's rows
+        // are those of its children — mirroring the engine rather than
+        // restating it.
+        const owned = (opts.production ?? []).filter((row) => {
+          const leaf = skuById.get(row.quoteSkuId as string);
+          return row.quoteSkuId === r.skuId || leaf?.parentSkuId === r.skuId;
+        });
+        const rate = (opts.markupDefaults ?? { Production: 0.4 }).Production ?? null;
+        const construction = constructionRollup(r.skuId, owned as never, rate);
+        const constructedByTier = new Map(
+          construction.perTier.map((pt) => [pt.tierId, pt.constructed]),
+        );
         return {
           skuId: r.skuId,
           canonicalQuoteLeafId: r.skuId,
@@ -76,9 +91,38 @@ function bundle(opts: {
           skuLabel: s.skuLabel,
           productName: s.productName,
           qtyPerParent: s.qtyPerParent ?? null,
-          perTier: r.perTier,
+          perTier: r.perTier.map((pt) => ({
+            ...pt,
+            constructed: constructedByTier.get(pt.tierId),
+          })),
         };
-      }),
+      }).concat(
+        // ASSEMBLY ROLLUPS THE ENGINE ALWAYS EMITS.
+        //
+        // A real bundle carries a rollup for every assembly; these fixtures
+        // list only the rows a proof cares about. That was harmless while the
+        // projection derived one-time charges itself, and is not now: the
+        // charge amounts live on the owner's construction, so an absent
+        // assembly rollup silently means "no charges" instead of "not stated".
+        opts.skus
+          .filter(
+            (s) =>
+              s.skuRole === "assembly" &&
+              !opts.rollups.some((r) => r.skuId === s.id) &&
+              (opts.production ?? []).some(
+                (row) => skuById.get(row.quoteSkuId as string)?.parentSkuId === s.id,
+              ),
+          )
+          .map((s) =>
+            constructionRollup(
+              s.id,
+              (opts.production ?? []).filter(
+                (row) => skuById.get(row.quoteSkuId as string)?.parentSkuId === s.id,
+              ) as never,
+              (opts.markupDefaults ?? { Production: 0.4 }).Production ?? null,
+            ),
+          ) as never,
+      ),
     },
   } as unknown as HydrateSnapshot;
 }

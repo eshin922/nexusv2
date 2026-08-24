@@ -188,8 +188,6 @@ test("every fee column projects without throwing, at both allocation states", ()
   };
   for (const allocate of [true, false]) {
     assert.doesNotThrow(() => projectCommercial(bundle(allocate, fees)));
-    // And explicitly with elections defaulted rather than passed.
-    assert.doesNotThrow(() => projectCommercial(bundle(allocate, fees), []));
   }
 });
 
