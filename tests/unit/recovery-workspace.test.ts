@@ -301,158 +301,167 @@ test("every reader of the construction goes through the one traversal", async ()
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// QUOTE PRESENTATION CARRIES NO ECONOMIC INPUT.
+// THE RAIL IS THE AUTHORITY'S FOUR CARDS.
 //
-// Edward's R5 disposition, 2026-08-24, preserving the Design Authority's
-// boundary rather than superseding it to fit what had been built:
+// docs/design-authority/customer-view/ — registered 2026-08-24 after two days
+// untracked at the repository root. The reconciliation that ran before it was
+// registered read `quote-presentation-profile-brief.md` as governing the whole
+// rail and removed Commercial recovery from the surface. That brief describes
+// CARD 2 OF FOUR.
 //
-//   "fee_presentation remains a Layer-2, revenue-neutral presentation
-//    decision. If a control can change customer economics, it is not a Quote
-//    Presentation control."
-//
-// The recovery election is economically substantive — converting a charge
-// from legacy to a governed contract moves the customer's total — so it was
-// REMOVED from this surface, not restyled onto it. Its registered home is the
-// Pricing workspace, where the authority already shows the equivalent
-// `allocate_service_fees_to_cost` toggle.
-//
-// Asserted here because "we took it off" is a state that quietly reverses.
+// So the assertions below are the inverse of the ones they replace, and the
+// reversal is the point: a control may move economics, be governed by Pricing,
+// and live on this surface (BUNDLE.md D3).
 // ═══════════════════════════════════════════════════════════════════════
 
-test("the recovery card is gone, not relocated", async () => {
-  await assert.rejects(
-    read("src/components/quote-umbrella/recovery-card.tsx"),
-    "the recovery card still exists — the disposition was to remove it, not move it",
-  );
+const RAIL = "src/components/quote/customer-view-rail.tsx";
+const CARD1 = "src/components/quote/card-commercial-recovery.tsx";
 
-  const tab = codeOnly(await read("src/components/quote-umbrella/tab-preview-quote.tsx"));
-  assert.doesNotMatch(tab, /RecoveryCard/);
-  assert.doesNotMatch(tab, /recoveryRows/);
-  // Non-vacuous: the file is real and still renders the surface.
-  assert.match(tab, /QuoteHost/);
-});
-
-test("the Presentation panel takes no handler that could write economics", async () => {
-  const panel = codeOnly(await read("src/components/quote/presentation-panel.tsx"));
-
-  // The authority: "Nothing in this panel is an input to economics."
-  for (const forbidden of [
-    /setChargeRecovery/,
-    /previewChargeRecovery/,
-    /RecoveryChargeRow/,
-    /electedMode/,
-    /recoverableSell/,
+test("the rail carries Card 0 → 1 → 2 → 3 and a pinned finalize footer", async () => {
+  const rail = codeOnly(await read(RAIL));
+  for (const marker of [
+    /card-governed/,
+    /CardCommercialRecovery/,
+    /card-customer-presentation/,
+    /card-accounting-handoff/,
+    /cv-finalize-footer/,
   ]) {
-    assert.doesNotMatch(
-      panel,
-      forbidden,
-      `the Presentation panel reaches for ${forbidden} — it is an economic input again`,
-    );
-  }
-
-  // What it IS allowed to change: arrangement, aggregation, inclusion.
-  assert.match(panel, /onPdfLayoutChange/);
-  assert.match(panel, /onDetailLevelChange/);
-});
-
-test("the Accounting zone presents the frozen instruction and decides nothing", async () => {
-  const zone = codeOnly(await read("src/components/quote/accounting-zone.tsx"));
-
-  // It reads the sentence the freeze writes, from the same projection.
-  assert.match(zone, /instructionSentence\(/);
-
-  // And resolves nothing itself.
-  for (const forbidden of [/resolveMarkupStrict/, /MARKUP_CATEGORY/, /1 \+ /, /setChargeRecovery/]) {
-    assert.doesNotMatch(zone, forbidden, `the Accounting zone derives ${forbidden}`);
-  }
-
-  // The authority: "in a register that reads *not shown to the customer* —
-  // the surface already has this vocabulary and it should be reused, not
-  // reinvented."
-  assert.match(zone, /not shown to the customer/i);
-
-  // R7, which this component broke inside the repair for R7: it printed
-  // `project_setup` and `tooling_artwork_legacy` -- charge KEYS -- as operator
-  // content. The registry's operator label is the only thing that reaches the
-  // surface.
-  assert.match(zone, /chargePolicy\(i\.chargeKey\)\.label/);
-
-  // Tier identity, which the authority's Accounting table requires:
-  // "which tier the printed price belongs to". Without it a four-tier quote
-  // printed one charge three times at three amounts, indistinguishably.
-  assert.match(zone, /tierLabel\.get\(i\.tierId\)/);
-  // And the tier is part of the dedup key, or two tiers collapse into one line
-  // and the fix removes the very rows it was added to distinguish.
-  assert.match(zone, /\$\{i\.chargeKey\}::\$\{i\.tierId\}::\$\{sentence\}/);
-});
-
-test("every control in the Presentation panel reads as a control", async () => {
-  const css = await read("src/styles/r3-quote-presentation.css");
-  // The Voice group's trigger is a bare `.qp-field button`. It inherited
-  // nothing and rendered as plain text: no border, no ground, no padding.
-  assert.match(css, /\.qp-field button \{/);
-  const rule = css.slice(css.indexOf(".qp-field button {"));
-  for (const prop of [/border:/, /padding:/, /background:/, /cursor: pointer/]) {
-    assert.match(rule.slice(0, 400), prop, `the bare panel button has no ${prop}`);
+    assert.match(rail, marker, `the rail is missing ${marker}`);
   }
 });
 
-test("F4 — the PURE / PASS-THROUGH / PARTIAL switcher is gone from Quote", async () => {
-  const toolbar = codeOnly(await read("src/components/quote/preview-toolbar.tsx"));
-  for (const gone of [/Pass-through/i, /subState/, /showStateSwitcher/]) {
-    assert.doesNotMatch(toolbar, gone, `F4 scaffolding survives: ${gone}`);
-  }
+test("Commercial recovery is ON this surface, and it is card 1", async () => {
+  const card = codeOnly(await read(CARD1));
+  // The election writer lives here now — the inverse of what R5 asserted.
+  assert.match(card, /setChargeRecovery/);
+  assert.match(card, /previewChargeRecovery/);
 
-  // Scoped to Quote. Mark Accepted shares the prop NAME but its subState
-  // drives four real render branches, so removing it there would change
-  // behaviour — which is why it is deliberately still present.
-  const macc = codeOnly(await read("src/components/mark-accepted/mark-accepted-host.tsx"));
-  assert.match(
-    macc,
-    /subState/,
-    "Mark Accepted lost its state switcher — that one is load-bearing, not scaffolding",
+  const raw = await read(CARD1);
+  // Header sub-line, verbatim from the reference of record.
+  assert.match(raw, /Changes sell price and margin\. Runs through pricing governance\./);
+});
+
+test("Card 1 speaks the operator's vocabulary, not the engine's", async () => {
+  const raw = await read(CARD1);
+  // The authority's words.
+  assert.match(raw, /"In unit price"/);
+  assert.match(raw, /"Separate"/);
+  assert.match(raw, /"Absorbed"/);
+
+  // The deleted card's words. Every one was true; none was the operator's
+  // question, which is why truth was not a sufficient test.
+  //
+  // Checked against codeOnly: the component's own header EXPLAINS which words
+  // it stopped using, so the raw file contains every one of them as a mention.
+  // Third time this trap has fired in this workstream -- a filter that cannot
+  // tell a mention from a use measures nothing.
+  const code = codeOnly(raw);
+  for (const engineWord of [
+    /Use governed amortization/,
+    /legacy pricing/,
+    /BV-011/,
+    /BV-013/,
+    /governed recovery/,
+  ]) {
+    assert.doesNotMatch(code, engineWord, `engine vocabulary on the operator surface: ${engineWord}`);
+  }
+});
+
+test("denied treatments render disabled with their reason, never hidden", async () => {
+  const card = codeOnly(await read(CARD1));
+  // "Disabled options are still rendered — the constraint must be visible,
+  // not hidden."
+  assert.match(card, /disabled=\{[^}]*!opt\.available/);
+  assert.match(card, /opt\.reason/);
+  assert.doesNotMatch(
+    card,
+    /options\s*\.filter\([^)]*available[^)]*\)\s*\.map/,
+    "the card filters denied treatments out instead of showing them refused",
+  );
+  // Non-vacuous: every option is mapped.
+  assert.match(card, /row\.options\.map\(/);
+});
+
+test("the gate reads every governed tier, not only the ones shown", async () => {
+  const card = codeOnly(await read(CARD1));
+  // "Tiers not shown to the customer are still evaluated." A display toggle
+  // can never clear a floor breach.
+  assert.match(card, /not shown/);
+  assert.match(card, /blocked/);
+  assert.doesNotMatch(
+    card,
+    /rollups\s*\.filter\([^)]*shown/,
+    "the margin gate filters to shown tiers — a presentation choice would clear a floor breach",
   );
 });
 
-test("the document is dominant, at the authority's clamp", async () => {
-  const css = await read("src/styles/r3-quote-presentation.css");
-  // "Recommend clamp(816px, 100%, 1200px) — 816px is Letter at 96dpi and the
-  // floor below which the document re-compresses."
-  assert.match(css, /clamp\(816px, 100%, 1200px\)/);
-
-  const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
-  assert.match(host, /qp-workspace/);
-  assert.match(host, /qp-doc/);
-
-  // The 880px cap the authority calls "the binding constraint" may survive
-  // ONLY on the legacy path, and only under the flag.
-  //
-  // The first version of this forbade a literal
-  // `maxWidth: 880, margin: "0 auto", border` sequence. Gating the layout put
-  // that cap back inside a conditional spread, which the regex could not see,
-  // so it kept passing while the thing it forbade was back. A check that
-  // survives the change it exists to catch is measuring syntax, not property.
-  if (/maxWidth: 880/.test(host)) {
-    assert.match(
-      host,
-      /presentationRestored[\s\S]{0,40}maxWidth: 880/,
-      "an 880px document cap survives outside the legacy branch",
-    );
+test("Card 2 holds no handler that could write economics", async () => {
+  const rail = codeOnly(await read(RAIL));
+  const card2 = rail.slice(
+    rail.indexOf("card-customer-presentation"),
+    rail.indexOf("card-accounting-handoff"),
+  );
+  assert.ok(card2.length > 200, "card 2 not found in the rail");
+  for (const forbidden of [/setChargeRecovery/, /previewChargeRecovery/, /recoverableSell/]) {
+    assert.doesNotMatch(card2, forbidden, `Card 2 reaches for ${forbidden}`);
   }
 });
 
-test("the restored layout is gated, and the gate says it is temporary", async () => {
-  const PAGE = "src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx";
-  const page = codeOnly(await read(PAGE));
+test("absent controls are stated as absent, not faked", async () => {
+  const raw = await read(RAIL);
+  // The Layer-2 presentation profile has no record, so tiers-shown, the
+  // include toggles, the customer note and "Customer received" cannot persist.
+  // Rendering them anyway would be worse than the gap — an operator would
+  // trust them.
+  assert.match(raw, /cv-presentation-gap/);
+  assert.match(raw, /cv-accounting-gap/);
+  assert.match(raw, /would not survive a reload/);
+});
 
-  // Derived from the authenticated viewer, never a constant.
-  assert.match(page, /presentationRestored = viewer\.role === "admin"/);
-  assert.doesNotMatch(page, /presentationRestored = true/);
+test("unknown recovery is unavailable, never $0", async () => {
+  // BV-013, and D5: Card 0's "Approved recovery" IS the governed
+  // recoverableSell — translated, not minted, and null stays null.
+  const card = codeOnly(await read(CARD1));
+  assert.match(card, /totalRecovery === null \? "not priced"/);
+  const rail = codeOnly(await read(RAIL));
+  assert.match(rail, /approvedRecovery === null \? "not priced"/);
+});
 
-  // And it says what it is. The authority's Q6 makes the panel any-PM, so a
-  // gate that quietly hardened into a role boundary would be a new divergence
-  // introduced by the fix for a divergence.
-  const raw = await read(PAGE);
-  assert.match(raw, /TEMPORARY/);
-  assert.match(raw, /Q6/);
+test("the document keeps the PDF iframe — no second renderer", async () => {
+  // D7. A DOM preview would be a second renderer able to disagree with the
+  // artifact the customer receives.
+  const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
+  assert.match(host, /cv-sheet/);
+  assert.match(host, /<iframe/);
+  const css = await read("src/styles/r3-customer-view.css");
+  // 816px is Letter at 96dpi — the authority's document width.
+  assert.match(css, /min\(816px, 100%\)/);
+  // And the reference's zoom stepper is deliberately not built.
+  assert.doesNotMatch(host, /transform: scale/);
+});
+
+test("the rail is the authority's width and never compresses", async () => {
+  const css = await read("src/styles/r3-customer-view.css");
+  assert.match(css, /\.cv-rail \{[\s\S]{0,200}width: 452px/);
+  assert.match(css, /\.cv-rail \{[\s\S]{0,200}flex: none/);
+});
+
+test("the gate stays while visual fidelity is unapproved", async () => {
+  const brief = await read("docs/quote-presentation-restoration-brief.md");
+  const state = /VISUAL_FIDELITY:\s*(\w+)/.exec(brief)?.[1];
+  assert.ok(state, "the restoration brief no longer records a gate state");
+
+  const page = codeOnly(
+    await read("src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx"),
+  );
+  const gated = /presentationRestored = viewer\.role === "admin"/.test(page);
+
+  if (state === "PENDING") {
+    assert.ok(
+      gated,
+      "the rail was opened to operators while the brief still records visual fidelity as PENDING",
+    );
+  } else {
+    assert.ok(!gated, `the brief records VISUAL_FIDELITY: ${state} but the gate is still in place`);
+  }
 });

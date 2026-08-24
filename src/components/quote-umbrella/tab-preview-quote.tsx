@@ -18,6 +18,9 @@
 
 import { QuoteHost } from "@/components/quote/quote-host";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
+import type { QuotePerTierRollup } from "@/lib/costing";
+import type { GovernedSummary } from "@/components/quote/customer-view-rail";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { VersionRow } from "@/lib/quote-version-chain";
@@ -32,6 +35,9 @@ export function TabPreviewQuote({
   quoteStatus,
   quoteNumberDb,
   recoveryInstructions,
+  recoveryRows,
+  quoteRollup,
+  governed,
   presentationRestored,
   internalNotes,
   addendumData,
@@ -58,6 +64,9 @@ export function TabPreviewQuote({
    * genuinely NULL (fresh pre-send draft). */
   quoteNumberDb: string | null;
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
+  recoveryRows: RecoveryChargeRow[];
+  quoteRollup: readonly QuotePerTierRollup[];
+  governed: GovernedSummary;
   presentationRestored: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
@@ -81,6 +90,9 @@ export function TabPreviewQuote({
         quoteId={quoteId}
         quoteStatus={quoteStatus}
         recoveryInstructions={recoveryInstructions}
+        recoveryRows={recoveryRows}
+        quoteRollup={quoteRollup}
+        governed={governed}
         presentationRestored={presentationRestored}
         internalNotes={internalNotes}
         addendumData={addendumData}

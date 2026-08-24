@@ -77,6 +77,44 @@ permanently is cheap relative to being unable to answer that question.
 |---|---|---|---|---|
 | **`freight-1a`** | Phase 2 — Costs Workspace, Freight section | **Option A** | Reviewed; findings open | [BUNDLE.md](freight-1a/BUNDLE.md) |
 | **`r12-pricing-workspace`** | Phase 3 — Pricing Workspace; Phase 4 — approval state model | R12 (R10, R11 are lineage) | Not yet implemented | [BUNDLE.md](r12-pricing-workspace/BUNDLE.md) |
+| **`customer-view`** | **Quote Presentation / Customer View** — two-pane workspace, four-card rail, finalize footer | `design/Nexus Customer View.dc.html` (reference of record) | Registered 2026-08-24; **implementation not started against it** | [BUNDLE.md](customer-view/BUNDLE.md) |
+
+### `customer-view` — registered two days late, and what that cost
+
+Received 22 August as `nexuscustomerview.zip` and left **untracked at the repository root**
+until 24 August — the state this file's opening section describes as the reason the
+directory exists.
+
+In those two days Quote Presentation was designed, built, reviewed, reconciled against a
+*different* authority, and shipped to production behind a flag, none of it consulting this
+bundle. The reconciliation read
+[`../quote-presentation-profile-brief.md`](../quote-presentation-profile-brief.md) as
+governing the whole rail and removed Commercial recovery from the surface. That brief
+describes **Card 2 of four**. The removal was wrong; the deleted card was closer to the real
+authority than what replaced it.
+
+Rule 7 below was written from the first instance of this. This is the second, and it is why
+rule 6 says an omission here is not a filing error.
+
+**Tier-1 dispositions recorded against this bundle** (full text in its
+[BUNDLE.md](customer-view/BUNDLE.md)):
+
+- **D1** — Commercial recovery applies at charge grain to **every governed recoverable
+  charge**, superseding `authority-model.md` §1a's freight-only limit. §1a is not otherwise
+  weakened, and `refusalFor` still decides which modes are permitted per charge.
+- **D2** — the primary action is **`Freeze & send`**, over §4's `Finalize presentation`.
+- **D3** — a control may move economics, be governed by Pricing, and live on this surface.
+  *"Not a presentation control"* means *not in Card 2* — not *not on the workspace*.
+- **D5** — `Approved recovery` **is** the existing governed `recoverableSell`. Card 0
+  translates a governed fact into the authority's vocabulary; it does not mint a second
+  record. Unknown recovery stays unavailable, never `$0`.
+- **D6** — `fingerprintCommercialState` remains the **single** authority for whether an
+  approval survives. `setChargeRecovery` warns and predicts; it does not invalidate.
+- **D7** — the customer PDF **iframe stays**. The reference of record's page stack and zoom
+  stepper are visual intent, not authorization for a second rendering authority.
+- **D4** — the bundle's named supersessions apply: the internal ribbon, the `Send as:` pair,
+  the boundary-guard paragraph, the old `Detail:` / addendum placement, and the 880px preview
+  constraint. Legacy chrome is not preserved merely because it predates the bundle.
 
 ## Registered document authorities
 
@@ -89,17 +127,25 @@ the standing does not.
 |---|---|---|---|---|
 | [`../quote-presentation-profile-brief.md`](../quote-presentation-profile-brief.md) | **Quote Presentation / Customer View** — interaction model, presentation-profile state, SEND freeze boundary, Accounting handoff | PR #326, merged 2026-08-24 | Reviewed 2026-08-24; R5 dispositioned, see below | `86cc8020…4682` |
 
-**R5 disposition (Edward, 2026-08-24).** The Layer-2 boundary is **preserved,
-not superseded**:
+**R5 disposition — SUPERSEDED 2026-08-24**, the same day, by the `customer-view`
+bundle above. It was decided against an incomplete authority: the brief below
+describes **Card 2** of a four-card rail, and reading it as governing the whole
+surface is what removed Commercial recovery from a workspace the real authority
+places it on. See [`customer-view/BUNDLE.md`](customer-view/BUNDLE.md) D1 and D3.
+
+The Layer-2 rule it states remains true **of Card 2**, which is what it was
+always about. Retained as the record of what was decided, and why it was wrong:
 
 > `fee_presentation` remains a Layer-2, revenue-neutral presentation decision.
 > **If a control can change customer economics, it is not a Quote Presentation
 > control.**
 
-The commercial recovery election — which is economically substantive, and whose
-legacy → governed conversion changes the customer total — therefore belongs to
-the commercial recovery / pricing layer and **must be removed from Quote
-Presentation**, not restyled or relocated within it. The three concerns are
+~~The commercial recovery election … must be removed from Quote Presentation.~~
+**Wrong, and superseded.** Recovery is governed by Pricing *and* elected on this
+surface; those are different questions and the bundle answers both. Costs and
+Pricing own the governed cost, the recoverable amount, margin policy and
+approvals; Customer View owns the bounded election among allowed treatments;
+Accounting consumes the frozen result of both. The three concerns are
 separate and stay separate: recovery determines *how much* and under what
 governed treatment; presentation determines *how that already-established
 economics appears*; Accounting consumes the frozen combination of both plus an

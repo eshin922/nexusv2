@@ -21,6 +21,8 @@ import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
+import type { GovernedSummary } from "@/components/quote/customer-view-rail";
 import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { VersionRow } from "@/lib/quote-version-chain";
@@ -58,6 +60,8 @@ export function QuoteUmbrella({
   soPushMirror,
   showStateSwitcher,
   recoveryInstructions,
+  recoveryRows,
+  governed,
   presentationRestored,
   allowSimulatedComplete,
   internalNotes,
@@ -160,6 +164,8 @@ export function QuoteUmbrella({
   showStateSwitcher: boolean;
   /** For the Accounting zone — the sentences the send freeze will write. */
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
+  recoveryRows: RecoveryChargeRow[];
+  governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
   presentationRestored: boolean;
   /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
@@ -296,6 +302,9 @@ export function QuoteUmbrella({
               quoteStatus={quoteStatus}
               quoteNumberDb={quoteNumberDb}
               recoveryInstructions={recoveryInstructions}
+              recoveryRows={recoveryRows}
+              quoteRollup={quoteRollup}
+              governed={governed}
               presentationRestored={presentationRestored}
               internalNotes={internalNotes}
               addendumData={addendumData}

@@ -30,6 +30,7 @@ import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
 import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
+import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
@@ -85,6 +86,24 @@ export type ResolveCustomerViewResult =
       /** Recovery workspace rows, from the same bundle read. */
       /** The frozen recovery instruction, projected from the construction. */
       recoveryInstructions: import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
+      /** Card 1 · one row per governed recoverable charge. */
+      recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
+      /**
+       * Card 0 · the read-only mirror.
+       *
+       * Per D5 the authority's "Approved recovery" IS the governed
+       * `recoverableSell` — translated into the authority's vocabulary here,
+       * not minted as a second record. NULL stays null: an unresolved recovery
+       * renders as words, never as $0 (BV-013).
+       */
+      governed: {
+        goodsSell: number | null;
+        chargesAtCost: number;
+        approvedRecovery: number | null;
+        floorMarginPct: number;
+        targetMarginPct: number;
+        recommendedTierLabel: string | null;
+      };
     }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "bundle_error"; message: string };
@@ -400,5 +419,61 @@ export async function resolveCustomerView(args: {
      * from a second read.
      */
     recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
+    recoveryRows: buildRecoveryWorkspace({
+      costing: bundle.data.costing,
+      isLeaf: ownsItsCharges,
+      elections: bundle.data.chargeElections ?? [],
+      allocationStates: [
+        ...new Set(
+          ((bundle.data.production ?? []) as {
+            allocateServiceFeesToCost?: boolean | null;
+          }[]).map((r) => r.allocateServiceFeesToCost ?? true),
+        ),
+      ],
+    }),
+    governed: (() => {
+      const rollups = bundle.data.costing.quoteRollup ?? [];
+      // The recommended tier, or the last one — the authority shows goods sell
+      // "· {recommended tier}" and needs a tier to name.
+      // `view.tiers` is the customer-facing tier list and carries the
+      // recommendation index; the rollups are the economics for the same tiers.
+      const recId =
+        view.recommendedTierIdx === null
+          ? null
+          : (view.tiers[view.recommendedTierIdx]?.id ?? null);
+      const rec =
+        rollups.find((t: { tierId: string }) => t.tierId === recId) ??
+        rollups[rollups.length - 1] ??
+        null;
+
+      let cost = 0;
+      let recovery: number | null = 0;
+      for (const rollup of bundle.data.costing.skuRollups ?? []) {
+        if (!ownsItsCharges(rollup.skuId)) continue;
+        for (const pt of rollup.perTier ?? []) {
+          if (rec && pt.tierId !== rec.tierId) continue;
+          const c = pt.constructed;
+          if (!c) continue;
+          cost += c.totalChargeCost;
+          // NULL propagates. A total containing an unknown is unknown, and
+          // reporting it as a number would state a figure nothing governs.
+          recovery =
+            recovery === null || c.totalChargeRevenue === null
+              ? null
+              : recovery + c.totalChargeRevenue;
+        }
+      }
+
+      return {
+        // Goods sell is tier revenue less what the charges contributed.
+        goodsSell:
+          rec && recovery !== null ? rec.totalRevenue - recovery : null,
+        chargesAtCost: cost,
+        approvedRecovery: recovery,
+        floorMarginPct: bundle.data.firmSettings.floorMarginPct,
+        targetMarginPct: bundle.data.firmSettings.targetMarginPct,
+        recommendedTierLabel: rec?.label ?? null,
+      };
+    })(),
   };
 }

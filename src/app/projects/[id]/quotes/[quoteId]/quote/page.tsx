@@ -28,7 +28,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import "@/styles/r-shared-primitives.css";
 import "@/styles/r8-quote-umbrella.css";
 import "@/styles/r9-quote-umbrella-addendum.css";
-import "@/styles/r3-quote-presentation.css";
+import "@/styles/r3-customer-view.css";
 import { isHubspotAcceptSyncSuppressed } from "@/lib/config/certification-mode";
 
 // Slice RI.6 — Quote page (visual shell + boundary-guard
@@ -121,7 +121,7 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions } =
+    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed } =
       result;
     if (project.id !== projectId) notFound();
 
@@ -342,6 +342,8 @@ export default async function CustomerViewPage({
           customerAcceptedTierIdDb={quote.customerAcceptedTierId}
           quoteRollup={quoteRollup}
           recoveryInstructions={recoveryInstructions}
+          recoveryRows={recoveryRows}
+          governed={governed}
           presentationRestored={presentationRestored}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
