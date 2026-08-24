@@ -9,6 +9,10 @@ import {
   type NodeCandidate,
   priceBuildKey,
 } from "./costing-nodes";
+import {
+  OTC_COLUMN_TO_CHARGE,
+  type RecoveryChargeKey,
+} from "./commercial-recovery/registry";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -599,6 +603,36 @@ export type SkuPerTierRollup = {
   freightDutyTariffMarkupSumPerUnit: number;
   separateServiceFeesPerUnit: number; // when allocate_service_fees=false
   separateServicesMarkupSumPerUnit: number; // marked-up version of above
+  /**
+   * Per-charge economics — the EXPLICIT HANDOFF to commercial sell
+   * construction. See docs/commercial-sell-construction-design.md §3.
+   *
+   * ── WHY BOTH NUMBERS ARE STATED, AND WHY THEY ARE TOTALS ──────────────
+   *
+   * `cost` and `recoverableSell` are both carried because neither is derivable
+   * from the other without knowing the rate, and a consumer that knows the rate
+   * is a consumer that can drift from it.
+   *
+   * They are TOTALS, not per-unit. A one-time charge is billed once; amortising
+   * it to a rate and multiplying it back out does not return the amount when
+   * `qty_per_parent != 1`, and a $225 fee booking as some other number while
+   * every margin still looks plausible is the specific failure this shape
+   * removes rather than guards against.
+   *
+   * ── EMITTED UNCONDITIONALLY ───────────────────────────────────────────
+   *
+   * At BOTH allocation states. A record that appears only when a boolean is set
+   * would be the same coupling recovery exists to break — the constructor would
+   * be reading placement out of the presence of a row.
+   *
+   * `recoverableSell` is NULL when no governed rate resolves. Null is not zero:
+   * zero would say the charge is recovered at nothing, and the truth is that
+   * nothing governs what it is recovered at (BV-013).
+   *
+   * NOTHING CONSUMES THIS YET. It is emitted so the constructor can be built
+   * against it, and its arrival must move no existing number.
+   */
+  chargeEconomics: ChargeEconomics[];
   contributionCostPerUnit: number;
   // Slice 9.3 — `requiredSellPerUnit` is the value used by all
   // downstream math (revenue, margin, partition). `computedSellPerUnit`
@@ -931,6 +965,32 @@ const FALLBACK_MARKUP = 0.3;
 // erased the row the pin backfill derived every historical rate from. This is
 // a new authority; the old ones stay live until a consumer trace says
 // otherwise.
+/**
+ * One governed charge's economics for one (tier, owner).
+ *
+ * The unit of the handoff between cost truth and sell construction: the cost
+ * layer states what a charge costs and what it would recover; the constructor
+ * decides WHERE that recovery lives. Nothing here says anything about
+ * placement, which is what keeps the two responsibilities apart.
+ */
+export type ChargeEconomics = {
+  chargeKey: RecoveryChargeKey;
+  /** The governed column this came from — traceable without grepping. */
+  sourceColumn: string;
+  /** What DPS pays. COST TRUTH: invariant under every recovery election. */
+  cost: number;
+  /**
+   * `cost x (1 + governed rate)`, or NULL when no rate resolves.
+   *
+   * Not a placement decision — the amount that WOULD be recovered wherever the
+   * charge lands.
+   */
+  recoverableSell: number | null;
+  /** Which governed rate priced it, or null when none resolved. */
+  rateCategory: string | null;
+  ratePct: number | null;
+};
+
 export const PRODUCTION_MARKUP_CATEGORY = "Production";
 // Bulk raw used to resolve `Raw ingredients`, which has never had a default
 // row and therefore priced through `Other` — silently, and correctly only
@@ -1934,6 +1994,49 @@ function computeLeafPerTier(args: {
       ? 0
       : separateServiceFees * (1 + productionMarkup);
 
+  // ── THE EXPLICIT CHARGE HANDOFF ────────────────────────────────────────
+  //
+  // One entry per governed one-time charge that has an amount, carrying its
+  // COST and what it WOULD recover — stated, not derivable. Emitted at both
+  // allocation states, because a record that appears only when a boolean is
+  // set would let a constructor read placement out of the presence of a row.
+  //
+  // Totals, deliberately. Everything else on this record is per-unit; these
+  // are not, because a one-time charge is billed once and amortising it here
+  // only to multiply it back out later is the round trip that does not return
+  // the amount when qty_per_parent != 1.
+  //
+  // Zero-valued columns are omitted; a column carrying no charge is not a
+  // charge. A column carrying zero DELIBERATELY is a statement the input layer
+  // does not currently distinguish from absence, and inventing that
+  // distinction here would be inventing data.
+  //
+  // NOTHING CONSUMES THIS YET.
+  const chargeEconomics: ChargeEconomics[] = [];
+  for (const [column, chargeKey] of Object.entries(OTC_COLUMN_TO_CHARGE)) {
+    // Every column in the map is `number | null` on `CostingProductionInput` —
+    // the adapter has already parsed the DB numerics — so the index is typed
+    // to that rather than to `unknown`. A column that stopped being numeric
+    // would break here rather than silently coercing.
+    const columns = production as unknown as
+      | Record<string, number | null | undefined>
+      | undefined;
+    const cost = num(columns?.[column]);
+    if (cost === 0) continue;
+    chargeEconomics.push({
+      chargeKey: chargeKey as RecoveryChargeKey,
+      sourceColumn: column,
+      cost,
+      // NULL, not zero. Zero would say the charge recovers nothing; the truth
+      // is that nothing governs what it recovers (BV-013).
+      recoverableSell:
+        productionMarkupResolution.value === null ? null : cost * (1 + productionMarkup),
+      rateCategory:
+        productionMarkupResolution.value === null ? null : PRODUCTION_MARKUP_CATEGORY,
+      ratePct: productionMarkupResolution.value,
+    });
+  }
+
   // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
   let productionSectionNode: CostingNode | undefined;
   let rawSectionNode: CostingNode | undefined;
@@ -2794,6 +2897,7 @@ function computeLeafPerTier(args: {
     freightDutyTariffMarkupSumPerUnit: totalDutyTariffWithMarkup,
     separateServiceFeesPerUnit: separateServiceFees,
     separateServicesMarkupSumPerUnit: separateServicesMarkupSum,
+    chargeEconomics,
     contributionCostPerUnit,
     computedSellPerUnit,
     requiredSellPerUnit,
@@ -2867,6 +2971,9 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     freightDutyTariffMarkupSumPerUnit: 0,
     separateServiceFeesPerUnit: 0,
     separateServicesMarkupSumPerUnit: 0,
+    // No production row, so no charge. Empty is the honest value: an absent
+    // list says "this owner has no governed charges", which is true.
+    chargeEconomics: [],
     contributionCostPerUnit: 0,
     computedSellPerUnit: 0,
     requiredSellPerUnit: 0,
@@ -2898,6 +3005,10 @@ function rollUpAssemblyPerTier(
   floor: number,
 ): SkuPerTierRollup {
   const tierQty = num(tier.qty);
+  // Charges carried up unscaled — see the note at the return. Collected here
+  // so the accumulation reads next to every other one rather than being
+  // assembled at the return site.
+  const childCharges: ChargeEconomics[] = [];
   let contribution = 0;
   let requiredSell = 0;
   // Slice 9.3 — `computedSell` rolls up children's pure-markup values
@@ -3044,6 +3155,7 @@ function rollUpAssemblyPerTier(
     );
 
     // COMPONENT-UNIT values — scaling is the conversion, and is correct.
+    childCharges.push(...r.chargeEconomics);
     packaging += r.packagingCostPerUnit * q;
     production += r.productionCostPerUnit * q;
     raw += r.rawCostPerUnit * q;
@@ -3095,6 +3207,16 @@ function rollUpAssemblyPerTier(
     freightDutyTariffMarkupSumPerUnit: dutyTariffMarkup,
     separateServiceFeesPerUnit: serviceFees,
     separateServicesMarkupSumPerUnit: servicesMarkup,
+    // CONCATENATED, NOT SCALED. Every sibling field here is a per-unit value
+    // and is multiplied by `q` on the way up, because a component used q times
+    // per parent contributes q times its unit cost. A one-time charge is not
+    // that: it is a total that belongs to the owner who was charged it, and
+    // multiplying it by a bill-of-materials quantity would invent money.
+    //
+    // Carried up because the tier rollup reads TOP-LEVEL records only, so a
+    // charge that stopped at the leaf would be invisible to the layer that
+    // needs it.
+    chargeEconomics: childCharges,
     contributionCostPerUnit: contribution,
     computedSellPerUnit: computedSell,
     requiredSellPerUnit: requiredSell,

@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { codeOnly } from "../support/code-only.ts";
+import {
+  OTC_COLUMN_TO_CHARGE,
+  chargePolicy,
+} from "../../src/lib/commercial-recovery/registry.ts";
+import { LEGACY_COMBINED_OTC_COLUMN } from "../../src/lib/netsuite/bv011-destinations.ts";
 
 const read = (p: string) => readFile(new URL(`../../${p}`, import.meta.url), "utf8");
 const code = async (p: string) => codeOnly(await read(p));
@@ -109,18 +114,48 @@ test("every OTC fee column maps to exactly one governed charge", async () => {
   const fields = [...src.matchAll(/\{ field: "(\w+)"/g)].map((m) => m[1]);
   assert.ok(fields.length >= 5, "could not read the OTC fee list");
 
-  const mapBlock = src.slice(
-    src.indexOf("const OTC_FIELD_TO_CHARGE"),
-    src.indexOf("export { OTC_FIELD_TO_CHARGE }"),
-  );
+  // Behavioural, not a source-text scan. The map now has ONE owner — the
+  // registry — so the property to assert is that every column the projection
+  // renders resolves to a real governed charge, not that a particular literal
+  // appears in a particular file.
   for (const f of fields) {
-    assert.ok(
-      mapBlock.includes(`${f}:`),
-      `${f} has no governed charge — it would resolve as undefined and throw`,
-    );
+    const key = OTC_COLUMN_TO_CHARGE[f];
+    assert.ok(key, `${f} has no governed charge — it would resolve as undefined and throw`);
+    // And the charge it names must exist: a typo would map to a key that
+    // satisfies the check above and fails only at projection time.
+    assert.doesNotThrow(() => chargePolicy(key));
   }
-  // The legacy combined column maps to the non-elective legacy charge.
-  assert.match(mapBlock, /LEGACY_COMBINED_OTC_COLUMN\]:\s*"tooling_artwork_legacy"/);
+  assert.equal(OTC_COLUMN_TO_CHARGE[LEGACY_COMBINED_OTC_COLUMN], "tooling_artwork_legacy");
+});
+
+test("the identity map is complete, and wider than what the projection renders", async () => {
+  const src = await read(PROJECTION);
+  const rendered = new Set(
+    [...src.matchAll(/\{ field: "(\w+)"/g)].map((m) => m[1]),
+  );
+
+  // `testingMicrosTotal` is a governed charge the projection does not render —
+  // only a Direct Service leaf writes it, and it is not assembly-authorable.
+  // The identity map must still carry it, because that asymmetry is a fact
+  // about what is RENDERED, not about what the charge IS. The cost layer needs
+  // the identity regardless.
+  assert.equal(OTC_COLUMN_TO_CHARGE.testingMicrosTotal, "testing_micros");
+  assert.equal(rendered.has("testingMicrosTotal"), false);
+
+  // Every rendered column is in the map; the map is a superset.
+  for (const f of rendered) assert.ok(OTC_COLUMN_TO_CHARGE[f]);
+});
+
+test("no consumer restates the column-to-charge map", async () => {
+  // Two answers to one question agree right up until a column is added to one
+  // of them. The projection aliases the registry's map; it does not rebuild it.
+  const src = codeOnly(await read(PROJECTION));
+  assert.match(src, /const OTC_FIELD_TO_CHARGE = OTC_COLUMN_TO_CHARGE;/);
+  assert.doesNotMatch(
+    src,
+    /OTC_FIELD_TO_CHARGE[^=]*=\s*\{/,
+    "the projection rebuilt the map instead of reading it",
+  );
 });
 
 test("the seam delegates the absorb refusal to policy, holding none of its own", async () => {
