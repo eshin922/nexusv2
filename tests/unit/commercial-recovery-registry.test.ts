@@ -12,7 +12,6 @@ import {
 } from "../../src/lib/commercial-recovery/registry.ts";
 import {
   ABSORB_COST_UNCONSUMED,
-  PLACEMENT_NOT_NEUTRAL,
   LANDED_SEPARATE_UNWIRED,
   RecoveryPolicyError,
   amountAbsorbed,
@@ -299,35 +298,23 @@ test("case 22 — electing one charge does not move any sibling", () => {
 // revenue inside the rate — a silently wrong total, which is far worse than
 // a visible failure.
 
-test("case 23 — a DISAGREEING election is refused: relocation is not neutral", () => {
-  // The lift was withdrawn on certification evidence. A charge inside the unit
-  // price is multiplied by the quote's price adjustment; one billed separately
-  // is not. Live measurement at a 20% adjustment: $140 on its own line became
-  // $168 in the unit price.
-  assert.equal(
-    refusalFor("project_setup", "included", { perAssemblyAllocate: false }),
-    PLACEMENT_NOT_NEUTRAL,
-  );
-  assert.equal(
-    refusalFor("project_setup", "separate", { perAssemblyAllocate: true }),
-    PLACEMENT_NOT_NEUTRAL,
-  );
+test("case 23 — relocation is PERMITTED: the governed precedence made it neutral", () => {
+  // Refused while an elected amortization was priced by the legacy path, where
+  // the adjustment reached the fee. The precedence adds the governed recovery
+  // after the ordinary levers, so relocating it no longer moves the total.
+  assert.equal(refusalFor("project_setup", "included", { perAssemblyAllocate: false }), null);
+  assert.equal(refusalFor("project_setup", "separate", { perAssemblyAllocate: true }), null);
 
   for (const [mode, allocate] of [
     ["included", false],
     ["separate", true],
   ] as const) {
-    assert.throws(
-      () => resolveCharge("project_setup", { chargeKey: "project_setup", mode }, allocate),
-      RecoveryPolicyError,
-    );
+    const r = resolveCharge("project_setup", { chargeKey: "project_setup", mode }, allocate);
+    assert.equal(r.mode, mode);
+    // Provenance is what the engine prices from: elected uses the governed
+    // contract, legacy reproduces history.
+    assert.equal(r.source, "election");
   }
-
-  // Unconditional, not "when an adjustment applies": refusing only at a
-  // non-zero adjustment would be correct at election time and wrong when
-  // someone later set one — a property holding contingently (Pattern 56).
-  assert.match(PLACEMENT_NOT_NEUTRAL, /price adjustment/);
-  assert.match(PLACEMENT_NOT_NEUTRAL, /It opens once/);
 });
 
 test("case 23 — an election that AGREES with the legacy boolean is accepted", () => {
@@ -375,7 +362,7 @@ test("case 23 — absorbed is refused in BOTH allocation states, for a NEW reaso
 test("case 23 — every refusal names what opens it, not just that it is closed", () => {
   // A refusal an operator cannot act on and cannot date is indistinguishable
   // from a bug. Each of these says what has to change.
-  for (const reason of [ABSORB_COST_UNCONSUMED, LANDED_SEPARATE_UNWIRED, PLACEMENT_NOT_NEUTRAL]) {
+  for (const reason of [ABSORB_COST_UNCONSUMED, LANDED_SEPARATE_UNWIRED]) {
     assert.match(reason, /^Not available yet\./);
     // Each states a CONDITION for change — "opens once X" or "stays closed
     // until Y" — rather than only that it is shut.
@@ -411,12 +398,11 @@ test("case 23 — every mode is rendered with a verdict, none hidden", () => {
       `${r.mode}: availability and reason disagree`,
     );
   }
-  // At allocate=true only `included` agrees with the legacy placement, so it
-  // is the only mode that moves nothing and the only one offered. `separate`
-  // would relocate the charge; `absorbed` would drop its cost.
+  // Both placements are electable; only `absorbed` is refused, and its reason
+  // is about a cost no consumer retains.
   assert.deepEqual(
     rows.filter((r) => r.available).map((r) => r.mode),
-    ["included"],
+    ["included", "separate"],
   );
 });
 

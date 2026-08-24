@@ -1,8 +1,7 @@
 # Separating governed charge recovery from the global price adjustment
 
-**Status — design. Authorizes no implementation.**
-Dispositioned 2026-08-24 (Edward). The next required slice, and narrower than
-another redesign.
+**Status — dispositioned and IMPLEMENTED.** Edward, 2026-08-24.
+`included ↔ separate` is open; `absorbed` remains refused.
 
 ---
 
@@ -78,9 +77,22 @@ A $1,400 recovered setup fee on 10,000 units:
 
 | placement | governed recovery | Accounting |
 |---|---|---|
-| `included` | $1,400, embedded at **$0.14/unit** | **do NOT invoice separately** |
-| `separate` | $1,400 | invoice the separate $1,400 line |
-| `absorbed` | none | DPS retains the underlying cost |
+| placement | cost | governed recovery | amortized | separate invoice line | Accounting |
+|---|---|---|---|---|---|
+| `included` | $1,000 | $1,400 | **$0.14/unit** | **$0** | amortized into unit price — do NOT invoice separately |
+| `separate` | $1,000 | $1,400 | $0/unit | **$1,400** | invoice separately |
+| `absorbed` | $1,000 | $0 | — | $0 | DPS retains the cost; unavailable for now |
+
+**Three quantities, kept apart.** An amortized charge is exactly the case where
+the invoice line diverges from the recovery, so the charge is neither deleted
+nor zeroed to express amortization: `separateInvoiceAmount` is $0 as a
+STATEMENT — "bill nothing separately, it is in the unit price" — while
+`recoverableSell` still says what DPS intends to recover and `cost` still says
+what DPS pays.
+
+**Not an instruction about NetSuite.** Whether a zero-dollar OTC line is emitted
+is a later Order Packet decision; the frozen recovery instruction is the
+authority.
 
 **Implemented already** (this branch): `PlacedCharge.amortization` carries
 `{ totalRecovered, tierQuantity, perUnit }`, present exactly when the placement
@@ -99,57 +111,78 @@ with the amount and the basis.
 
 ---
 
-## 5 · The open question — where the recovery sits relative to the other levers
+## 5 · Pricing precedence — DISPOSITIONED and IMPLEMENTED
 
-**This needs disposition before implementation.** It is the same class of
-question as §1 and I am not answering it by choosing.
-
-The sell ladder is:
+**Edward, 2026-08-24.** Build the ordinary unit sell through its normal levers
+first, then add the elected amortized recovery:
 
 ```
-sell-before-adjustment
-  -> x (1 + price adjustment)        <- must NOT reach a governed charge
-  -> x (1 + surgical lift)           <- ?
-  -> cell override                   <- ? (TERMINAL today)
-  -> required sell
+base sell -> surgical lift -> tier/global adjustment
+                                        |
+                          + amortized recovery      <- added LAST
 ```
 
-Contract point 5 places the charge recovery outside the **adjustment**. It does
-not say where it sits relative to the other two:
+So neither the adjustment nor a lift independently marks up a charge already
+priced by its own governed rate.
 
-**A · a surgical lift.** A lift is a targeted margin repair on a cell. Should it
-lift the charge recovery too? If yes, the charge is adjustment-free but
-lift-bearing, and relocation moves the total again whenever a lift applies —
-the same defect in a second lever. If no, the lift applies to the non-charge
-sell only, consistent with the adjustment.
+**A terminal cell override remains terminal and is the all-in customer unit
+price. The amortized recovery is NOT added on top of it.** Implemented by
+placing the recovery rung BENEATH the override in the chain: the override
+replaces that node, so it replaces the recovery with it, and the amortized
+chain stays reachable as `superseded` for a trace.
 
-**B · a cell override.** An override is **terminal today** — the operator set
-the price and the computed chain hangs beneath it as `superseded`. If an
-operator overrides a cell to $5.00 on a quote with an amortized charge, is
-$5.00 the whole unit price *including* the charge, or the non-charge price with
-the charge added on top?
+Note the precedent this respects. OD-023 made the cell root a SUM of the
+operator's price and the cell's freight, and the arithmetic half was judged
+wrong (P-Direct-1). This is the opposite placement for the opposite reason:
+beneath the override, so an operator's price stays whole.
 
-Both readings are defensible and they charge the customer different amounts.
-Getting it wrong is a wrong number on a customer document, so it is a business
-call.
+**Cost lands in the contribution basis, not in factory cost.** Factory cost is
+the duty and tariff basis, and a one-time service fee does not attract duty —
+adding it there would invent a customs charge on a setup fee.
 
-**Note the precedent.** OD-023 made the cell root a SUM of the operator's price
-and the cell's freight, and the arithmetic half of that was later judged wrong
-(`costing.ts`, P-Direct-1). A root sum has been tried here and reverted, so
-option B is not a free choice.
+### Proven under all five conditions
+
+| condition | evidence |
+|---|---|
+| non-zero global adjustment | fixture carries 0.20 — the dimension the original tripwire could not express |
+| surgical lift | relocation neutral with a 15% lift applied |
+| terminal cell override | override is the unit sell; asserted NOT override + recovery, and asserted non-vacuous |
+| persistence + reload | `52bd0077` against the production database |
+| clearing back to legacy | whole-result `deepEqual`, plus no mutation of the allocation boolean |
+
+`PLACEMENT_NOT_NEUTRAL` is **lifted** — its own words were *"it opens once the
+two placements recover the same amount"*, and they now do. The constant is
+retained rather than deleted: it is the reason the precedence exists, and a
+future change that re-couples the two should re-refuse rather than reinvent the
+explanation.
+
+`absorbed` stays refused. `absorbedCost` is read by nothing, so the charge would
+vanish from cost truth while DPS still pays it.
 
 ---
 
-## 6 · Sequence
+## 6 · One consequence worth stating
 
-1. **§5 dispositioned** — lift and override interaction. Blocking.
-2. Implement: elected recovery placed outside the adjustment, legacy path
-   untouched.
-3. Certify against a **non-zero adjustment fixture** — the dimension the
-   original tripwire could not express, which is why it reported nothing.
-4. Re-run the `52bd0077` certification: placement moves, **total does not**.
-5. Lift the relocation refusal.
-6. Repeat the real click-path certification on a surface where the
-   authenticated session already works.
+**An election is not a no-op even when it agrees with the boolean.**
 
-`included ↔ separate` stays refused throughout.
+`source` is what the engine prices from, so ANY election puts the charge on the
+governed contract — and electing `included` on a quote whose boolean already
+allocates moves the fee out of the adjustment's reach and changes the
+customer's total, though the placement did not move.
+
+That is the contract working: the operator has opted the charge into governed
+recovery, which is a real commercial act. But it *looks* like confirming the
+current state, and the surface should not present it as a confirmation.
+
+---
+
+## 7 · Sequence
+
+1. ~~pricing precedence dispositioned~~ **done**
+2. ~~implemented; legacy path untouched~~ **done** — S-7 shows no new movement
+3. ~~certified under all five conditions~~ **done**
+4. ~~relocation refusal lifted~~ **done**
+5. **freeze `totalRecovered` / `tierQuantity` / `perUnit` at SEND** — schema work,
+   for the held Accounting Invoice Guidance slice
+6. **repeat the real click-path certification** on a surface where the
+   authenticated session already works

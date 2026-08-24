@@ -2073,8 +2073,19 @@ function computeLeafPerTier(args: {
     // `oneTimeServiceFeeTotal` when the assembly allocates and 0 when it does
     // not — the same value, and the same addends in the same order, so no
     // number moves.
+    // LEGACY placements only.
+    //
+    // A legacy-allocated fee keeps its historical path exactly: into
+    // production cost, marked up with everything else, and reached by the
+    // quote's price adjustment. That is what all 89 existing quotes were
+    // priced with and it is preserved unchanged.
+    //
+    // An ELECTED amortization does NOT come through here, because this feeds
+    // the marked-up sell build-up and the governed recovery must not be
+    // repriced merely because it was embedded. It joins cost and sell further
+    // down, each once.
     allocatedServiceFeesPerUnit =
-      denom > 0 ? constructed.unitPriceCost / denom : 0;
+      denom > 0 ? constructed.unitPriceCostLegacy / denom : 0;
 
     // Filling/blending and CM assembly always remain internal COGS.
     productionCostSum =
@@ -2738,7 +2749,24 @@ function computeLeafPerTier(args: {
   //
   // The per-cell margin above is unchanged for the same reason — the charge is
   // not part of what a unit sells for.
-  const contributionCostPerUnit = factoryCostPerUnit + totalLandedBefore;
+  // ── AN ELECTED AMORTIZATION, PER UNIT ──────────────────────────────────
+  //
+  // The basis is the QUOTED tier quantity, never actual output: a sent quote's
+  // pricing cannot move with what production later yields.
+  const electedAmortizedCostPerUnit =
+    tierQty > 0 ? constructed.unitPriceCostElected / tierQty : 0;
+  const electedAmortizedRecoveryPerUnit =
+    tierQty > 0 ? (constructed.unitPriceRecoveryElected ?? 0) / tierQty : 0;
+
+  // COST enters here and NOT in `factoryCostPerUnit`.
+  //
+  // Factory cost is the duty and tariff BASIS, and a one-time service fee does
+  // not attract duty. Adding it there would invent a customs charge on a setup
+  // fee. It belongs in the contribution basis, which is what margin is measured
+  // against — and an amortized charge emits no separate line, so its cost
+  // travels here exactly once (Pattern 59).
+  const contributionCostPerUnit =
+    factoryCostPerUnit + totalLandedBefore + electedAmortizedCostPerUnit;
 
   // Required sell stacks each component's pre-global-adj sell, then
   // multiplies by (1 + global_adj). Each component carries its own markup.
@@ -2931,6 +2959,65 @@ function computeLeafPerTier(args: {
             operands: [...(adjustmentNode.operands ?? []), liftedNode],
           }
         : adjustmentNode;
+
+  // ── THE ELECTED AMORTIZED RECOVERY, ADDED LAST ─────────────────────────
+  //
+  // Governed precedence (2026-08-24): build the ordinary unit sell through its
+  // normal levers first — base sell, surgical lift, tier/global adjustment —
+  // and THEN add the elected amortized recovery.
+  //
+  //     adjusted ordinary unit sell + amortized recovery
+  //
+  // So neither the adjustment nor a lift independently marks up a charge that
+  // has already been priced by its own governed rate. Certification measured
+  // what happens otherwise: at a 20% adjustment a $140 recovery became $168
+  // purely because the operator placed it inside the unit price, which made
+  // presentation a pricing lever.
+  //
+  // ADDED TO THE COMPUTED CHAIN, NOT TO THE ROOT.
+  //
+  // A terminal cell override is the ALL-IN customer unit price and the
+  // amortized recovery is NOT added on top of it — the operator priced the
+  // unit, charge included. Sitting here rather than above the root is what
+  // makes that true: the override replaces this node, so it replaces the
+  // recovery with it.
+  //
+  // OD-023 made the cell root a SUM of the operator's price and the cell's
+  // freight and the arithmetic half of that was judged wrong (P-Direct-1
+  // below). This is the opposite placement for the opposite reason: beneath
+  // the override, so an operator's price stays whole.
+  //
+  // Legacy placements never reach here. Their fee is already inside
+  // `adjustmentNode` via production cost, priced exactly as it always was.
+  const amortizedChain: CostingNode =
+    electedAmortizedRecoveryPerUnit === 0
+      ? computedChain
+      : {
+          key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery"),
+          kind: "sum",
+          label: "Sell including amortized charge recovery",
+          value: computedChain.value + electedAmortizedRecoveryPerUnit,
+          unit: "usd",
+          op: "adjusted sell + amortized charge recovery per unit",
+          operands: [
+            computedChain,
+            {
+              key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery", "charge"),
+              kind: "allocation",
+              label: "Amortized charge recovery per unit",
+              value: electedAmortizedRecoveryPerUnit,
+              unit: "usd",
+              divisor: tierQty,
+              op:
+                "$" +
+                (constructed.unitPriceRecoveryElected ?? 0) +
+                " governed recovery / " +
+                tierQty +
+                " quoted units",
+              operands: [],
+            },
+          ],
+        };
   // ── P-Direct-1 · a direct price is TERMINAL ────────────────────────────
   //
   // OD-023 made this root a SUM of the operator's price and the cell's freight,
@@ -2975,9 +3062,12 @@ function computeLeafPerTier(args: {
           value: cellOverride,
           unit: "usd",
           origin: { grade: "thin", actor: null, when: null, doc: null },
-          superseded: computedChain,
+          // The override supersedes the AMORTIZED chain, which is what makes
+          // "a terminal override is the all-in price" true: the recovery is
+          // inside the node being replaced, so it is replaced with it.
+          superseded: amortizedChain,
         }
-      : computedChain;
+      : amortizedChain;
   graphSink?.push(cellRootNode);
   const requiredSellPerUnit = cellRootNode.value;
   const sellSource: SellSource = cellOverride !== null ? "cell_override" : "computed";
@@ -3045,7 +3135,11 @@ function computeLeafPerTier(args: {
     liftDeltaPerUnit: cellLift !== null ? adjustmentNode.value * cellLift : 0,
     sellAfterLiftPerUnit: computedChain.value,
     overrideDeltaPerUnit:
-      cellOverride !== null ? cellRootNode.value - computedChain.value : 0,
+      // Measured against the ALL-IN computed price, so the delta says how far
+      // the operator moved from what the quote would otherwise have charged —
+      // not how far they moved from a figure that excluded a charge the
+      // customer is paying.
+      cellOverride !== null ? cellRootNode.value - amortizedChain.value : 0,
     marginPct,
     // Slice 9.4a — verdict band against effective target (per-quote
     // override or firm) and firm floor. Uses the same computeStatus

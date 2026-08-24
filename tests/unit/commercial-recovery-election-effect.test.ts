@@ -147,87 +147,154 @@ test("THE FINDING · the LEGACY boolean is not revenue-neutral either", () => {
 
 // ── the refusal, now at the ENGINE rather than the seam ─────────────────
 
-test("every election that MOVES a charge is refused", () => {
-  // WITHDRAWN LIFT. `included` and `separate` were permitted once the
-  // construction placed a charge and every consumer read the placement.
-  // Certification on a live quote disproved the premise they rested on: a
-  // charge inside the unit price is multiplied by the price adjustment, and one
-  // billed separately is not, so relocating it moves the customer's total.
+test("only `absorbed` refuses; relocation is permitted and neutral", () => {
+  // The neutrality refusal is lifted — its own condition ("it opens once the
+  // two placements recover the same amount") is met by the governed
+  // precedence, proven below at a non-zero adjustment, under a lift, and with
+  // a terminal override left whole.
   for (const [mode, allocate] of [
     ["included", false],
     ["separate", true],
-    ["absorbed", false],
-    ["absorbed", true],
+    ["included", true],
+    ["separate", false],
   ] as const) {
-    assert.throws(
+    assert.doesNotThrow(
       () => computeQuoteCosting(costingInput(allocate, [{ chargeKey: "project_setup", mode }])),
+      `${mode} at allocate=${allocate} is still refused`,
+    );
+  }
+
+  // `absorbed` still refuses: its COST is read by nothing, so the charge would
+  // vanish from cost truth while DPS still pays it.
+  for (const allocate of [true, false] as const) {
+    assert.throws(
+      () =>
+        computeQuoteCosting(
+          costingInput(allocate, [{ chargeKey: "project_setup", mode: "absorbed" }]),
+        ),
       RecoveryPolicyError,
-      `${mode} at allocate=${allocate} was applied instead of refused`,
     );
   }
 });
 
-test("THE FINDING · relocating a charge is not revenue-neutral under an adjustment", () => {
-  // Kept as an executable record of why the lift was withdrawn, measured at
-  // the layer where the placement is still reachable. `composeFromPlacements`
-  // is arithmetic and does not refuse; the engine does.
+test("SURFACED · an election is NOT a no-op even when it agrees with the boolean", () => {
+  // Worth stating loudly, because it is surprising and it is a consequence of
+  // the governed contract rather than a defect.
   //
-  // The two placements are priced differently END TO END: the separate line
-  // carries the governed production rate alone, while the unit-price side is
-  // multiplied by the quote's price adjustment on its way through the sell
-  // chain. Same charge, two amounts.
-  const base = total(false); // charge on its own line
-  const withAdj = project(false);
-  const otc = withAdj.tiers[0].otcSubtotal;
-
-  // The separate line is NOT adjustment-bearing: it is cost x (1 + rate).
-  assert.equal(otc, SETUP * RATE);
-  // The unit side is. Proven by the difference the live certification measured
-  // — $140 became $168 at a 20% adjustment, a factor of exactly (1 + GPA).
-  assert.equal(Math.round(SETUP * RATE * (1 + GPA) * 100) / 100, 1680);
-  assert.notEqual(SETUP * RATE, SETUP * RATE * (1 + GPA));
-  assert.ok(base > 0);
+  // `source` is what the engine prices from. An election — ANY election —
+  // makes the placement `elected`, and an elected amortization is priced
+  // NEUTRALLY: the governed recovery is added after the adjustment instead of
+  // being marked up by it. A legacy allocation is not.
+  //
+  // So electing `included` on a quote whose boolean ALREADY allocates moves the
+  // fee out of the adjustment's reach and changes the customer's total, even
+  // though the placement did not move. The operator has opted the charge into
+  // the governed contract, which is a real commercial act — but it looks like
+  // confirming the current state, and that gap is the thing to be careful about
+  // when the surface offers it.
+  const legacy = total(true);
+  const electedSame = total(true, [{ chargeKey: "project_setup", mode: "included" }]);
+  assert.notEqual(
+    legacy,
+    electedSame,
+    "if these are equal the elected path is no longer priced neutrally",
+  );
+  // And by exactly the adjustment the legacy path applied to the fee.
+  assert.equal(Math.round((legacy - electedSame) * 100) / 100, SETUP * RATE * GPA);
 });
 
-test("an election that AGREES with the legacy boolean is exact", () => {
-  // The only currently-correct elections are the ones that change nothing —
-  // the finding stated as its passing case rather than buried in a comment.
-  assert.equal(total(true, [{ chargeKey: "project_setup", mode: "included" }]), total(true));
-  assert.equal(total(false, [{ chargeKey: "project_setup", mode: "separate" }]), total(false));
+test("the elected amortization is NEUTRAL: placement no longer moves the total", () => {
+  // THE CONTRACT, end to end. Both sides elected, so both use the governed
+  // contract — and now the placement genuinely does not change what the
+  // customer pays, at a NON-ZERO adjustment.
+  const inUnit = total(false, [{ chargeKey: "project_setup", mode: "included" }]);
+  const onLine = total(false, [{ chargeKey: "project_setup", mode: "separate" }]);
+  assert.equal(
+    Math.round(inUnit * 100) / 100,
+    Math.round(onLine * 100) / 100,
+    "relocating an elected charge still moves the customer's total",
+  );
+
+  // And the composition DID move — otherwise this proves nothing.
+  assert.equal(project(false, [{ chargeKey: "project_setup", mode: "separate" }]).tiers[0].otcSubtotal, SETUP * RATE);
+  assert.equal(project(false, [{ chargeKey: "project_setup", mode: "included" }]).tiers[0].otcSubtotal, 0);
 });
 
 // ── the tripwires ───────────────────────────────────────────────────────
 
-test("TRIPWIRE — if the refusal lifts, included and separate must be revenue-neutral", () => {
-  // Vacuous today, and deliberately so: it asserts nothing while the refusal
-  // stands, and becomes the governing invariant the moment someone lifts it.
+test("NEUTRALITY, at a non-zero adjustment — the contract, end to end", () => {
+  // This was a tripwire comparing the baseline against an election. That
+  // compared LEGACY pricing to ELECTED pricing, which should differ — the
+  // elected path deliberately takes the fee out of the adjustment's reach. It
+  // was measuring the wrong pair.
   //
-  // Written this way because the alternative is a comment saying "remember to
-  // check revenue-neutrality", and a comment does not fail. This does — with
-  // the exact number, on the first run after the lift, through the real path.
-  const cases = [
-    { allocate: false, mode: "included" as const },
-    { allocate: true, mode: "separate" as const },
-  ];
-
-  for (const c of cases) {
-    const stillRefused =
-      refusalFor("project_setup", c.mode, { perAssemblyAllocate: c.allocate }) !== null;
-    if (stillRefused) continue;
-
-    const baseline = total(c.allocate);
-    const elected = total(c.allocate, [{ chargeKey: "project_setup", mode: c.mode }]);
+  // The contract is about the two PLACEMENTS with both sides elected:
+  // relocating a charge that is already on the governed contract must not
+  // change what the customer pays. The fixture carries a 20% adjustment, which
+  // is the dimension the original could not express.
+  for (const allocate of [true, false] as const) {
+    const inUnit = total(allocate, [{ chargeKey: "project_setup", mode: "included" }]);
+    const onLine = total(allocate, [{ chargeKey: "project_setup", mode: "separate" }]);
     assert.equal(
-      round(elected),
-      round(baseline),
-      `The refusal on '${c.mode}' at allocate=${c.allocate} was lifted, but the ` +
-        `customer's total still moves by ${round(Math.abs(elected - baseline))}. ` +
-        `included <-> separate must be revenue-neutral. It is not today: the ` +
-        `unit-price side is multiplied by the quote's price adjustment (this ` +
-        `fixture carries ${GPA}) and the separate line is not, so relocating ` +
-        `the charge changes what the customer pays.`,
+      Math.round(inUnit * 100) / 100,
+      Math.round(onLine * 100) / 100,
+      `relocating an elected charge moved the total at allocate=${allocate}`,
     );
   }
+});
+
+test("NEUTRALITY holds under a surgical LIFT", () => {
+  // A lift is a targeted margin repair on the ordinary sell. It must not reach
+  // the governed recovery either — otherwise relocation moves the total again
+  // whenever a lift applies, which is the same defect in a second lever.
+  const withLift = (mode: "included" | "separate") => {
+    const input = costingInput(false, [{ chargeKey: "project_setup", mode }]);
+    return {
+      ...input,
+      lifts: [{ quoteLeafId: "leaf", tierId: TIER, liftPct: 0.15 }],
+    } as QuoteCostingInput;
+  };
+  const a = computeQuoteCosting(withLift("included")).quoteRollup[0];
+  const b = computeQuoteCosting(withLift("separate")).quoteRollup[0];
+  assert.equal(
+    Math.round(a.totalRevenue * 100) / 100,
+    Math.round(b.totalRevenue * 100) / 100,
+    "a lift re-priced the governed recovery",
+  );
+});
+
+test("a TERMINAL override is the all-in price — recovery is not added on top", () => {
+  // Governed precedence: an override is what the operator decided the unit
+  // sells for, charge included. Adding the amortized recovery above it would
+  // silently overcharge past a price a person set.
+  const OVR = 9;
+  const overridden = (mode: "included" | "separate") => {
+    const input = costingInput(false, [{ chargeKey: "project_setup", mode }]);
+    return {
+      ...input,
+      cellOverrides: [{ quoteSkuId: "leaf", tierId: TIER, sellPriceOverride: OVR }],
+    } as QuoteCostingInput;
+  };
+  const withOvr = computeQuoteCosting(overridden("included")).skuRollups[0].perTier[0];
+  const noOvr = computeQuoteCosting(
+    costingInput(false, [{ chargeKey: "project_setup", mode: "included" }]),
+  ).skuRollups[0].perTier[0];
+
+  // The override applied at all — otherwise everything below is vacuous.
+  assert.notEqual(
+    noOvr.requiredSellPerUnit,
+    OVR,
+    "the un-overridden sell equals the override by coincidence; pick another value",
+  );
+
+  // The override IS the unit sell. Not the override plus a recovery: adding
+  // the amortized recovery above it would silently overcharge past a price a
+  // person set.
+  assert.equal(withOvr.requiredSellPerUnit, OVR);
+
+  // And specifically NOT the override plus the amortized recovery.
+  const amortizedPerUnit = SETUP * RATE / 1000;
+  assert.notEqual(withOvr.requiredSellPerUnit, OVR + amortizedPerUnit);
 });
 
 test("TRIPWIRE — if absorbed opens, its reduction must reach the measured margin", () => {
@@ -313,7 +380,7 @@ test("an election never writes the per-assembly value it falls back to", () => {
 // composition.
 // ═══════════════════════════════════════════════════════════════════════
 
-test("an election that changes no placement does not invalidate an approval", () => {
+test("relocating an ELECTED charge does not invalidate an approval", () => {
   const fp = (allocate: boolean, elections: ChargeElection[] = []) => {
     const t = computeQuoteCosting(costingInput(allocate, elections)).quoteRollup[0];
     return fingerprintCommercialState({
@@ -328,18 +395,14 @@ test("an election that changes no placement does not invalidate an approval", ()
   // economics still applies. Invalidating here would teach operators that
   // invalidation is noise — the same failure the fingerprint's rounding
   // deliberately avoids.
-  // AGREEING elections only — relocation is refused, and it is refused
-  // precisely BECAUSE it moves the total, so asserting that it does not would
-  // now be asserting the opposite of the finding.
+  // RELOCATING an ELECTED charge is what must not move the fingerprint —
+  // both sides on the governed contract, only the placement differing. An
+  // agreeing election is a different thing and does move it, because it opts
+  // the charge out of the adjustment (see the surfaced semantic above).
   assert.equal(
-    fp(false),
     fp(false, [{ chargeKey: "project_setup", mode: "separate" }]),
-    "an election that changes no placement moved the fingerprint",
-  );
-  assert.equal(
-    fp(true),
-    fp(true, [{ chargeKey: "project_setup", mode: "included" }]),
-    "an election that changes no placement moved the fingerprint",
+    fp(false, [{ chargeKey: "project_setup", mode: "included" }]),
+    "relocating an elected charge moved the fingerprint",
   );
 
   // And the fingerprint is not simply inert: a real economic change moves it.

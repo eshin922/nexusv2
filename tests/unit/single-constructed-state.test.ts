@@ -139,8 +139,10 @@ test("1+2 · quoteRollup revenue, cost and margin derive from the construction",
   // `constructed.unitPriceCost` was read by nothing at all.
   assert.match(
     src,
-    /allocatedServiceFeesPerUnit =[\s\S]{0,40}?constructed\.unitPriceCost \/ denom : 0;/,
-    "the allocated fee is decided by the boolean again, not by the placement",
+    /allocatedServiceFeesPerUnit =[\s\S]{0,60}?constructed\.unitPriceCostLegacy \/ denom : 0;/,
+    "the allocated fee is decided by the boolean again, or stopped reading the " +
+      "LEGACY bucket — an elected amortization must not come through here, " +
+      "because this feeds the marked-up sell build-up",
   );
   assert.doesNotMatch(
     src,

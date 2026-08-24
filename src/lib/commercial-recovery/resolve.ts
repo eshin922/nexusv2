@@ -277,13 +277,22 @@ export function contextualRefusal(
 
   if (mode === "absorbed") return ABSORB_COST_UNCONSUMED;
 
-  // An election AGREEING with the legacy boolean changes no placement, so it
-  // cannot move a total. Only a disagreeing one relocates the charge, and
-  // relocation is what is not neutral.
-  const allocate = ctx.perAssemblyAllocate ?? true;
-  const wouldMove =
-    (mode === "included" && !allocate) || (mode === "separate" && allocate);
-  return wouldMove ? PLACEMENT_NOT_NEUTRAL : null;
+  // `PLACEMENT_NOT_NEUTRAL` is LIFTED.
+  //
+  // It was accurate when an elected amortization was priced by the legacy path
+  // — the adjustment reached the fee, so relocating it moved the customer's
+  // total by (recovery x adjustment). The governed precedence removes that:
+  // the ordinary sell is built through its levers and the governed recovery is
+  // added AFTER, so neither the adjustment nor a lift re-prices it.
+  //
+  // Its own words were "It opens once the two placements recover the same
+  // amount." They now do, proven end to end at a non-zero adjustment, under a
+  // surgical lift, and with a terminal override left whole.
+  //
+  // The constant is retained rather than deleted: it is the reason the
+  // precedence exists, and a future change that re-couples the two should
+  // re-refuse rather than reinvent the explanation.
+  return null;
 }
 
 /**

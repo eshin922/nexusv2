@@ -122,6 +122,30 @@ export type PlacedCharge = {
    * would be the one it happened to have.
    */
   amortization: { totalRecovered: number; tierQuantity: number; perUnit: number } | null;
+  /**
+   * What Accounting should bill as its OWN line. $0 for an amortized charge.
+   *
+   * ── THREE QUANTITIES, KEPT APART ────────────────────────────────────────
+   *
+   * A charge has a cost, a governed recovery, and a separate invoice amount,
+   * and an amortized charge is exactly the case where the third diverges from
+   * the second:
+   *
+   *     included   cost 1000   recovery 1400   separate line $0
+   *     separate   cost 1000   recovery 1400   separate line $1,400
+   *     absorbed   cost 1000   recovery $0     separate line $0
+   *
+   * Zero here is a STATEMENT — "bill nothing separately, it is in the unit
+   * price" — and it is why the charge must not be deleted or zeroed to express
+   * amortization. Collapsing the recovery to zero would lose what DPS intends
+   * to recover; collapsing the invoice line into the recovery would tell
+   * Accounting to bill a charge the customer has already paid inside the rate.
+   *
+   * NOT an instruction about NetSuite. Whether a zero-dollar OTC line is
+   * emitted is a later Order Packet decision; the frozen recovery instruction
+   * is the authority, and this is part of it.
+   */
+  separateInvoiceAmount: number | null;
 };
 
 export type ConstructedCommercialState = {
@@ -339,6 +363,12 @@ export function composeFromPlacements(
         // Absorbed contributes zero even when the amount is unknown: what is
         // given up need not be known to know the customer pays nothing for it.
         revenueContribution: placement === "absorbed" ? 0 : e.recoverableSell,
+        // $0 for an amortized charge, and for an absorbed one. Only a charge
+        // billed on its own line carries an invoice amount, and it is the
+        // governed recovery unchanged — embedding a charge does not reprice it,
+        // and neither does billing it.
+        separateInvoiceAmount:
+          placement === "separate_line" ? e.recoverableSell : 0,
         // Stated only where it is a fact. A separately-billed charge has no
         // amortization basis, and inventing one — or emitting a zero — would
         // let a reader take it for an amortized charge spread over nothing.
