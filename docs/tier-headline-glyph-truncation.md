@@ -1,5 +1,34 @@
 # Tier headline truncation — the producer is sound, the renderer is not
 
+> **CLOSED 2026-08-24. The array shape was the Vercel trigger. Cluster-1 is
+> closed.** Certified against the deployed artifact on `6e61058`, quote
+> `52bd0077`. All four headlines now draw **10 glyphs** where three drew 6:
+>
+> ```
+> $14,906.00    $31,405.12    $75,140.00    $69,800.00
+> ```
+>
+> Decoded from the PDF's own ToUnicode CMaps, not read off the screen. They are
+> character-for-character the values §2.3 below RECONSTRUCTED from the font
+> subset before any fix existed — which independently confirms the diagnosis,
+> because the prediction was made and then met.
+>
+> Quantities and per-unit values reconcile unchanged: 14,906.00/1,000 = 14.906
+> → `$14.91`; 31,405.12/5,000 = 6.281024 → `$6.28`; 75,140.00/10,000 = 7.514 →
+> `$7.51`; 69,800.00/20,000 = 3.49 → `$3.49`. Every printed pair agrees.
+>
+> **The experiment discriminated, as designed.** Computed font weight stayed
+> 500; only the react-pdf style SHAPE changed, from a bare style object to a
+> two-element array. The three broken headlines rendered whole. So the shape is
+> the trigger and `pdf-fonts.ts` is exonerated — the shared 400/500/600
+> variable-font registration was NOT the cause and needs no change.
+>
+> **The standing rule this leaves.** In react-pdf on Vercel, a `<Text>` whose
+> `style` is a bare object can draw short where the identical computed style
+> passed as a single-element-or-longer ARRAY draws whole. Both known instances
+> of this bug — 2026-07-27 and 2026-08-24 — were style-shape sensitive and
+> neither reproduced locally. Prefer an array for any `<Text>` rendering money.
+
 **Operator finding, 2026-08-24.** The customer PDF's turnkey tier cards read:
 
 | tier | qty | headline as drawn | per-unit as drawn |
