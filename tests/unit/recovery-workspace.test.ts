@@ -424,7 +424,12 @@ test("unknown recovery is unavailable, never $0", async () => {
   const card = codeOnly(await read(CARD1));
   assert.match(card, /totalRecovery === null \? "not priced"/);
   const rail = codeOnly(await read(RAIL));
-  assert.match(rail, /approvedRecovery === null \? "not priced"/);
+  // Now nested under the recommended-tier empty state: with no named tier the
+  // row shows "—" (no basis to state), and with one it shows "not priced"
+  // when the rate is unresolved. Both are words; neither is $0.
+  assert.match(rail, /approvedRecovery === null/);
+  assert.match(rail, /"not priced"/);
+  assert.doesNotMatch(rail, /approvedRecovery === null \? usd\(0\)/);
 });
 
 test("the document keeps the PDF iframe — no second renderer", async () => {
@@ -464,4 +469,41 @@ test("the gate stays while visual fidelity is unapproved", async () => {
   } else {
     assert.ok(!gated, `the brief records VISUAL_FIDELITY: ${state} but the gate is still in place`);
   }
+});
+
+test("the workspace height is derived from the shell, not assumed", async () => {
+  // The first attempt guessed `calc(100vh - 50px)`. The real chrome is 261px,
+  // so the body overhung the viewport by 211px and the page grew a second
+  // scrollbar — the operator had to scroll the page to reach "the act".
+  //
+  // 261 was evidence that the assumption was wrong, not a better constant.
+  const css = await read("src/styles/r3-customer-view.css");
+  assert.match(css, /height: var\(--cv-avail/);
+  assert.doesNotMatch(
+    css,
+    /\.cv-body[\s\S]{0,160}calc\(100n?vh - \d+px\)/,
+    "the workspace height is a hardcoded chrome offset again",
+  );
+
+  const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
+  // Derived from where the element actually sits, and re-derived on resize.
+  assert.match(host, /getBoundingClientRect\(\)\.top/);
+  assert.match(host, /setProperty\("--cv-avail"/);
+  assert.match(host, /addEventListener\("resize"/);
+});
+
+test("Card 0 states the absence rather than substituting a tier", async () => {
+  // "The last tier" and "the recommended tier" are different facts.
+  const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));
+  assert.match(rail, /No recommended tier/);
+
+  const resolver = codeOnly(await read("src/lib/customer-view-resolver.ts"));
+  assert.doesNotMatch(
+    resolver,
+    /rollups\[rollups\.length - 1\]/,
+    "the resolver substitutes the last rollup for the recommended tier again",
+  );
+  // And the tier-scoped amounts go with it — each needs a tier basis.
+  assert.match(resolver, /chargesAtCost: rec \? cost : null/);
+  assert.match(resolver, /approvedRecovery: rec \? recovery : null/);
 });

@@ -31,7 +31,7 @@ import type { CustomerViewDetailLevel, CustomerViewPdfLayout } from "@/types/quo
 
 export type GovernedSummary = {
   goodsSell: number | null;
-  chargesAtCost: number;
+  chargesAtCost: number | null;
   approvedRecovery: number | null;
   floorMarginPct: number;
   targetMarginPct: number;
@@ -109,16 +109,25 @@ export function CustomerViewRail({
 
           <div className="cv-gov-row">
             <span className="cv-gov-k">
-              Goods sell{governed.recommendedTierLabel ? ` · ${governed.recommendedTierLabel}` : ""}
+              Goods sell
+              {governed.recommendedTierLabel ? ` · ${governed.recommendedTierLabel}` : ""}
             </span>
-            <span className="cv-gov-v">
-              {governed.goodsSell === null ? "not priced" : usd(governed.goodsSell)}
+            <span className="cv-gov-v" data-testid="cv-goods-sell">
+              {/* No surrogate tier. These rows are scoped to the recommended
+                  tier; with none named, the absence is the fact. */}
+              {governed.recommendedTierLabel === null
+                ? "No recommended tier"
+                : governed.goodsSell === null
+                  ? "not priced"
+                  : usd(governed.goodsSell)}
             </span>
             <span className="cv-gov-src">pricing</span>
           </div>
           <div className="cv-gov-row">
             <span className="cv-gov-k">Charges at cost</span>
-            <span className="cv-gov-v">{usd(governed.chargesAtCost)}</span>
+            <span className="cv-gov-v">
+              {governed.chargesAtCost === null ? "—" : usd(governed.chargesAtCost)}
+            </span>
             <span className="cv-gov-src">costs</span>
           </div>
           <div className="cv-gov-row">
@@ -126,7 +135,11 @@ export function CustomerViewRail({
             <span className="cv-gov-v">
               {/* D5 · this IS the governed recoverable amount, in the
                   authority's vocabulary. Unknown stays unavailable, never $0. */}
-              {governed.approvedRecovery === null ? "not priced" : usd(governed.approvedRecovery)}
+              {governed.recommendedTierLabel === null
+                ? "—"
+                : governed.approvedRecovery === null
+                  ? "not priced"
+                  : usd(governed.approvedRecovery)}
             </span>
             <span className="cv-gov-src">pricing</span>
           </div>
