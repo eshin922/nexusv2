@@ -2045,6 +2045,11 @@ function computeLeafPerTier(args: {
     chargeEconomics,
     chargeElections,
     production?.allocateServiceFeesToCost,
+    // The QUOTED tier quantity is the amortization basis, so an amortized
+    // charge's frozen record can state what it was spread over. Actual output
+    // deliberately does not appear here: a basis that moved with actuals would
+    // restate a sent quote.
+    tierQty,
   );
 
   if (production && tierQty > 0) {

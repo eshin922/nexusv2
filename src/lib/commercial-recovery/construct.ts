@@ -66,6 +66,28 @@ export type ChargeEconomicsInput = {
 export type PlacedCharge = {
   chargeKey: RecoveryChargeKey;
   placement: ChargePlacement;
+  /**
+   * Whether an operator elected this placement or it fell through to the
+   * legacy per-assembly boolean.
+   *
+   * ── WHY THE ENGINE NEEDS TO KNOW ────────────────────────────────────────
+   *
+   * The two are priced DIFFERENTLY, by decision (2026-08-24):
+   *
+   *   legacy    keeps historical behaviour exactly — an allocated fee sits in
+   *             the unit rate and the quote's price adjustment reaches it,
+   *             which is what every existing quote was priced with.
+   *
+   *   election  is revenue-NEUTRAL: the charge recovers `recoverableSell`
+   *             wherever it is placed, and the adjustment does not re-mark-up
+   *             a charge already priced by its own governed rate.
+   *
+   * Without this discriminator the engine cannot honour both, and honouring
+   * only one either silently reprices 89 existing quotes or leaves relocation
+   * as a pricing lever. Absence of a row stays the load-bearing state; this is
+   * what lets it stay load-bearing at the pricing layer too.
+   */
+  source: "election" | "legacy";
   /** Copied through. Invariant under every election. */
   cost: number;
   /** Copied through, never recomputed. */
@@ -78,6 +100,28 @@ export type PlacedCharge = {
    * giving up an unknown amount still contributes exactly zero.
    */
   revenueContribution: number | null;
+  /**
+   * The amortization basis, present exactly when the charge is recovered
+   * INSIDE the unit price.
+   *
+   * ── WHY REVENUE-NEUTRALITY MUST NOT ERASE THIS ──────────────────────────
+   *
+   * Accounting has to know that a charge was amortized, and must not invoice
+   * it separately. "The customer pays the same either way" is a statement about
+   * the AMOUNT; it says nothing about the INVOICE, and collapsing the two would
+   * leave the frozen record unable to distinguish a $1,400 setup fee embedded
+   * at $0.14 across 10,000 units from a $1,400 setup fee billed on its own
+   * line. Those are the same revenue and different invoices.
+   *
+   * So the placement answers "invoice separately?" — `unit_price` means NO —
+   * and this carries what an amortized charge needs stated alongside it: the
+   * total recovered and the quoted-unit basis it was spread over.
+   *
+   * `perUnit` is derived here rather than left to a consumer because a consumer
+   * dividing it again is a second derivation, and the quantity it divided by
+   * would be the one it happened to have.
+   */
+  amortization: { totalRecovered: number; tierQuantity: number; perUnit: number } | null;
 };
 
 export type ConstructedCommercialState = {
@@ -105,6 +149,21 @@ export type ConstructedCommercialState = {
   unitPriceCost: number;
   separateLineCost: number;
   absorbedCost: number;
+  /**
+   * The unit-price bucket, SPLIT BY PROVENANCE.
+   *
+   * A legacy-placed charge enters the unit rate as cost and is marked up and
+   * adjusted along with everything else — historical behaviour, preserved.
+   * An ELECTED one must recover exactly `recoverableSell`, so the adjustment
+   * must not reach it, and the engine needs the two amounts apart to do that.
+   *
+   * `unitPriceCost` remains their sum, so a consumer that does not care about
+   * provenance is unaffected.
+   */
+  unitPriceCostLegacy: number;
+  unitPriceCostElected: number;
+  /** Elected unit-price recovery — placed WITHOUT the price adjustment. */
+  unitPriceRecoveryElected: number | null;
 };
 
 const PLACEMENT_BY_MODE = {
@@ -172,6 +231,23 @@ function totalsOf(charges: PlacedCharge[]): ConstructedCommercialState {
     for (const c of charges) if (c.placement === p) sum += c.cost;
     return sum;
   };
+  const costInBySource = (p: ChargePlacement, src: "election" | "legacy"): number => {
+    let sum = 0;
+    for (const c of charges) if (c.placement === p && c.source === src) sum += c.cost;
+    return sum;
+  };
+  const recoveryInBySource = (
+    p: ChargePlacement,
+    src: "election" | "legacy",
+  ): number | null => {
+    let sum = 0;
+    for (const c of charges) {
+      if (c.placement !== p || c.source !== src) continue;
+      if (c.revenueContribution === null) return null;
+      sum += c.revenueContribution;
+    }
+    return sum;
+  };
 
   return {
     charges,
@@ -183,6 +259,9 @@ function totalsOf(charges: PlacedCharge[]): ConstructedCommercialState {
     unitPriceCost: costIn("unit_price"),
     separateLineCost: costIn("separate_line"),
     absorbedCost: costIn("absorbed"),
+    unitPriceCostLegacy: costInBySource("unit_price", "legacy"),
+    unitPriceCostElected: costInBySource("unit_price", "election"),
+    unitPriceRecoveryElected: recoveryInBySource("unit_price", "election"),
   };
 }
 
@@ -233,20 +312,44 @@ export function mergeConstructed(
  */
 export function composeFromPlacements(
   economics: readonly ChargeEconomicsInput[],
-  placementOf: (charge: ChargeEconomicsInput) => ChargePlacement,
+  placementOf: (charge: ChargeEconomicsInput) => {
+    placement: ChargePlacement;
+    source: "election" | "legacy";
+  },
+  /**
+   * The tier's quoted quantity — the amortization basis for a charge placed
+   * inside the unit price.
+   *
+   * The QUOTED quantity, not actual output: a customer quote's pricing is what
+   * it is regardless of what production later yields, and an amortization basis
+   * that moved with actuals would restate a sent quote.
+   */
+  tierQuantity = 0,
 ): ConstructedCommercialState {
   return totalsOf(
     economics.map((e) => {
-      const placement = placementOf(e);
+      const { placement, source } = placementOf(e);
       return {
         chargeKey: e.chargeKey,
         placement,
+        source,
         // Copied. Not recomputed, not re-rated, not rounded.
         cost: e.cost,
         recoverableSell: e.recoverableSell,
         // Absorbed contributes zero even when the amount is unknown: what is
         // given up need not be known to know the customer pays nothing for it.
         revenueContribution: placement === "absorbed" ? 0 : e.recoverableSell,
+        // Stated only where it is a fact. A separately-billed charge has no
+        // amortization basis, and inventing one — or emitting a zero — would
+        // let a reader take it for an amortized charge spread over nothing.
+        amortization:
+          placement === "unit_price" && e.recoverableSell !== null && tierQuantity > 0
+            ? {
+                totalRecovered: e.recoverableSell,
+                tierQuantity,
+                perUnit: e.recoverableSell / tierQuantity,
+              }
+            : null,
       };
     }),
   );
@@ -266,6 +369,7 @@ export function constructCommercial(
   economics: readonly ChargeEconomicsInput[],
   elections: readonly ChargeElection[] = [],
   perAssemblyAllocate?: boolean | null,
+  tierQuantity = 0,
 ): ConstructedCommercialState {
   const byCharge = new Map<RecoveryChargeKey, ChargeElection>();
   for (const e of elections) byCharge.set(e.chargeKey, e);
@@ -276,6 +380,8 @@ export function constructCommercial(
       byCharge.get(e.chargeKey) ?? null,
       perAssemblyAllocate,
     );
-    return PLACEMENT_BY_MODE[resolved.mode];
-  });
+    // Provenance travels with the placement, because the two are priced
+    // differently and the engine has to be able to tell them apart.
+    return { placement: PLACEMENT_BY_MODE[resolved.mode], source: resolved.source };
+  }, tierQuantity);
 }
