@@ -7,6 +7,7 @@ import {
   type QuoteCostingInput,
 } from "../../src/lib/costing.ts";
 import type { HydrateSnapshot } from "../../src/lib/costing-store.ts";
+import { fingerprintCommercialState } from "../../src/lib/below-floor-authorization.ts";
 import {
   RecoveryPolicyError,
   refusalFor,
@@ -132,20 +133,30 @@ test("the legacy boolean is ALREADY revenue-neutral through the real path", () =
 
 // ── the refusal, now at the ENGINE rather than the seam ─────────────────
 
-test("a disagreeing election is refused before any projection happens", () => {
-  // It now fails inside `computeQuoteCosting`, which is strictly earlier: the
-  // construction is where placement is decided, so an election policy denies
-  // can no longer reach a customer document by any route.
+test("only `absorbed` refuses now — the revenue-neutral pair is permitted", () => {
+  // LIFTED. `included` and `separate` were refused while the projection could
+  // only suppress or emit a line; placement is now decided once and both
+  // halves are consumed, so a charge MOVES rather than vanishing or doubling.
   for (const [mode, allocate] of [
     ["included", false],
     ["separate", true],
-    ["absorbed", false],
-    ["absorbed", true],
   ] as const) {
-    assert.throws(
+    assert.doesNotThrow(
       () => computeQuoteCosting(costingInput(allocate, [{ chargeKey: "project_setup", mode }])),
+      `${mode} at allocate=${allocate} is still refused`,
+    );
+  }
+
+  // `absorbed` still refuses, and for a different reason than before: its COST
+  // is read by nothing, so the charge would vanish from cost truth while DPS
+  // still pays it.
+  for (const allocate of [true, false] as const) {
+    assert.throws(
+      () =>
+        computeQuoteCosting(
+          costingInput(allocate, [{ chargeKey: "project_setup", mode: "absorbed" }]),
+        ),
       RecoveryPolicyError,
-      `${mode} at allocate=${allocate} was applied instead of refused`,
     );
   }
 });
@@ -206,5 +217,109 @@ test("TRIPWIRE — if absorbed opens, its reduction must reach the measured marg
       "reduction reaches the POST-RECOVERY revenue every consumer reads — " +
       "quote rollup, margin, below-floor fingerprint, send gate, customer " +
       "document and frozen matrix alike.",
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE NEGATIVE PROOF — clearing an election restores legacy placement.
+//
+// This is the load-bearing promise behind NOT rewriting
+// `allocate_service_fees_to_cost`. If an election left any trace, clearing it
+// would restore a default rather than the preserved per-assembly exception —
+// and the three real mixed quotes, one already sent, would have been flattened
+// by the first operator who tried a mode and changed their mind.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("clearing an election restores the legacy result BIT-FOR-BIT", () => {
+  for (const allocate of [true, false] as const) {
+    // A pristine run, taken before anything is elected.
+    const pristine = computeQuoteCosting(costingInput(allocate));
+
+    // An election that genuinely CHANGES placement — the disagreeing one, now
+    // that it is permitted. Proving this with an agreeing election would prove
+    // nothing: it never moved anything to restore.
+    const elected = computeQuoteCosting(
+      costingInput(allocate, [
+        { chargeKey: "project_setup", mode: allocate ? "separate" : "included" },
+      ]),
+    );
+
+    // ...and then cleared.
+    const cleared = computeQuoteCosting(costingInput(allocate));
+
+    // The election DID something — otherwise the restoration is vacuous.
+    assert.notDeepEqual(
+      elected.quoteRollup,
+      pristine.quoteRollup,
+      `the election changed nothing at allocate=${allocate}; the restoration below proves nothing`,
+    );
+
+    // And clearing returns the ORIGINAL, not a default that resembles it.
+    // deepEqual over the whole result, so a single moved scalar anywhere fails.
+    assert.deepEqual(
+      cleared,
+      pristine,
+      `clearing the election did not restore the legacy result at allocate=${allocate}`,
+    );
+  }
+});
+
+test("an election never writes the per-assembly value it falls back to", () => {
+  // The input is the operator's data. If resolution mutated it, "clearing
+  // restores" would hold within one process and fail across a reload — the
+  // worst shape, because the test would pass.
+  const input = costingInput(false, [{ chargeKey: "project_setup", mode: "included" }]);
+  const before = input.production[0].allocateServiceFeesToCost;
+  computeQuoteCosting(input);
+  assert.equal(
+    input.production[0].allocateServiceFeesToCost,
+    before,
+    "resolution wrote through to allocate_service_fees_to_cost",
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE APPROVAL FINGERPRINT responds to constructed ECONOMICS, not to
+// composition.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("a revenue-neutral recomposition does NOT invalidate an approval", () => {
+  const fp = (allocate: boolean, elections: ChargeElection[] = []) => {
+    const t = computeQuoteCosting(costingInput(allocate, elections)).quoteRollup[0];
+    return fingerprintCommercialState({
+      totalRevenue: t.totalRevenue,
+      totalCost: t.totalCost,
+      blendedMarginPct: t.blendedMarginPct,
+    });
+  };
+
+  // Moving a charge between the unit price and its own line changes what the
+  // customer READS and not what they PAY, so an authorization granted on these
+  // economics still applies. Invalidating here would teach operators that
+  // invalidation is noise — the same failure the fingerprint's rounding
+  // deliberately avoids.
+  assert.equal(
+    fp(false),
+    fp(false, [{ chargeKey: "project_setup", mode: "included" }]),
+    "a revenue-neutral election moved the fingerprint",
+  );
+  assert.equal(
+    fp(true),
+    fp(true, [{ chargeKey: "project_setup", mode: "separate" }]),
+    "a revenue-neutral election moved the fingerprint",
+  );
+
+  // And the fingerprint is not simply inert: a real economic change moves it.
+  const dearer = costingInput(false);
+  dearer.production[0].setupFeeTotal = SETUP * 2;
+  const t = computeQuoteCosting(dearer).quoteRollup[0];
+  assert.notEqual(
+    fp(false),
+    fingerprintCommercialState({
+      totalRevenue: t.totalRevenue,
+      totalCost: t.totalCost,
+      blendedMarginPct: t.blendedMarginPct,
+    }),
+    "doubling the charge did not move the fingerprint — it is measuring nothing",
   );
 });
