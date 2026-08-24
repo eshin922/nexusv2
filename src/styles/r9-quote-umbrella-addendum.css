@@ -539,3 +539,19 @@
   font: 400 10px/1.35 var(--sans);
   color: var(--ink-3);
 }
+
+/* What the operator is agreeing to, beside the control rather than behind a
+   hover. A contract change shown only on hover is a contract change nobody
+   read — and two of these options change what the customer pays while the
+   visible placement stays put. */
+.r9-recovery-contract {
+  font: 400 10px/1.4 var(--sans);
+  color: var(--ink-2);
+}
+
+/* The one distinction an operator cannot otherwise see: a charge still on
+   legacy pricing is reached by the quote-level adjustment, so electing is a
+   real commercial act rather than a confirmation. */
+.r9-recovery-state[data-source="legacy"] {
+  color: var(--ink-2);
+}

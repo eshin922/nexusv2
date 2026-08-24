@@ -232,12 +232,27 @@ test("the card surfaces the action's governed reason verbatim", async () => {
 test("denied modes render VISIBLY with their reason, not hidden", async () => {
   const src = codeOnly(await read(CARD));
   // A hidden option reads as an option that does not exist.
-  assert.match(src, /!opt\.available && opt\.reason && \(/);
+  //
+  // Asserted as the PROPERTY, not the syntax. This was a grep for one literal
+  // conditional (`!opt.available && opt.reason && (`) and it failed on a
+  // refactor that preserved the behaviour exactly — a check that reports a
+  // problem when nothing is wrong is on its way to being ignored.
+  //
+  // What must hold: the reason is RENDERED into the reason element, not
+  // carried only by a `title` an operator has to hover to find, and no option
+  // is filtered away for being unavailable.
+  assert.match(
+    src,
+    /r9-recovery-reason[\s\S]{0,80}\{opt\.reason\}/,
+    "the refusal reason is not rendered into the visible reason element",
+  );
   assert.doesNotMatch(
     src,
-    /options\.filter\(\(o\) => o\.available\)/,
+    /options\s*\.filter\([^)]*available/,
     "the card filters denied modes out instead of showing them refused",
   );
+  // Non-vacuous: the option list is mapped in full.
+  assert.match(src, /row\.options\.map\(/);
 });
 
 test("pending is action-scoped per charge (Pattern 47(f))", async () => {
@@ -251,4 +266,75 @@ test("pending is action-scoped per charge (Pattern 47(f))", async () => {
 test("a frozen quote renders read-only rather than being turned away", async () => {
   const tab = codeOnly(await read("src/components/quote-umbrella/tab-preview-quote.tsx"));
   assert.match(tab, /editable=\{quoteStatus === "draft"\}/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE LABEL NAMES THE CONTRACT, NOT THE PLACEMENT.
+//
+// Two states can both look "included" and have different economics: a legacy
+// allocated fee is reached by the quote-level adjustment, an elected one is
+// not. So electing `included` on a quote that already allocates changes what
+// the customer pays while the visible placement does not move — and a control
+// reading "In unit price ✓" would present that as confirming what is already
+// true.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("a legacy placement is never rendered as a selected contract", async () => {
+  const src = codeOnly(await read(CARD));
+  // `selected` must require an ELECTION, not merely a matching placement.
+  assert.match(
+    src,
+    /selected\s*=\s*\n?\s*row\.source === "election" && row\.electedMode === opt\.mode/,
+    "selection is computed without requiring an election — a legacy state would render as in force",
+  );
+  // And it must not be derived from the placement set, which is the half that
+  // is identical across the economic change.
+  assert.doesNotMatch(
+    src,
+    /selected\s*=\s*row\.placements/,
+    "selection is derived from the placement, which cannot distinguish legacy from elected",
+  );
+});
+
+test("the mode labels describe the contract, not where the charge appears", async () => {
+  const src = codeOnly(await read(CARD));
+  // The placement-naming labels are gone. Each is checked on its own so a
+  // failure names which one came back.
+  assert.doesNotMatch(src, /"In unit price"/, "label names the placement");
+  assert.doesNotMatch(src, /"Billed separately"/, "label names the placement");
+  assert.doesNotMatch(src, /"Absorbed by DPS"/, "label names the placement");
+
+  assert.match(src, /Use governed amortization/);
+  assert.match(src, /governed rate/);
+  // Each available option states what changes, on the surface.
+  assert.match(src, /MODE_CONTRACT: Record<RecoveryMode, string>/);
+  assert.match(src, /no longer affected by quote-level/);
+});
+
+test("clearing is named as restoring the INHERITED treatment", async () => {
+  const src = codeOnly(await read(CARD));
+  assert.match(src, /Restore inherited pricing treatment/);
+  // "Clear" said what the code does, not what the operator gets back.
+  assert.doesNotMatch(src, />\s*Clear\s*</);
+});
+
+test("the card makes no neutrality claim it cannot support", async () => {
+  const src = await read(CARD); // prose included: this is ABOUT the prose
+  // The claim that relocation is closed became false when the lift landed.
+  assert.doesNotMatch(src, /relocation is closed/);
+  // And the unqualified neutrality claim is not restored: it holds between two
+  // ELECTED contracts and not between legacy and elected, which is the
+  // comparison an operator actually makes on this surface.
+  assert.doesNotMatch(
+    src,
+    /Moving a recovered charge between the unit price and its own line does not change/,
+  );
+  assert.match(src, /Between two elected\s*\n?\s*contracts/);
+});
+
+test("the legacy amortization's ungoverned amount is stated to the operator", async () => {
+  const src = codeOnly(await read(CARD));
+  // The one fact an operator cannot see anywhere else on the surface.
+  assert.match(src, /Currently amortized under legacy pricing/);
+  assert.match(src, /not independently governed/);
 });
