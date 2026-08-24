@@ -88,25 +88,29 @@ test("the resolver returns the projection it rendered from", async () => {
 // this proves it for the branch.
 // ═══════════════════════════════════════════════════════════════════════
 
-test("elections default to empty, so every existing caller is unchanged", async () => {
-  const src = await read(PROJECTION);
-  assert.match(
-    src,
-    /elections:\s*readonly ChargeElection\[\]\s*=\s*\[\]/,
-    "elections is no longer defaulted — existing callers would change behaviour",
-  );
+test("the projection takes no elections at all", async () => {
+  const src = codeOnly(await read(PROJECTION));
+  // Not "defaults to empty" — ABSENT. While the parameter existed, placement
+  // could still be decided at the surface that RENDERS it, which is how the
+  // engine's revenue and the customer's document came to disagree by ~1e-12
+  // on eight real rows. Its absence is what makes "one constructed state"
+  // structural rather than a convention.
+  // Word-boundary: `OtherServiceSelection` contains "election" as a substring,
+  // and a regex that matches it would fail for a reason unrelated to the claim.
+  assert.doesNotMatch(src, /elections?/i, "the projection can still be handed elections");
+  assert.doesNotMatch(src, /resolveCharge/, "the projection still resolves placement");
 });
 
-test("the allocation boolean still derives from the per-assembly value", async () => {
-  const src = await read(PROJECTION);
+test("the allocation boolean is read by the ENGINE, not the seam", async () => {
+  const engine = await read("src/lib/costing.ts");
   // Per-assembly, NOT quote-level. Three real quotes carry OFF and ON at once,
   // one already sent; resolving per quote would flatten them.
   assert.match(
-    src,
-    /row\?\.allocateServiceFeesToCost/,
-    "resolution stopped reading the per-assembly value",
+    engine,
+    /production\?\.allocateServiceFeesToCost/,
+    "the engine stopped reading the per-assembly value",
   );
-  assert.match(src, /const allocated = resolved\.mode === "included";/);
+  assert.match(engine, /constructCommercial\(/, "the engine no longer constructs");
 });
 
 test("every OTC fee column maps to exactly one governed charge", async () => {
@@ -158,30 +162,24 @@ test("no consumer restates the column-to-charge map", async () => {
   );
 });
 
-test("the seam delegates the absorb refusal to policy, holding none of its own", async () => {
-  const src = await read(PROJECTION);
-
-  // The refusal moved into `resolveCharge`, which is handed this same
-  // per-assembly value — so it is enforced once, in the layer that owns what
-  // an operator may elect, rather than duplicated at a producer where the two
-  // copies could drift out of step.
-  assert.match(
-    src,
-    /resolveCharge\(\s*OTC_FIELD_TO_CHARGE\[fee\.field\],[\s\S]{0,160}row\?\.allocateServiceFeesToCost,/,
-    "resolution is no longer handed the allocation state it refuses on",
-  );
-  assert.doesNotMatch(
-    src,
-    /throw new Error\(\s*`Cannot absorb/,
-    "the seam re-grew a local copy of the absorb refusal",
-  );
+test("the seam holds no recovery policy of its own", async () => {
+  const src = codeOnly(await read(PROJECTION));
+  // After the cutover the projection decides nothing about recovery: no
+  // resolution, no rate, no placement. It looks up the construction the engine
+  // built and renders it.
+  assert.doesNotMatch(src, /resolveCharge/, "the seam resolves placement");
+  assert.doesNotMatch(src, /1 \+ productionMarkupPct/, "the seam re-prices a charge");
+  assert.match(src, /constructedFor\(assemblyId, t\.tierId\)/);
 });
 
-test("absorbed emits no customer line", async () => {
-  const src = await read(PROJECTION);
+test("only a separate_line placement emits a customer line", async () => {
+  const src = codeOnly(await read(PROJECTION));
+  // `unit_price` (already in the rate), `absorbed` (no revenue) and an absent
+  // charge all render nothing — and all three are ONE condition now, read off
+  // the construction rather than reassembled from a mode and a boolean.
   assert.match(
     src,
-    /if \(allocated \|\| resolved\.mode === "absorbed" \|\| raw === null \|\| raw <= 0\)/,
-    "absorbed no longer suppresses the OTC line — it would still bill the customer",
+    /if \(!placed \|\| placed\.placement !== "separate_line"\)/,
+    "the seam no longer gates the line on the construction's placement",
   );
 });

@@ -138,6 +138,9 @@ function snapshot(): HydrateSnapshot {
     revision: 1,
     quoteId: "q-1",
     projectId: "p-1",
+    // Empty is production's whole state: the writer refuses every election
+    // that changes anything until the cutover is complete.
+    chargeElections: [],
     globalPriceAdjPct: 0.1,
     targetMarginPct: null,
     firmSettings: input.firmSettings,

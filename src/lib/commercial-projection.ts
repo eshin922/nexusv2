@@ -13,8 +13,6 @@ import {
 } from "@/lib/netsuite/bv011-destinations";
 import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
 import {
-  resolveCharge,
-  type ChargeElection,
 } from "@/lib/commercial-recovery/resolve";
 import {
   OTC_COLUMN_TO_CHARGE,
@@ -215,20 +213,20 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * ── ELECTIONS NO LONGER ARRIVE HERE ──────────────────────────────────────
+ *
+ * This used to take them and resolve them itself. That meant placement was
+ * decided at the surface that RENDERS it, so the engine's revenue and the
+ * customer's document could only agree by both reaching the same answer
+ * separately — and on eight real rows they did not: the engine marked up a
+ * per-unit quotient and this marked up the column total, ~1e-12 apart.
+ *
+ * Elections now reach `computeQuoteCosting`, which constructs once. This reads
+ * that construction. The projection decides nothing about recovery.
+ */
 export function projectCommercial(
-  bundle: HydrateSnapshot,
-  /**
-   * The quote's governed charge elections. EMPTY IS THE LEGACY CASE and is
-   * the default, so every existing caller keeps its exact behaviour without
-   * being touched.
-   *
-   * Passed explicitly rather than read off the bundle: the bundle is engine
-   * OUTPUT and recovery is not an engine input, so putting it there would
-   * blur the boundary this seam exists to draw. It also keeps the dependency
-   * visible at the single call site.
-   */
-  elections: readonly ChargeElection[] = [],
-): CommercialProjection {
+  bundle: HydrateSnapshot,): CommercialProjection {
   // Read straight off the snapshot. NOT a hand-written structural cast.
   //
   // It was a cast, and the cast named the tier key `id`. The engine emits
@@ -241,13 +239,6 @@ export function projectCommercial(
   //
   // `costing` was never optional; the cast invented the optionality along with
   // the wrong field name.
-  // Indexed once. A charge appears at most once per quote — the election is
-  // per (quote, charge), not per line — so a later duplicate would be a data
-  // defect rather than a refinement, and Map.set would hide it. The action
-  // layer enforces uniqueness via the composite primary key.
-  const electionByCharge = new Map<RecoveryChargeKey, ChargeElection>();
-  for (const e of elections) electionByCharge.set(e.chargeKey, e);
-
   const costing: QuoteCostingResult = bundle.costing;
   const tiers = costing.tiers;
 
@@ -357,6 +348,23 @@ export function projectCommercial(
   // and both become wrong the moment a frozen line reconciles to an accepted
   // total, because the figure would be attributed to a tier that did not
   // produce it.
+  // THE ONE CONSTRUCTED STATE, indexed for lookup. Built by the engine, per
+  // (owner, tier); this only finds it. Nothing here re-places or re-prices.
+  const constructedByOwnerTier = new Map<
+    string,
+    Map<string, QuoteCostingResult["skuRollups"][number]["perTier"][number]["constructed"]>
+  >();
+  for (const rollup of costing.skuRollups) {
+    const byTier = new Map<
+      string,
+      QuoteCostingResult["skuRollups"][number]["perTier"][number]["constructed"]
+    >();
+    for (const pt of rollup.perTier) byTier.set(pt.tierId, pt.constructed);
+    constructedByOwnerTier.set(rollup.skuId, byTier);
+  }
+  const constructedFor = (ownerId: string, tierId: string) =>
+    constructedByOwnerTier.get(ownerId)?.get(tierId);
+
   const prodByAssemblyTier = new Map<string, Map<string, (typeof bundle.production)[number]>>();
   for (const p of bundle.production) {
     const leaf = skuById.get(p.quoteSkuId);
@@ -372,6 +380,7 @@ export function projectCommercial(
     if (!assembly) continue;
 
     for (const fee of OTC_FEES) {
+      const chargeKey = OTC_FIELD_TO_CHARGE[fee.field];
       const cells: CommercialCell[] = [];
       const allocationByTier: CommercialLine["allocationByTier"] = [];
       let anyBilled = false;
@@ -379,53 +388,61 @@ export function projectCommercial(
       for (const t of tiers) {
         const row = byTier.get(t.tierId);
 
-        // ── RECOVERY RESOLUTION, AND WHY IT IS BYTE-IDENTICAL AT REST ─────
+        // ── READ, DO NOT DECIDE ────────────────────────────────────────
         //
-        // With NO election, `resolveCharge` returns exactly
-        // `allocate ? "included" : "separate"` from this same per-assembly
-        // value — so `allocated` below is the identical boolean this line
-        // read before recovery existed. Not approximately: identically, and
-        // with NO arithmetic performed. That is what makes 89 existing quotes
-        // and 29 frozen snapshots byte-identical BY CONSTRUCTION rather than
-        // by floating-point luck (the OD-025 lesson).
+        // This block used to resolve the election itself and compute
+        // `raw x (1 + rate)`. Two layers deciding the same thing is how the
+        // engine's revenue and the customer's document came to disagree by
+        // ~1e-12 on eight real rows: the engine marked up a per-unit QUOTIENT
+        // and this marked up the column TOTAL. Both defensible; neither the
+        // other.
         //
-        // Resolution is per (charge, ASSEMBLY) because
-        // `allocate_service_fees_to_cost` is per-assembly and three real
-        // quotes — one already sent — carry OFF and ON simultaneously.
-        // Resolving once per quote would flatten exactly that state.
-        const resolved = resolveCharge(
-          OTC_FIELD_TO_CHARGE[fee.field],
-          electionByCharge.get(OTC_FIELD_TO_CHARGE[fee.field]) ?? null,
-          row?.allocateServiceFeesToCost,
+        // Placement and amount are now decided ONCE, in the engine's
+        // constructed state, and read here. The projection decides nothing.
+        const placed = constructedFor(assemblyId, t.tierId)?.charges.find(
+          (c) => c.chargeKey === chargeKey,
         );
-        const allocated = resolved.mode === "included";
 
-        // `absorbed` means DPS carries the cost and takes NO revenue for the
-        // charge, so it emits no customer line below.
-        //
-        // The dangerous case — absorbing a charge the unit rate ALREADY
-        // recovers — is refused inside `resolveCharge` above, which is handed
-        // this same per-assembly allocation value. It is refused THERE and not
-        // here on purpose: it is a commercial rule about what an operator may
-        // elect, so it belongs to policy rather than to one producer. A guard
-        // repeated at the seam would be a second place to keep in step.
-        allocationByTier.push(row ? (allocated ? "allocated" : "separately_billed") : null);
+        // The tier's allocation LABEL is about the tier, not this charge — a
+        // tier with a production row is allocated or not regardless of whether
+        // this particular fee has an amount. So it falls back to the row's own
+        // boolean when the charge is absent.
+        allocationByTier.push(
+          placed
+            ? placed.placement === "unit_price"
+              ? "allocated"
+              : "separately_billed"
+            : row
+              ? (row.allocateServiceFeesToCost ?? true)
+                ? "allocated"
+                : "separately_billed"
+              : null,
+        );
 
-        const raw = row ? num((row as Record<string, unknown>)[fee.field]) : null;
-        if (allocated || resolved.mode === "absorbed" || raw === null || raw <= 0) {
-          // Allocated fees are already inside the unit lines. Emitting them
-          // here as well would bill the same economics twice.
+        // Not placed as its own line: it is inside the unit price, absorbed,
+        // or has no amount. All three emit nothing, and all three were already
+        // the behaviour — what changed is who decided.
+        if (!placed || placed.placement !== "separate_line") {
           cells.push({ state: "quote_on_request" });
           continue;
         }
-        if (productionMarkupPct === null) {
+        // A non-positive charge renders nothing. A PRESENTATION guard, kept
+        // here deliberately: whether a line is worth showing is this layer's
+        // question, and moving it into the cost layer would have the engine
+        // deciding what the customer sees.
+        if (placed.cost <= 0) {
+          cells.push({ state: "quote_on_request" });
+          continue;
+        }
+        if (placed.revenueContribution === null) {
           // Fail-visible, per BV-013: no governed rate means no price, not a
-          // price computed at cost.
+          // price computed at cost. The engine already declined to state an
+          // amount; this declines to bill one.
           cells.push({ state: "quote_on_request" });
           continue;
         }
         anyBilled = true;
-        const amount = raw * (1 + productionMarkupPct);
+        const amount = placed.revenueContribution;
         // A one-time charge: quantity 1, and the amount IS the line.
         cells.push({
           state: "priced",

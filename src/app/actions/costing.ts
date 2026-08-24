@@ -32,6 +32,7 @@ import {
   quoteTiers,
   quoteWarnings,
   quoteOtherServiceItems,
+  quoteChargeRecovery,
 } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -1874,6 +1875,24 @@ export async function getCostingBundle(
         .where(eq(quoteOtherServiceItems.quoteId, quoteId))
     );
 
+    // Recovery elections. A separate read for the same reason as the Other
+    // Service items above: a small per-quote table, and the 8-wide bundle
+    // burst is already documented as the connection pool's limit.
+    //
+    // ZERO ROWS IN PRODUCTION. The writer refuses every election that changes
+    // anything until the sell construction is wired end-to-end, so this reads
+    // an empty set on every live quote and resolution falls through to the
+    // legacy per-assembly boolean.
+    const chargeElections = (
+      await db
+        .select({
+          chargeKey: quoteChargeRecovery.chargeKey,
+          mode: quoteChargeRecovery.mode,
+        })
+        .from(quoteChargeRecovery)
+        .where(eq(quoteChargeRecovery.quoteId, quoteId))
+    ).map((r) => ({ chargeKey: r.chargeKey, mode: r.mode }));
+
     const persistedWarnings = persistedWarningRows.map((w) => ({
       id: w.id,
       quoteId: w.quoteId,
@@ -1892,6 +1911,7 @@ export async function getCostingBundle(
       revision: bundleRevision,
       quoteId: quote.id,
       projectId: quote.projectId,
+      chargeElections,
       globalPriceAdjPct: num(quote.globalPriceAdjPct),
       targetMarginPct: numOrNull(quote.targetMarginPct),
       firmSettings: input.firmSettings,

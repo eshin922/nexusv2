@@ -96,6 +96,15 @@ export type ConstructedCommercialState = {
   separateLineRecovery: number | null;
   /** Given up: cost retained, no customer revenue. */
   absorbedRecovery: number;
+  /**
+   * Cost by placement. Split because the consumer that adds a charge's cost to
+   * a total has to know whether that cost is ALREADY somewhere else: a
+   * unit-price charge's cost is inside the unit rate already, and adding it
+   * again at the tier would count it twice (Pattern 59).
+   */
+  unitPriceCost: number;
+  separateLineCost: number;
+  absorbedCost: number;
 };
 
 const PLACEMENT_BY_MODE = {
@@ -123,24 +132,13 @@ const PLACEMENT_BY_MODE = {
  * refusals are waiting on — and the same function is what runs when they lift,
  * so nothing is proven about a thing that is later replaced.
  */
-export function composeFromPlacements(
-  economics: readonly ChargeEconomicsInput[],
-  placementOf: (charge: ChargeEconomicsInput) => ChargePlacement,
-): ConstructedCommercialState {
-  const charges: PlacedCharge[] = economics.map((e) => {
-    const placement = placementOf(e);
-    return {
-      chargeKey: e.chargeKey,
-      placement,
-      // Copied. Not recomputed, not re-rated, not rounded.
-      cost: e.cost,
-      recoverableSell: e.recoverableSell,
-      // Absorbed contributes zero even when the amount is unknown: what is
-      // given up need not be known to know the customer pays nothing for it.
-      revenueContribution: placement === "absorbed" ? 0 : e.recoverableSell,
-    };
-  });
-
+/**
+ * Totals over a placed set.
+ *
+ * Extracted so composition and merging cannot drift: two implementations of
+ * "what does this set add up to" would agree until one of them was changed.
+ */
+function totalsOf(charges: PlacedCharge[]): ConstructedCommercialState {
   let totalChargeCost = 0;
   for (const c of charges) totalChargeCost += c.cost;
 
@@ -160,7 +158,7 @@ export function composeFromPlacements(
     totalChargeRevenue += c.revenueContribution;
   }
 
-  const bucket = (p: ChargePlacement): number | null => {
+  const revenueIn = (p: ChargePlacement): number | null => {
     let sum = 0;
     for (const c of charges) {
       if (c.placement !== p) continue;
@@ -169,15 +167,89 @@ export function composeFromPlacements(
     }
     return sum;
   };
+  const costIn = (p: ChargePlacement): number => {
+    let sum = 0;
+    for (const c of charges) if (c.placement === p) sum += c.cost;
+    return sum;
+  };
 
   return {
     charges,
     totalChargeCost,
     totalChargeRevenue,
-    unitPriceRecovery: bucket("unit_price"),
-    separateLineRecovery: bucket("separate_line"),
-    absorbedRecovery: bucket("absorbed") ?? 0,
+    unitPriceRecovery: revenueIn("unit_price"),
+    separateLineRecovery: revenueIn("separate_line"),
+    absorbedRecovery: revenueIn("absorbed") ?? 0,
+    unitPriceCost: costIn("unit_price"),
+    separateLineCost: costIn("separate_line"),
+    absorbedCost: costIn("absorbed"),
   };
+}
+
+/** A set with no charges. A function, not a shared constant — a shared object
+ * would be one mutable value handed to every caller. */
+export function emptyConstructed(): ConstructedCommercialState {
+  return totalsOf([]);
+}
+
+/**
+ * Merge constructed states up a tree.
+ *
+ * CONCATENATES, never re-places and never re-prices. Placement was decided
+ * where the owner's allocation state was known; a parent has no standing to
+ * revisit it, and re-deriving here would be the second authority this layer
+ * exists to avoid.
+ *
+ * Totals are recomputed over the concatenation rather than summed from the
+ * parts, so the addend order stays a property of the charge list and not of
+ * how the tree happened to be walked.
+ */
+export function mergeConstructed(
+  parts: readonly ConstructedCommercialState[],
+): ConstructedCommercialState {
+  const charges: PlacedCharge[] = [];
+  for (const p of parts) charges.push(...p.charges);
+  return totalsOf(charges);
+}
+
+/**
+ * ── WHY PLACEMENT AND COMPOSITION ARE SEPARATE FUNCTIONS ─────────────────
+ *
+ * Deciding WHERE a charge goes is policy. Working out what the totals are once
+ * it is there is arithmetic. They are split because they are answerable at
+ * different times, and today that difference is load-bearing rather than
+ * tidy-minded.
+ *
+ * Every election that CHANGES anything is currently refused — correctly, and
+ * until this layer is wired into the projection, because until then the
+ * projection can only suppress or emit a line and cannot move a charge between
+ * the two places. So the arithmetic below cannot be exercised end-to-end
+ * through resolution yet.
+ *
+ * Testing it by bypassing resolution would be testing a path that cannot
+ * happen. Testing it HERE, over placements directly, proves the properties the
+ * refusals are waiting on — and the same function is what runs when they lift,
+ * so nothing is proven about a thing that is later replaced.
+ */
+export function composeFromPlacements(
+  economics: readonly ChargeEconomicsInput[],
+  placementOf: (charge: ChargeEconomicsInput) => ChargePlacement,
+): ConstructedCommercialState {
+  return totalsOf(
+    economics.map((e) => {
+      const placement = placementOf(e);
+      return {
+        chargeKey: e.chargeKey,
+        placement,
+        // Copied. Not recomputed, not re-rated, not rounded.
+        cost: e.cost,
+        recoverableSell: e.recoverableSell,
+        // Absorbed contributes zero even when the amount is unknown: what is
+        // given up need not be known to know the customer pays nothing for it.
+        revenueContribution: placement === "absorbed" ? 0 : e.recoverableSell,
+      };
+    }),
+  );
 }
 
 /**
