@@ -29,7 +29,6 @@ import { db } from "@/db";
 import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
-import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
 import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
@@ -84,7 +83,6 @@ export type ResolveCustomerViewResult =
        */
       commercial: import("./commercial-projection").CommercialProjection;
       /** Recovery workspace rows, from the same bundle read. */
-      recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
       /** The frozen recovery instruction, projected from the construction. */
       recoveryInstructions: import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
     }
@@ -402,18 +400,5 @@ export async function resolveCustomerView(args: {
      * from a second read.
      */
     recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
-    recoveryRows: buildRecoveryWorkspace({
-      costing: bundle.data.costing,
-      isLeaf: ownsItsCharges,
-      elections: bundle.data.chargeElections ?? [],
-      allocationStates: [
-        ...new Set(
-          (bundle.data.production ?? []).map(
-            (r: { allocateServiceFeesToCost?: boolean | null }) =>
-              r.allocateServiceFeesToCost ?? true,
-          ),
-        ),
-      ],
-    }),
   };
 }

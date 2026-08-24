@@ -17,6 +17,7 @@
     "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "gate1b:add-user-falsification": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/add-user-refusal-falsification.ts",
     "gate1b:recovery-impact-certify": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/recovery-impact-certify.ts",
+    "gate1b:recovery-walk-state": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/recovery-walk-state.ts",
     "gate1b:send-freeze-verify": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/send-freeze-verify.ts",
     "gate1b:frozen-instruction-contrast": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/frozen-instruction-contrast.ts",
     "gate1b:recovery-persistence-walk": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/recovery-persistence-walk.ts",

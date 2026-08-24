@@ -1,4 +1,21 @@
 /**
+ * ── RETAINED FOR PHASE 3, NOT DEAD CODE ─────────────────────────────────
+ *
+ * This has no production caller today. That is deliberate and dispositioned,
+ * not an oversight: the recovery election is economically substantive, so
+ * Edward's R5 disposition (2026-08-24) removed it from Quote Presentation --
+ * "if a control can change customer economics, it is not a Quote Presentation
+ * control" -- and its registered home is the Pricing workspace, where the
+ * authority already shows the equivalent `allocate_service_fees_to_cost`
+ * toggle (r10-designer-notes, lineage to the selected R12).
+ *
+ * Phase 3 has not started, so the destination exists in authority and not yet
+ * in code. Everything here is certified and stays certified; deleting it would
+ * mean rebuilding a proven engine when Pricing arrives.
+ *
+ * See docs/quote-presentation-restoration-brief.md §2.
+ */
+/**
  * The recovery workspace's read model.
  *
  * ── IT READS THE CONSTRUCTED STATE. IT DERIVES NOTHING. ─────────────────
