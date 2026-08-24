@@ -48,6 +48,8 @@ export default async function CustomerViewPage({
   params: Promise<{ id: string; quoteId: string }>;
   searchParams: Promise<{
     dev?: string;
+    /** Review-only: force the legacy layout for an admin. See below. */
+    legacy?: string;
     /**
      * Slice 11 Step 4 preview overrides. Draft-mode only —
      * sent quotes always read from the immutable snapshot column.
@@ -74,7 +76,7 @@ export default async function CustomerViewPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { dev, layout, detail, addendum, tab } = await searchParams;
+  const { dev, legacy, layout, detail, addendum, tab } = await searchParams;
   const activeTabRaw = parseSubTabParam(tab);
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
@@ -303,7 +305,14 @@ export default async function CustomerViewPage({
     // TEMPORARY. Removing this deletes every `!presentationRestored` branch in
     // quote-host.tsx. It is NOT a role boundary: the authority's Q6 says the
     // panel is any-PM, and this must come off rather than harden into one.
-    const presentationRestored = viewer.role === "admin";
+    //
+    // `?legacy=1` forces the legacy path for an admin. The gate cannot come
+    // off until BOTH paths have been seen, and every admin sees only the
+    // restored one — while nine non-admin users (six PMs, plus accounting,
+    // logistics and sales) see only the legacy one. The alternatives were to
+    // mutate a real person's role in the database, or to ask a colleague to
+    // test; an opt-in query param costs neither and is deleted with the flag.
+    const presentationRestored = viewer.role === "admin" && legacy !== "1";
 
 
     console.log(
