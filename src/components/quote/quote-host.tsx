@@ -190,17 +190,19 @@ export function QuoteHost({
 
       // What sits BELOW as well as above.
       //
-      // The first version subtracted only the chrome above and still left 96px
-      // of page scroll, because the umbrella's advance bar sits beneath this
-      // workspace. Measuring the top answered half the question; the gate asks
-      // for zero page overflow, which is the whole of it.
+      // The chrome beneath this workspace is not one box: the umbrella's
+      // advance bar is 64px with a 32px margin above it and another below.
+      // Subtracting the residual ONCE took the page overflow from 96px to 32px
+      // and stopped there, because collapsing margins settle as the height
+      // changes and one pass cannot see the final state.
       //
-      // Converges in one pass: the height written above does not move this
-      // element's top, and the content below it is a fixed height, so the
-      // residual overflow IS the correction.
+      // So it converges instead of assuming. Bounded at three passes: if it
+      // has not settled by then the cause is something this measurement cannot
+      // express, and quietly looping would hide that.
       const doc = document.documentElement;
-      const residual = doc.scrollHeight - doc.clientHeight;
-      if (residual > 0) {
+      for (let pass = 0; pass < 3; pass++) {
+        const residual = doc.scrollHeight - doc.clientHeight;
+        if (residual <= 0) break;
         avail = Math.max(420, avail - residual);
         el.style.setProperty("--cv-avail", `${avail}px`);
       }
