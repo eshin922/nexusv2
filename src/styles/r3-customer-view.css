@@ -125,7 +125,9 @@
    Default 452px (range 380–560 in the reference's `railWidth` prop). */
 .cv-rail {
   flex: none;
-  width: 452px;
+  /* 452 default, never below the authority's 380 minimum. Gives the document
+     back up to 72px when the viewport is tight, before it has to compress. */
+  width: clamp(380px, 38vw, 452px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -445,13 +447,21 @@
   margin-top: 7px;
 }
 
-/* Below the rail's minimum the two panes cannot both hold their floors, so the
-   rail moves under the document rather than squeezing it. Stated as a real
-   limit rather than a silent reflow: the authority's composition is a desktop
-   workspace. */
-@media (max-width: 1180px) {
-  .cv-body { display: block; height: auto; overflow: visible; }
-  .cv-preview { border-right: none; }
-  .cv-rail { width: 100%; border-top: 1px solid var(--rule); }
-  .cv-rail-scroll { overflow: visible; }
-}
+/* NO STACKING BREAKPOINT.
+ *
+ * There was one, at 1180px, and it was mine — not a transcription. The
+ * authority's body is `display: flex` with `flex: none` on the rail and
+ * `flex: 1; min-width: 0` on the preview: it NEVER stacks. The document pane
+ * takes whatever remains and the sheet scales down inside it.
+ *
+ * Moving the rail under the document destroys the one relationship the
+ * composition is built on — "left: the artifact, right: the decisions about
+ * it" — and it does so precisely when space is tight and that relationship
+ * matters most. A narrower document is a smaller version of the design; a
+ * stacked one is a different design.
+ *
+ * So the rail narrows within the range the authority itself authorises
+ * (`railWidth` 380–560, default 452) and the document takes the rest. Below
+ * that the document keeps compressing, which the authority anticipates by
+ * naming 816 as the floor "below which the document re-compresses" — a
+ * consequence it describes rather than forbids. */

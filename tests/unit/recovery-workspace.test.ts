@@ -334,7 +334,14 @@ test("Commercial recovery is ON this surface, and it is card 1", async () => {
   const card = codeOnly(await read(CARD1));
   // The election writer lives here now — the inverse of what R5 asserted.
   assert.match(card, /setChargeRecovery/);
-  assert.match(card, /previewChargeRecovery/);
+
+  // And picking ELECTS. The reference is immediate:
+  //   pick: permitted && !s.frozen ? () => this.setRecovery(c.id, o.id) : ...
+  // A measure-then-confirm step put a dialog in front of the answer, on a
+  // surface whose entire point is that the answer is visible beside the
+  // control.
+  assert.doesNotMatch(card, /previewChargeRecovery/);
+  assert.doesNotMatch(card, /Confirm/);
 
   const raw = await read(CARD1);
   // Header sub-line, verbatim from the reference of record.
@@ -445,10 +452,25 @@ test("the document keeps the PDF iframe — no second renderer", async () => {
   assert.doesNotMatch(host, /transform: scale/);
 });
 
-test("the rail is the authority's width and never compresses", async () => {
+test("the rail stays beside the document at every width", async () => {
   const css = await read("src/styles/r3-customer-view.css");
-  assert.match(css, /\.cv-rail \{[\s\S]{0,200}width: 452px/);
-  assert.match(css, /\.cv-rail \{[\s\S]{0,200}flex: none/);
+
+  // `flex: none` and a width inside the authority's own railWidth range
+  // (380–560, default 452). Narrowing within that range is authorised; going
+  // below 380 is not.
+  assert.match(css, /\.cv-rail \{[\s\S]{0,260}flex: none/);
+  assert.match(css, /clamp\(380px, [^,]+, 452px\)/);
+
+  // And NO stacking breakpoint. The authority's body is `display: flex` with a
+  // `flex: none` rail — it never stacks. A media query that moves the rail
+  // under the document destroys the relationship the composition is built on,
+  // exactly when space is tight and it matters most.
+  assert.doesNotMatch(
+    css,
+    /@media[^{]*\{[\s\S]*?\.cv-body\s*\{[^}]*display:\s*block/,
+    "a breakpoint stacks the rail under the document again",
+  );
+  assert.doesNotMatch(css, /\.cv-rail \{[^}]*width: 100%/);
 });
 
 test("the gate stays while visual fidelity is unapproved", async () => {
