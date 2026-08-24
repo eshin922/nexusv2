@@ -298,15 +298,10 @@ test("case 22 — electing one charge does not move any sibling", () => {
 // revenue inside the rate — a silently wrong total, which is far worse than
 // a visible failure.
 
-test("case 23 — a DISAGREEING election is now permitted, because it moves the charge", () => {
-  // LIFTED. These were refused while the projection could only suppress or
-  // emit a line and the engine decided placement from the legacy boolean — so
-  // an election that disagreed with the boolean deleted the charge one way and
-  // billed it twice the other.
-  //
-  // Placement is now decided once, in the construction, and BOTH halves are
-  // consumed. The refusals are gone because the thing they protected against
-  // cannot happen, not because it was tolerated.
+test("case 23 — relocation is PERMITTED: the governed precedence made it neutral", () => {
+  // Refused while an elected amortization was priced by the legacy path, where
+  // the adjustment reached the fee. The precedence adds the governed recovery
+  // after the ordinary levers, so relocating it no longer moves the total.
   assert.equal(refusalFor("project_setup", "included", { perAssemblyAllocate: false }), null);
   assert.equal(refusalFor("project_setup", "separate", { perAssemblyAllocate: true }), null);
 
@@ -316,6 +311,8 @@ test("case 23 — a DISAGREEING election is now permitted, because it moves the 
   ] as const) {
     const r = resolveCharge("project_setup", { chargeKey: "project_setup", mode }, allocate);
     assert.equal(r.mode, mode);
+    // Provenance is what the engine prices from: elected uses the governed
+    // contract, legacy reproduces history.
     assert.equal(r.source, "election");
   }
 });
@@ -401,8 +398,8 @@ test("case 23 — every mode is rendered with a verdict, none hidden", () => {
       `${r.mode}: availability and reason disagree`,
     );
   }
-  // Both revenue-neutral placements are electable now; only `absorbed` is
-  // refused, and its reason is about unconsumed COST.
+  // Both placements are electable; only `absorbed` is refused, and its reason
+  // is about a cost no consumer retains.
   assert.deepEqual(
     rows.filter((r) => r.available).map((r) => r.mode),
     ["included", "separate"],

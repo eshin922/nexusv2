@@ -12,7 +12,12 @@ function action(name: string, nextName: string): string {
 }
 
 test("every production costing route uses the lifecycle-aware commercial resolver", () => {
-  const legacyRead = action("getQuoteCosting", "updateQuoteGlobalPriceAdj");
+  // The legacy read's LOADER, which is where the resolver call lives.
+  // `getQuoteCosting` was split into `loadQuoteCostingInput` + the engine call
+  // so the recovery workspace can run a counterfactual on the same input; the
+  // slice follows the load rather than the name, because the load is what has
+  // to reach the resolver.
+  const legacyRead = action("loadQuoteCostingInput", "getQuoteCosting");
   const draftSolve = action("applyClientTargetSolveTierAdj", "getCostingBundle");
   const bundle = source.slice(source.indexOf("export async function getCostingBundle"));
 
@@ -25,4 +30,18 @@ test("every production costing route uses the lifecycle-aware commercial resolve
     assert.doesNotMatch(route, /\.from\(markupDefaults\)/, `${name} reads live markup directly`);
     assert.doesNotMatch(route, /\.from\(firmSettings\)/, `${name} reads live thresholds directly`);
   }
+
+  // And the split cannot be how a route escapes the check: the public entry
+  // must go through the loader that was just verified, not load its own way.
+  const publicEntry = action("getQuoteCosting", "updateQuoteGlobalPriceAdj");
+  assert.match(
+    publicEntry,
+    /loadQuoteCostingInput\(quoteId\)/,
+    "getQuoteCosting no longer delegates to the verified loader",
+  );
+  assert.doesNotMatch(
+    publicEntry,
+    /resolveQuoteCommercialSettings|buildQuoteCostingInputFromNewModel/,
+    "getQuoteCosting loads independently of the loader the check verified",
+  );
 });

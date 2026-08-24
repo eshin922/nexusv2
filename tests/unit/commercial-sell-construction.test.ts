@@ -60,7 +60,10 @@ test("the constructor never re-resolves a rate or recomputes a recovery", async 
 // impossible today. Bypassing resolution to force one would test a path that
 // cannot happen; this tests the function that actually runs, and the same one
 // runs when the refusals lift.
-const all = (p: ChargePlacement) => () => p;
+// The arithmetic gates run over placements. Provenance is irrelevant to them
+// — the totals do not depend on it — so they declare "election", which is the
+// path the neutral contract governs.
+const all = (p: ChargePlacement) => () => ({ placement: p, source: "election" as const });
 
 test("cost and recoverableSell are copied through, not transformed", () => {
   for (const p of ["unit_price", "separate_line", "absorbed"] as const) {
@@ -83,7 +86,7 @@ test("every charge lands in exactly one bucket, and the buckets partition", () =
     artwork_plate: "unit_price",
     rd_formulation: "absorbed",
   };
-  const out = composeFromPlacements(ECON, (e) => placement[e.chargeKey]);
+  const out = composeFromPlacements(ECON, (e) => ({ placement: placement[e.chargeKey], source: "election" as const }));
 
   assert.equal(out.charges.length, ECON.length);
 
@@ -134,7 +137,10 @@ test("revenue is bit-identical across EVERY placement combination", () => {
   for (let mask = 0; mask < 1 << ECON.length; mask += 1) {
     const out = composeFromPlacements(ECON, (e) => {
       const i = ECON.findIndex((x) => x.chargeKey === e.chargeKey);
-      return (mask >> i) & 1 ? "separate_line" : "unit_price";
+      return {
+        placement: ((mask >> i) & 1 ? "separate_line" : "unit_price") as ChargePlacement,
+        source: "election" as const,
+      };
     });
     assert.equal(
       Object.is(out.totalChargeRevenue, baseline),
@@ -150,9 +156,10 @@ test("revenue is bit-identical across EVERY placement combination", () => {
 
 test("absorbed keeps the cost and removes exactly that charge's recovery", () => {
   const base = composeFromPlacements(ECON, all("separate_line"));
-  const absorbed = composeFromPlacements(ECON, (e) =>
-    e.chargeKey === "project_setup" ? "absorbed" : "separate_line",
-  );
+  const absorbed = composeFromPlacements(ECON, (e) => ({
+    placement: e.chargeKey === "project_setup" ? "absorbed" : "separate_line",
+    source: "election" as const,
+  }));
 
   // Cost truth is invariant. Not approximately — identically.
   assert.equal(Object.is(absorbed.totalChargeCost, base.totalChargeCost), true);
@@ -190,9 +197,10 @@ test("absorbing an unknown recovery is still a KNOWN zero contribution", () => {
     { chargeKey: "project_setup", cost: 1000, recoverableSell: 1400 },
     { chargeKey: "tooling", cost: 300, recoverableSell: null },
   ];
-  const out = composeFromPlacements(withUnknown, (e) =>
-    e.chargeKey === "tooling" ? "absorbed" : "separate_line",
-  );
+  const out = composeFromPlacements(withUnknown, (e) => ({
+    placement: e.chargeKey === "tooling" ? "absorbed" : "separate_line",
+    source: "election" as const,
+  }));
   assert.equal(out.totalChargeRevenue, 1400);
   assert.equal(out.charges[1].revenueContribution, 0);
   assert.equal(out.charges[1].recoverableSell, null, "the unknown was invented as a number");
@@ -232,4 +240,121 @@ test("with no elections the constructor reproduces legacy placement", () => {
     Object.is(allocated.totalChargeRevenue, notAllocated.totalChargeRevenue),
     true,
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// REVENUE-NEUTRALITY MUST NOT ERASE THE ACCOUNTING DISTINCTION.
+//
+// "The customer pays the same either way" is a statement about the AMOUNT. It
+// says nothing about the INVOICE. Accounting has to know a charge was
+// amortized and must not bill it separately, so the frozen record has to
+// distinguish a $1,400 setup fee embedded at $0.14 across 10,000 units from a
+// $1,400 setup fee on its own line. Same revenue; different invoices.
+// ═══════════════════════════════════════════════════════════════════════
+
+const SETUP_ECON: ChargeEconomicsInput[] = [
+  { chargeKey: "project_setup", cost: 1000, recoverableSell: 1400 },
+];
+
+test("an amortized charge states its total AND its per-unit basis", () => {
+  const out = composeFromPlacements(
+    SETUP_ECON,
+    () => ({ placement: "unit_price", source: "election" as const }),
+    10_000,
+  );
+  const c = out.charges[0];
+  assert.equal(c.placement, "unit_price");
+  assert.deepEqual(c.amortization, {
+    totalRecovered: 1400,
+    tierQuantity: 10_000,
+    perUnit: 0.14,
+  });
+  // The governed recovery is unchanged BY the amortization — spreading it is
+  // not repricing it.
+  assert.equal(c.recoverableSell, 1400);
+  assert.equal(c.revenueContribution, 1400);
+});
+
+test("a separately-billed charge has NO amortization basis", () => {
+  // Not zero, and not a basis of one. It was not spread over anything, and
+  // emitting a number would let a reader take it for an amortized charge.
+  const out = composeFromPlacements(
+    SETUP_ECON,
+    () => ({ placement: "separate_line", source: "election" as const }),
+    10_000,
+  );
+  assert.equal(out.charges[0].amortization, null);
+  assert.equal(out.charges[0].revenueContribution, 1400);
+});
+
+test("placement answers 'invoice separately?' and the answer differs", () => {
+  const q = 10_000;
+  const included = composeFromPlacements(
+    SETUP_ECON, () => ({ placement: "unit_price", source: "election" as const }), q,
+  ).charges[0];
+  const separate = composeFromPlacements(
+    SETUP_ECON, () => ({ placement: "separate_line", source: "election" as const }), q,
+  ).charges[0];
+
+  // Same money...
+  assert.equal(included.revenueContribution, separate.revenueContribution);
+  // ...different instruction. This is the pair the frozen record must keep
+  // apart, and it is exactly what neutrality would have collapsed.
+  assert.notEqual(included.placement, separate.placement);
+  assert.ok(included.amortization !== null);
+  assert.equal(separate.amortization, null);
+});
+
+test("absorbed states no recovery and no basis, and keeps the cost", () => {
+  const out = composeFromPlacements(
+    SETUP_ECON, () => ({ placement: "absorbed", source: "election" as const }), 10_000,
+  );
+  const c = out.charges[0];
+  assert.equal(c.revenueContribution, 0);
+  assert.equal(c.amortization, null, "an absorbed charge was never amortized into a price");
+  assert.equal(c.cost, 1000, "absorbing discarded the cost DPS still pays");
+});
+
+test("provenance is carried, because legacy and elected are priced differently", () => {
+  // Legacy keeps historical behaviour — the adjustment reaches an allocated
+  // fee, which is what every existing quote was priced with. An election is
+  // neutral. Without the discriminator the engine can honour only one, and
+  // honouring one either reprices 89 quotes or leaves relocation a price lever.
+  const legacy = composeFromPlacements(
+    SETUP_ECON, () => ({ placement: "unit_price", source: "legacy" as const }), 10_000,
+  );
+  const elected = composeFromPlacements(
+    SETUP_ECON, () => ({ placement: "unit_price", source: "election" as const }), 10_000,
+  );
+  assert.equal(legacy.charges[0].source, "legacy");
+  assert.equal(elected.charges[0].source, "election");
+  assert.equal(legacy.unitPriceCostLegacy, 1000);
+  assert.equal(legacy.unitPriceCostElected, 0);
+  assert.equal(elected.unitPriceCostElected, 1000);
+  assert.equal(elected.unitPriceRecoveryElected, 1400);
+  // The undifferentiated bucket still sums both, so a consumer that does not
+  // care about provenance is unaffected.
+  assert.equal(legacy.unitPriceCost, elected.unitPriceCost);
+});
+
+test("no amortization basis when the recovery is unknown", () => {
+  // A basis computed from an unknown recovery would be a number standing in
+  // for one nothing governs (BV-013).
+  const out = composeFromPlacements(
+    [{ chargeKey: "project_setup", cost: 1000, recoverableSell: null }],
+    () => ({ placement: "unit_price", source: "election" as const }),
+    10_000,
+  );
+  assert.equal(out.charges[0].amortization, null);
+  assert.equal(out.charges[0].revenueContribution, null);
+});
+
+test("no amortization basis at zero quoted quantity", () => {
+  // Dividing by zero units leaves the per-unit figure UNDEFINED, and undefined
+  // is not zero — the same contract the engine already applies to its per-unit
+  // allocations.
+  const out = composeFromPlacements(
+    SETUP_ECON, () => ({ placement: "unit_price", source: "election" as const }), 0,
+  );
+  assert.equal(out.charges[0].amortization, null);
 });

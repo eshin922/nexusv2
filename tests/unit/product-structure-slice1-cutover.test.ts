@@ -66,6 +66,26 @@ const classifiedIdentityFiles = new Set([
   // CLASSIFIED — enduring. costing.ts carries canonicalQuoteLeafId on
   // CostingSku; the math layer keys on canonical identity by design.
   "src/lib/costing.ts",
+  // CLASSIFIED — enduring, and NOT an attachment identity. Both build a leaf
+  // predicate from the bundle's `skus` (`skuRole === "leaf"`) so a charge is
+  // counted at the owner that holds it rather than again at the parent rollup
+  // carrying the merge. Math-layer sku identity; they resolve and join
+  // nothing, and translate between no identity spaces.
+  //
+  // `recovery-persistence-walk.ts` deliberately is NOT here: it names no
+  // identity token, and the sweep rejects a registry entry it cannot match --
+  // which is what keeps this list from accumulating stale claims.
+  "scripts/gate-1b/frozen-instruction-contrast.ts",
+  "scripts/gate-1b/recovery-impact-certify.ts",
+  // CLASSIFIED — enduring, and NOT an attachment identity. The recovery impact
+  // preview builds `leafIds` from `input.skus` where `skuRole === "leaf"` —
+  // MATH-LAYER sku ids, so that a charge is summed once at the owner that holds
+  // it rather than a second time at the parent rollup carrying the merge. It
+  // resolves nothing, joins nothing, and translates between no identity
+  // spaces. Registered rather than renamed around: the sweep exists so every
+  // appearance is consciously classified, and "rename the variable" would
+  // satisfy the checker while removing the record.
+  "src/lib/commercial-recovery/impact.ts",
   // CLASSIFIED — enduring. Gate 1B node keys are built from canonical
   // identity (quoteLeafId / tierId / lineGroupId) BY DESIGN: a key must be a
   // pure function of position in the computation so two graphs can be joined

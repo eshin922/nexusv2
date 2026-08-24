@@ -35,6 +35,10 @@ import {
   quoteChargeRecovery,
 } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
+import type {
+  RecoveryChargeKey,
+  RecoveryMode,
+} from "@/lib/commercial-recovery/registry";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
   ActionGuardError,
@@ -747,9 +751,50 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
 //
 // Surfaced as `ActionResult` (not raw return) so the caller can handle
 // not-found cleanly through the same shape as mutations.
-export async function getQuoteCosting(
+
+/**
+ * The quote's recovery elections.
+ *
+ * One loader for every costing path. Three call sites each writing their own
+ * query is three chances for one of them to forget — which is the defect this
+ * fixes: elections reached the bundle and the snapshot and were dropped at the
+ * adapter, so an election persisted, the workspace reported it as elected, and
+ * the placement did not move.
+ *
+ * Zero rows is the ordinary case and resolves to legacy placement.
+ */
+async function loadChargeElections(
   quoteId: string,
-): Promise<ActionResult<QuoteCostingResult>> {
+): Promise<{ chargeKey: RecoveryChargeKey; mode: RecoveryMode }[]> {
+  return (
+    await db
+      .select({
+        chargeKey: quoteChargeRecovery.chargeKey,
+        mode: quoteChargeRecovery.mode,
+      })
+      .from(quoteChargeRecovery)
+      .where(eq(quoteChargeRecovery.quoteId, quoteId))
+  ).map((r) => ({ chargeKey: r.chargeKey, mode: r.mode }));
+}
+
+/**
+ * The costing input for a quote, before the engine runs on it.
+ *
+ * Extracted from `getQuoteCosting` so a COUNTERFACTUAL is possible: the
+ * recovery workspace has to tell an operator what electing a contract does to
+ * the customer's total, and that figure is the engine's. Substituting an
+ * election into this input and re-running is the only way to get it that does
+ * not re-derive the pricing ladder — and re-deriving the ladder on a surface
+ * would be the second authority this whole workstream removed.
+ *
+ * `getQuoteCosting` is now this plus `computeQuoteCosting`, so the two cannot
+ * load differently. `getCostingBundle` keeps its own loader untouched: it reads
+ * strictly more than this, and folding them together would be a refactor of
+ * two hot paths to serve one preview.
+ */
+export async function loadQuoteCostingInput(
+  quoteId: string,
+): Promise<ActionResult<QuoteCostingInput>> {
   return runAction(async () => {
     const quoteRows = await db
       .select()
@@ -794,6 +839,7 @@ export async function getQuoteCosting(
     const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
 
     const input = buildQuoteCostingInputFromNewModel({
+      chargeElections: await loadChargeElections(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -893,8 +939,16 @@ export async function getQuoteCosting(
       freightShipmentBreaks: worksheetFreight,
     });
 
-    return computeQuoteCosting(input);
+    return input;
   });
+}
+
+export async function getQuoteCosting(
+  quoteId: string,
+): Promise<ActionResult<QuoteCostingResult>> {
+  const built = await loadQuoteCostingInput(quoteId);
+  if (!built.ok) return built;
+  return { ok: true, data: computeQuoteCosting(built.data) };
 }
 
 // ---------- mutation: updateQuoteGlobalPriceAdj ----------
@@ -1382,6 +1436,7 @@ export async function applyClientTargetSolveTierAdj(
     const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
 
     const input = buildQuoteCostingInputFromNewModel({
+      chargeElections: await loadChargeElections(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1717,6 +1772,7 @@ export async function getCostingBundle(
     );
 
     const input = buildQuoteCostingInputFromNewModel({
+      chargeElections: await loadChargeElections(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1875,23 +1931,11 @@ export async function getCostingBundle(
         .where(eq(quoteOtherServiceItems.quoteId, quoteId))
     );
 
-    // Recovery elections. A separate read for the same reason as the Other
-    // Service items above: a small per-quote table, and the 8-wide bundle
-    // burst is already documented as the connection pool's limit.
-    //
-    // ZERO ROWS IN PRODUCTION. The writer refuses every election that changes
-    // anything until the sell construction is wired end-to-end, so this reads
-    // an empty set on every live quote and resolution falls through to the
-    // legacy per-assembly boolean.
-    const chargeElections = (
-      await db
-        .select({
-          chargeKey: quoteChargeRecovery.chargeKey,
-          mode: quoteChargeRecovery.mode,
-        })
-        .from(quoteChargeRecovery)
-        .where(eq(quoteChargeRecovery.quoteId, quoteId))
-    ).map((r) => ({ chargeKey: r.chargeKey, mode: r.mode }));
+    // The SAME elections the adapter was given, not a second read of the same
+    // table. Two loads is two chances to differ, and the snapshot and the
+    // construction disagreeing about an election is precisely the shape this
+    // workstream has been removing.
+    const chargeElections = [...(input.chargeElections ?? [])];
 
     const persistedWarnings = persistedWarningRows.map((w) => ({
       id: w.id,

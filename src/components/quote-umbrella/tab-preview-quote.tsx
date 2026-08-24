@@ -17,6 +17,8 @@
 // QuoteHost with all its chrome intact → light Advance bar.
 
 import { QuoteHost } from "@/components/quote/quote-host";
+import { RecoveryCard } from "./recovery-card";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { VersionRow } from "@/lib/quote-version-chain";
@@ -37,10 +39,24 @@ export function TabPreviewQuote({
   projectId,
   versionChain,
   onGo,
+  recoveryRows,
+  recoveryWorkspaceVisible,
+  recoverySupersessionWarning,
 }: {
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
+  /**
+   * Recovery workspace rows, built from the SAME bundle read the preview
+   * renders from. Passed down rather than loaded here so the surface and the
+   * document cannot disagree about a charge.
+   */
+  recoveryRows: RecoveryChargeRow[];
+  /** False until the click path is certified — see page.tsx. */
+  recoveryWorkspaceVisible: boolean;
+  /** Set when an economics-changing election would supersede a live
+   * authorization. A prediction of the existing mechanism, never a second one. */
+  recoverySupersessionWarning: string | null;
   /** Slice 12 Step 7c review-fix — PM-facing DB quote_number, per
    * quote-umbrella.tsx prop docs. Post-Revise the DB has the number
    * but view.quote.quoteNumber is masked to null (Pattern 45 boundary
@@ -75,6 +91,23 @@ export function TabPreviewQuote({
         addendumData={addendumData}
         isHubspotLinked={isHubspotLinked}
       />
+      {/* The recovery workspace. Draft-locked: elections are a Pattern 52
+          freeze-list entry, so a sent quote renders read-only rather than
+          being turned away.
+
+          Hidden until the click path is certified. It is a COMMERCIAL control
+          -- electing a contract changes what the customer pays -- and it can
+          only be certified on production, because that is the one surface
+          carrying a production session. So it ships dark and becomes visible
+          to operators as the last step of the slice, not the first. */}
+      {recoveryWorkspaceVisible && (
+        <RecoveryCard
+          quoteId={quoteId}
+          rows={recoveryRows}
+          editable={quoteStatus === "draft"}
+          supersessionWarning={recoverySupersessionWarning}
+        />
+      )}
       {/* Slice 12 Step 9 CB P6 pattern-fix — advance target derived
           from quoteStatus via computeUmbrellaAdvance, not hardcoded.
           Prior version pinned "Continue to Send →" regardless of

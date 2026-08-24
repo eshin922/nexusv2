@@ -58,14 +58,32 @@ test("the only call site of projectCommercial passes no elections", async () => 
 
   assert.deepEqual(
     calls,
-    ["src/lib/customer-view-resolver.ts: projectCommercial(bundle.data)"],
-    "a caller began supplying elections — the foundation is no longer inert",
+    [
+      // The impact preview projects a COUNTERFACTUAL costing to answer "what
+      // would this contract do to the customer's total". It substitutes the
+      // candidate election into the ENGINE'S input and projects the result --
+      // it passes no elections to the projection, which is the property this
+      // check exists for. Placement is still decided in exactly one place.
+      "src/lib/commercial-recovery/impact.ts: projectCommercial(bundle)",
+      "src/lib/customer-view-resolver.ts: projectCommercial(bundle.data)",
+    ],
+    "a caller began supplying elections to the PROJECTION — placement would be decided twice",
   );
+
+  // The property, asserted directly rather than inferred from the list: no
+  // call site hands an election to the projection under any name.
+  for (const c of calls) {
+    assert.doesNotMatch(
+      c,
+      /election/i,
+      `${c} passes elections to the projection — they must enter at the construction`,
+    );
+  }
 });
 
 // ── 2 · the writer has no caller, so it has no endpoint ─────────────────
 
-test("nothing imports the election writer", async () => {
+test("the election writer has exactly ONE caller, and it is the workspace", async () => {
   const files: string[] = [];
   const walk = async (dir: string) => {
     for (const e of await readdir(path.join(root, dir), { withFileTypes: true })) {
@@ -76,23 +94,22 @@ test("nothing imports the election writer", async () => {
   };
   await walk("src");
 
-  const importers = files.filter(
-    (f) => f !== "src/app/actions/commercial-recovery.ts",
-  );
-  const found: string[] = [];
-  for (const f of importers) {
+  const callers: string[] = [];
+  for (const f of files) {
+    if (f === "src/app/actions/commercial-recovery.ts") continue;
     const src = codeOnly(await read(f));
-    if (/actions\/commercial-recovery|setChargeRecovery/.test(src)) found.push(f);
+    if (/setChargeRecovery/.test(src)) callers.push(f);
   }
 
-  // A "use server" export reaches the client — and becomes a POST-able action
-  // endpoint — by being imported. With no importer there is no endpoint, which
-  // is what makes "unreachable without UI" a fact rather than an intention.
+  // This asserted ZERO while the foundation was inert. The workspace exists
+  // now, so zero would be false — but "some number of callers" is not the
+  // property either. A "use server" export becomes a POST-able endpoint by
+  // being imported, so the question worth asking is whether the surface that
+  // may write an election is the ONLY thing that can.
   assert.deepEqual(
-    found,
-    [],
-    "the writer acquired a caller; it is now reachable and the branch is no " +
-      "longer inert infrastructure",
+    callers,
+    ["src/components/quote-umbrella/recovery-card.tsx"],
+    "the election writer acquired a caller outside the recovery workspace",
   );
 });
 

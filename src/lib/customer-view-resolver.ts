@@ -29,6 +29,8 @@ import { db } from "@/db";
 import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
+import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
+import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
@@ -81,6 +83,10 @@ export type ResolveCustomerViewResult =
        * being a claim about two computations agreeing.
        */
       commercial: import("./commercial-projection").CommercialProjection;
+      /** Recovery workspace rows, from the same bundle read. */
+      recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
+      /** The frozen recovery instruction, projected from the construction. */
+      recoveryInstructions: import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
     }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "bundle_error"; message: string };
@@ -357,6 +363,19 @@ export async function resolveCustomerView(args: {
           : (quote.includeSpecAddendumSnapshot ?? false),
   };
 
+  /**
+   * Which rollups OWN their charges, rather than carrying a merge of their
+   * children's.
+   *
+   * Defined once and passed to both readers. When they each built their own,
+   * one of them omitted it entirely and the workspace reported double the
+   * governed recovery on the operator's surface.
+   */
+  const ownsItsCharges = (skuId: string) =>
+    ((bundle.data.skus ?? []) as { id: string; skuRole?: string }[]).some(
+      (s) => s.id === skuId && s.skuRole === "leaf",
+    );
+
   return {
     ok: true,
     view,
@@ -365,5 +384,36 @@ export async function resolveCustomerView(args: {
     quote,
     quoteRollup: bundle.data.costing.quoteRollup,
     commercial: projection,
+    /**
+     * The recovery workspace's rows, built from THIS bundle read.
+     *
+     * Returned here rather than loaded by the page for the same reason
+     * `commercial` is: the surface must read the construction the document was
+     * built from, not an equivalent one from a second read. It also keeps the
+     * page to a single `getCostingBundle` — the 8-wide fan-out is documented as
+     * the connection pool's limit.
+     */
+    /**
+     * The frozen recovery instruction, from THIS bundle read.
+     *
+     * Returned rather than rebuilt at send for the same reason `commercial` is:
+     * the record Accounting later reads must be a projection of the
+     * construction the customer document was built from, not an equivalent one
+     * from a second read.
+     */
+    recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
+    recoveryRows: buildRecoveryWorkspace({
+      costing: bundle.data.costing,
+      isLeaf: ownsItsCharges,
+      elections: bundle.data.chargeElections ?? [],
+      allocationStates: [
+        ...new Set(
+          (bundle.data.production ?? []).map(
+            (r: { allocateServiceFeesToCost?: boolean | null }) =>
+              r.allocateServiceFeesToCost ?? true,
+          ),
+        ),
+      ],
+    }),
   };
 }

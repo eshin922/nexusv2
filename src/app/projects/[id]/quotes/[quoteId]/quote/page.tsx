@@ -16,6 +16,7 @@ import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
 import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
+import { loadRecoverySupersessionWarning } from "@/lib/commercial-recovery/workspace-loader";
 import { db } from "@/db";
 import { auditLog, firmSettings } from "@/db/schema";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -118,7 +119,8 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote, quoteRollup } = result;
+    const { view, addendumData, project, quote, quoteRollup, recoveryRows } =
+      result;
     if (project.id !== projectId) notFound();
 
     // Slice 12 Step 4 — sibling quote versions for the Preview
@@ -232,6 +234,17 @@ export default async function CustomerViewPage({
         ? await loadSalesOrderPreflight(quote.id, project.id)
         : null;
 
+    // The recovery workspace's supersession prediction. Reads the SAME
+    // `quoteRollup` the surface renders from — a second costing read would be
+    // a second opinion about the economics, which is the error this seam
+    // exists to remove. Costs one query, and returns null immediately when the
+    // quote holds no authorizations at all.
+    const recoverySupersessionWarning = await loadRecoverySupersessionWarning({
+      quoteId: quote.id,
+      quoteVersionNumber: quote.versionNumber,
+      quoteRollup,
+    });
+
     // Slice 12 Step 8c-4 — quote row mirror of the latest push. Same
     // fields as the preflight's latestPush but sourced from the quote
     // (fast; no netsuite_so_pushes join needed on every render). Both
@@ -281,7 +294,31 @@ export default async function CustomerViewPage({
     // button is un-gated (any authenticated PM); admin role no
     // longer required per §3 disposition. `ensureUser` here only
     // gates the surface itself.
-    await ensureUser();
+    const viewer = await ensureUser();
+
+    // ── THE RECOVERY WORKSPACE IS NOT YET RELEASED TO OPERATORS ─────────
+    //
+    // The card is a COMMERCIAL CONTROL: electing a contract changes what the
+    // customer pays. Its browser click-path has not been certified, because
+    // the only surface carrying a production Clerk session is production
+    // itself — a preview deployment cannot be signed into, and signing in on
+    // the local dev Clerk instance would rebind the operator's production
+    // user row.
+    //
+    // So it ships to production DARK. That is not a workaround for the
+    // certification gate; it is the gate honoured: operators cannot reach an
+    // uncertified commercial control, and the surface becomes reachable on a
+    // production surface where it CAN be certified.
+    //
+    // What an admin sees is byte-identical to what an operator will see — the
+    // card branches on nothing but this visibility — so certifying here
+    // certifies the operator's surface.
+    //
+    // REMOVAL: delete this flag and the prop once the click path, the SEND
+    // freeze and the S-7 recapture are certified. It is one line in three
+    // files and it is the last step of the Quote Presentation slice, not a
+    // permanent role boundary.
+    const recoveryWorkspaceVisible = viewer.role === "admin";
 
     console.log(
       `[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
@@ -309,6 +346,9 @@ export default async function CustomerViewPage({
           quoteSentAtDb={quote.sentAt}
           customerAcceptedTierIdDb={quote.customerAcceptedTierId}
           quoteRollup={quoteRollup}
+          recoveryRows={recoveryRows}
+          recoveryWorkspaceVisible={recoveryWorkspaceVisible}
+          recoverySupersessionWarning={recoverySupersessionWarning}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           hubspotAcceptSyncSuppressed={isHubspotAcceptSyncSuppressed()}

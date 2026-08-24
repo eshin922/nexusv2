@@ -179,46 +179,74 @@ export function unwiredRefusal(
 export { LANDED_SEPARATE_UNWIRED };
 
 /**
- * ── CONTEXTUAL REFUSAL: `absorbed` ────────────────────────────────────────
+ * ── CONTEXTUAL REFUSAL ────────────────────────────────────────────────────
  *
- * ── WHAT WAS LIFTED, AND WHY IT COULD BE ────────────────────────────────
+ * ── THE LIFT WAS WITHDRAWN. included <-> separate IS NOT REVENUE-NEUTRAL. ──
  *
- * `included` and `separate` were refused here because the projection could
- * only SUPPRESS or EMIT a customer line while the engine decided, from the
- * legacy boolean, whether the fee sat inside the unit price. Nothing could
- * move a charge between the two places, so an election that disagreed with the
- * boolean deleted the charge in one direction and billed it twice in the
- * other.
+ * `included` and `separate` were lifted once the construction placed a charge
+ * and every consumer read the placement. Certification against a real quote
+ * disproved the premise, and the numbers are worth keeping:
  *
- * That is no longer the shape of the system. Placement is decided once, in the
- * construction, and BOTH halves are consumed: `unitPriceCost` reaches the unit
- * rate and `separateLineCost` / `separateLineRecovery` reach the tier operands
- * and the customer line. A charge now MOVES. The refusals are lifted because
- * the thing they were protecting against cannot happen — not because anyone
- * decided to tolerate it.
+ *     52bd0077, global_price_adj_pct = 0.2000, electing `included` on
+ *     project_setup:
  *
- * ── WHY `absorbed` IS STILL REFUSED, FOR A DIFFERENT REASON THAN BEFORE ──
+ *       tier 1   otc 4340 -> 4200   (-140)
+ *                unit 10566 -> 10734 (+168)
+ *                TOTAL 14906 -> 14934  (+28)
  *
- * The old reason was that absorbing reduced what the customer paid without
- * moving the margin the floor is measured from. The cutover changed the
- * mechanics, so the reason has been re-derived rather than carried forward.
+ *     140 x 1.2 = 168.
  *
- * `absorbedCost` is read by NOTHING. An absorbed charge's recovery correctly
- * disappears — that is the mode — but its COST disappears with it, because
- * neither `unitPriceCost` nor `separateLineCost` carries it and no consumer
- * reads the absorbed bucket. The charge would vanish from cost truth entirely
- * while DPS still pays it.
+ * A charge inside the UNIT PRICE is multiplied by the quote's price
+ * adjustment. Billed as its OWN LINE it is priced at the governed production
+ * rate and the adjustment never touches it. So the two placements are not two
+ * positions for one amount — they are two different amounts whenever an
+ * adjustment is non-zero, and this quote carries 20%.
  *
- * That is the one thing recovery must never do. `absorbed` opens when a
- * consumer retains the absorbed cost — margin then falls because revenue fell
- * and cost did not, which is what the mode means.
+ * The tripwire that was supposed to catch this used a fixture with
+ * `globalPriceAdjPct: 0`, where the two placements coincide. A fixture that
+ * cannot express the failure reports none — Pattern 60, in the test written to
+ * guard exactly this property.
+ *
+ * ── WHY THE REFUSAL IS UNCONDITIONAL RATHER THAN "WHEN AN ADJUSTMENT APPLIES" ──
+ *
+ * Refusing only at a non-zero adjustment would be correct at election time and
+ * wrong afterwards: an operator elects at 0%, someone later sets 20%, and the
+ * customer's total shifts with nothing reporting it. That is a property holding
+ * CONTINGENTLY, which is the shape this estate has been caught by before
+ * (Pattern 56). It refuses until neutrality is structural.
+ *
+ * What opens it is a business decision, not an implementation: either the
+ * constructor places a recovery so the adjustment treats both positions
+ * identically, or the contract states that `included` is adjustment-bearing
+ * and `separate` is not — in which case the two are NOT revenue-neutral by
+ * design and the model's second mode means something different from what
+ * #366 approved.
+ *
+ * ── AND `absorbed`, FOR ITS OWN REASON ───────────────────────────────────
+ *
+ * `absorbedCost` is read by nothing. The recovery correctly disappears; the
+ * COST disappears with it, so the charge would vanish from cost truth while
+ * DPS still pays it.
  */
-const ABSORB_COST_UNCONSUMED =
-  "Not available yet. Absorbing this charge would drop its cost as well as " +
-  "its revenue, so the quote would stop reflecting money DPS is still " +
-  "paying. It opens once an absorbed charge's cost is retained.";
+const PLACEMENT_NOT_NEUTRAL =
+  "Not available yet. A charge inside the unit price is multiplied by this " +
+  "quote's price adjustment; billed as its own line it is not — so moving it " +
+  "would change what the customer pays. Certified on a live quote at a 20% " +
+  "adjustment: $140 out of the separate line became $168 in the unit price. " +
+  "It opens once the two placements recover the same amount.";
 
-export { ABSORB_COST_UNCONSUMED };
+const ABSORB_COST_UNCONSUMED =
+  // Leads with what absorbing IS, because the card renders this mode beside
+  // the two placements and an operator reading only the refusal would
+  // otherwise take it for a third way of arranging the same money. It is not:
+  // it gives the money up.
+  "Not available yet. Absorbing is not a placement — DPS carries the charge " +
+  "and takes no revenue for it, so margin falls. Today it would also drop " +
+  "the charge's cost as well as its revenue, so the quote would stop " +
+  "reflecting money DPS is still paying. It opens once an absorbed charge's " +
+  "cost is retained.";
+
+export { ABSORB_COST_UNCONSUMED, PLACEMENT_NOT_NEUTRAL };
 
 /**
  * The state a refusal may depend on beyond the charge itself.
@@ -240,13 +268,31 @@ export type ChargeContext = {
 export function contextualRefusal(
   key: RecoveryChargeKey,
   mode: RecoveryMode,
-  _ctx: ChargeContext,
+  ctx: ChargeContext,
 ): string | null {
   // Landed charges have no assembly dimension. Their `absorbed` refusal is the
   // static policy one — freight must be recovered, customs is statutory — and
-  // must not be replaced by this.
+  // must not be replaced by these.
   if (chargePolicy(key).grain !== "one_time") return null;
-  return mode === "absorbed" ? ABSORB_COST_UNCONSUMED : null;
+
+  if (mode === "absorbed") return ABSORB_COST_UNCONSUMED;
+
+  // `PLACEMENT_NOT_NEUTRAL` is LIFTED.
+  //
+  // It was accurate when an elected amortization was priced by the legacy path
+  // — the adjustment reached the fee, so relocating it moved the customer's
+  // total by (recovery x adjustment). The governed precedence removes that:
+  // the ordinary sell is built through its levers and the governed recovery is
+  // added AFTER, so neither the adjustment nor a lift re-prices it.
+  //
+  // Its own words were "It opens once the two placements recover the same
+  // amount." They now do, proven end to end at a non-zero adjustment, under a
+  // surgical lift, and with a terminal override left whole.
+  //
+  // The constant is retained rather than deleted: it is the reason the
+  // precedence exists, and a future change that re-couples the two should
+  // re-refuse rather than reinvent the explanation.
+  return null;
 }
 
 /**

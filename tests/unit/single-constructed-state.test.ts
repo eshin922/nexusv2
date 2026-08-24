@@ -103,8 +103,32 @@ test("elections reach the ENGINE, and only the engine", async () => {
   assert.deepEqual(readers, [
     "src/app/actions/costing.ts", // loads them onto the bundle
     "src/lib/costing-store.ts", // carries them on the snapshot
-    "src/lib/costing.ts", // resolves them into the construction
-  ]);
+    "src/lib/costing.ts", // RESOLVES them into the construction
+    // Reads them to say which mode is currently elected. It resolves nothing
+    // and prices nothing — placement and amounts come from `constructed`,
+    // asserted separately — so this is a label, not a second decision.
+    // Passes the bundle's elections to the workspace read model, which uses
+    // them only to say which mode is currently ELECTED. That model resolves
+    // nothing and prices nothing — placement and amounts come from
+    // `constructed`, asserted separately — so it is a label, not a decision.
+    "src/lib/customer-view-resolver.ts",
+    // The adapter carries them into the input it builds. REQUIRED there, not
+    // optional: it builds the whole `QuoteCostingInput`, so a field it does not
+    // carry is a field the engine never sees — which is exactly how an election
+    // came to persist, read back as elected, and move nothing.
+    "src/lib/costing-adapter.ts",
+    // Substitutes a CANDIDATE election into the engine's input to measure what
+    // that contract would do to the customer's total, then throws the
+    // counterfactual away. It resolves nothing and prices nothing: the answer
+    // comes back from `computeQuoteCosting` and the construction it builds.
+    //
+    // A closed form for the delta would have avoided appearing in this list
+    // and would have been the exact defect the list guards -- the ladder is
+    // not `(1 + gpa)` once a lift, a tier adjustment or a terminal override is
+    // involved, so a formula would be a second authority for the pricing
+    // ladder. Running the engine is what keeps there being one.
+    "src/lib/commercial-recovery/impact.ts",
+  ].sort());
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -126,8 +150,10 @@ test("1+2 · quoteRollup revenue, cost and margin derive from the construction",
   // `constructed.unitPriceCost` was read by nothing at all.
   assert.match(
     src,
-    /allocatedServiceFeesPerUnit =[\s\S]{0,40}?constructed\.unitPriceCost \/ denom : 0;/,
-    "the allocated fee is decided by the boolean again, not by the placement",
+    /allocatedServiceFeesPerUnit =[\s\S]{0,60}?constructed\.unitPriceCostLegacy \/ denom : 0;/,
+    "the allocated fee is decided by the boolean again, or stopped reading the " +
+      "LEGACY bucket — an elected amortization must not come through here, " +
+      "because this feeds the marked-up sell build-up",
   );
   assert.doesNotMatch(
     src,
