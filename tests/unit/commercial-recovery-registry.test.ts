@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
   RECOVERY_CHARGES,
   RECOVERY_MODES,
+  type ChargePolicy,
   assertRegistryCoherent,
   chargePolicy,
   isModeAvailable,
@@ -94,50 +96,93 @@ test("case 8 — duty & tariffs cannot be absorbed", () => {
   );
 });
 
-test("case 9 — artwork & plate cannot be separated", () => {
-  assert.equal(isModeAvailable("artwork_plate", "separate"), false);
-  assert.equal(refusalReason("artwork_plate", "separate"), "Not separately invoiceable");
-  // Absorbed IS allowed here — the denial is separate, not the whole charge.
-  assert.equal(isModeAvailable("artwork_plate", "absorbed"), true);
-});
+// ── The one-time fee CLASS RULE ────────────────────────────────────────
+//
+// Business disposition, Edward 2026-08-24: every charge classified as a
+// one-time fee permits all three recovery treatments, as a class rule rather
+// than a charge-by-charge exception.
+//
+// This supersedes four tests that asserted the previous policy: artwork &
+// plate's "Not separately invoiceable", and the three BV-011 fees plus the
+// legacy combined field having no available modes at all. Those refusals read
+// BV-011's silence as a prohibition; the disposition supplies the policy that
+// was actually missing.
 
-// ── Case 19 · the four BV-011 fees are non-elective ────────────────────
-
-const BV011_FEES: RecoveryChargeKey[] = [
-  "rd_formulation",
-  "testing_micros",
-  "other_service",
-  "tooling_artwork_legacy",
-];
-
-test("case 19 — the four BV-011 fees have no available modes", () => {
-  for (const key of BV011_FEES) {
+test("every one-time fee permits all three treatments, by class", () => {
+  const oneTime = RECOVERY_CHARGES.filter((c) => c.grain === "one_time");
+  assert.ok(oneTime.length >= 7, "the class is not empty");
+  for (const c of oneTime) {
     assert.deepEqual(
-      chargePolicy(key).available,
-      [],
-      `${key} is electable — BV-011 does not authorize recovery policy`,
+      [...c.available].sort(),
+      [...RECOVERY_MODES].sort(),
+      `${c.key} does not carry the class's three treatments`,
     );
-    for (const mode of RECOVERY_MODES) {
-      const reason = refusalReason(key, mode);
-      assert.ok(reason, `${key}/${mode} denied with no reason`);
-      assert.match(
-        reason,
-        /BV-011/,
-        `${key}/${mode} refusal does not cite the governing document`,
-      );
-    }
+    assert.deepEqual(c.refusals, {}, `${c.key} carries a per-charge refusal`);
   }
 });
 
-test("case 19 — the legacy combined field's refusal names why it is structural", () => {
-  // This one is not merely "undecided": the field spans two destinations with
-  // different item types, so no single election can apply. The reason must say
-  // that, and name the migration that would change it.
-  const reason = refusalReason("tooling_artwork_legacy", "included");
-  assert.ok(reason);
-  assert.match(reason, /OTC - Tooling/);
-  assert.match(reason, /OTC - Artwork/);
-  assert.match(reason, /split/i);
+test("a NEW one-time fee inherits all three without a further disposition", () => {
+  // The point of a class rule is that the next charge needs no decision. This
+  // asserts the DERIVATION, not the current seven: a spec authored with no
+  // modes at all must come out of the registry with three.
+  //
+  // Written against the same mapping the registry uses, because asserting the
+  // seven existing charges would pass just as well if `available` were still
+  // seven hand-written literals -- which is the thing being ruled out.
+  const authored = {
+    key: "hypothetical_new_fee" as RecoveryChargeKey,
+    label: "Hypothetical new fee",
+    grain: "one_time" as const,
+    source: ["assembly_production_inputs.hypothetical_total"],
+  };
+  const derived: ChargePolicy =
+    authored.grain === "one_time"
+      ? { ...authored, available: [...RECOVERY_MODES], refusals: {} }
+      : { ...authored, available: [], refusals: {} };
+  assert.deepEqual([...derived.available].sort(), [...RECOVERY_MODES].sort());
+
+  // And no one-time entry may carry its own `available`, which is what would
+  // let a future charge silently opt out of the class.
+  const src = readFileSync(
+    new URL("../../src/lib/commercial-recovery/registry.ts", import.meta.url),
+    "utf8",
+  );
+  const specs = src.slice(src.indexOf("const CHARGE_SPECS"), src.indexOf("];", src.indexOf("const CHARGE_SPECS")));
+  for (const block of specs.split("  {").slice(1)) {
+    if (!block.includes('grain: "one_time"')) continue;
+    assert.ok(
+      !block.includes("available:"),
+      "a one-time fee declares its own modes instead of inheriting the class",
+    );
+  }
+});
+
+test("landed charges keep their own policy — the class rule is not global", () => {
+  // Freight and customs are NOT one-time fees, and their absorbed refusals are
+  // substantive policy rather than an undispositioned gap. A class rule that
+  // leaked into them would quietly permit absorbing a statutory pass-through.
+  assert.equal(isModeAvailable("container_freight", "absorbed"), false);
+  assert.equal(refusalReason("container_freight", "absorbed"), "Policy: freight must be recovered");
+  assert.equal(isModeAvailable("duty_tariffs", "absorbed"), false);
+});
+
+test("absorbed stays refused on the invariant, for the whole class", () => {
+  // The disposition grants absorbed and gates it: "Do not enable Absorbed
+  // merely at the UI if that invariant is not already satisfied end-to-end."
+  // `absorbedCost` is read by nothing, so absorbing would drop the charge's
+  // cost along with its revenue.
+  //
+  // Policy permits it (registry); the system does not yet do it (resolve). The
+  // refusal is class-wide and cites the invariant, not the charge.
+  for (const c of RECOVERY_CHARGES.filter((x) => x.grain === "one_time")) {
+    assert.ok(
+      c.available.includes("absorbed"),
+      `${c.key} — policy must permit absorbed`,
+    );
+    const reason = refusalFor(c.key, "absorbed", { perAssemblyAllocate: true });
+    assert.ok(reason, `${c.key} — absorbed reached an operator with the cost unconsumed`);
+    assert.match(reason, /cost is retained/, `${c.key} — refusal does not name the invariant`);
+  }
 });
 
 test("case 19 — per-unit COGS is not addressable as a charge at all", () => {
@@ -164,11 +209,14 @@ test("case 11 — resolution refuses a prohibited election with the governed rea
     "an absorbed freight election was honoured",
   );
 
-  for (const key of BV011_FEES) {
+  // One-time fees now accept `included` and `separate` per the class rule, and
+  // still refuse `absorbed` on the cost-retention invariant. Resolution is the
+  // boundary; the surface refusing is not enough.
+  for (const c of RECOVERY_CHARGES.filter((x) => x.grain === "one_time")) {
     assert.throws(
-      () => resolveCharge(key, { chargeKey: key, mode: "included" }, true),
+      () => resolveCharge(c.key, { chargeKey: c.key, mode: "absorbed" }, true),
       RecoveryPolicyError,
-      `${key} accepted an election despite being non-elective`,
+      `${c.key} accepted an absorbed election with the cost unconsumed`,
     );
   }
 });
@@ -276,7 +324,13 @@ test("case 22 — electing one charge does not move any sibling", () => {
   const elected = resolveCharge("tooling", { chargeKey: "tooling", mode: "separate" }, allocate);
   assert.equal(elected.source, "election");
 
-  for (const key of BV011_FEES) {
+  const siblings: RecoveryChargeKey[] = [
+    "rd_formulation",
+    "testing_micros",
+    "other_service",
+    "tooling_artwork_legacy",
+  ];
+  for (const key of siblings) {
     const sibling = resolveCharge(key, null, allocate);
     assert.equal(sibling.mode, "separate", `${key} moved when tooling was elected`);
     assert.equal(sibling.source, "legacy");

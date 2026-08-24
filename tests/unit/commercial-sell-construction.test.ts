@@ -213,10 +213,16 @@ test("absorbing an unknown recovery is still a KNOWN zero contribution", () => {
 test("the constructor refuses an election policy denies", () => {
   // It does not re-implement the refusal; resolution raises it. The surface
   // refuses too, but the surface is not the boundary.
+  //
+  // `included` on a one-time fee USED to be the denied case. The class rule
+  // (Edward, 2026-08-24) permits it, so this now uses the refusal that is still
+  // live: absorbed, held on the cost-retention invariant. A test whose denied
+  // case has since been permitted proves nothing about refusal -- it passes by
+  // asserting an exception that policy no longer raises.
   assert.throws(() =>
     constructCommercial(
       [{ chargeKey: "rd_formulation", cost: 100, recoverableSell: 130 }],
-      [elect("rd_formulation", "included")],
+      [elect("rd_formulation", "absorbed")],
       true,
     ),
   );

@@ -173,17 +173,40 @@ test("every mode is returned with a verdict — none omitted", () => {
   }
 });
 
-test("the four BV-011 charges offer nothing, and say why", () => {
+test("every one-time fee row is active, with absorbed refused on the invariant", () => {
+  // Supersedes "the four BV-011 charges offer nothing, and say why". The
+  // one-time fee class rule (Edward, 2026-08-24) grants all three treatments;
+  // BV-011's silence was never a refusal.
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
     isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true],
   });
-  for (const key of ["rd_formulation", "testing_micros", "other_service", "tooling_artwork_legacy"]) {
+  const oneTime = [
+    "tooling",
+    "project_setup",
+    "artwork_plate",
+    "rd_formulation",
+    "testing_micros",
+    "other_service",
+    "tooling_artwork_legacy",
+  ];
+  for (const key of oneTime) {
     const r = rows.find((x) => x.chargeKey === key)!;
-    assert.equal(r.options.every((o) => !o.available), true, `${key} is electable`);
-    for (const o of r.options) assert.match(o.reason ?? "", /BV-011|Legacy combined/);
+    const usable = r.options.filter((o) => o.available).map((o) => o.mode);
+    assert.deepEqual(
+      [...usable].sort(),
+      ["included", "separate"],
+      `${key} — the row must offer the two treatments the system performs`,
+    );
+    // Absorbed is permitted by policy and refused by the invariant, and the
+    // operator is told which. A row that simply omitted it would read as a
+    // charge that cannot be absorbed at all.
+    const absorbed = r.options.find((o) => o.mode === "absorbed")!;
+    assert.equal(absorbed.available, false);
+    assert.match(absorbed.reason ?? "", /cost is retained/);
+    assert.doesNotMatch(absorbed.reason ?? "", /BV-011/, `${key} still cites a lifted refusal`);
   }
 });
 
