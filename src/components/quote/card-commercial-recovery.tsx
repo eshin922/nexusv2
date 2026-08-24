@@ -34,21 +34,31 @@
  * through the same `refusalFor`, so the surface cannot offer what the boundary
  * would refuse.
  *
- * ── THE MEASURED IMPACT STAYS ───────────────────────────────────────────
+ * ── PICKING ELECTS. THERE IS NO CONFIRMATION STEP ───────────────────────
  *
- * Electing is a commercial act and its effect on the customer's total is
- * measured before it is committed, by running the engine on the real input with
- * the candidate election substituted. That is certified and is kept — the
- * authority does not describe it, and it does not contradict anything the
- * authority does describe.
+ * The reference:
+ *
+ *     pick: permitted && !s.frozen ? () => this.setRecovery(c.id, o.id) : () => {}
+ *
+ * Immediate. The README says the same: *"Picking a permitted option sets that
+ * charge's recovery mode."*
+ *
+ * An earlier version made this a two-step measure-then-confirm, to show the
+ * customer-total delta before committing. That came from the superseded R5-era
+ * framing, when this card lived alone at the bottom of a page and the operator
+ * could not see what it changed.
+ *
+ * In this composition they can. The document is beside the control, the
+ * margin-after-recovery cards are beneath it, and both re-render on the pick —
+ * so the artifact IS the confirmation, and a modal restating it is a dialog in
+ * front of the answer. That is the whole reason the surface is two panes.
+ *
+ * `measureRecoveryImpact` stays as a certified library. It is no longer a gate
+ * on this control.
  */
 
 import { useState, useTransition } from "react";
-import {
-  previewChargeRecovery,
-  setChargeRecovery,
-} from "@/app/actions/commercial-recovery";
-import type { RecoveryImpact } from "@/lib/commercial-recovery/impact";
+import { setChargeRecovery } from "@/app/actions/commercial-recovery";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { RecoveryMode } from "@/lib/commercial-recovery/registry";
 import type { QuotePerTierRollup } from "@/lib/costing";
@@ -97,41 +107,24 @@ export function CardCommercialRecovery({
 }) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [proposed, setProposed] = useState<{
-    chargeKey: string;
-    mode: RecoveryMode | null;
-    impact: RecoveryImpact | null;
-  } | null>(null);
   const [, startTransition] = useTransition();
 
   const present = rows.filter((r) => r.present);
 
-  function post(
-    chargeKey: string,
-    mode: RecoveryMode | null,
-    commit: boolean,
-  ) {
+  /** Picking elects. The document and the margin cards are the confirmation. */
+  function pick(chargeKey: string, mode: RecoveryMode) {
     setError(null);
-    setProposed(null);
     setPendingKey(chargeKey);
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("chargeKey", chargeKey);
-    fd.set("mode", mode ?? "");
+    fd.set("mode", mode);
     startTransition(async () => {
-      const res = commit
-        ? await setChargeRecovery(fd)
-        : await previewChargeRecovery(fd);
+      const res = await setChargeRecovery(fd);
       setPendingKey(null);
-      if (!res.ok) {
-        // The governed reason, verbatim. The surface refuses too, but the
-        // surface is not the boundary — this is what the boundary said.
-        setError(res.error.message);
-        return;
-      }
-      if (!commit) {
-        setProposed({ chargeKey, mode, impact: res.data as RecoveryImpact | null });
-      }
+      // The governed reason, verbatim. The surface refuses too, but the surface
+      // is not the boundary — this is what the boundary said.
+      if (!res.ok) setError(res.error.message);
     });
   }
 
@@ -186,11 +179,22 @@ export function CardCommercialRecovery({
               </div>
               <div className="cv-charge-policy">
                 policy: {allowed.length ? allowed.join(" / ") : "none available"} · cost governed
+                {/* Provenance is a caption, never the selected state. A quote
+                    that inherited its treatment still HAS that treatment. */}
+                {row.mixed
+                  ? " · placed more than one way"
+                  : row.effectiveMode === null
+                    ? ""
+                    : row.source === "legacy"
+                      ? " · inherited"
+                      : " · elected"}
               </div>
               <div className="cv-opts">
                 {row.options.map((opt) => {
-                  const active =
-                    row.source === "election" && row.electedMode === opt.mode;
+                  // The treatment IN FORCE, whatever put it there. Reading this
+                  // off `electedMode` meant a quote with no election row showed
+                  // every option unselected while unambiguously carrying one.
+                  const active = row.effectiveMode === opt.mode;
                   return (
                     <button
                       key={opt.mode}
@@ -204,7 +208,7 @@ export function CardCommercialRecovery({
                       }
                       data-testid={`recovery-${row.chargeKey}-${opt.mode}`}
                       data-available={opt.available ? "yes" : "no"}
-                      onClick={() => post(row.chargeKey, opt.mode, false)}
+                      onClick={() => pick(row.chargeKey, opt.mode)}
                     >
                       {MODE_LABEL[opt.mode]}
                     </button>
@@ -212,30 +216,6 @@ export function CardCommercialRecovery({
                 })}
               </div>
 
-              {proposed?.chargeKey === row.chargeKey && proposed.impact && (
-                <div className="cv-note" data-testid={`recovery-confirm-${row.chargeKey}`}
-                     style={{ marginTop: 8 }}>
-                  <div style={{ fontWeight: 500, color: "var(--ink)" }}>
-                    {proposed.mode === null
-                      ? "Restore the inherited treatment"
-                      : MODE_LABEL[proposed.mode]}
-                  </div>
-                  <div data-testid={`recovery-impact-${row.chargeKey}`}>
-                    Customer total {usd(proposed.impact.customerTotalBefore)} →{" "}
-                    {usd(proposed.impact.customerTotalAfter)}
-                    {Math.round(proposed.impact.customerTotalAfter) ===
-                      Math.round(proposed.impact.customerTotalBefore) && " — unchanged"}
-                  </div>
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                    <button type="button" disabled={!editable || busy}
-                            data-testid={`recovery-commit-${row.chargeKey}`}
-                            onClick={() => post(row.chargeKey, proposed.mode, true)}>
-                      Confirm
-                    </button>
-                    <button type="button" onClick={() => setProposed(null)}>Cancel</button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })

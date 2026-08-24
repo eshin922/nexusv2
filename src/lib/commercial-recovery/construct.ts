@@ -43,7 +43,7 @@
  * addends and therefore the identical float. Bit-for-bit, by construction.
  */
 
-import type { RecoveryChargeKey } from "./registry";
+import type { RecoveryChargeKey, RecoveryMode } from "./registry";
 import type { ChargeElection } from "./resolve";
 import { resolveCharge } from "./resolve";
 
@@ -260,11 +260,22 @@ export type ConstructedCommercialState = {
   unitPriceRecoveryElected: number | null;
 };
 
-const PLACEMENT_BY_MODE = {
+export const PLACEMENT_BY_MODE = {
   included: "unit_price",
   separate: "separate_line",
   absorbed: "absorbed",
 } as const;
+
+/**
+ * The inverse — what treatment a placement IS.
+ *
+ * Derived from the map above rather than written out a second time. A second
+ * literal is a second authority, and the two would agree right up until someone
+ * added a mode to one of them.
+ */
+export const MODE_BY_PLACEMENT = Object.fromEntries(
+  Object.entries(PLACEMENT_BY_MODE).map(([mode, placement]) => [placement, mode]),
+) as Record<ChargePlacement, RecoveryMode>;
 
 /**
  * ── WHY PLACEMENT AND COMPOSITION ARE SEPARATE FUNCTIONS ─────────────────

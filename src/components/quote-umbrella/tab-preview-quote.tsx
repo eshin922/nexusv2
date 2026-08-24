@@ -104,7 +104,20 @@ export function TabPreviewQuote({
           lifecycle position (Preview on an already-accepted quote
           pointed backward). Helper handles complete-state null +
           all four lifecycle positions uniformly across all 5 tabs. */}
-      {(() => {
+      {/* ── ONE ACT, NOT TWO ────────────────────────────────────────────
+          The restored composition puts the act in the rail's pinned footer —
+          "Bottom-right: the act". A page-level advance bar underneath it is a
+          second send-shaped control for the same step, and the operator
+          reported exactly that: two send buttons.
+
+          So on the restored surface the rail footer owns it. The legacy path
+          keeps the bar, because there the rail does not exist and it is the
+          only way forward.
+
+          It is also what sat below the workspace contributing to the page
+          overflow — removing it is a composition fix that happens to help the
+          measurement, not a fix aimed at the measurement. */}
+      {!presentationRestored && (() => {
         const adv = computeUmbrellaAdvance("preview", quoteStatus);
         return (
           <AdvanceBar

@@ -319,7 +319,11 @@ export default async function CustomerViewPage({
       `[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
     );
     return (
-      <>
+      // The viewport the umbrella shell sizes against. The chrome takes its
+      // natural height; `.r8-shell` grows into what remains. Before this, the
+      // shell claimed a full viewport of its own beneath the chrome and every
+      // sub-tab overflowed the page by the chrome's height.
+      <div className="r8-viewport">
         <div style={{ padding: "16px 24px 0" }}>
           <SurfaceChrome
             surfaceKey="customer_view"
@@ -366,7 +370,7 @@ export default async function CustomerViewPage({
           projectId={project.id}
           versionChain={versionChain}
         />
-      </>
+      </div>
     );
   } catch (e) {
     console.error(`[quote:${tag}] FAIL ${elapsed()} memory=${heapMb()}MB`, e);

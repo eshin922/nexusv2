@@ -218,6 +218,122 @@ test("an election is distinguishable from the legacy fall-through", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// THE SELECTED SEGMENT IS THE TREATMENT IN FORCE, NOT THE ELECTION.
+//
+// Operator finding, 2026-08-24: Card 1 rendered every permitted option
+// unselected on a quote that unambiguously had a recovery treatment in force.
+// The control read `electedMode`, so it was really answering "has someone
+// clicked here?" while looking like it answered "what is this quote doing?"
+//
+// No election row is not no treatment. The legacy contract resolves to a real
+// placement, the engine prices it, and the customer document prints it — the
+// only thing missing was a row recording who chose it.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("an inherited treatment selects its segment, with no election row", () => {
+  const inherited = (allocate: boolean) =>
+    buildRecoveryWorkspace({
+      costing: costingWith([{ allocate, tierId: "t1" }], 0.4),
+      isLeaf: ownsCharges,
+      elections: [],
+      allocationStates: [allocate],
+    }).find((r) => r.chargeKey === "project_setup")!;
+
+  const allocated = inherited(true);
+  assert.equal(allocated.source, "legacy", "nothing was elected");
+  assert.equal(allocated.electedMode, null);
+  assert.equal(
+    allocated.effectiveMode,
+    "included",
+    "the quote amortizes this charge — the segment saying so must be selected",
+  );
+
+  const separate = inherited(false);
+  assert.equal(separate.source, "legacy");
+  assert.equal(separate.electedMode, null);
+  assert.equal(separate.effectiveMode, "separate");
+
+  // The two disagree, which is the point: a single hard-coded default would
+  // have passed one of these and quietly misreported the other.
+  assert.notEqual(allocated.effectiveMode, separate.effectiveMode);
+});
+
+test("electing moves the selection; clearing returns it to the inherited one", () => {
+  const rows = (elections: { chargeKey: "project_setup"; mode: "included" }[]) =>
+    buildRecoveryWorkspace({
+      // The construction sees the same elections the workspace does — the
+      // treatment in force IS the constructed placement.
+      costing: costingWith([{ allocate: false, tierId: "t1" }], 0.4, elections),
+      isLeaf: ownsCharges,
+      elections,
+      allocationStates: [false],
+    }).find((r) => r.chargeKey === "project_setup")!;
+
+  const before = rows([]);
+  assert.equal(before.effectiveMode, "separate", "inherited");
+  assert.equal(before.source, "legacy");
+
+  const elected = rows([{ chargeKey: "project_setup", mode: "included" }]);
+  assert.equal(elected.effectiveMode, "included", "the election moves it");
+  assert.equal(elected.source, "election");
+
+  // Clearing is the absence of the row, not a fourth mode. The selection must
+  // fall back to what the inherited contract resolves to — NOT to nothing.
+  const cleared = rows([]);
+  assert.equal(cleared.effectiveMode, "separate");
+  assert.equal(cleared.source, "legacy");
+  assert.equal(cleared.electedMode, null);
+});
+
+test("no single treatment in force selects nothing — none is invented", () => {
+  // Placed two ways across the quote: no segment can honestly claim to be the
+  // treatment, so none is selected and the caption says why.
+  const mixed = buildRecoveryWorkspace({
+    costing: costingWith(
+      [{ allocate: true, tierId: "t1" }, { allocate: false, tierId: "t2" }],
+      0.4,
+    ),
+    isLeaf: ownsCharges,
+    elections: [],
+    allocationStates: [true, false],
+  }).find((r) => r.chargeKey === "project_setup")!;
+  assert.equal(mixed.mixed, true);
+  assert.equal(mixed.effectiveMode, null);
+
+  // A charge the quote does not carry has no treatment either — filling the
+  // control here would state a commercial fact nothing governs.
+  const absent = buildRecoveryWorkspace({
+    costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
+    elections: [],
+    allocationStates: [true],
+  }).find((r) => r.chargeKey === "container_freight")!;
+  assert.equal(absent.present, false);
+  assert.equal(absent.effectiveMode, null);
+});
+
+test("Card 1 reads the treatment in force, not the election row", async () => {
+  const card = await readFile(
+    new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
+    "utf8",
+  ).then((t) =>
+    // Strip comments first: a prose mention is not a use, and matching one
+    // as though it were has produced four false results in this workstream.
+    t
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(new RegExp("//[^" + String.fromCharCode(10) + "]*", "g"), ""),
+  );
+  assert.match(card, /const active = row\.effectiveMode === opt\.mode/);
+  assert.doesNotMatch(
+    card,
+    /row\.source === "election" && row\.electedMode/,
+    "provenance must not decide the selected state",
+  );
+  // Provenance is still SHOWN — it just is not the selection.
+  assert.match(card, /inherited/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 // UNKNOWN RECOVERY IS NOT ZERO.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -334,7 +450,14 @@ test("Commercial recovery is ON this surface, and it is card 1", async () => {
   const card = codeOnly(await read(CARD1));
   // The election writer lives here now — the inverse of what R5 asserted.
   assert.match(card, /setChargeRecovery/);
-  assert.match(card, /previewChargeRecovery/);
+
+  // And picking ELECTS. The reference is immediate:
+  //   pick: permitted && !s.frozen ? () => this.setRecovery(c.id, o.id) : ...
+  // A measure-then-confirm step put a dialog in front of the answer, on a
+  // surface whose entire point is that the answer is visible beside the
+  // control.
+  assert.doesNotMatch(card, /previewChargeRecovery/);
+  assert.doesNotMatch(card, /Confirm/);
 
   const raw = await read(CARD1);
   // Header sub-line, verbatim from the reference of record.
@@ -445,10 +568,25 @@ test("the document keeps the PDF iframe — no second renderer", async () => {
   assert.doesNotMatch(host, /transform: scale/);
 });
 
-test("the rail is the authority's width and never compresses", async () => {
+test("the rail stays beside the document at every width", async () => {
   const css = await read("src/styles/r3-customer-view.css");
-  assert.match(css, /\.cv-rail \{[\s\S]{0,200}width: 452px/);
-  assert.match(css, /\.cv-rail \{[\s\S]{0,200}flex: none/);
+
+  // `flex: none` and a width inside the authority's own railWidth range
+  // (380–560, default 452). Narrowing within that range is authorised; going
+  // below 380 is not.
+  assert.match(css, /\.cv-rail \{[\s\S]{0,260}flex: none/);
+  assert.match(css, /clamp\(380px, [^,]+, 452px\)/);
+
+  // And NO stacking breakpoint. The authority's body is `display: flex` with a
+  // `flex: none` rail — it never stacks. A media query that moves the rail
+  // under the document destroys the relationship the composition is built on,
+  // exactly when space is tight and it matters most.
+  assert.doesNotMatch(
+    css,
+    /@media[^{]*\{[\s\S]*?\.cv-body\s*\{[^}]*display:\s*block/,
+    "a breakpoint stacks the rail under the document again",
+  );
+  assert.doesNotMatch(css, /\.cv-rail \{[^}]*width: 100%/);
 });
 
 test("the gate stays while visual fidelity is unapproved", async () => {
@@ -490,6 +628,43 @@ test("the workspace height is derived from the shell, not assumed", async () => 
   assert.match(host, /getBoundingClientRect\(\)\.top/);
   assert.match(host, /setProperty\("--cv-avail"/);
   assert.match(host, /addEventListener\("resize"/);
+});
+
+test("the umbrella shell is sized by its container, not by the viewport", async () => {
+  // The defect this pins is arithmetic, not taste. `.r8-shell` sits beneath the
+  // surface chrome, so a `100vh` claim here means the document is 100vh PLUS the
+  // chrome — every sub-tab overflows by exactly the chrome's height whatever it
+  // contains. Upstream is not wrong; upstream renders this element as the
+  // document root, where the claim and the viewport are the same box.
+  const css = await readFile(
+    new URL("../../src/styles/r8-quote-umbrella.css", import.meta.url),
+    "utf8",
+  );
+  const shell = css.slice(css.indexOf(".r8-shell {"));
+  const decl = shell.slice(0, shell.indexOf("}"));
+  assert.doesNotMatch(
+    decl,
+    /min-height:\s*100[sd]?vh/,
+    ".r8-shell must not claim a viewport it does not start at",
+  );
+  assert.match(decl, /flex:\s*1 0 auto/, "grow into what the chrome leaves");
+
+  // And the container that supplies the height actually wraps it. Sizing from a
+  // parent that is not a flex column is sizing from nothing.
+  assert.match(css, /\.r8-viewport \{[^}]*min-height:\s*100vh/);
+  assert.match(css, /\.r8-viewport \{[^}]*flex-direction:\s*column/);
+  const page = await readFile(
+    new URL(
+      "../../src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(page, /className="r8-viewport"/);
+
+  // No constant. A subtraction here would have to be re-derived every time the
+  // chrome above changes, and nothing would report that it had gone stale.
+  assert.doesNotMatch(css, /calc\(100vh\s*-\s*\d/);
 });
 
 test("Card 0 states the absence rather than substituting a tier", async () => {

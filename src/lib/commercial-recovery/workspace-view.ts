@@ -56,7 +56,11 @@ import {
 } from "./registry";
 import { RECOVERY_MODES } from "./registry";
 import { refusalFor, type ChargeElection } from "./resolve";
-import { ownedPlacedCharges, type ConstructedRollups } from "./construct";
+import {
+  MODE_BY_PLACEMENT,
+  ownedPlacedCharges,
+  type ConstructedRollups,
+} from "./construct";
 import type { ChargePlacement, PlacedCharge } from "./construct";
 
 export type ChargeModeOption = {
@@ -79,6 +83,24 @@ export type RecoveryChargeRow = {
   /** The stored election, or null when resolution fell through to legacy. */
   electedMode: RecoveryMode | null;
   source: "election" | "legacy";
+  /**
+   * The treatment IN FORCE — read off the construction, so it is the same
+   * whether an operator elected it or the quote inherited it.
+   *
+   * ── WHY THIS IS NOT `electedMode` ───────────────────────────────────────
+   *
+   * A quote with no election row still has a real recovery treatment: the
+   * legacy contract resolves to one, the engine prices it, and the customer
+   * document prints it. Reading the selected state off `electedMode` conflated
+   * *no election* with *no treatment*, so the surface showed every option
+   * unselected on a quote that unambiguously had one in force.
+   *
+   * Null in exactly two cases, and neither is invented to fill the control:
+   *   - the quote does not carry the charge;
+   *   - it carries it more than one way (`mixed`), so no single treatment is
+   *     in force and no segment can honestly claim to be it.
+   */
+  effectiveMode: RecoveryMode | null;
   /** Summed straight off the constructed state. Never recomputed. */
   totalCost: number;
   /** Null when any instance's recovery is unknown — see BV-013. */
@@ -161,6 +183,10 @@ export function buildRecoveryWorkspace(input: {
       mixed: placements.length > 1,
       electedMode: elected,
       source: elected === null ? "legacy" : "election",
+      // Derived from the construction, never from the election: one authority
+      // for what is in force, whatever put it there.
+      effectiveMode:
+        placements.length === 1 ? MODE_BY_PLACEMENT[placements[0]] : null,
       totalCost,
       totalRecovery,
       options,
