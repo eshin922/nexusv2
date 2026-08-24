@@ -17,6 +17,8 @@
 // QuoteHost with all its chrome intact → light Advance bar.
 
 import { QuoteHost } from "@/components/quote/quote-host";
+import { RecoveryCard } from "./recovery-card";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { VersionRow } from "@/lib/quote-version-chain";
@@ -37,10 +39,21 @@ export function TabPreviewQuote({
   projectId,
   versionChain,
   onGo,
+  recoveryRows,
+  recoverySupersessionWarning,
 }: {
   view: CustomerView;
   quoteId: string;
   quoteStatus: string;
+  /**
+   * Recovery workspace rows, built from the SAME bundle read the preview
+   * renders from. Passed down rather than loaded here so the surface and the
+   * document cannot disagree about a charge.
+   */
+  recoveryRows: RecoveryChargeRow[];
+  /** Set when an economics-changing election would supersede a live
+   * authorization. A prediction of the existing mechanism, never a second one. */
+  recoverySupersessionWarning: string | null;
   /** Slice 12 Step 7c review-fix — PM-facing DB quote_number, per
    * quote-umbrella.tsx prop docs. Post-Revise the DB has the number
    * but view.quote.quoteNumber is masked to null (Pattern 45 boundary
@@ -74,6 +87,15 @@ export function TabPreviewQuote({
         internalNotes={internalNotes}
         addendumData={addendumData}
         isHubspotLinked={isHubspotLinked}
+      />
+      {/* The recovery workspace. Draft-locked: elections are a Pattern 52
+          freeze-list entry, so a sent quote renders read-only rather than
+          being turned away. */}
+      <RecoveryCard
+        quoteId={quoteId}
+        rows={recoveryRows}
+        editable={quoteStatus === "draft"}
+        supersessionWarning={recoverySupersessionWarning}
       />
       {/* Slice 12 Step 9 CB P6 pattern-fix — advance target derived
           from quoteStatus via computeUmbrellaAdvance, not hardcoded.

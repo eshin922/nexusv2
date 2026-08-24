@@ -19,6 +19,7 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { ReviewEventRow } from "@/lib/quote-review-events";
 import type { SentSnapshotRow } from "@/lib/quote-snapshots";
@@ -48,6 +49,8 @@ export function QuoteUmbrella({
   quoteSentAtDb,
   customerAcceptedTierIdDb,
   quoteRollup,
+  recoveryRows,
+  recoverySupersessionWarning,
   acceptancePrefill,
   hubspotAcceptStageLabel,
   hubspotAcceptSyncSuppressed = false,
@@ -108,6 +111,10 @@ export function QuoteUmbrella({
   /** Slice 12 Step 8a — per-tier rollup for the acceptance sub-tab's
    * tier chips (turnkey + margin + status). PM-facing only. */
   quoteRollup: QuotePerTierRollup[];
+  /** Recovery workspace rows, from the same bundle read as `view`. */
+  recoveryRows: RecoveryChargeRow[];
+  /** Prediction of the existing authorization-supersession mechanism. */
+  recoverySupersessionWarning: string | null;
   /** Slice 12 Step 8a — server-side prefill for the acceptance
    * transcription textarea. See getLatestRespondedEventForPrefill. */
   acceptancePrefill: {
@@ -295,6 +302,8 @@ export function QuoteUmbrella({
               projectId={projectId}
               versionChain={versionChain}
               onGo={onGo}
+              recoveryRows={recoveryRows}
+              recoverySupersessionWarning={recoverySupersessionWarning}
             />
           )}
           {activeTab === "send" && (

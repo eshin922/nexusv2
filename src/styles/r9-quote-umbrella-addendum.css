@@ -456,3 +456,86 @@
   .r9-so-meta .cell:first-child { border-top: none; }
   .r9-so-trow .v { min-width: 88px; }
 }
+
+
+/* ─── RECOVERY WORKSPACE ─────────────────────────────────────
+   Charge recovery lives inside the canonical `.r8-card` shell rather than a
+   new container: it is a card on the Quote surface like the others, and a
+   parallel box would say it is a different KIND of thing.
+
+   Only the parts with no existing vocabulary are defined here — the row, its
+   mode buttons, and the refusal text. Everything is token-driven, so the
+   surface follows the viewer's theme rather than pinning a palette. */
+
+.r9-recovery-title {
+  font: 600 13px/1.3 var(--sans);
+  letter-spacing: 0.02em;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+.r9-recovery-note {
+  font: 400 12px/1.5 var(--sans);
+  color: var(--ink-3);
+  margin: 0 0 12px;
+}
+
+/* A refusal an operator cannot see is a refusal that teaches nothing. */
+.r9-recovery-warn {
+  font: 500 12px/1.45 var(--sans);
+  color: var(--warn, #92400e);
+  background: var(--warn-soft, #fff4e5);
+  border: 1px solid var(--warn, #d97706);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+}
+
+.r9-recovery-list { list-style: none; margin: 0; padding: 0; }
+.r9-recovery-row { padding: 10px 0; border-top: 1px solid var(--rule); }
+.r9-recovery-row:first-child { border-top: none; }
+
+.r9-recovery-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+}
+.r9-recovery-label { font: 600 12px/1.3 var(--sans); color: var(--ink); }
+.r9-recovery-amounts {
+  font: 400 11px/1.3 var(--mono);
+  color: var(--ink-2);
+  /* Digits line up between rows so amounts can be compared by eye. */
+  font-variant-numeric: tabular-nums;
+}
+.r9-recovery-state {
+  font: 400 11px/1.4 var(--sans);
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.r9-recovery-modes {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
+  margin-top: 8px;
+}
+.r9-recovery-mode { display: flex; flex-direction: column; gap: 3px; max-width: 260px; }
+.r9-recovery-mode button,
+.r9-recovery-modes > button {
+  font: 500 11px/1 var(--sans);
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.r9-recovery-mode button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft, var(--paper-2));
+}
+/* Refused, not absent: still rendered, visibly inert, reason alongside. */
+.r9-recovery-mode button:disabled,
+.r9-recovery-modes > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.r9-recovery-reason {
+  font: 400 10px/1.35 var(--sans);
+  color: var(--ink-3);
+}

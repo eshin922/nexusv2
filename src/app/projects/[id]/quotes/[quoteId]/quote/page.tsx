@@ -16,6 +16,7 @@ import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
 import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
+import { loadRecoverySupersessionWarning } from "@/lib/commercial-recovery/workspace-loader";
 import { db } from "@/db";
 import { auditLog, firmSettings } from "@/db/schema";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -118,7 +119,8 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote, quoteRollup } = result;
+    const { view, addendumData, project, quote, quoteRollup, recoveryRows } =
+      result;
     if (project.id !== projectId) notFound();
 
     // Slice 12 Step 4 — sibling quote versions for the Preview
@@ -232,6 +234,17 @@ export default async function CustomerViewPage({
         ? await loadSalesOrderPreflight(quote.id, project.id)
         : null;
 
+    // The recovery workspace's supersession prediction. Reads the SAME
+    // `quoteRollup` the surface renders from — a second costing read would be
+    // a second opinion about the economics, which is the error this seam
+    // exists to remove. Costs one query, and returns null immediately when the
+    // quote holds no authorizations at all.
+    const recoverySupersessionWarning = await loadRecoverySupersessionWarning({
+      quoteId: quote.id,
+      quoteVersionNumber: quote.versionNumber,
+      quoteRollup,
+    });
+
     // Slice 12 Step 8c-4 — quote row mirror of the latest push. Same
     // fields as the preflight's latestPush but sourced from the quote
     // (fast; no netsuite_so_pushes join needed on every render). Both
@@ -309,6 +322,8 @@ export default async function CustomerViewPage({
           quoteSentAtDb={quote.sentAt}
           customerAcceptedTierIdDb={quote.customerAcceptedTierId}
           quoteRollup={quoteRollup}
+          recoveryRows={recoveryRows}
+          recoverySupersessionWarning={recoverySupersessionWarning}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           hubspotAcceptSyncSuppressed={isHubspotAcceptSyncSuppressed()}
