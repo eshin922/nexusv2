@@ -206,9 +206,16 @@ Recorded here rather than left in conversation, because "the tests are green"
 is the sentence that would otherwise become "it is approved".
 
 ```
-STRUCTURAL_FIDELITY: VERIFIED     tests + verify:ci
-VISUAL_FIDELITY:     PENDING      awaiting operator inspection
+COMPOSITION_FIDELITY: VERIFIED    four cards + footer, correct order and location
+VISUAL_FIDELITY:      PENDING     density, state grammar, typography, card treatments
+FUNCTIONAL_FIDELITY:  PENDING     Card 2 / Card 3 presentation-profile capability
 ```
+
+Three properties, because the operator comparison against the reference of
+record showed they fail independently. Composition was verified and the surface
+still diverged materially: an information architecture in the right order is
+not the same as the design, and the authority ships a reference-of-record
+visual precisely so geometry is evidence rather than interpretation.
 
 **These are different properties and only one of them is automated.** The
 structural checks assert that the authority's requirements are implemented —
