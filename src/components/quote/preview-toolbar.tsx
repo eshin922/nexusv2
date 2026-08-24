@@ -47,7 +47,9 @@ export function PreviewToolbar({
   customerFacingNotes,
   internalNotes,
   notesOpen,
+  onOpenNotes,
   onCloseNotes,
+  showNotesButton,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -63,7 +65,10 @@ export function PreviewToolbar({
   internalNotes: string | null;
   /** Owned by QuoteHost so the Presentation panel's Voice group can open it. */
   notesOpen: boolean;
+  onOpenNotes: () => void;
   onCloseNotes: () => void;
+  /** LEGACY — the restored layout puts this in the panel's Voice group. */
+  showNotesButton: boolean;
 }) {
   // Slice 11 Step 6 FU — sent quotes render the immutable snapshot;
   // the layout toggle would change the iframe URL but the resolver
@@ -116,6 +121,16 @@ export function PreviewToolbar({
         </span>
       </div>
       <div className="right">
+        {showNotesButton && quoteStatus === "draft" && (
+          <button
+            type="button"
+            className="btn sm"
+            title="Edit customer-facing notes inline. Internal notes stay on Setup."
+            onClick={onOpenNotes}
+          >
+            ✎ Edit notes
+          </button>
+        )}
         <button
           type="button"
           className="btn sm"

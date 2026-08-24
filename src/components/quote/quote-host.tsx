@@ -71,6 +71,7 @@ export function QuoteHost({
   quoteId,
   quoteStatus,
   recoveryInstructions,
+  presentationRestored,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -80,6 +81,18 @@ export function QuoteHost({
   quoteStatus: string;
   /** Projected from the same construction the send transaction freezes. */
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
+  /**
+   * Render the authority's document-plus-panel layout.
+   *
+   * TEMPORARY, and admin-derived at the page. The restored layout changes
+   * the operator-facing shape of this surface, and structural tests are
+   * necessary but not sufficient for that — so it reaches production where
+   * it can be reviewed with a real session, without reaching operators
+   * before it has been. Removing this flag deletes every `!presentationRestored`
+   * branch below; it is not a role boundary and must not become one (the
+   * authority's Q6 says the panel is any-PM).
+   */
+  presentationRestored: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   /** Slice 11 Step 8 Gate-0 hotfix — when false, the deal has no
@@ -132,8 +145,12 @@ export function QuoteHost({
 
   return (
     <div className="r3-shared">
-      <div className="preview-chrome qp-workspace">
-        <div className="qp-doc">
+      <div
+        className={
+          presentationRestored ? "preview-chrome qp-workspace" : "preview-chrome"
+        }
+      >
+        <div className={presentationRestored ? "qp-doc" : undefined}>
         {showLinkageWarning && (
           <div
             role="alert"
@@ -167,10 +184,69 @@ export function QuoteHost({
           customerFacingNotes={view.quote.customerFacingNotes}
           internalNotes={internalNotes}
           notesOpen={notesOpen}
+          onOpenNotes={() => setNotesOpen(true)}
           onCloseNotes={() => setNotesOpen(false)}
+          showNotesButton={!presentationRestored}
         />
 
         <BoundaryGuardNotice />
+
+        {/* LEGACY control row — deleted with the flag. The authority moves
+            these into the Presentation panel: "controls become a panel beside
+            it". Kept only so operators are not shown an unreviewed layout. */}
+        {!presentationRestored && (
+          <div
+            style={{
+              maxWidth: 880,
+              margin: "0 auto 18px",
+              padding: "10px 14px",
+              background: "var(--paper-2)",
+              border: "1px solid var(--rule)",
+              borderRadius: 6,
+              display: "flex",
+              gap: 16,
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+            }}
+          >
+            <label
+              style={{ display: "flex", alignItems: "center", gap: 8, opacity: isSent ? 0.5 : 1 }}
+              title={sentLockTooltip}
+            >
+              <span style={{ fontSize: 12, color: "var(--ink-3)" }}>Detail:</span>
+              <select
+                value={detailLevel}
+                onChange={(e) =>
+                  setDetailLevel(e.target.value as CustomerViewDetailLevel)
+                }
+                disabled={isSent}
+                style={{ fontSize: 12 }}
+              >
+                <option value="itemized">Itemized</option>
+                <option value="turnkey_only">Turnkey only</option>
+              </select>
+            </label>
+            {addendumData ? (
+              <span style={{ opacity: isSent ? 0.5 : 1 }} title={sentLockTooltip}>
+                <AddendumToggle
+                  on={addendumOn}
+                  onToggle={() => {
+                    if (isSent) return;
+                    setAddendumOn(!addendumOn);
+                  }}
+                  totalLeaves={addendumData.totalLeaves}
+                  totalAssemblies={addendumData.totalAssemblies}
+                  hasMeaningfulContent={addendumData.hasMeaningfulContent}
+                />
+              </span>
+            ) : (
+              <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
+                No addendum data.
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Preview iframe — the actual react-pdf output the customer
             receives. Height accommodates a Letter page (8.5in × 11in
@@ -179,6 +255,11 @@ export function QuoteHost({
           style={{
             border: "1px solid var(--rule)",
             background: "var(--paper)",
+            // Legacy: the 880px cap the authority calls "the binding
+            // constraint". The restored column is sized by `.qp-doc`.
+            ...(presentationRestored
+              ? {}
+              : { maxWidth: 880, margin: "0 auto" }),
           }}
         >
           <iframe
@@ -198,6 +279,7 @@ export function QuoteHost({
         {/* Controls beside the document, per the authority's interaction
             model. The Accounting zone sits beneath them in the `--internal`
             register the surface already uses for customer-invisible content. */}
+        {presentationRestored && (
         <div>
           <PresentationPanel
             pdfLayout={pdfLayout}
@@ -216,6 +298,7 @@ export function QuoteHost({
             <AccountingZone instructions={recoveryInstructions} />
           </div>
         </div>
+        )}
       </div>
     </div>
   );

@@ -398,11 +398,36 @@ test("the document is dominant, at the authority's clamp", async () => {
   const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
   assert.match(host, /qp-workspace/);
   assert.match(host, /qp-doc/);
-  // The 880px cap the authority calls "the binding constraint" is off the
-  // document. It survives on unrelated chrome, which is not what it bound.
-  assert.doesNotMatch(
-    host,
-    /maxWidth: 880,\s*\n\s*margin: "0 auto",\s*\n\s*border/,
-    "the document is still capped at 880px",
-  );
+
+  // The 880px cap the authority calls "the binding constraint" may survive
+  // ONLY on the legacy path, and only under the flag.
+  //
+  // The first version of this forbade a literal
+  // `maxWidth: 880, margin: "0 auto", border` sequence. Gating the layout put
+  // that cap back inside a conditional spread, which the regex could not see,
+  // so it kept passing while the thing it forbade was back. A check that
+  // survives the change it exists to catch is measuring syntax, not property.
+  if (/maxWidth: 880/.test(host)) {
+    assert.match(
+      host,
+      /presentationRestored[\s\S]{0,40}maxWidth: 880/,
+      "an 880px document cap survives outside the legacy branch",
+    );
+  }
+});
+
+test("the restored layout is gated, and the gate says it is temporary", async () => {
+  const PAGE = "src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx";
+  const page = codeOnly(await read(PAGE));
+
+  // Derived from the authenticated viewer, never a constant.
+  assert.match(page, /presentationRestored = viewer\.role === "admin"/);
+  assert.doesNotMatch(page, /presentationRestored = true/);
+
+  // And it says what it is. The authority's Q6 makes the panel any-PM, so a
+  // gate that quietly hardened into a role boundary would be a new divergence
+  // introduced by the fix for a divergence.
+  const raw = await read(PAGE);
+  assert.match(raw, /TEMPORARY/);
+  assert.match(raw, /Q6/);
 });

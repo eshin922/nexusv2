@@ -58,6 +58,7 @@ export function QuoteUmbrella({
   soPushMirror,
   showStateSwitcher,
   recoveryInstructions,
+  presentationRestored,
   allowSimulatedComplete,
   internalNotes,
   addendumData,
@@ -159,6 +160,8 @@ export function QuoteUmbrella({
   showStateSwitcher: boolean;
   /** For the Accounting zone — the sentences the send freeze will write. */
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
+  /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
+  presentationRestored: boolean;
   /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
    * simulation. Computed server-side in page.tsx from VERCEL_ENV so
    * client-baked NODE_ENV can't be the sole gate (Vercel Preview
@@ -293,6 +296,7 @@ export function QuoteUmbrella({
               quoteStatus={quoteStatus}
               quoteNumberDb={quoteNumberDb}
               recoveryInstructions={recoveryInstructions}
+              presentationRestored={presentationRestored}
               internalNotes={internalNotes}
               addendumData={addendumData}
               isHubspotLinked={isHubspotLinked}

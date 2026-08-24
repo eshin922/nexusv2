@@ -32,6 +32,7 @@ export function TabPreviewQuote({
   quoteStatus,
   quoteNumberDb,
   recoveryInstructions,
+  presentationRestored,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -57,6 +58,7 @@ export function TabPreviewQuote({
    * genuinely NULL (fresh pre-send draft). */
   quoteNumberDb: string | null;
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
+  presentationRestored: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   isHubspotLinked: boolean;
@@ -79,6 +81,7 @@ export function TabPreviewQuote({
         quoteId={quoteId}
         quoteStatus={quoteStatus}
         recoveryInstructions={recoveryInstructions}
+        presentationRestored={presentationRestored}
         internalNotes={internalNotes}
         addendumData={addendumData}
         isHubspotLinked={isHubspotLinked}

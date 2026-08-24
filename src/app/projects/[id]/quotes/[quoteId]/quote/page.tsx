@@ -289,7 +289,21 @@ export default async function CustomerViewPage({
     // button is un-gated (any authenticated PM); admin role no
     // longer required per §3 disposition. `ensureUser` here only
     // gates the surface itself.
-    await ensureUser();
+    const viewer = await ensureUser();
+
+    // ── THE RESTORED LAYOUT IS UNDER REVIEW ─────────────────────────────
+    //
+    // #376 restores this surface to its Design Authority: document dominant,
+    // controls in a panel beside it, Accounting in its own zone. That changes
+    // the operator-facing shape, and structural tests are necessary but not
+    // sufficient for a layout — so it ships where it can be reviewed with a
+    // real session (production is the only surface carrying one) without
+    // reaching operators before it has been.
+    //
+    // TEMPORARY. Removing this deletes every `!presentationRestored` branch in
+    // quote-host.tsx. It is NOT a role boundary: the authority's Q6 says the
+    // panel is any-PM, and this must come off rather than harden into one.
+    const presentationRestored = viewer.role === "admin";
 
 
     console.log(
@@ -319,6 +333,7 @@ export default async function CustomerViewPage({
           customerAcceptedTierIdDb={quote.customerAcceptedTierId}
           quoteRollup={quoteRollup}
           recoveryInstructions={recoveryInstructions}
+          presentationRestored={presentationRestored}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           hubspotAcceptSyncSuppressed={isHubspotAcceptSyncSuppressed()}
