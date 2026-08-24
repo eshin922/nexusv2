@@ -83,7 +83,7 @@ and **no recommendation** — that is `quote_tiers.recommended`.
 
 ## 4 · Three consequences that need deciding, not assuming
 
-### C1 · Fee itemization is one careless step from omitting the fees
+### C1 · Fee itemization is one careless step from omitting the fees — ACCEPTED
 
 The authority is explicit that `include_fee_lines = false` **collapses the
 disclosure and never removes the charge** — the fold sentence still states the
@@ -94,12 +94,14 @@ So the field decides whether lines are **enumerated**, never whether the money
 **exists**. "Hide the fee lines" and "omit the fees" are one edit apart, and the
 second is a customer-facing misstatement.
 
-**Proposed:** assert by falsification — for every value of `include_fee_lines`,
-the printed total is identical and the fee total is disclosed somewhere on the
-document. That is #326's boundary harness applied to one field, and it is the
-only reason this field is safe to expose.
+**Accepted, Edward 2026-08-24:** fee itemization is revenue-neutral disclosure
+only; hidden lines must remain **economically and textually accounted for**.
+Asserted by falsification — for every value of `include_fee_lines`, the printed
+total is identical and the fee total is still disclosed on the document. That is
+#326's boundary harness applied to one field, and it is the only reason this
+field is safe to expose.
 
-### C2 · A revision must inherit the profile, or it starts blank
+### C2 · A revision must inherit the profile, or it starts blank — ACCEPTED
 
 `reviseQuote` bumps `version_number` **on the same quote row**. With the profile
 keyed `(quote_id, quote_version)`, a revision silently gets no profile and the
@@ -112,10 +114,14 @@ audit** is the standing pattern for exactly this failure: *"any time a new colum
 lands on a versioned table, search for every insert call site and verify each
 carries forward unchanged columns."*
 
-**Proposed:** `reviseQuote` seeds the new version's profile from the superseded
-one, written in the same transaction as the version bump. Not a follow-up.
+**Accepted, Edward 2026-08-24:** revision creation copies the prior version's
+presentation profile forward **transactionally** into the new
+`(quote_id, quote_version)` record, and **subsequent edits never mutate the
+prior version**. That second half is the part a carry-forward implementation
+usually gets wrong: copying forward is easy, and writing through to the record
+the customer already saw is the failure it is meant to prevent.
 
-### C3 · Card 2 will write to two different owners
+### C3 · Card 2 will write to two different owners — DISPOSITIONED
 
 Under this disposition the recommended-tier control writes a **governed quote
 fact** while every other control in the card writes **presentation state**. The
@@ -126,9 +132,38 @@ The reference already has the vocabulary: Card 0 renders governed values with a
 source tag and a route to the owning surface. The recommended-tier control is
 the one place in Card 2 that touches a governed fact.
 
-**For Edward:** should it carry its own provenance marker inside Card 2, or move
-to Card 0 as a governed value that is editable there? The authority does not
-answer it, because in the authority the recommendation was Card 2 state.
+**Dispositioned — Edward, 2026-08-24.**
+
+> Keep Recommended tier **in Card 2**, matching the registered authority. Do not
+> duplicate it into `presentation_profile` and do not move the control to
+> Card 0. Its persistence owner remains `quote_tiers.recommended`, with the
+> existing audit path.
+>
+> Because Card 2 therefore contains controls with two different owners, expose
+> that distinction **subtly**, using the existing provenance / source-tag
+> grammar rather than inventing a new warning treatment. The recommended-tier
+> control communicates that it is a governed quote recommendation; the
+> surrounding controls are presentation choices.
+
+So the boundary is:
+
+```
+recommendation                              → quote_tiers.recommended
+visibility · itemization · layout · shape   → versioned presentation_profile
+```
+
+**Regression proofs required in both directions** — the boundary is only real
+if crossing it fails a test:
+
+1. changing presentation-profile state **never** mutates the recommended-tier
+   quote fact;
+2. changing the recommendation **does not** rewrite unrelated
+   presentation-profile state.
+
+Both are falsifications rather than assertions of intent: each writes one side
+and reads the other, so a shared write path shows up as a failure instead of as
+a convention someone has to remember. This is the same discipline that caught
+the allocation boolean being written by a path that only claimed to read it.
 
 ---
 

@@ -236,6 +236,80 @@ here.
    specifically Edit-notes and the old control row
 3. Edward's own visual inspection of the restored layout
 
+## §4.6 · The zero-overflow closure fails, and not on this surface
+
+**Measured on production 2026-08-24**, `d53e111`:
+
+| gate | result |
+|---|---|
+| rail scrolls internally | **pass** — 1389 / 826 |
+| footer bottom-right without page scrolling | **pass** — `pxBelowFold: 0` |
+| page-level vertical overflow = 0 | **FAIL — 32px** |
+
+### It is not the workspace height
+
+Shrinking `--cv-avail` by exactly 32px left the overflow at 32px. A cause that
+does not respond to the variable being blamed is not that variable, so the
+convergence loop could never have reached zero however many passes it took.
+
+### It is the umbrella shell, and it predates all of this
+
+```
+.r8-shell   top: 32px   min-height: 100vh (1463.2px)
+            32 + 1463.2 = 1495.2 = document.scrollHeight
+            overflow    = 1495 − 1463 = 32
+```
+
+`src/styles/r8-quote-umbrella.css:23` declares `min-height: 100vh` on an
+element that sits 32px down the document. The sum exceeds the viewport by
+exactly its own offset — **on every one of the five umbrella sub-tabs**,
+regardless of content. Authored in Slice 12; untouched by this workstream.
+
+### Why it is not fixed here
+
+`.r8-shell` is shared chrome for Preview Quote, Send to Client, Client Review,
+Acceptance and Sales Order. A one-line change to it is small but it is not
+Customer View's to make, and "my gate needs it" is the worst reason to edit
+five other surfaces.
+
+**For Edward — two ways to close this:**
+
+1. **Fix the shell** (`min-height: calc(100vh - 32px)`, or remove the offset at
+   its source so no constant is needed). One line, blast radius five sub-tabs,
+   and it repairs a defect all five already have.
+2. **Accept 32px** and restate the gate as *the Customer View contributes no
+   page overflow* — which is measurably true: gates 2 and 3 pass, and the
+   workspace is provably not the cause.
+
+I would take (1), because the defect is real on the other four surfaces too and
+the diagnosis is now exact. But it is a shared-chrome change and therefore
+yours.
+
+## §4.7 · The narrow-viewport threshold is my invention, not the authority's
+
+Surfaced by operator report, 2026-08-24: the rail rendered **below** the
+document. Measured cause — the viewport was **1109px**, and the stylesheet
+collapses the two panes below 1180px.
+
+Not a regression. The composition needs `816 + 452 = 1268px` for both panes to
+hold their floors, and even at the authority's **minimum** rail width the sum is
+`816 + 380 = 1196`. At 1109 neither arrangement is possible as specified.
+
+**But 1180 is a number I chose.** The README specifies "a full-height two-pane
+desktop layout" and names 816 as *"the floor below which the document
+re-compresses"*. It never says what happens when both floors cannot be met, so
+every option below is an extension:
+
+| | behaviour | cost |
+|---|---|---|
+| 1 · stack (current) | rail keeps full width and readability | loses the side-by-side relationship the composition is built on |
+| 2 · compress the document | preserves the composition | violates the stated 816 floor |
+| 3 · narrow the rail toward 380 first, then stack | uses the authority's own `railWidth` range before giving up | buys ~72px; still stacks below ~1196 |
+
+**Recommendation: 3 then 1** — exhaust the authority's own stated tolerance
+before falling back to something it does not describe. Needs Edward's
+disposition; unchanged until then.
+
 ## §5 · Exit
 
 Surface stays dark until the restored version is back for operator review. No
