@@ -117,6 +117,17 @@ test("elections reach the ENGINE, and only the engine", async () => {
     // carry is a field the engine never sees — which is exactly how an election
     // came to persist, read back as elected, and move nothing.
     "src/lib/costing-adapter.ts",
+    // Substitutes a CANDIDATE election into the engine's input to measure what
+    // that contract would do to the customer's total, then throws the
+    // counterfactual away. It resolves nothing and prices nothing: the answer
+    // comes back from `computeQuoteCosting` and the construction it builds.
+    //
+    // A closed form for the delta would have avoided appearing in this list
+    // and would have been the exact defect the list guards -- the ladder is
+    // not `(1 + gpa)` once a lift, a tier adjustment or a terminal override is
+    // involved, so a formula would be a second authority for the pricing
+    // ladder. Running the engine is what keeps there being one.
+    "src/lib/commercial-recovery/impact.ts",
   ].sort());
 });
 

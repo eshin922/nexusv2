@@ -363,6 +363,19 @@ export async function resolveCustomerView(args: {
           : (quote.includeSpecAddendumSnapshot ?? false),
   };
 
+  /**
+   * Which rollups OWN their charges, rather than carrying a merge of their
+   * children's.
+   *
+   * Defined once and passed to both readers. When they each built their own,
+   * one of them omitted it entirely and the workspace reported double the
+   * governed recovery on the operator's surface.
+   */
+  const ownsItsCharges = (skuId: string) =>
+    ((bundle.data.skus ?? []) as { id: string; skuRole?: string }[]).some(
+      (s) => s.id === skuId && s.skuRole === "leaf",
+    );
+
   return {
     ok: true,
     view,
@@ -388,16 +401,10 @@ export async function resolveCustomerView(args: {
      * construction the customer document was built from, not an equivalent one
      * from a second read.
      */
-    recoveryInstructions: projectFrozenInstructions(
-      bundle.data.costing,
-      (skuId) =>
-        (bundle.data.skus ?? []).some(
-          (s: { id: string; skuRole?: string }) =>
-            s.id === skuId && s.skuRole === "leaf",
-        ),
-    ),
+    recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
     recoveryRows: buildRecoveryWorkspace({
       costing: bundle.data.costing,
+      isLeaf: ownsItsCharges,
       elections: bundle.data.chargeElections ?? [],
       allocationStates: [
         ...new Set(

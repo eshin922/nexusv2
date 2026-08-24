@@ -19,7 +19,8 @@
  * whole seam exists to hold.
  */
 
-import type { ChargePlacement, PlacedCharge } from "./construct";
+import { ownedPlacedCharges, type ConstructedRollups } from "./construct";
+import type { ChargePlacement } from "./construct";
 import type { RecoveryChargeKey } from "./registry";
 
 export type FrozenRecoveryInstruction = {
@@ -54,16 +55,6 @@ export type FrozenRecoveryInstruction = {
   tierQuantity: number | null;
 };
 
-type ConstructedSource = {
-  skuRollups?: readonly {
-    skuId: string;
-    perTier?: readonly {
-      tierId: string;
-      constructed?: { charges?: readonly PlacedCharge[] } | null;
-    }[];
-  }[];
-};
-
 /**
  * One instruction per placed charge per (owner, tier).
  *
@@ -74,33 +65,24 @@ type ConstructedSource = {
  * charge was authored against.
  */
 export function projectFrozenInstructions(
-  costing: ConstructedSource,
+  costing: ConstructedRollups,
   isLeaf: (skuId: string) => boolean,
 ): FrozenRecoveryInstruction[] {
-  const out: FrozenRecoveryInstruction[] = [];
-  for (const rollup of costing.skuRollups ?? []) {
-    // Skip parents: their construction is a merge of children already recorded.
-    // Recording both would double every amortized charge in the instruction an
-    // accountant reads, which is the worst place for a duplicate.
-    if (!isLeaf(rollup.skuId)) continue;
-    for (const pt of rollup.perTier ?? []) {
-      for (const c of pt.constructed?.charges ?? []) {
-        out.push({
-          chargeKey: c.chargeKey,
-          ownerRef: rollup.skuId,
-          tierId: pt.tierId,
-          treatment: c.placement,
-          treatmentSource: c.source,
-          cost: c.cost,
-          governedRecovery: c.recoverableSell,
-          separateInvoiceAmount: c.separateInvoiceAmount,
-          amortizedPerUnit: c.amortization?.perUnit ?? null,
-          tierQuantity: c.amortization?.tierQuantity ?? null,
-        });
-      }
-    }
-  }
-  return out;
+  // `ownedPlacedCharges` skips parent rollups, whose construction is a merge of
+  // children already recorded. Recording both would double every amortized
+  // charge in the instruction an accountant reads.
+  return ownedPlacedCharges(costing, isLeaf).map(({ ownerRef, tierId, charge: c }) => ({
+    chargeKey: c.chargeKey,
+    ownerRef,
+    tierId,
+    treatment: c.placement,
+    treatmentSource: c.source,
+    cost: c.cost,
+    governedRecovery: c.recoverableSell,
+    separateInvoiceAmount: c.separateInvoiceAmount,
+    amortizedPerUnit: c.amortization?.perUnit ?? null,
+    tierQuantity: c.amortization?.tierQuantity ?? null,
+  }));
 }
 
 /**

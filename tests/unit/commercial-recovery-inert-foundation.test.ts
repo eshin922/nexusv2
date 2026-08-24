@@ -58,9 +58,27 @@ test("the only call site of projectCommercial passes no elections", async () => 
 
   assert.deepEqual(
     calls,
-    ["src/lib/customer-view-resolver.ts: projectCommercial(bundle.data)"],
-    "a caller began supplying elections — the foundation is no longer inert",
+    [
+      // The impact preview projects a COUNTERFACTUAL costing to answer "what
+      // would this contract do to the customer's total". It substitutes the
+      // candidate election into the ENGINE'S input and projects the result --
+      // it passes no elections to the projection, which is the property this
+      // check exists for. Placement is still decided in exactly one place.
+      "src/lib/commercial-recovery/impact.ts: projectCommercial(bundle)",
+      "src/lib/customer-view-resolver.ts: projectCommercial(bundle.data)",
+    ],
+    "a caller began supplying elections to the PROJECTION — placement would be decided twice",
   );
+
+  // The property, asserted directly rather than inferred from the list: no
+  // call site hands an election to the projection under any name.
+  for (const c of calls) {
+    assert.doesNotMatch(
+      c,
+      /election/i,
+      `${c} passes elections to the projection — they must enter at the construction`,
+    );
+  }
 });
 
 // ── 2 · the writer has no caller, so it has no endpoint ─────────────────

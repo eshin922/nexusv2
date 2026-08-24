@@ -777,9 +777,24 @@ async function loadChargeElections(
   ).map((r) => ({ chargeKey: r.chargeKey, mode: r.mode }));
 }
 
-export async function getQuoteCosting(
+/**
+ * The costing input for a quote, before the engine runs on it.
+ *
+ * Extracted from `getQuoteCosting` so a COUNTERFACTUAL is possible: the
+ * recovery workspace has to tell an operator what electing a contract does to
+ * the customer's total, and that figure is the engine's. Substituting an
+ * election into this input and re-running is the only way to get it that does
+ * not re-derive the pricing ladder — and re-deriving the ladder on a surface
+ * would be the second authority this whole workstream removed.
+ *
+ * `getQuoteCosting` is now this plus `computeQuoteCosting`, so the two cannot
+ * load differently. `getCostingBundle` keeps its own loader untouched: it reads
+ * strictly more than this, and folding them together would be a refactor of
+ * two hot paths to serve one preview.
+ */
+export async function loadQuoteCostingInput(
   quoteId: string,
-): Promise<ActionResult<QuoteCostingResult>> {
+): Promise<ActionResult<QuoteCostingInput>> {
   return runAction(async () => {
     const quoteRows = await db
       .select()
@@ -924,8 +939,16 @@ export async function getQuoteCosting(
       freightShipmentBreaks: worksheetFreight,
     });
 
-    return computeQuoteCosting(input);
+    return input;
   });
+}
+
+export async function getQuoteCosting(
+  quoteId: string,
+): Promise<ActionResult<QuoteCostingResult>> {
+  const built = await loadQuoteCostingInput(quoteId);
+  if (!built.ok) return built;
+  return { ok: true, data: computeQuoteCosting(built.data) };
 }
 
 // ---------- mutation: updateQuoteGlobalPriceAdj ----------

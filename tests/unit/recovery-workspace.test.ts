@@ -25,27 +25,42 @@ const prod = (allocate: boolean, over: Record<string, unknown> = {}) =>
   }) as never;
 
 /** A costing shape carrying the construction, built by production code. */
+/**
+ * A rollup tree with real sku ids AND the parent rollup a real bundle carries.
+ *
+ * The parent matters. An assembly's rollup holds the MERGE of its children's
+ * charges, and this model used to sum every rollup — so it reported double the
+ * governed recovery and double the cost on the operator's surface. The old
+ * fixture could not catch it: its rollups had no ids and no parent, so there
+ * was nothing to double.
+ */
 function costingWith(
   rows: { allocate: boolean; tierId: string }[],
   rate: number | null,
   elections: ChargeElection[] = [],
 ) {
+  const leaf = (r: { allocate: boolean; tierId: string }, id: string) => ({
+    skuId: id,
+    perTier: [
+      {
+        tierId: r.tierId,
+        constructed: constructCommercial(
+          chargeEconomicsFor(prod(r.allocate) as never, rate),
+          elections,
+          r.allocate,
+        ),
+      },
+    ],
+  });
   return {
-    skuRollups: rows.map((r, i) => ({
-      perTier: [
-        {
-          tierId: r.tierId,
-          constructed: constructCommercial(
-            chargeEconomicsFor(prod(r.allocate) as never, rate),
-            elections,
-            r.allocate,
-          ),
-        },
-      ],
-      _i: i,
-    })),
+    skuRollups: [
+      ...rows.map((r, i) => leaf(r, `leaf-${i}`)),
+      // The parent, carrying the same charges merged upward.
+      ...rows.map((r, i) => ({ ...leaf(r, `asm-${i}`) })),
+    ],
   };
 }
+const ownsCharges = (skuId: string) => skuId.startsWith("leaf-");
 
 // ═══════════════════════════════════════════════════════════════════════
 // THE WORKSPACE READS THE CONSTRUCTION. IT DERIVES NOTHING.
@@ -67,6 +82,7 @@ test("neither the read model nor the card performs rate arithmetic", async () =>
 test("amounts are summed straight off the constructed charges", () => {
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: false, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [false],
   });
@@ -80,6 +96,7 @@ test("amounts are summed straight off the constructed charges", () => {
 test("a charge the quote does not carry is not a decision to make", () => {
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true],
   });
@@ -107,6 +124,7 @@ test("a quote placing one charge two ways reports it as mixed", () => {
       ],
       0.4,
     ),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true, false],
   });
@@ -122,6 +140,7 @@ test("a quote placing one charge two ways reports it as mixed", () => {
 test("a mode refused for ANY owner state is not offered", () => {
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: false, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true, false],
   });
@@ -141,6 +160,7 @@ test("a mode refused for ANY owner state is not offered", () => {
 test("every mode is returned with a verdict — none omitted", () => {
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true],
   });
@@ -157,6 +177,7 @@ test("every mode is returned with a verdict — none omitted", () => {
 test("the four BV-011 charges offer nothing, and say why", () => {
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true],
   });
@@ -174,6 +195,7 @@ test("the four BV-011 charges offer nothing, and say why", () => {
 test("an election is distinguishable from the legacy fall-through", () => {
   const legacy = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [true],
   }).find((r) => r.chargeKey === "project_setup")!;
@@ -182,6 +204,7 @@ test("an election is distinguishable from the legacy fall-through", () => {
     costing: costingWith([{ allocate: true, tierId: "t1" }], 0.4, [
       { chargeKey: "project_setup", mode: "included" },
     ]),
+    isLeaf: ownsCharges,
     elections: [{ chargeKey: "project_setup", mode: "included" }],
     allocationStates: [true],
   }).find((r) => r.chargeKey === "project_setup")!;
@@ -202,6 +225,7 @@ test("an election is distinguishable from the legacy fall-through", () => {
 test("an unpriced charge reports null recovery, never $0", () => {
   const rows = buildRecoveryWorkspace({
     costing: costingWith([{ allocate: false, tierId: "t1" }], null),
+    isLeaf: ownsCharges,
     elections: [],
     allocationStates: [false],
   });
@@ -337,4 +361,67 @@ test("the legacy amortization's ungoverned amount is stated to the operator", as
   // The one fact an operator cannot see anywhere else on the surface.
   assert.match(src, /Currently amortized under legacy pricing/);
   assert.match(src, /not independently governed/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// A CHARGE IS COUNTED ONCE.
+//
+// This shipped wrong. The read model summed EVERY rollup, and an assembly's
+// rollup carries the merge of its children's charges — so the operator's card
+// reported $390 recovered on a quote whose single $150 setup fee at a pinned
+// 0.30 recovers $195. Double the recovery and double the cost.
+//
+// It surfaced only because a second reader of the same construction disagreed
+// with it. Each figure was individually plausible; nothing in either said
+// which was right, and the raw fee in the database settled it.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("the parent rollup's merged charges are not counted a second time", () => {
+  const costing = costingWith([{ allocate: false, tierId: "t1" }], 0.4);
+  // The fixture carries both, as a real bundle does.
+  assert.equal(costing.skuRollups.length, 2, "the fixture has no parent to double");
+  assert.deepEqual(
+    costing.skuRollups.map((r) => r.skuId),
+    ["leaf-0", "asm-0"],
+  );
+
+  const row = buildRecoveryWorkspace({
+    costing,
+    isLeaf: ownsCharges,
+    elections: [],
+    allocationStates: [false],
+  }).find((r) => r.chargeKey === "project_setup")!;
+
+  assert.equal(row.totalCost, 1000);
+  assert.equal(row.totalRecovery, 1400);
+
+  // Non-vacuous, and it names the number the bug produced: counting the parent
+  // too doubles both figures.
+  const doubled = buildRecoveryWorkspace({
+    costing,
+    isLeaf: () => true,
+    elections: [],
+    allocationStates: [false],
+  }).find((r) => r.chargeKey === "project_setup")!;
+  assert.equal(doubled.totalCost, 2000);
+  assert.equal(doubled.totalRecovery, 2800);
+});
+
+test("every reader of the construction goes through the one traversal", async () => {
+  // Three readers walked the rollup tree by hand and one of them omitted the
+  // leaf filter. The traversal is now shared, and `isLeaf` is a required
+  // argument, so a reader that forgets it does not compile.
+  for (const f of [
+    "src/lib/commercial-recovery/workspace-view.ts",
+    "src/lib/commercial-recovery/frozen-instruction.ts",
+    "src/lib/commercial-recovery/impact.ts",
+  ]) {
+    const src = codeOnly(await read(f));
+    assert.match(src, /ownedPlacedCharges\(/, `${f} does not use the shared traversal`);
+    assert.doesNotMatch(
+      src,
+      /for \(const \w+ of [\w.]*costing\.skuRollups/,
+      `${f} walks the rollup tree itself again`,
+    );
+  }
 });

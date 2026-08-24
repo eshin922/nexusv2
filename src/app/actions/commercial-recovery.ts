@@ -57,6 +57,11 @@ import {
   type RecoveryMode,
 } from "@/lib/commercial-recovery/registry";
 import { refusalFor } from "@/lib/commercial-recovery/resolve";
+import {
+  measureRecoveryImpact,
+  type RecoveryImpact,
+} from "@/lib/commercial-recovery/impact";
+import { loadQuoteCostingInput } from "@/app/actions/costing";
 import { quoteByIdDraft } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 
@@ -203,5 +208,54 @@ export async function setChargeRecovery(
     revalidateQuoteTree(quote.projectId, quote.id);
 
     return { quoteId, chargeKey, mode };
+  });
+}
+
+/**
+ * What would this contract do to the customer's total?
+ *
+ * A READ. It writes nothing, and it is deliberately a separate action from
+ * `setChargeRecovery` rather than a field on it: the operator sees the figure
+ * and then decides, so the measurement and the commitment are two acts.
+ *
+ * It runs the real engine on the real input with the candidate election
+ * substituted. There is no closed form for the delta — a surgical lift, a tier
+ * adjustment and a terminal cell override each change what the ladder does to a
+ * legacy-placed charge, and a formula for it would be a second authority for
+ * the pricing ladder. See `@/lib/commercial-recovery/impact`.
+ *
+ * The refusal is asked FIRST, from the same `refusalFor` the writer asks, so a
+ * preview is never offered for a contract the boundary would reject.
+ */
+export async function previewChargeRecovery(
+  formData: FormData,
+): Promise<ActionResult<RecoveryImpact | null>> {
+  return runAction(async () => {
+    await ensureUser();
+
+    const quoteId = String(formData.get("quoteId") ?? "");
+    const chargeKey = String(formData.get("chargeKey") ?? "") as RecoveryChargeKey;
+    const raw = String(formData.get("mode") ?? "");
+    const mode = raw === "" ? null : (raw as RecoveryMode);
+
+    if (!quoteId || !chargeKey) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId and chargeKey are required.");
+    }
+    if (mode !== null && !RECOVERY_MODES.includes(mode)) {
+      throw new ActionGuardError(ERR.VALIDATION, `Unknown recovery mode: ${raw}`);
+    }
+    // Preview only what could actually be committed. A figure for a refused
+    // contract invites the operator to plan around it.
+    if (mode !== null) {
+      for (const perAssemblyAllocate of await allocationStatesInQuote(quoteId)) {
+        const reason = refusalFor(chargeKey, mode, { perAssemblyAllocate });
+        if (reason) throw new ActionGuardError(ERR.VALIDATION, reason);
+      }
+    }
+
+    const built = await loadQuoteCostingInput(quoteId);
+    if (!built.ok) throw new ActionGuardError(built.error.code, built.error.message);
+
+    return measureRecoveryImpact(built.data, chargeKey, mode);
   });
 }

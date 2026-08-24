@@ -39,6 +39,7 @@ import {
 } from "./registry";
 import { RECOVERY_MODES } from "./registry";
 import { refusalFor, type ChargeElection } from "./resolve";
+import { ownedPlacedCharges, type ConstructedRollups } from "./construct";
 import type { ChargePlacement, PlacedCharge } from "./construct";
 
 export type ChargeModeOption = {
@@ -68,14 +69,6 @@ export type RecoveryChargeRow = {
   options: ChargeModeOption[];
 };
 
-type ConstructedSource = {
-  skuRollups?: readonly {
-    perTier?: readonly {
-      constructed?: { charges?: readonly PlacedCharge[] } | null;
-    }[];
-  }[];
-};
-
 /**
  * Build the workspace rows.
  *
@@ -85,23 +78,30 @@ type ConstructedSource = {
  * given.
  */
 export function buildRecoveryWorkspace(input: {
-  costing: ConstructedSource;
+  costing: ConstructedRollups;
   elections: readonly ChargeElection[];
   allocationStates: readonly boolean[];
+  /**
+   * Which rollups OWN their charges, as opposed to carrying a merge of their
+   * children's.
+   *
+   * Required, not optional with a permissive default. This model summed every
+   * rollup and reported DOUBLE the governed recovery and double the cost on the
+   * operator's surface — $390 on a quote whose single $150 setup fee at a
+   * pinned 0.30 recovers $195. A default would have let the same call sites
+   * keep the same behaviour while looking fixed.
+   */
+  isLeaf: (skuId: string) => boolean;
 }): RecoveryChargeRow[] {
   const electionByCharge = new Map<RecoveryChargeKey, RecoveryMode>();
   for (const e of input.elections) electionByCharge.set(e.chargeKey, e.mode);
 
-  // Every placed instance, from the ONE constructed state.
+  // Every placed instance, from the ONE constructed state, counted ONCE.
   const placedByCharge = new Map<RecoveryChargeKey, PlacedCharge[]>();
-  for (const rollup of input.costing.skuRollups ?? []) {
-    for (const pt of rollup.perTier ?? []) {
-      for (const c of pt.constructed?.charges ?? []) {
-        const list = placedByCharge.get(c.chargeKey) ?? [];
-        list.push(c);
-        placedByCharge.set(c.chargeKey, list);
-      }
-    }
+  for (const { charge } of ownedPlacedCharges(input.costing, input.isLeaf)) {
+    const list = placedByCharge.get(charge.chargeKey) ?? [];
+    list.push(charge);
+    placedByCharge.set(charge.chargeKey, list);
   }
 
   const states = input.allocationStates.length ? input.allocationStates : [true];

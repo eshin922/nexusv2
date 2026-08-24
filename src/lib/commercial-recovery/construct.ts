@@ -161,6 +161,63 @@ export type PlacedCharge = {
   separateInvoiceAmount: number | null;
 };
 
+/**
+ * A rollup tree carrying constructions. The shape every reader needs and no
+ * more, declared here so the readers do not each declare their own.
+ */
+export type ConstructedRollups = {
+  skuRollups?: readonly {
+    skuId: string;
+    perTier?: readonly {
+      tierId: string;
+      constructed?: { charges?: readonly PlacedCharge[] } | null;
+    }[];
+  }[];
+};
+
+/** One placed charge, with the owner and tier that placed it. */
+export type OwnedPlacedCharge = {
+  ownerRef: string;
+  tierId: string;
+  charge: PlacedCharge;
+};
+
+/**
+ * Every placed charge, counted ONCE.
+ *
+ * ── WHY THE LEAF FILTER IS NOT OPTIONAL ─────────────────────────────────
+ *
+ * An assembly's rollup carries the merge of its children's charges, so walking
+ * every rollup counts each charge at the leaf that owns it AND again at every
+ * parent it bubbles to. That is not a subtle error: on a one-assembly quote it
+ * is exactly double.
+ *
+ * It shipped. The recovery workspace summed every rollup and told operators
+ * $390 was recovered on 93a5d4bb, whose single $150 setup fee at a pinned 0.30
+ * recovers $195. Found by cross-checking two readers of the same construction
+ * against each other, which is the only reason it surfaced at all — each number
+ * was individually plausible.
+ *
+ * So the traversal lives here, once, and `isLeaf` is a required argument. A
+ * reader that has no leaf predicate cannot call this, which is the point:
+ * needing one is the thing that is easy to forget.
+ */
+export function ownedPlacedCharges(
+  costing: ConstructedRollups,
+  isLeaf: (skuId: string) => boolean,
+): OwnedPlacedCharge[] {
+  const out: OwnedPlacedCharge[] = [];
+  for (const rollup of costing.skuRollups ?? []) {
+    if (!isLeaf(rollup.skuId)) continue;
+    for (const pt of rollup.perTier ?? []) {
+      for (const charge of pt.constructed?.charges ?? []) {
+        out.push({ ownerRef: rollup.skuId, tierId: pt.tierId, charge });
+      }
+    }
+  }
+  return out;
+}
+
 export type ConstructedCommercialState = {
   charges: PlacedCharge[];
   /** Sum of costs. The same under every election set. */
