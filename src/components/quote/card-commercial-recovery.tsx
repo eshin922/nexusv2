@@ -179,11 +179,22 @@ export function CardCommercialRecovery({
               </div>
               <div className="cv-charge-policy">
                 policy: {allowed.length ? allowed.join(" / ") : "none available"} · cost governed
+                {/* Provenance is a caption, never the selected state. A quote
+                    that inherited its treatment still HAS that treatment. */}
+                {row.mixed
+                  ? " · placed more than one way"
+                  : row.effectiveMode === null
+                    ? ""
+                    : row.source === "legacy"
+                      ? " · inherited"
+                      : " · elected"}
               </div>
               <div className="cv-opts">
                 {row.options.map((opt) => {
-                  const active =
-                    row.source === "election" && row.electedMode === opt.mode;
+                  // The treatment IN FORCE, whatever put it there. Reading this
+                  // off `electedMode` meant a quote with no election row showed
+                  // every option unselected while unambiguously carrying one.
+                  const active = row.effectiveMode === opt.mode;
                   return (
                     <button
                       key={opt.mode}
