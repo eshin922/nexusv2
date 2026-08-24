@@ -11,9 +11,7 @@ import {
   type RecoveryChargeKey,
 } from "../../src/lib/commercial-recovery/registry.ts";
 import {
-  ABSORB_INVISIBLE_TO_FLOOR,
-  ELECTION_DELETES_CHARGE,
-  ELECTION_DOUBLE_BILLS,
+  ABSORB_COST_UNCONSUMED,
   LANDED_SEPARATE_UNWIRED,
   RecoveryPolicyError,
   amountAbsorbed,
@@ -300,40 +298,29 @@ test("case 22 — electing one charge does not move any sibling", () => {
 // revenue inside the rate — a silently wrong total, which is far worse than
 // a visible failure.
 
-test("case 23 — an election that DISAGREES with the legacy boolean is refused", () => {
-  // Statically permitted by the registry...
-  assert.equal(isModeAvailable("project_setup", "included"), true);
-  assert.equal(isModeAvailable("project_setup", "separate"), true);
-  assert.equal(refusalReason("project_setup", "included"), null);
-
-  // ...and refused anyway, in exactly the two directions the falsification
-  // measured (tests/unit/commercial-recovery-election-effect.test.ts):
-  // suppressing a line the unit price does not contain DELETES the charge;
-  // emitting one the unit price does contain BILLS IT TWICE.
-  assert.equal(
-    refusalFor("project_setup", "included", { perAssemblyAllocate: false }),
-    ELECTION_DELETES_CHARGE,
-  );
-  assert.equal(
-    refusalFor("project_setup", "separate", { perAssemblyAllocate: true }),
-    ELECTION_DOUBLE_BILLS,
-  );
+test("case 23 — a DISAGREEING election is now permitted, because it moves the charge", () => {
+  // LIFTED. These were refused while the projection could only suppress or
+  // emit a line and the engine decided placement from the legacy boolean — so
+  // an election that disagreed with the boolean deleted the charge one way and
+  // billed it twice the other.
+  //
+  // Placement is now decided once, in the construction, and BOTH halves are
+  // consumed. The refusals are gone because the thing they protected against
+  // cannot happen, not because it was tolerated.
+  assert.equal(refusalFor("project_setup", "included", { perAssemblyAllocate: false }), null);
+  assert.equal(refusalFor("project_setup", "separate", { perAssemblyAllocate: true }), null);
 
   for (const [mode, allocate] of [
     ["included", false],
     ["separate", true],
   ] as const) {
-    assert.throws(
-      () => resolveCharge("project_setup", { chargeKey: "project_setup", mode }, allocate),
-      RecoveryPolicyError,
-      `${mode} at allocate=${allocate} must refuse, not silently mis-price`,
-    );
+    const r = resolveCharge("project_setup", { chargeKey: "project_setup", mode }, allocate);
+    assert.equal(r.mode, mode);
+    assert.equal(r.source, "election");
   }
 });
 
 test("case 23 — an election that AGREES with the legacy boolean is accepted", () => {
-  // The only currently-correct elections are the ones that change nothing.
-  // That is the finding, stated as the passing case rather than buried.
   assert.equal(refusalFor("project_setup", "included", { perAssemblyAllocate: true }), null);
   assert.equal(refusalFor("project_setup", "separate", { perAssemblyAllocate: false }), null);
 
@@ -347,18 +334,19 @@ test("case 23 — an election that AGREES with the legacy boolean is accepted", 
   assert.equal(r.source, "election");
 });
 
-test("case 23 — absorbed is refused in BOTH allocation states", () => {
-  // Allocating: the unit rate already recovers it, so suppressing the line
-  // drops the line and leaves the revenue.
+test("case 23 — absorbed is refused in BOTH allocation states, for a NEW reason", () => {
+  // The old reason was that absorbing reduced what the customer paid without
+  // moving the margin the floor is measured from. The cutover changed the
+  // mechanics, so the reason was re-derived rather than carried forward.
   //
-  // NOT allocating: the charge was billed separately, and separately-billed
-  // fees are never in the tier revenue the floor gate and the below-floor
-  // fingerprint are computed from — so the customer pays less and the measured
-  // margin does not move. Real, and invisible to the control meant to catch it.
+  // `absorbedCost` is read by nothing: the recovery correctly disappears —
+  // that is the mode — but the COST disappears with it, so the charge would
+  // vanish from cost truth while DPS still pays it. That is the one thing
+  // recovery must never do.
   for (const allocate of [true, false, null, undefined]) {
     assert.equal(
       refusalFor("tooling", "absorbed", { perAssemblyAllocate: allocate }),
-      ABSORB_INVISIBLE_TO_FLOOR,
+      ABSORB_COST_UNCONSUMED,
       `absorbed must refuse at allocate=${String(allocate)}`,
     );
   }
@@ -366,26 +354,25 @@ test("case 23 — absorbed is refused in BOTH allocation states", () => {
     () => resolveCharge("tooling", { chargeKey: "tooling", mode: "absorbed" }, false),
     (e: unknown) => {
       assert.ok(e instanceof RecoveryPolicyError);
-      assert.equal(e.reason, ABSORB_INVISIBLE_TO_FLOOR);
+      assert.equal(e.reason, ABSORB_COST_UNCONSUMED);
       return true;
     },
   );
+  // And the reason names the COST, because that is what is unconsumed.
+  assert.match(ABSORB_COST_UNCONSUMED, /cost as well as/);
 });
 
 test("case 23 — every refusal names what opens it, not just that it is closed", () => {
   // A refusal an operator cannot act on and cannot date is indistinguishable
   // from a bug. Each of these says what has to change.
-  for (const reason of [ELECTION_DELETES_CHARGE, ELECTION_DOUBLE_BILLS, ABSORB_INVISIBLE_TO_FLOOR]) {
+  for (const reason of [ABSORB_COST_UNCONSUMED, LANDED_SEPARATE_UNWIRED]) {
     assert.match(reason, /^Not available yet\./);
-    // What opens it, in terms an operator can hold — the capability, not the
-    // module that will provide it.
-    assert.match(reason, /It opens once /);
-    assert.doesNotMatch(reason, /engine|layer|projection/i);
+    // Each states a CONDITION for change — "opens once X" or "stays closed
+    // until Y" — rather than only that it is shut.
+    assert.match(reason, /It (opens|stays closed until)/);
   }
   // And they must not read as policy refusals — the firm permits these modes.
-  for (const reason of [ELECTION_DELETES_CHARGE, ELECTION_DOUBLE_BILLS]) {
-    assert.doesNotMatch(reason, /must be recovered|cannot be absorbed|not separately invoiceable/i);
-  }
+  assert.doesNotMatch(ABSORB_COST_UNCONSUMED, /must be recovered|cannot be absorbed/i);
 });
 
 test("case 23 — landed charges are not judged on an allocation state they lack", () => {
@@ -394,7 +381,7 @@ test("case 23 — landed charges are not judged on an allocation state they lack
   for (const key of ["container_freight", "duty_tariffs"] as RecoveryChargeKey[]) {
     const reason = refusalFor(key, "absorbed", { perAssemblyAllocate: true });
     assert.equal(reason, refusalReason(key, "absorbed"));
-    assert.notEqual(reason, ABSORB_INVISIBLE_TO_FLOOR);
+    assert.notEqual(reason, ABSORB_COST_UNCONSUMED);
   }
 });
 
@@ -414,10 +401,11 @@ test("case 23 — every mode is rendered with a verdict, none hidden", () => {
       `${r.mode}: availability and reason disagree`,
     );
   }
-  // At allocate=true the only currently-honourable mode is `included`.
+  // Both revenue-neutral placements are electable now; only `absorbed` is
+  // refused, and its reason is about unconsumed COST.
   assert.deepEqual(
     rows.filter((r) => r.available).map((r) => r.mode),
-    ["included"],
+    ["included", "separate"],
   );
 });
 

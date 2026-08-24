@@ -2001,66 +2001,6 @@ function computeLeafPerTier(args: {
     // Service leaf writes it.
     num(production?.testingMicrosTotal) +
     num(production?.otherServiceTotal);
-  if (production && tierQty > 0) {
-    // Customer quote pricing is always based on the quoted tier quantity.
-    // Actual output belongs to operational reconciliation and must not mutate
-    // the pricing that becomes a sent customer snapshot.
-    const denom = tierQty;
-    internalProductionCogsPerUnit =
-      denom > 0 ? internalProductionCogsTotal / denom : 0;
-    allocatedServiceFeesPerUnit =
-      production.allocateServiceFeesToCost && denom > 0
-        ? oneTimeServiceFeeTotal / denom
-        : 0;
-
-    // Filling/blending and CM assembly always remain internal COGS.
-    productionCostSum =
-      internalProductionCogsPerUnit + allocatedServiceFeesPerUnit;
-
-    // ── REPAIR · the allocation-OFF charge stops vanishing ──────────────
-    //
-    // This was `separateServiceFees = 0` unconditionally, which made an
-    // allocation-OFF one-time charge invisible to the ENGINE: absent from
-    // cost, from revenue, and therefore from every margin. The customer was
-    // still billed for it — the projection emits the line — so the money was
-    // real on both sides and only the engine could not see it.
-    //
-    // The defect distorted margin INCONSISTENTLY rather than conservatively.
-    // Restoring a charge at cost `e` and recovery `e(1+r)` raises the margin
-    // only where it sits below `r/(1+r)` — 28.57% at the governed 40% — and
-    // DILUTES it above. So thin quotes were understated and healthy ones
-    // overstated, by 7.7 points on one sent quote. An inconsistent distortion
-    // is worse than a consistent one: no reader can correct for it.
-    //
-    // See docs/allocation-off-margin-exclusion-repair.md.
-    separateServiceFees =
-      !production.allocateServiceFeesToCost && denom > 0
-        ? oneTimeServiceFeeTotal / denom
-        : 0;
-
-    // Unconditional. `customer_ships_raws` used to gate this, and was false on
-    // every row in the database — so this is the branch all live data already
-    // took, not a new behaviour.
-    const bulk = num(production.bulkRawCost);
-    rawCost = denom > 0 ? bulk / denom : 0;
-  }
-  // Same class of fact as the totals above, and retained for the same reason:
-  // the flagged-out node states WHAT was excluded, and a reason without the
-  // amount tells an operator that something was left out but not what it
-  // would have cost them.
-  bulkRawTotal = num(production?.bulkRawCost);
-
-  // BV-013 · strict. No `Other`, no firm fallback.
-  //
-  // When the governed default is missing the value is null, and the arithmetic
-  // below uses 0 so the page can still RENDER — not because zero is the rate.
-  // The consequences are deliberate and paired: the Markup cell shows an
-  // em-dash rather than a number, the section prices at cost, and the quote
-  // becomes unsendable via the unresolved-cost readiness path.
-  //
-  // Zero rather than a substitute rate because it fails toward a VISIBLE
-  // problem: an unmarked section drags the margin verdict red, where a
-  // plausible 30% would have looked like a priced quote.
   const productionMarkupResolution = resolveMarkupStrict({
     defaults: markupDefaults,
     category: PRODUCTION_MARKUP_CATEGORY,
@@ -2071,31 +2011,6 @@ function computeLeafPerTier(args: {
   });
   const productionMarkup = productionMarkupResolution.value ?? 0;
   const rawMarkup = rawMarkupResolution2.value ?? 0;
-
-  // Retained under a private name: these are the values the NODES are built
-  // from, and the exported scalars below are derived from the nodes rather
-  // than from here. Two names for the same arithmetic would be a second
-  // accumulation, which is the thing ownership is being moved away from.
-  const productionMarkupSumFromInputs = productionCostSum * (1 + productionMarkup);
-  const rawMarkupSumFromInputs = rawCost * (1 + rawMarkup);
-  // The recovery for a separately-billed charge, priced at the SAME authority
-  // the customer document prices it at — `PRODUCTION_MARKUP_CATEGORY`, resolved
-  // through `resolveMarkupStrict` on both sides. Two rates for one line would
-  // put the engine's revenue and the customer's invoice at different numbers.
-  //
-  // WHEN THE RATE DOES NOT RESOLVE, THE RECOVERY IS ZERO — not cost.
-  // `productionMarkup` falls open to 0 above, so the bare product would return
-  // the charge's COST as though it had been billed at cost. But the projection
-  // fails VISIBLE in that case (BV-013: no governed rate means no price, not a
-  // price computed at cost) and emits no priced line, so nothing is billed.
-  // Booking revenue the customer was never charged is the one outcome worse
-  // than booking none. Cost still enters; margin falls; and a margin falling
-  // because we are paying for something we are not billing is the correct
-  // signal rather than a defect.
-  const separateServicesMarkupSum =
-    productionMarkupResolution.value === null
-      ? 0
-      : separateServiceFees * (1 + productionMarkup);
 
   const chargeEconomics = chargeEconomicsFor(production, productionMarkupResolution.value);
 
@@ -2131,6 +2046,113 @@ function computeLeafPerTier(args: {
     chargeElections,
     production?.allocateServiceFeesToCost,
   );
+
+  if (production && tierQty > 0) {
+    // Customer quote pricing is always based on the quoted tier quantity.
+    // Actual output belongs to operational reconciliation and must not mutate
+    // the pricing that becomes a sent customer snapshot.
+    const denom = tierQty;
+    internalProductionCogsPerUnit =
+      denom > 0 ? internalProductionCogsTotal / denom : 0;
+    // ── FROM THE CONSTRUCTION, NOT FROM THE BOOLEAN ────────────────────
+    //
+    // This read `production.allocateServiceFeesToCost` directly, which meant
+    // the `unit_price` half of the construction was decided here and the
+    // `separate_line` half was decided by the constructor. Two halves of one
+    // decision, made in two places — the cutover was only half done, and
+    // `constructed.unitPriceCost` was read by nothing at all.
+    //
+    // The division survives because a unit RATE needs a per-unit amount; what
+    // changed is that the amount comes from a placement rather than deciding
+    // one. With no election `unitPriceCost` is exactly
+    // `oneTimeServiceFeeTotal` when the assembly allocates and 0 when it does
+    // not — the same value, and the same addends in the same order, so no
+    // number moves.
+    allocatedServiceFeesPerUnit =
+      denom > 0 ? constructed.unitPriceCost / denom : 0;
+
+    // Filling/blending and CM assembly always remain internal COGS.
+    productionCostSum =
+      internalProductionCogsPerUnit + allocatedServiceFeesPerUnit;
+
+    // ── REPAIR · the allocation-OFF charge stops vanishing ──────────────
+    //
+    // This was `separateServiceFees = 0` unconditionally, which made an
+    // allocation-OFF one-time charge invisible to the ENGINE: absent from
+    // cost, from revenue, and therefore from every margin. The customer was
+    // still billed for it — the projection emits the line — so the money was
+    // real on both sides and only the engine could not see it.
+    //
+    // The defect distorted margin INCONSISTENTLY rather than conservatively.
+    // Restoring a charge at cost `e` and recovery `e(1+r)` raises the margin
+    // only where it sits below `r/(1+r)` — 28.57% at the governed 40% — and
+    // DILUTES it above. So thin quotes were understated and healthy ones
+    // overstated, by 7.7 points on one sent quote. An inconsistent distortion
+    // is worse than a consistent one: no reader can correct for it.
+    //
+    // See docs/allocation-off-margin-exclusion-repair.md.
+    // FROM THE CONSTRUCTION, like the unit-price half above.
+    //
+    // This read the boolean directly and computed its own quotient, which made
+    // it a SECOND derivation running beside the construction — the exact shape
+    // the cutover exists to remove, surviving one level down because nothing
+    // downstream of it had changed yet. The seven-consumer trace is what
+    // caught it; reading the code had not.
+    //
+    // Same value with no election: `separateLineCost` is
+    // `oneTimeServiceFeeTotal` when the assembly does not allocate and 0 when
+    // it does, with the same addends in the same order.
+    separateServiceFees = denom > 0 ? constructed.separateLineCost / denom : 0;
+
+    // Unconditional. `customer_ships_raws` used to gate this, and was false on
+    // every row in the database — so this is the branch all live data already
+    // took, not a new behaviour.
+    const bulk = num(production.bulkRawCost);
+    rawCost = denom > 0 ? bulk / denom : 0;
+  }
+  // Same class of fact as the totals above, and retained for the same reason:
+  // the flagged-out node states WHAT was excluded, and a reason without the
+  // amount tells an operator that something was left out but not what it
+  // would have cost them.
+  bulkRawTotal = num(production?.bulkRawCost);
+
+  // BV-013 · strict. No `Other`, no firm fallback.
+  //
+  // When the governed default is missing the value is null, and the arithmetic
+  // below uses 0 so the page can still RENDER — not because zero is the rate.
+  // The consequences are deliberate and paired: the Markup cell shows an
+  // em-dash rather than a number, the section prices at cost, and the quote
+  // becomes unsendable via the unresolved-cost readiness path.
+  //
+  // Zero rather than a substitute rate because it fails toward a VISIBLE
+  // problem: an unmarked section drags the margin verdict red, where a
+  // plausible 30% would have looked like a priced quote.
+
+  // Retained under a private name: these are the values the NODES are built
+  // from, and the exported scalars below are derived from the nodes rather
+  // than from here. Two names for the same arithmetic would be a second
+  // accumulation, which is the thing ownership is being moved away from.
+  const productionMarkupSumFromInputs = productionCostSum * (1 + productionMarkup);
+  const rawMarkupSumFromInputs = rawCost * (1 + rawMarkup);
+  // The recovery for a separately-billed charge, priced at the SAME authority
+  // the customer document prices it at — `PRODUCTION_MARKUP_CATEGORY`, resolved
+  // through `resolveMarkupStrict` on both sides. Two rates for one line would
+  // put the engine's revenue and the customer's invoice at different numbers.
+  //
+  // WHEN THE RATE DOES NOT RESOLVE, THE RECOVERY IS ZERO — not cost.
+  // `productionMarkup` falls open to 0 above, so the bare product would return
+  // the charge's COST as though it had been billed at cost. But the projection
+  // fails VISIBLE in that case (BV-013: no governed rate means no price, not a
+  // price computed at cost) and emits no priced line, so nothing is billed.
+  // Booking revenue the customer was never charged is the one outcome worse
+  // than booking none. Cost still enters; margin falls; and a margin falling
+  // because we are paying for something we are not billing is the correct
+  // signal rather than a defect.
+  // Also from the construction. Re-marking-up the per-unit quotient here would
+  // reintroduce the very round trip the tier operands stopped doing — and the
+  // two would then disagree in the last places while both looked right.
+  const separateServicesMarkupSum =
+    tierQty > 0 ? (constructed.separateLineRecovery ?? 0) / tierQty : 0;
 
   // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
   let productionSectionNode: CostingNode | undefined;
