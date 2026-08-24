@@ -514,6 +514,43 @@ test("the workspace height is derived from the shell, not assumed", async () => 
   assert.match(host, /addEventListener\("resize"/);
 });
 
+test("the umbrella shell is sized by its container, not by the viewport", async () => {
+  // The defect this pins is arithmetic, not taste. `.r8-shell` sits beneath the
+  // surface chrome, so a `100vh` claim here means the document is 100vh PLUS the
+  // chrome — every sub-tab overflows by exactly the chrome's height whatever it
+  // contains. Upstream is not wrong; upstream renders this element as the
+  // document root, where the claim and the viewport are the same box.
+  const css = await readFile(
+    new URL("../../src/styles/r8-quote-umbrella.css", import.meta.url),
+    "utf8",
+  );
+  const shell = css.slice(css.indexOf(".r8-shell {"));
+  const decl = shell.slice(0, shell.indexOf("}"));
+  assert.doesNotMatch(
+    decl,
+    /min-height:\s*100[sd]?vh/,
+    ".r8-shell must not claim a viewport it does not start at",
+  );
+  assert.match(decl, /flex:\s*1 0 auto/, "grow into what the chrome leaves");
+
+  // And the container that supplies the height actually wraps it. Sizing from a
+  // parent that is not a flex column is sizing from nothing.
+  assert.match(css, /\.r8-viewport \{[^}]*min-height:\s*100vh/);
+  assert.match(css, /\.r8-viewport \{[^}]*flex-direction:\s*column/);
+  const page = await readFile(
+    new URL(
+      "../../src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(page, /className="r8-viewport"/);
+
+  // No constant. A subtraction here would have to be re-derived every time the
+  // chrome above changes, and nothing would report that it had gone stale.
+  assert.doesNotMatch(css, /calc\(100vh\s*-\s*\d/);
+});
+
 test("Card 0 states the absence rather than substituting a tier", async () => {
   // "The last tier" and "the recommended tier" are different facts.
   const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));

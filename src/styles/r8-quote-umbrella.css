@@ -19,8 +19,33 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ─── Shell ──────────────────────────────────────────────── */
-.r8-shell {
+/* Nexus adaptation — the shell is sized by its container, not by the viewport.
+   ───────────────────────────────────────────────────────────────────────────
+   Upstream declares `min-height: 100vh` here, and upstream is right: in the
+   prototype `.r8-shell` IS the document root (`umbrella.jsx:939`), so a
+   viewport claim and the viewport are the same box.
+
+   In Nexus the shell is nested beneath the surface chrome, so that claim became
+   a SECOND full viewport stacked under whatever sits above it — the document
+   ran 100vh + the chrome's own height, and every one of the five sub-tabs
+   overflowed by exactly that amount regardless of content. Authored in Slice
+   12; it has been true on all five ever since.
+
+   Sized from the containing layout instead: `.r8-viewport` below is a flex
+   column one viewport tall, and the shell grows into whatever the chrome
+   leaves. `flex: 1 0 auto` — grow to fill a short tab so the ground still
+   paints edge to edge, never shrink below content, so a tall tab pushes the
+   page taller and scrolls normally.
+
+   No constant. Nothing to keep in sync when the chrome's height changes, and
+   nothing for a future surface above it to invalidate. */
+.r8-viewport {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.r8-shell {
+  flex: 1 0 auto;
   background: var(--paper);
   display: flex;
   flex-direction: column;
