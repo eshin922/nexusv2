@@ -112,9 +112,15 @@ reconciles to the frozen customer total exactly.
 
 **Customer-facing control — captured on both sides, not argued.** The
 commercial projection for all 8 affected quotes, captured with the repair
-stashed and again with it restored: **byte-identical, 8,636 bytes each**
+stashed and again with it restored: **byte-identical, 12,535 bytes each**
 (`scripts/gate-1b/alloc-off-repair-pdf-control.ts`). A structural argument is
 how a NetSuite double-count nearly shipped (§6), so the control is measured.
+
+The capture records every customer-visible string on each line — `displayName`,
+`displaySku`, `displaySub`, `displayQtyLabel` — not just amounts. A moved
+sub-caption or quantity label is a moved document even when the arithmetic
+holds, and an earlier version of this control captured only a name and would
+not have seen one.
 
 **Amounts — every charge booked at exactly its stated amount**
 (`scripts/gate-1b/alloc-off-repair-certify.ts`). Not a formality: a charge is

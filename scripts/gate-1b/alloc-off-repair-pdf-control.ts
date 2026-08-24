@@ -45,14 +45,23 @@ const captured: Record<string, unknown> = {};
 
 for (const q of quotes) {
   try {
-    const view = await resolveCustomerView({ quoteId: q.quote_id });
-    const c = view?.commercial;
+    const res = await resolveCustomerView({ quoteId: q.quote_id });
+    // `ResolveCustomerViewResult` is a discriminated union — the `not_found`
+    // arm carries no projection. Narrowing on `ok` rather than reaching for
+    // `?.commercial` keeps "the quote could not be resolved" distinguishable
+    // from "the quote resolved and its projection was empty". Recording those
+    // as the same thing is how a capture silently loses a quote.
+    if (!res.ok) {
+      captured[q.quote_id] = { status: q.status, unresolved: res.kind };
+      continue;
+    }
+    const c = res.commercial;
     captured[q.quote_id] = {
       status: q.status,
       // Every number a customer can read off the document: the per-tier totals
       // and each line's per-tier cell. Labels included — a moved label is a
       // moved document even when the arithmetic holds.
-      tiers: c?.tiers?.map((t) => ({
+      tiers: c.tiers.map((t) => ({
         tierId: t.tierId,
         label: t.tierLabel,
         quantity: t.quantity,
@@ -61,11 +70,19 @@ for (const q of quotes) {
         total: t.tierCommercialTotal,
         provisional: t.isProvisional,
       })),
-      lines: c?.lines?.map((l) => ({
-        label: (l as { label?: string }).label,
-        cells: (l as { cells?: unknown[] }).cells,
+      // Every customer-visible string on the line, not just a name: display
+      // copy is part of the document, and a moved sub-caption or quantity
+      // label is a moved document even when the arithmetic holds.
+      lines: c.lines.map((l) => ({
+        key: l.key,
+        kind: l.kind,
+        displayName: l.displayName,
+        displaySku: l.displaySku,
+        displaySub: l.displaySub,
+        displayQtyLabel: l.displayQtyLabel,
+        cells: l.cells,
       })),
-      productionMarkupPct: c?.productionMarkupPct,
+      productionMarkupPct: c.productionMarkupPct,
     };
   } catch (e) {
     captured[q.quote_id] = { status: q.status, error: String(e) };
