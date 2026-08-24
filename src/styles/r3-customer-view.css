@@ -277,6 +277,25 @@
   color: var(--paper);
   border-color: var(--ink);
 }
+/* Relinquishing an election. Deliberately NOT a fourth segment: the segments
+   are the three treatments, and a control that means "stop choosing" is a
+   different kind of act from choosing. Quiet, underlined, secondary. */
+.cv-restore {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--ui);
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cv-restore:hover:not(:disabled) { color: var(--ink); }
+.cv-restore:disabled { opacity: 0.5; cursor: progress; }
+
 /* In flight. Distinguishable from prohibited at a glance: prohibited is flat
    and dimmed, in-flight keeps its weight and pulses. Without this the two read
    identically, and a saving row looks like a forbidden one. */

@@ -384,7 +384,11 @@ test("the saving state ends when the engine answers, not when the write returns"
     "utf8",
   );
   // The intent carries the mode, so it can be compared against what comes back.
-  assert.match(card, /useState<\{ chargeKey: string; mode: RecoveryMode \} \| null>/);
+  const flatAll = card.replace(/\s+/g, " ");
+  assert.ok(
+    flatAll.includes("mode: RecoveryMode | null; } | null>(null)"),
+    "the intent must carry the picked mode, and null for a relinquishment",
+  );
   // Success must NOT clear it. Compared on whitespace-normalised text, so
   // the assertion does not depend on how the file happens to wrap.
   const flat = card.replace(/\s+/g, " ");
@@ -401,6 +405,54 @@ test("the saving state ends when the engine answers, not when the write returns"
   assert.match(card, /if \(writeDone\.current\) setPending\(null\)/);
   // Still derived from the engine, never optimistic.
   assert.match(card, /const active = row\.effectiveMode === opt\.mode/);
+});
+
+test("an elected charge can relinquish its election", async () => {
+  // setChargeRecovery(mode=null) already existed and the read model already
+  // told elected from inherited -- the operator simply had no way to invoke it,
+  // so a charge could not be returned to its inherited treatment once elected.
+  const card = await readFile(
+    new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
+    "utf8",
+  );
+  const flat = card.replace(/\s+/g, " ");
+
+  // Offered only where there is something to give up.
+  assert.ok(flat.includes("row.source === \"election\" && editable && ("));
+  assert.match(card, /data-testid=\{`recovery-\$\{row\.chargeKey\}-restore`\}/);
+
+  // It calls the SAME writer, with the empty mode the action reads as a clear.
+  assert.ok(flat.includes("onClick={() => write(row.chargeKey, null)}"));
+  assert.ok(flat.includes('fd.set("mode", mode ?? "")'));
+
+  // Electing and relinquishing stay distinct acts: clicking the selected
+  // treatment must not be overloaded to mean clear.
+  assert.ok(flat.includes("onClick={() => write(row.chargeKey, opt.mode)}"));
+  assert.ok(
+    !flat.includes("active ? write(row.chargeKey, null)"),
+    "clicking the selected treatment must not mean clear",
+  );
+
+  // Same acknowledgement lifecycle, and still nothing optimistic.
+  assert.ok(flat.includes('disabled={busy} aria-busy={busy || undefined}'));
+  assert.match(card, /const active = row\.effectiveMode === opt\.mode/);
+});
+
+test("a relinquishment is answered by provenance, not by the selected mode", async () => {
+  // The inherited placement may EQUAL the elected one. Then the dark button
+  // does not move and only "elected → inherited" changes -- which is correct,
+  // and means waiting on the mode would wait for a change that never comes.
+  const card = await readFile(
+    new URL("../../src/components/quote/card-commercial-recovery.tsx", import.meta.url),
+    "utf8",
+  );
+  const flat = card.replace(/\s+/g, " ");
+  assert.ok(
+    flat.includes(
+      'pending.mode === null ? row?.source === "legacy" : row?.effectiveMode === pending.mode',
+    ),
+    "the wait must end on provenance for a clear and on mode for an election",
+  );
 });
 
 test("Card 1 reads the treatment in force, not the election row", async () => {

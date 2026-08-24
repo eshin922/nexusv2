@@ -120,22 +120,36 @@ export function CardCommercialRecovery({
    * hang waiting for an answer that never comes, because ANY fresh answer
    * clears it.
    */
-  const [pending, setPending] = useState<{ chargeKey: string; mode: RecoveryMode } | null>(null);
+  const [pending, setPending] = useState<{
+    chargeKey: string;
+    /** `null` is a RELINQUISHMENT -- see `restore` below. */
+    mode: RecoveryMode | null;
+  } | null>(null);
   const writeDone = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const present = rows.filter((r) => r.present);
 
-  /** Picking elects. The document and the margin cards are the confirmation. */
-  function pick(chargeKey: string, mode: RecoveryMode) {
+  /**
+   * Picking elects. The document and the margin cards are the confirmation.
+   *
+   * `mode: null` RELINQUISHES the election and returns the charge to its
+   * inherited legacy resolution. It is a separate act with its own control --
+   * clicking the already-selected treatment deliberately does NOT mean it.
+   * Electing a treatment and giving up the right to choose one are different
+   * commercial statements, and overloading one gesture to mean both would make
+   * the second unreachable except by accident.
+   */
+  function write(chargeKey: string, mode: RecoveryMode | null) {
     setError(null);
     writeDone.current = false;
     setPending({ chargeKey, mode });
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("chargeKey", chargeKey);
-    fd.set("mode", mode);
+    // Empty clears. `parseMode` reads "" as null by contract.
+    fd.set("mode", mode ?? "");
     startTransition(async () => {
       const res = await setChargeRecovery(fd);
       // The governed reason, verbatim. The surface refuses too, but the surface
@@ -154,7 +168,11 @@ export function CardCommercialRecovery({
   useEffect(() => {
     if (!pending) return;
     const row = rows.find((r) => r.chargeKey === pending.chargeKey);
-    if (row?.effectiveMode === pending.mode) {
+    // A relinquishment is answered by PROVENANCE, not by the selected mode.
+    // The inherited placement may well equal the elected one, in which case the
+    // dark button does not move and only "elected → inherited" changes. Waiting
+    // on the mode there would wait for a change that correctly never comes.
+    if (pending.mode === null ? row?.source === "legacy" : row?.effectiveMode === pending.mode) {
       setPending(null);
       return;
     }
@@ -264,7 +282,7 @@ export function CardCommercialRecovery({
                       }
                       data-testid={`recovery-${row.chargeKey}-${opt.mode}`}
                       data-available={opt.available ? "yes" : "no"}
-                      onClick={() => pick(row.chargeKey, opt.mode)}
+                      onClick={() => write(row.chargeKey, opt.mode)}
                     >
                       {MODE_LABEL[opt.mode]}
                     </button>
@@ -272,6 +290,34 @@ export function CardCommercialRecovery({
                 })}
               </div>
 
+              {/* Only where there is something to give up. An inherited charge
+                  has no election to restore, so the control would be a no-op
+                  dressed as an action.
+
+                  A Nexus extension: the registered authority shows the three
+                  segments and no fourth control, because in the reference every
+                  charge is elected. Nexus carries 86 legacy-placed quotes whose
+                  treatment was never chosen, so relinquishing has a meaning
+                  there that the reference had no need to express. Restrained on
+                  purpose -- a text button under the segments, not a fourth
+                  segment competing with the treatments. */}
+              {row.source === "election" && editable && (
+                <button
+                  type="button"
+                  className="cv-restore"
+                  disabled={busy}
+                  aria-busy={busy || undefined}
+                  title={
+                    busy
+                      ? "Saving this change…"
+                      : "Give up this election and return the charge to the treatment it inherits."
+                  }
+                  data-testid={`recovery-${row.chargeKey}-restore`}
+                  onClick={() => write(row.chargeKey, null)}
+                >
+                  Restore inherited treatment
+                </button>
+              )}
             </div>
           );
         })
