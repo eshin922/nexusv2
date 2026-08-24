@@ -456,3 +456,42 @@ test("the restored layout is gated, and the gate says it is temporary", async ()
   assert.match(raw, /TEMPORARY/);
   assert.match(raw, /Q6/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// STRUCTURAL FIDELITY IS NOT VISUAL FIDELITY.
+//
+// Everything above asserts that the authority's requirements are implemented.
+// None of it can see whether the surface an operator opens is right, and the
+// gap between those two is exactly where "the tests are green" turns into "it
+// is approved" without anyone deciding it.
+//
+// So the flag and the record are coupled: while the brief says visual fidelity
+// is PENDING, the gate must still exist. Removing one without the other fails
+// here.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("the gate stays while visual fidelity is unapproved", async () => {
+  const brief = await read("docs/quote-presentation-restoration-brief.md");
+  const state = /VISUAL_FIDELITY:\s*(\w+)/.exec(brief)?.[1];
+  assert.ok(state, "the restoration brief no longer records a gate state");
+
+  const page = codeOnly(
+    await read("src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx"),
+  );
+  const gated = /presentationRestored = viewer\.role === "admin"/.test(page);
+
+  if (state === "PENDING") {
+    assert.ok(
+      gated,
+      "the restored layout was opened to operators while the brief still records visual fidelity as PENDING",
+    );
+  } else {
+    // The flag came off. That is a decision, and it should have been recorded
+    // as one — this branch exists so the record cannot be the thing left
+    // behind.
+    assert.ok(
+      !gated,
+      `the brief records VISUAL_FIDELITY: ${state} but the gate is still in place`,
+    );
+  }
+});

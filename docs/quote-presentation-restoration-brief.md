@@ -200,6 +200,35 @@ new place. It needs its own slice against the authority's schema section.
 
 ---
 
+## §4.5 · Gate state
+
+Recorded here rather than left in conversation, because "the tests are green"
+is the sentence that would otherwise become "it is approved".
+
+```
+STRUCTURAL_FIDELITY: VERIFIED     tests + verify:ci
+VISUAL_FIDELITY:     PENDING      awaiting operator inspection
+```
+
+**These are different properties and only one of them is automated.** The
+structural checks assert that the authority's requirements are implemented —
+the clamp is present, the panel groups exist, no economic input reaches the
+panel, F4 is gone. None of them can see whether the surface an operator opens
+is right. That judgement is Edward's, and the flag stays until he makes it.
+
+`tests/unit/recovery-workspace.test.ts` asserts the coupling: while this file
+says `VISUAL_FIDELITY: PENDING`, the `presentationRestored` gate must still
+exist. Removing the flag without moving this line fails the suite — so the two
+cannot drift apart silently, which is the only failure mode worth automating
+here.
+
+**Before the flag comes off:**
+
+1. restored/admin path — the fidelity fixes landed as intended
+2. legacy path via `?legacy=1` — the existing PM experience is intact,
+   specifically Edit-notes and the old control row
+3. Edward's own visual inspection of the restored layout
+
 ## §5 · Exit
 
 Surface stays dark until the restored version is back for operator review. No
