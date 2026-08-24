@@ -1851,11 +1851,29 @@ function computeLeafPerTier(args: {
         : 0;
 
     // Filling/blending and CM assembly always remain internal COGS.
-    // Allocation-off one-time fees are projected exactly once by the
-    // customer-view resolver, outside unit cost and unit sell.
     productionCostSum =
       internalProductionCogsPerUnit + allocatedServiceFeesPerUnit;
-    separateServiceFees = 0;
+
+    // ── REPAIR · the allocation-OFF charge stops vanishing ──────────────
+    //
+    // This was `separateServiceFees = 0` unconditionally, which made an
+    // allocation-OFF one-time charge invisible to the ENGINE: absent from
+    // cost, from revenue, and therefore from every margin. The customer was
+    // still billed for it — the projection emits the line — so the money was
+    // real on both sides and only the engine could not see it.
+    //
+    // The defect distorted margin INCONSISTENTLY rather than conservatively.
+    // Restoring a charge at cost `e` and recovery `e(1+r)` raises the margin
+    // only where it sits below `r/(1+r)` — 28.57% at the governed 40% — and
+    // DILUTES it above. So thin quotes were understated and healthy ones
+    // overstated, by 7.7 points on one sent quote. An inconsistent distortion
+    // is worse than a consistent one: no reader can correct for it.
+    //
+    // See docs/allocation-off-margin-exclusion-repair.md.
+    separateServiceFees =
+      !production.allocateServiceFeesToCost && denom > 0
+        ? oneTimeServiceFeeTotal / denom
+        : 0;
 
     // Unconditional. `customer_ships_raws` used to gate this, and was false on
     // every row in the database — so this is the branch all live data already
@@ -1897,7 +1915,24 @@ function computeLeafPerTier(args: {
   // accumulation, which is the thing ownership is being moved away from.
   const productionMarkupSumFromInputs = productionCostSum * (1 + productionMarkup);
   const rawMarkupSumFromInputs = rawCost * (1 + rawMarkup);
-  const separateServicesMarkupSum = separateServiceFees * (1 + productionMarkup);
+  // The recovery for a separately-billed charge, priced at the SAME authority
+  // the customer document prices it at — `PRODUCTION_MARKUP_CATEGORY`, resolved
+  // through `resolveMarkupStrict` on both sides. Two rates for one line would
+  // put the engine's revenue and the customer's invoice at different numbers.
+  //
+  // WHEN THE RATE DOES NOT RESOLVE, THE RECOVERY IS ZERO — not cost.
+  // `productionMarkup` falls open to 0 above, so the bare product would return
+  // the charge's COST as though it had been billed at cost. But the projection
+  // fails VISIBLE in that case (BV-013: no governed rate means no price, not a
+  // price computed at cost) and emits no priced line, so nothing is billed.
+  // Booking revenue the customer was never charged is the one outcome worse
+  // than booking none. Cost still enters; margin falls; and a margin falling
+  // because we are paying for something we are not billing is the correct
+  // signal rather than a defect.
+  const separateServicesMarkupSum =
+    productionMarkupResolution.value === null
+      ? 0
+      : separateServiceFees * (1 + productionMarkup);
 
   // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
   let productionSectionNode: CostingNode | undefined;
@@ -2459,8 +2494,26 @@ function computeLeafPerTier(args: {
   }
 
   // ---------- contribution + required sell ----------
-  const contributionCostPerUnit =
-    factoryCostPerUnit + totalLandedBefore + separateServiceFees;
+  // ── THE SEPARATELY-BILLED CHARGE IS DELIBERATELY ABSENT HERE ───────────
+  //
+  // `separateServiceFees` used to appear in this sum and contributed a hard
+  // zero. Now that it carries a value it must NOT be added back, and the
+  // reason is external rather than aesthetic.
+  //
+  // This field IS the unit cost Nexus sends NetSuite (`mark-complete.ts:624,
+  // 716`), and a separately-billed charge already travels as its OWN line
+  // carrying its OWN cost, read live from `assembly_production_inputs`. Adding
+  // it here too would send the same cost twice — once inside the product
+  // line's unit cost and once as the OTC line — and the double count would be
+  // invisible on both sides because each looks correct alone.
+  //
+  // It is also the right shape independently: a fixed charge billed once is
+  // not a per-unit cost, and the tier rollup adds it as its own operand rather
+  // than amortising it into a rate and multiplying it back out.
+  //
+  // The per-cell margin above is unchanged for the same reason — the charge is
+  // not part of what a unit sells for.
+  const contributionCostPerUnit = factoryCostPerUnit + totalLandedBefore;
 
   // Required sell stacks each component's pre-global-adj sell, then
   // multiplies by (1 + global_adj). Each component carries its own markup.
@@ -3485,6 +3538,38 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         origin: { grade: "thin", actor: null, when: null, doc: null },
       });
       const tQty = num(tier.qty);
+
+      // ── THE SEPARATELY-BILLED CHARGE ENTERS HERE, AS ITS OWN OPERAND ────
+      //
+      // Not folded into the two above. Those carry the per-unit build-up, and
+      // this is a fixed charge that is billed once — so it joins the tier's
+      // totals at the tier, where it belongs, instead of being amortised into
+      // a unit rate that then has to be multiplied back out.
+      //
+      // Both halves or neither: the cost is what DPS pays and the recovery is
+      // what the customer is billed on the projection's separate line. Adding
+      // one without the other would replace an exclusion with a bias.
+      const sepCost = pt.separateServiceFeesPerUnit * tQty;
+      const sepRecovery = pt.separateServicesMarkupSumPerUnit * tQty;
+      if (sepCost !== 0 || sepRecovery !== 0) {
+        revenueOperands.push({
+          key: nodeKey("quote", tier.id, "revenue", top.id, "otc-separate"),
+          kind: "origin",
+          label: top.skuLabel + " — one-time charges, billed separately",
+          value: sepRecovery,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+        costOperands.push({
+          key: nodeKey("quote", tier.id, "cost-total", top.id, "otc-separate"),
+          kind: "origin",
+          label: top.skuLabel + " — one-time charges, billed separately",
+          value: sepCost,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      }
+
       breakdown.packaging += pt.packagingCostPerUnit * tQty;
       // raw bulk cost folds into "production" for breakdown purposes
       // (see QuoteCostBreakdown comment).
