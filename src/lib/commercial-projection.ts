@@ -179,7 +179,14 @@ export type CommercialProjection = {
  */
 const OTC_FEES = [
   { field: "setupFeeTotal", label: "Setup", sub: "One-time setup — filling-line, dye-cuts, plates.", qtyLabel: "1 (setup)" },
-  { field: LEGACY_COMBINED_OTC_COLUMN, label: "Tooling & artwork", sub: "One-time tooling + artwork.", qtyLabel: "1 (tooling)" },
+  // `qtyLabel` must distinguish this from `toolingTotal` below. Both printed
+  // "1 (tooling)", so a quote carrying BOTH showed the customer two lines
+  // with the same qty label and different amounts -- and an operator who
+  // elected Tooling into the unit price saw a line still saying "(tooling)"
+  // and reported the control as doing nothing. It was working; it had moved
+  // the OTHER charge's line. Two governed charges, two destinations under
+  // BV-011, one label.
+  { field: LEGACY_COMBINED_OTC_COLUMN, label: "Tooling & artwork", sub: "One-time tooling + artwork.", qtyLabel: "1 (tooling + artwork)" },
   { field: "toolingTotal", label: "Tooling", sub: "One-time tooling.", qtyLabel: "1 (tooling)" },
   { field: "artworkTotal", label: "Artwork", sub: "One-time artwork.", qtyLabel: "1 (artwork)" },
   { field: "rdTotal", label: "R&D", sub: "One-time R&D work.", qtyLabel: "1 (R&D)" },
