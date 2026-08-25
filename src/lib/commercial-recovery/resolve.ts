@@ -235,6 +235,45 @@ const PLACEMENT_NOT_NEUTRAL =
   "adjustment: $140 out of the separate line became $168 in the unit price. " +
   "It opens once the two placements recover the same amount.";
 
+/**
+ * A Direct Service leaf's recovery cannot be billed as its own one-time line.
+ *
+ * ── WHY THIS IS A COMMERCIAL RULE, NOT A DISPLAY ONE ────────────────────
+ *
+ * A Direct Service IS already a priced customer line. Its recovery is embodied
+ * in that line's own price, so there is nothing left to invoice separately —
+ * and the customer projection cannot express one: one-time lines are keyed
+ * `otc:${assemblyId}:${field}`, and a leaf with no parent assembly has no such
+ * key (commercial-projection.ts, "a Direct Service's production is its own unit
+ * line").
+ *
+ * Placing one `separate_line` therefore produced REVENUE THE ENGINE COUNTED AND
+ * THE CUSTOMER DOCUMENT NEVER BILLED. Measured on quote 4781e4bb, where a
+ * `rd_formulation` contribution on SVC-FORMULATION was placed separately:
+ *
+ *     tier          engine revenue      customer document       gap
+ *     1,000 u          23,247.60             21,520.00      1,727.60
+ *     5,000 u          52,520.60             49,237.60      3,283.00
+ *    10,000 u          97,222.20             97,050.00        172.20
+ *    20,000 u         109,327.60            107,600.00      1,727.60
+ *
+ * Every one of those gaps is exactly that charge. Nothing summing either side
+ * alone would have caught it: both totals are internally consistent, and it is
+ * their DISAGREEMENT that is the defect ("Exact reconciliation is necessary but
+ * not sufficient").
+ *
+ * The refusal is stated at the election rather than repaired at the placement
+ * on purpose. Clamping the placement would silently move a real customer
+ * quote's revenue; refusing the election prevents the state from being created
+ * while leaving what already exists to an operator.
+ */
+const DIRECT_SERVICE_NOT_SEPARATELY_BILLABLE =
+  "Not available for this charge. Part of it sits on a Direct Service, which " +
+  "is already its own priced line on the customer's quote — its recovery is " +
+  "in that price, so there is nothing to bill separately. Billing it as a " +
+  "one-time fee would add revenue the quote does not show the customer. It " +
+  "can be recovered in the unit price.";
+
 const ABSORB_COST_UNCONSUMED =
   // Leads with what absorbing IS, because the card renders this mode beside
   // the two placements and an operator reading only the refusal would
@@ -257,6 +296,14 @@ export { ABSORB_COST_UNCONSUMED, PLACEMENT_NOT_NEUTRAL };
 export type ChargeContext = {
   /** The assembly's own `allocate_service_fees_to_cost`. */
   perAssemblyAllocate?: boolean | null;
+  /**
+   * Whether any part of this charge is owned by a Direct Service leaf.
+   *
+   * The election is per (quote, charge), so one election places EVERY owner's
+   * contribution. A charge with both an assembly half and a Direct Service half
+   * cannot be billed separately on account of the half that cannot be.
+   */
+  hasDirectServiceContribution?: boolean;
 };
 
 /**
@@ -276,6 +323,12 @@ export function contextualRefusal(
   if (chargePolicy(key).grain !== "one_time") return null;
 
   if (mode === "absorbed") return ABSORB_COST_UNCONSUMED;
+
+  // Asked before the neutrality note below, because this one is not waiting on
+  // anything: it is a standing commercial boundary, not a deferral.
+  if (mode === "separate" && ctx.hasDirectServiceContribution === true) {
+    return DIRECT_SERVICE_NOT_SEPARATELY_BILLABLE;
+  }
 
   // `PLACEMENT_NOT_NEUTRAL` is LIFTED.
   //

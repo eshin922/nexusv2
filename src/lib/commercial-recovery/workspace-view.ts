@@ -223,7 +223,14 @@ export function buildRecoveryWorkspace(input: {
       // mis-price.
       let reason: string | null = null;
       for (const perAssemblyAllocate of states) {
-        reason = refusalFor(policy.key, mode, { perAssemblyAllocate });
+        reason = refusalFor(policy.key, mode, {
+          perAssemblyAllocate,
+          // The Direct Service half is why `separate` is refused for this
+          // charge. The control does not REPORT on that half (it is not
+          // actionable), but it must still refuse on account of it — otherwise
+          // it offers a placement that creates unbillable revenue.
+          hasDirectServiceContribution: svcPresent,
+        });
         if (reason) break;
       }
       return { mode, available: reason === null, reason };
