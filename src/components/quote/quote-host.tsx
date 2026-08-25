@@ -15,6 +15,7 @@ import type { QuotePerTierRollup } from "@/lib/costing";
 import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
+import { CustomerViewLive } from "./customer-view-live";
 import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
 
 // Slice 11 Step 6.4 — QuoteHost is now an iframe-driven preview
@@ -68,21 +69,6 @@ function buildIframeSrc(
   return `/api/quotes/${quoteId}/customer-pdf?${params.toString()}#navpanes=0`;
 }
 
-/**
- * A short stable digest, for cache keys only.
- *
- * Not security, not identity — it exists so the iframe src changes when the
- * commercial recovery state changes without carrying the whole projection in a
- * query string. Collisions would show a stale document, which is the defect
- * this is fixing, so it is 32-bit rather than something shorter.
- */
-/**
- * How long the preview waits for the operator to stop changing things.
- *
- * Long enough that tabbing through several treatments regenerates once; short
- * enough that a single deliberate change does not feel abandoned.
- */
-const PREVIEW_COALESCE_MS = 600;
 
 function hashString(input: string): string {
   let h = 2166136261;
@@ -178,58 +164,30 @@ export function QuoteHost({
     iframeVersion,
   );
 
-  // ── THE PREVIEW FOLLOWS; IT DOES NOT LEAD ───────────────────────────────
+  // ── THE PREVIEW IS NO LONGER AN ARTIFACT BEING FETCHED ─────────────────
   //
-  // Rendering the customer PDF costs 1904-2627ms, measured three times on
-  // production. Keying the iframe directly off `targetSrc` put that render in
-  // front of the operator's answer: elect a treatment, wait for a PDF nobody
-  // asked for yet, then see the selection move.
+  // It was: a customer PDF rendered on every change (1904-2627ms, measured
+  // three times on production), shown in an iframe. Everything that used to
+  // live here existed to hide that cost -- a 600ms coalescing timer, two
+  // iframes double-buffered so a swap did not blank the pane, an "Updating
+  // preview" caption, and a promote-on-load guard so a superseded document
+  // could not win a race. All of it was scaffolding around a plugin that
+  // cannot behave as an interactive surface and offers no event meaning "the
+  // document is on screen".
   //
-  // The authoritative commercial state — Card 1's selection and the margin
-  // cards — comes from the RSC re-render and is already on screen. The preview
-  // catches up afterwards, from that same resolved state. It is one authority
-  // arriving at two speeds, not two authorities.
+  // `CustomerViewLive` renders the same resolved `CustomerView` the PDF is
+  // built from, as DOM. It does not fetch, so there is nothing to coalesce,
+  // nothing to buffer, no load to race and no staleness to caption. React
+  // reconciles the changed text in place; the surrounding tree, the rail, the
+  // scroll position and the focused element are untouched because nothing
+  // unmounts.
   //
-  // COALESCED. Each change re-arms the timer, so a burst of elections costs ONE
-  // regeneration rather than one per click. Writes are untouched: they stay
-  // immediate and individually governed, and only the artifact is coalesced.
-  // Same discipline as the realtime reconcile pipe, pointed outward.
-  // ── TWO FRAMES, ONE VISIBLE. NEITHER IS EVER TORN DOWN. ─────────────────
-  //
-  // The first attempt at this was not a double-buffer, and shipped: it loaded
-  // the replacement in a hidden frame, then "promoted" it by assigning its src
-  // to the VISIBLE frame's `key`. Changing a key unmounts and remounts, so the
-  // visible frame threw away the buffer's work and loaded the same document a
-  // second time from scratch. The operator still saw the pane blank; the flash
-  // had only moved 600ms later. Reported as "I'm still seeing the page
-  // refresh", which is exactly what it was.
-  //
-  // A real double-buffer never moves a src between frames. Two slots stay
-  // mounted for the life of the surface, each with a stable key. A new document
-  // loads into whichever slot is currently hidden, and promotion is a CSS
-  // visibility flip on an already-rendered frame — no unmount, no refetch, no
-  // blank, and the swap costs one frame.
-  //
-  // Everything else in the tree is untouched by this, so rail scroll, the
-  // cards, and the focused element survive. The PDF plugin's own zoom belongs
-  // to the viewer and cannot cross documents; that is the one thing that
-  // legitimately resets.
-  const [slots, setSlots] = useState<{ a: string; b: string | null }>({ a: targetSrc, b: null });
-  const [active, setActive] = useState<"a" | "b">("a");
-  const shownSrc = active === "a" ? slots.a : (slots.b as string);
-  const idleKey = active === "a" ? "b" : "a";
-
-  useEffect(() => {
-    if (targetSrc === shownSrc) return;
-    // Already loading this exact document into the idle slot.
-    if (slots[idleKey] === targetSrc) return;
-    const t = setTimeout(() => {
-      setSlots((prev) => ({ ...prev, [idleKey]: targetSrc }));
-    }, PREVIEW_COALESCE_MS);
-    return () => clearTimeout(t);
-  }, [targetSrc, shownSrc, slots, idleKey]);
-
-  const previewStale = targetSrc !== shownSrc;
+  // This is a second RENDERER, not a second AUTHORITY -- certified at Gate A
+  // (semantic parity, 13/13, against content extracted from the PDF's own
+  // streams) and Gate B (visual transcription from the canonical stylesheet
+  // the PDF was itself ported from). The PDF remains the artifact of record:
+  // Download, Freeze & send, and parity certification all still generate it,
+  // and `targetSrc` below is what Download points at.
 
   // Slice 11 Step 6 FU — snapshot-lock indicator. Sent quotes
   // render the immutable snapshot (per Step 4.4 read-path); the
@@ -316,10 +274,12 @@ export function QuoteHost({
            "Left: the artifact. Right: the decisions about it.
             Bottom-right: the act."
 
-           The preview keeps the customer PDF iframe (D7) — Chrome's native
-           zoom stands in for the reference's stepper, because a DOM preview
-           would be a second renderer able to disagree with the artifact the
-           customer actually receives. */
+           The preview renders the projection directly (Gate A + Gate B).
+           The earlier note here said a DOM preview "would be a second renderer
+           able to disagree with the artifact the customer receives" -- the
+           right worry, answered by evidence rather than by avoidance: both
+           renderers read one resolved CustomerView, and the parity is
+           asserted rather than assumed. */
         <div className="cv-body" ref={workspaceRef}>
           <div className="cv-preview">
             <div className="cv-preview-bar">
@@ -349,36 +309,12 @@ export function QuoteHost({
               </div>
             )}
 
-            {/* Restrained, and deliberately NOT a blocker: the commercial
-                controls stay live while this shows. The operator has their
-                authoritative answer already; this only says the document is
-                catching up. */}
-            {previewStale && (
-              <div className="cv-preview-updating" role="status" data-testid="cv-preview-updating">
-                Updating preview…
-              </div>
-            )}
             <div className="cv-canvas">
-              <div className="cv-sheet">
-                {(["a", "b"] as const).map((slot) =>
-                  slots[slot] === null ? null : (
-                    <iframe
-                      // Keyed by SLOT, never by src. The frame outlives every
-                      // document it shows, which is what makes the swap free.
-                      key={slot}
-                      src={slots[slot] as string}
-                      title="Customer PDF preview"
-                      aria-hidden={active !== slot}
-                      className={active === slot ? undefined : "cv-sheet-buffer"}
-                      onLoad={() => {
-                        // Promote only the slot that was loading, and only once
-                        // it carries what is currently wanted -- a late load
-                        // from a superseded document must not win.
-                        if (slot !== active && slots[slot] === targetSrc) setActive(slot);
-                      }}
-                    />
-                  ),
-                )}
+              {/* `cv-sheet-live` drops the paper, border and shadow this
+                  container drew for the iframe -- the canonical `.pp-sheet`
+                  brings its own, and both would double them. */}
+              <div className="cv-sheet cv-sheet-live">
+                <CustomerViewLive view={view} />
               </div>
             </div>
           </div>

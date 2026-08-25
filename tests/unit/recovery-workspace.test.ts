@@ -781,58 +781,64 @@ test("the preview is keyed on the WHOLE customer view, not part of it", async ()
     "the digest must not derive commercial values");
 });
 
-test("the preview follows the answer; it does not gate it", async () => {
-  // Rendering the customer PDF costs 1904-2627ms, measured on production.
-  // Keying the iframe straight off the live src put that render in front of
-  // the operator's authoritative answer.
-  const host = await readFile(
-    new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
-    "utf8",
-  );
-  const flat = host.replace(/\s+/g, " ");
-
-  // Coalesced: a burst of elections costs one regeneration, not one per click.
-  assert.ok(flat.includes("PREVIEW_COALESCE_MS"));
-  // Downloads take the LIVE key -- never an artifact older than what is shown.
-  assert.ok(flat.includes("pdfHref={targetSrc}"));
-  // A caption, not a curtain: nothing about the preview disables a control.
-  assert.ok(flat.includes('data-testid="cv-preview-updating"'));
-  assert.ok(
-    !/disabled=\{[^}]*previewStale/.test(host),
-    "the preview state must never disable a commercial control",
-  );
-});
-
-test("the preview frames are keyed by SLOT, never by document", async () => {
-  // The first attempt shipped a fake double-buffer: it loaded the replacement
-  // in a hidden frame, then promoted it by assigning that src to the VISIBLE
-  // frame's `key`. Changing a key unmounts and remounts, so the visible frame
-  // discarded the buffer's work and refetched the same document -- the pane
-  // still blanked, the flash had merely moved later. Reported as "I'm still
-  // seeing the page refresh", which is what it was.
+test("the preview renders the projection, and fetches nothing", async () => {
+  // ── WHAT THIS REPLACED ─────────────────────────────────────────────────
   //
-  // A frame keyed by its SLOT outlives every document it shows, so promotion
-  // is a visibility flip on something already rendered.
+  // Two tests used to live here, pinning a 600ms coalescing timer and a
+  // two-iframe double-buffer keyed by slot. Both described real repairs to a
+  // real problem: the preview was a customer PDF re-rendered on every change
+  // (1904-2627ms, measured three times on production) inside a plugin that
+  // offers no event meaning "the document is on screen", and every mechanism
+  // there existed to stop the operator seeing a blank pane.
+  //
+  // The Gate B cutover removed the fetch, so it removed the problem those
+  // mechanisms were solving. Deleting them left nothing to coalesce, nothing
+  // to buffer, no load to race and no staleness to caption. This asserts the
+  // stronger property that replaced all of it.
   const host = await readFile(
     new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
     "utf8",
   );
   const flat = host.replace(/\s+/g, " ");
 
-  assert.ok(flat.includes("key={slot}"), "frames must be keyed by slot");
-  assert.ok(
-    !flat.includes("key={shownSrc}") && !flat.includes("key={previewSrc}"),
-    "keying a preview frame by its src remounts it and refetches the document",
-  );
-  // Promotion is a state flip, not a src move between frames.
-  assert.ok(flat.includes("setActive(slot)"));
-  // A late load from a superseded document must not win.
-  assert.ok(flat.includes("slots[slot] === targetSrc"));
-  // Both slots stay mounted; only visibility differs.
-  assert.ok(flat.includes('className={active === slot ? undefined : "cv-sheet-buffer"}'));
+  // The preview IS the renderer, reading the same resolved projection the PDF
+  // is built from.
+  assert.ok(flat.includes("<CustomerViewLive view={view} />"),
+    "the restored preview must render the projection directly");
+
+  // No iframe anywhere on the restored path. The legacy branch keeps its own,
+  // which is why this asserts on the restored composition rather than on the
+  // file carrying no iframe at all.
+  const restored = host.slice(host.indexOf('className="cv-canvas"'), host.indexOf("<CustomerViewRail"));
+  assert.ok(!restored.includes("<iframe"), "the restored preview must not embed a plugin");
+
+  // The scaffolding is gone, not merely unused. A dormant coalescing timer or
+  // buffer class would invite a future edit to wire it back to a preview that
+  // no longer fetches.
+  for (const dead of ["PREVIEW_COALESCE_MS", "previewStale", "cv-sheet-buffer", "shownSrc", "idleKey"]) {
+    assert.ok(!flat.includes(dead), `${dead} belonged to the fetched-artifact preview and must not survive it`);
+  }
+
+  // The PDF remains the artifact of record. Download still points at the live
+  // key, so it can never hand over something older than what is on screen.
+  assert.ok(flat.includes("pdfHref={targetSrc}"),
+    "Download must still generate the PDF, at the current view key");
 });
 
-
+test("nothing about the preview can gate a commercial control", async () => {
+  // Held from the removed tests because it outlived their mechanism. The
+  // operator's authoritative answer comes from the rail; the document beside
+  // it must never be the reason a control is unavailable -- the failure
+  // Pattern 47(f) names, reached from a different direction.
+  const host = await readFile(
+    new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    !/disabled=\{[^}]*(previewStale|preview)/i.test(host),
+    "preview state must never disable a commercial control",
+  );
+});
 
 test("the workspace height is derived from the shell, not assumed", async () => {
   // The first attempt guessed `calc(100vh - 50px)`. The real chrome is 261px,
