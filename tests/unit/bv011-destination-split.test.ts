@@ -166,7 +166,7 @@ test("Tooling and Artwork project as SEPARATE lines carrying their own destinati
     ]),
   );
   const tooling = p.lines.find((l) => l.displayName === "Tooling");
-  const artwork = p.lines.find((l) => l.displayName === "Artwork");
+  const artwork = p.lines.find((l) => l.displayName === "Artwork & plate");
   assert.ok(tooling && artwork, "two distinct lines, not one combined");
   assert.equal(tooling.bv011Destination, "otc_tooling");
   assert.equal(artwork.bv011Destination, "otc_artwork");
@@ -181,7 +181,7 @@ test("a legacy combined charge still bills the customer, and carries NO destinat
       prod(TIER_B, { toolingArtworkTotal: 1000 }),
     ]),
   );
-  const legacy = p.lines.find((l) => l.displayName === "Tooling & artwork");
+  const legacy = p.lines.find((l) => l.displayName === "Tooling & artwork (legacy)");
   assert.ok(legacy, "the line the customer was quoted is still produced");
 
   // Both halves matter. Dropping the line would silently change what a draft
@@ -198,8 +198,11 @@ test("the legacy line's customer-facing copy is untouched by the split", () => {
   const p = projectCommercial(bundle([prod(TIER_A, { toolingArtworkTotal: 1000 })]));
   const legacy = p.lines.find((l) => l.bv011Destination === null && l.kind === "otc");
   assert.ok(legacy);
-  // Re-wording it would move customer-facing text for an accounting change.
-  assert.equal(legacy.displayName, "Tooling & artwork");
+  // The BV-011 split must not move customer copy as a side effect. The label
+  // itself is fixed elsewhere, by the canonical charge vocabulary — one name per
+  // governed charge identity, shared with Card 1 and Card 3. An accounting
+  // change may not move it; only that canon may.
+  assert.equal(legacy.displayName, "Tooling & artwork (legacy)");
   assert.equal(legacy.displaySub, "One-time tooling + artwork.");
 });
 
@@ -319,7 +322,7 @@ test("only the legacy combined line is marked legacyUnresolved", () => {
   );
   const flagged = p.lines.filter((l) => l.legacyUnresolved);
   assert.equal(flagged.length, 1);
-  assert.equal(flagged[0].displayName, "Tooling & artwork");
+  assert.equal(flagged[0].displayName, "Tooling & artwork (legacy)");
   // Every other OTC line has a destination AND is not legacy.
   for (const l of p.lines.filter((x) => x.kind === "otc" && !x.legacyUnresolved)) {
     assert.notEqual(l.bv011Destination, null, `${l.displayName} must carry a destination`);

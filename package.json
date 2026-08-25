@@ -14,6 +14,7 @@
     "verify:complete-status-writer": "node --experimental-strip-types scripts/verify/complete-status-writer.ts",
     "verify:audit-single-writer": "node --experimental-strip-types scripts/verify/audit-single-writer.ts",
     "gate1b:capture-baseline": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/capture-costing-baseline.ts",
+    "gate1b:resolver-smoke": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/resolver-smoke.ts",
     "gate1b:verify-preserved": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "gate1b:add-user-falsification": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/add-user-refusal-falsification.ts",
     "gate1b:recovery-impact-certify": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/recovery-impact-certify.ts",

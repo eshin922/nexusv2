@@ -177,8 +177,12 @@ export type CommercialProjection = {
  * was, and re-wording it would move customer-facing text for an accounting
  * change.
  */
-const OTC_FEES = [
-  { field: "setupFeeTotal", label: "Setup", sub: "One-time setup — filling-line, dye-cuts, plates.", qtyLabel: "1 (setup)" },
+/**
+ * Exported so the canonical-label test can compare these names against the
+ * charge registry's, deriving both sides rather than restating either.
+ */
+export const OTC_FEES = [
+  { field: "setupFeeTotal", label: "Project setup", sub: "One-time setup — filling-line, dye-cuts, plates.", qtyLabel: "1 (setup)" },
   // `qtyLabel` must distinguish this from `toolingTotal` below. Both printed
   // "1 (tooling)", so a quote carrying BOTH showed the customer two lines
   // with the same qty label and different amounts -- and an operator who
@@ -186,11 +190,11 @@ const OTC_FEES = [
   // and reported the control as doing nothing. It was working; it had moved
   // the OTHER charge's line. Two governed charges, two destinations under
   // BV-011, one label.
-  { field: LEGACY_COMBINED_OTC_COLUMN, label: "Tooling & artwork", sub: "One-time tooling + artwork.", qtyLabel: "1 (tooling + artwork)" },
+  { field: LEGACY_COMBINED_OTC_COLUMN, label: "Tooling & artwork (legacy)", sub: "One-time tooling + artwork.", qtyLabel: "1 (tooling + artwork)" },
   { field: "toolingTotal", label: "Tooling", sub: "One-time tooling.", qtyLabel: "1 (tooling)" },
-  { field: "artworkTotal", label: "Artwork", sub: "One-time artwork.", qtyLabel: "1 (artwork)" },
+  { field: "artworkTotal", label: "Artwork & plate", sub: "One-time artwork.", qtyLabel: "1 (artwork)" },
   { field: "rdTotal", label: "R&D", sub: "One-time R&D work.", qtyLabel: "1 (R&D)" },
-  { field: "otherServiceTotal", label: "Other services", sub: "One-time other services.", qtyLabel: "1 (services)" },
+  { field: "otherServiceTotal", label: "Other service", sub: "One-time other services.", qtyLabel: "1 (services)" },
 ] as const;
 
 export const OTC_FEE_FIELDS = OTC_FEES.map((f) => f.field);

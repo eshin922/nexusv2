@@ -89,8 +89,8 @@ export type ChargePolicy = {
  *
  * -- WHAT THIS SUPERSEDES -----------------------------------------------
  *
- * R&D / Formulation, Other service and Testing / Micros were non-elective
- * pending a BV-011 disposition; Tooling / artwork (legacy) was refused
+ * R&D, Other service and Testing / Micros were non-elective pending a BV-011
+ * disposition; Tooling & artwork (legacy) was refused
  * because the combined field spans two governed destinations with different
  * item types.
  *
@@ -165,7 +165,7 @@ const CHARGE_SPECS: readonly ChargePolicySpec[] = [
 
   {
     key: "rd_formulation",
-    label: "R&D / Formulation",
+    label: "R&D",
     grain: "one_time",
     source: ["assembly_production_inputs.rd_total"],
   },
@@ -183,7 +183,7 @@ const CHARGE_SPECS: readonly ChargePolicySpec[] = [
   },
   {
     key: "tooling_artwork_legacy",
-    label: "Tooling / artwork (legacy)",
+    label: "Tooling & artwork (legacy)",
     grain: "one_time",
     source: ["assembly_production_inputs.tooling_artwork_total"],
   },
