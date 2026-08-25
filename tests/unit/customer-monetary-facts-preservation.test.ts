@@ -41,10 +41,10 @@ import type {
  */
 
 const TIERS: CpdfTier[] = [
-  { id: "t1", label: "Tier 1", quantity: 1000 },
-  { id: "t2", label: "Tier 2", quantity: 5000 },
-  { id: "t3", label: "Tier 3", quantity: 10000, recommended: true },
-  { id: "t4", label: "Tier 4", quantity: 20000 },
+  { id: "t1", label: "T1", full: "Tier 1", quantity: 1000 },
+  { id: "t2", label: "T2", full: "Tier 2", quantity: 5000 },
+  { id: "t3", label: "T3", full: "Tier 3", quantity: 10000, recommended: true },
+  { id: "t4", label: "T4", full: "Tier 4", quantity: 20000 },
 ];
 
 const SKUS = [
