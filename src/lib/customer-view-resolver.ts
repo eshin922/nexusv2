@@ -192,52 +192,86 @@ export async function resolveCustomerView(args: {
   if (quoteRows.length === 0) return { ok: false, kind: "not_found" };
   const { quote, project } = quoteRows[0];
 
-  const firmRows = await db
-    .select()
-    .from(firmSettings)
-    .where(isNull(firmSettings.effectiveUntil))
-    .orderBy(desc(firmSettings.effectiveFrom))
-    .limit(1);
+  // ── ONE WAVE, NOT FIVE ROUND TRIPS ─────────────────────────────────────
+  //
+  // These five reads are independent of each other. They were sequential, and
+  // each is a round trip to the database region, so the page render paid for
+  // all five one after another.
+  //
+  // That cost is not abstract: it is what an operator waits through after
+  // electing a recovery treatment. The election writes in ~850ms and then the
+  // whole page re-renders before anything on screen moves, so every avoidable
+  // round trip in this function is time the control sits looking broken.
+  //
+  // Measured on production, click to visible document change: 2229 / 2468 /
+  // 1738 / 1652 ms before three of these reads existed, and 4041 / 3011 / 2997
+  // ms after I added them sequentially. The regression was mine.
+  //
+  // `getCostingBundle` stays OUTSIDE this wave, deliberately. It runs its own
+  // 8-wide Promise.all internally, and nesting it inside another one makes the
+  // demands additive against a pool of 3 — the documented failure that turns a
+  // 2s render into a hang. Sequencing caps peak demand at max(5, 8) instead of
+  // 13.
+  const [firmRows, profileRows, hiddenTierRows, authorizationRows, addendumData] =
+    await Promise.all([
+      db
+        .select()
+        .from(firmSettings)
+        .where(isNull(firmSettings.effectiveUntil))
+        .orderBy(desc(firmSettings.effectiveFrom))
+        .limit(1),
+      // The presentation profile for THIS version. Keyed
+      // `(quote_id, quote_version)`: a revision bumps the version and copies
+      // the row forward, so reading the current version is what makes a
+      // revision continue the conversation the customer is already part of
+      // rather than start from defaults. Absent for a quote created between
+      // the migration and its first edit, which is why every read below falls
+      // back to the column's own default — absence and default are the same
+      // document.
+      db
+        .select()
+        .from(presentationProfile)
+        .where(
+          and(
+            eq(presentationProfile.quoteId, quoteId),
+            eq(presentationProfile.quoteVersion, quote.versionNumber),
+          ),
+        )
+        .limit(1),
+      // Hidden tiers only. ABSENCE MEANS SHOWN, so a quote that has hidden
+      // nothing reads zero rows and every tier is presented — including a tier
+      // added after the profile was written, which is what keeps a new tier
+      // from being silently withheld from a customer.
+      db
+        .select({ tierId: presentationProfileTier.tierId })
+        .from(presentationProfileTier)
+        .where(
+          and(
+            eq(presentationProfileTier.quoteId, quoteId),
+            eq(presentationProfileTier.quoteVersion, quote.versionNumber),
+            eq(presentationProfileTier.shown, false),
+          ),
+        ),
+      // Below-floor authorizations, for the verdict the footer and the send
+      // gate share.
+      db
+        .select({
+          id: belowFloorAuthorizations.id,
+          quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+          tierId: belowFloorAuthorizations.tierId,
+          approvedByUserId: belowFloorAuthorizations.approvedByUserId,
+          stateFingerprint: belowFloorAuthorizations.stateFingerprint,
+          invalidatedAt: belowFloorAuthorizations.invalidatedAt,
+        })
+        .from(belowFloorAuthorizations)
+        .where(eq(belowFloorAuthorizations.quoteId, quoteId)),
+      loadQuoteAddendum(quoteId),
+    ]);
+
   const firm = firmRows[0] ?? null;
-
-  // ── The presentation profile for THIS version ──────────────────────────
-  //
-  // Keyed `(quote_id, quote_version)`. A revision bumps the version and copies
-  // the row forward, so reading the CURRENT version is what makes a revision
-  // continue the conversation the customer is already part of rather than
-  // start from defaults.
-  //
-  // Absent for a quote created between the migration and its first edit, which
-  // is why every read below falls back to the same value the column defaults
-  // to. Absence and default are the same document.
-  const [profile] = await db
-    .select()
-    .from(presentationProfile)
-    .where(
-      and(
-        eq(presentationProfile.quoteId, quoteId),
-        eq(presentationProfile.quoteVersion, quote.versionNumber),
-      ),
-    )
-    .limit(1);
-
-  // Hidden tiers only. ABSENCE MEANS SHOWN, so a quote that has hidden nothing
-  // reads zero rows here and every tier is presented — including any tier added
-  // after the profile was written, which is the property that keeps a new tier
-  // from being silently withheld from a customer.
-  const hiddenTierRows = await db
-    .select({ tierId: presentationProfileTier.tierId })
-    .from(presentationProfileTier)
-    .where(
-      and(
-        eq(presentationProfileTier.quoteId, quoteId),
-        eq(presentationProfileTier.quoteVersion, quote.versionNumber),
-        eq(presentationProfileTier.shown, false),
-      ),
-    );
+  const profile = profileRows[0];
   const hiddenTierIds = new Set(hiddenTierRows.map((r) => r.tierId));
 
-  const addendumData = await loadQuoteAddendum(quoteId);
   const bundle = await getCostingBundle(quoteId, commercialSettingsOverride);
   if (!bundle.ok) {
     return { ok: false, kind: "bundle_error", message: bundle.error.message };
@@ -577,18 +611,6 @@ export async function resolveCustomerView(args: {
   // below floor reads an empty set and returns ok. The gate keeps its
   // short-circuit because it runs on the write path where the query is worth
   // avoiding; a page render is already reading far more than this.
-  const authorizationRows = await db
-    .select({
-      id: belowFloorAuthorizations.id,
-      quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
-      tierId: belowFloorAuthorizations.tierId,
-      approvedByUserId: belowFloorAuthorizations.approvedByUserId,
-      stateFingerprint: belowFloorAuthorizations.stateFingerprint,
-      invalidatedAt: belowFloorAuthorizations.invalidatedAt,
-    })
-    .from(belowFloorAuthorizations)
-    .where(eq(belowFloorAuthorizations.quoteId, quoteId));
-
   const belowFloorProjection = projectBelowFloorAuthorization({
     rollups: bundle.data.costing.quoteRollup,
     authorizations: authorizationRows,
