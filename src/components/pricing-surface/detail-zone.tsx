@@ -372,8 +372,26 @@ function EntireQuoteBuild({
           <TierAdjustCell key={c.numericId} tierUuid={tierUuidByNumeric.get(c.numericId)} label={c.label} />
         ))}
       </div>
+      {/*
+        NOT A DECISION. This is a RESIDUAL: quoted revenue per unit minus the
+        component build-up above it. Nobody enters it and nobody chose it.
+
+        It was called "Pricing decision", sitting under a band that says
+        "editable here", and an operator asked where a +$9.5676 pricing
+        decision had come from. The answer was that no such decision existed —
+        the figure is what is left over when the build-up is subtracted from
+        the quoted price. Tracing it then turned up $1,727.60 of revenue inside
+        it that the customer document was never billing, which is the cost of
+        naming a leftover as though it were an act: the question "who decided
+        this?" has no answer, so nobody asks the next one.
+
+        Named for the operation now, matching the engine's own node label
+        ("Quoted price less component build-up, per unit"), and the caption
+        says it is derived so its position under the decisions band cannot
+        imply otherwise.
+      */}
       {row("eq-decision", "r11-srow",
-        <><span className="n">Pricing decision</span><span className="s">quoted less base, all levers combined</span></>,
+        <><span className="n">Quoted less base</span><span className="s">difference after all levers &middot; derived, not entered</span></>,
         "decision", (n) => (n >= 0 ? "+" : "") + fmtUsd4(n), "delta")}
 
       {band("eq-result", "Final quoted sell", "result")}
