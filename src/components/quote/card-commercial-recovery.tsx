@@ -223,7 +223,16 @@ export function CardCommercialRecovery({
 
       {present.length === 0 ? (
         <p className="cv-charge cv-note">
-          This quote carries no governed recoverable charges.
+          {/* The empty state has to account for what is rendered BELOW it.
+              "This quote carries no governed recoverable charges" sitting
+              directly above "Testing / Micros $4,480" reads as a
+              contradiction -- both statements are true, and together they
+              look like one of them is wrong. The service-only rows only began
+              appearing here when they stopped being controls, so this copy
+              had never had to coexist with them. */}
+          {serviceOnly.length === 0
+            ? "This quote carries no governed recoverable charges."
+            : "This quote carries no recoverable one-time charges to place. The service line below is already priced to the customer."}
         </p>
       ) : (
         present.map((row) => {
