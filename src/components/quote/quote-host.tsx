@@ -68,6 +68,23 @@ function buildIframeSrc(
   return `/api/quotes/${quoteId}/customer-pdf?${params.toString()}#navpanes=0`;
 }
 
+/**
+ * A short stable digest, for cache keys only.
+ *
+ * Not security, not identity — it exists so the iframe src changes when the
+ * commercial recovery state changes without carrying the whole projection in a
+ * query string. Collisions would show a stale document, which is the defect
+ * this is fixing, so it is 32-bit rather than something shorter.
+ */
+function hashString(input: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
 export function QuoteHost({
   view,
   quoteId,
@@ -126,10 +143,39 @@ export function QuoteHost({
     setIncludeSpecAddendum: setAddendumOn,
   } = useQuoteAxis();
 
-  // Cache-buster: quote state (sentDate + status) — changes when
-  // the quote transitions draft → sent, forcing the iframe to
-  // re-fetch fresh data instead of serving the cached draft.
-  const iframeVersion = view.quote.sentDate ?? `draft-${quoteStatus}`;
+  // Cache-buster: the quote's lifecycle state AND its commercial recovery
+  // state.
+  //
+  // ── WHY THE SECOND HALF EXISTS ──────────────────────────────────────────
+  //
+  // This was `view.quote.sentDate ?? \`draft-${quoteStatus}\``, which on a
+  // DRAFT is the constant string "draft-draft". It never moved for any
+  // commercial edit, and the iframe is keyed on this src — so electing a
+  // recovery treatment updated the rail and left the document beside it
+  // showing the state before the election.
+  //
+  // The operator reported it twice, and both reports were right in a way that
+  // looked like two different bugs: first "the buttons don't change anything
+  // on the quote", then "Artwork & plate is Separate but has no line in the
+  // PDF". The projection was correct throughout — captured either side of an
+  // election, the artwork line appears exactly when the placement is separate
+  // and disappears exactly when it is in unit price. What they were reading
+  // was a document rendered before they touched the control.
+  //
+  // The original cache-buster was not wrong; it was built for the draft → sent
+  // transition and did that job. What it never accounted for is that a draft's
+  // commercial content can change while the operator is looking at it.
+  //
+  // Keyed on the FROZEN INSTRUCTION projection rather than on the elections,
+  // because the instruction is what the document is built from: it moves when
+  // an election moves, when a legacy placement moves, and when an amount moves,
+  // and it does not move when something the customer never sees changes. This
+  // is a cache key over authoritative data, not a second calculation — nothing
+  // here decides anything, it only notices.
+  const recoveryVersion = recoveryInstructions
+    .map((i) => `${i.chargeKey}:${i.ownerRef}:${i.tierId}:${i.treatment}:${i.governedRecovery ?? "?"}:${i.separateInvoiceAmount ?? "?"}`)
+    .join("|");
+  const iframeVersion = `${view.quote.sentDate ?? `draft-${quoteStatus}`}~${hashString(recoveryVersion)}`;
   const iframeSrc = buildIframeSrc(
     quoteId,
     pdfLayout,

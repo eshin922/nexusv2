@@ -752,6 +752,39 @@ test("the gate stays while visual fidelity is unapproved", async () => {
   }
 });
 
+test("the customer document follows the commercial recovery state", async () => {
+  // The iframe src was keyed on `view.quote.sentDate ?? \`draft-${quoteStatus}\``,
+  // which on a DRAFT is the constant "draft-draft". The iframe is keyed on that
+  // src, so electing a recovery treatment updated the rail and left the
+  // document beside it rendered from before the election.
+  //
+  // Two operator reports came from this one defect: "the buttons don't change
+  // anything on the quote", and "Artwork & plate is Separate but has no PDF
+  // line". The projection was correct in both cases -- captured either side of
+  // an election on production, the artwork line appears exactly when the
+  // placement is separate. They were reading a stale document.
+  const host = await readFile(
+    new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
+    "utf8",
+  );
+  const flat = host.replace(/\s+/g, " ");
+
+  // The lifecycle half is kept -- it still does its original job.
+  assert.ok(flat.includes("view.quote.sentDate ??"), "the draft → sent buster must survive");
+  // And the commercial half is added.
+  assert.ok(
+    flat.includes("const recoveryVersion = recoveryInstructions"),
+    "the src must move with the recovery state",
+  );
+  assert.ok(flat.includes("hashString(recoveryVersion)"));
+  // Keyed on treatment AND the amounts, so a placement move and an amount move
+  // both invalidate. Treatment alone would miss a re-rate.
+  assert.ok(flat.includes("i.treatment"));
+  assert.ok(flat.includes("i.separateInvoiceAmount"));
+  // Still one src, still keyed -- the remount is what refreshes it.
+  assert.ok(flat.includes("<iframe key={iframeSrc} src={iframeSrc}"));
+});
+
 test("the workspace height is derived from the shell, not assumed", async () => {
   // The first attempt guessed `calc(100vh - 50px)`. The real chrome is 261px,
   // so the body overhung the viewport by 211px and the page grew a second
