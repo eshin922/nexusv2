@@ -25,6 +25,9 @@ const tier = (id: string, quantity: number, goods: number) => ({
     perUnitGoods: goods / quantity,
     perUnitTurnkey: (goods + 100) / quantity,
     hasUnpricedLine: false,
+    // Distinct per tier, so the filter is proven to carry each tier's OWN
+    // disclosure rather than any tier's.
+    embeddedRecovery: goods / 10,
   },
 });
 

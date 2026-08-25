@@ -78,14 +78,14 @@ const TIERS = [
     label: "T1",
     full: "Tier 1",
     quantity: 1000,
-    money: composeTierMoney({ quantity: 1000, lineTotals: [], feeAmounts: [] }),
+    money: composeTierMoney({ quantity: 1000, lineTotals: [], feeAmounts: [], embeddedRecovery: null }),
   },
   {
     id: "t2",
     label: "T2",
     full: "Tier 2",
     quantity: 5000,
-    money: composeTierMoney({ quantity: 5000, lineTotals: [], feeAmounts: [] }),
+    money: composeTierMoney({ quantity: 5000, lineTotals: [], feeAmounts: [], embeddedRecovery: null }),
   },
 ];
 const sku = (code: string, prices: Array<number | null>) => ({

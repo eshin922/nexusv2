@@ -391,6 +391,90 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 })}
               </div>
 
+              {/* ── THE RECONCILIATION ────────────────────────────────
+                  What the all-in total is made of, per tier.
+
+                  It reads as a disclosure, not a sum to perform: the recovery
+                  is ALREADY inside the unit-price subtotal, so the line says
+                  "includes" rather than presenting a pre-recovery figure to
+                  add to. There is no governed pre-recovery subtotal, and
+                  inventing one would put a number on a customer document that
+                  nothing computes.
+
+                  Every figure is per tier and read from the projection. The
+                  separate-charges row uses each tier's OWN feesTotal - the fee
+                  itemization below quotes a single basis tier, which is right
+                  for the detail and cannot reconcile four columns.
+
+                  Recovery shows an em dash where a final sell override
+                  replaced the ladder: the override discards the rungs beneath
+                  it, so there is no fact about how much of that price is
+                  recovery. A number there would close only because it had been
+                  chosen to. */}
+              {hasCharges && (
+                <div className="pp-recon" data-testid="cvl-reconciliation">
+                  <div className="pp-recon-row">
+                    <div className="pp-c-prod">
+                      <span className="pp-recon-k">Unit-price subtotal</span>
+                    </div>
+                    {cols.map(({ ti, tier, rec }) => (
+                      <div
+                        key={tier.id}
+                        className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
+                      >
+                        {money(tiers[ti].money.goodsTotal)}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pp-recon-row pp-recon-sub">
+                    <div className="pp-c-prod">
+                      <span className="pp-recon-k">
+                        &#8627; includes recovery
+                      </span>
+                    </div>
+                    {cols.map(({ ti, tier, rec }) => {
+                      const embedded = tiers[ti].money.embeddedRecovery;
+                      return (
+                        <div
+                          key={tier.id}
+                          className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
+                          title={
+                            embedded === null
+                              ? "Not attributable - final sell is overridden."
+                              : undefined
+                          }
+                        >
+                          {embedded === null ? "\u2014" : money(embedded)}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="pp-recon-row">
+                    <div className="pp-c-prod">
+                      <span className="pp-recon-k">Separate charges</span>
+                    </div>
+                    {cols.map(({ ti, tier, rec }) => (
+                      <div
+                        key={tier.id}
+                        className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
+                      >
+                        {money(tiers[ti].money.feesTotal)}
+                      </div>
+                    ))}
+                  </div>
+
+                  {cols.some((c) => tiers[c.ti].money.embeddedRecovery === null) && (
+                    <div className="pp-recon-note">
+                      Not attributable &mdash; final sell is overridden for that
+                      tier. The quoted price stands; its internal attribution is
+                      unavailable.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ALL-IN and PLUS only. The PER UNIT / INCLUDES / FROM legends
                   were removed from the artifact 2026-08-20 as reading
                   instructions rather than commercial statements; these two

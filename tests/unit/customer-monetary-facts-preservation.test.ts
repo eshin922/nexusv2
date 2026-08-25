@@ -84,6 +84,12 @@ function composeMoney(ti: number, skus: ReadonlyArray<{ tierLineTotals: Readonly
     perUnitGoods: pricedCount > 0 ? goodsTotal / qty : null,
     perUnitTurnkey: pricedCount > 0 ? turnkeyTotal / qty : null,
     hasUnpricedLine,
+    // A DISCLOSURE about goodsTotal, not a term in it. This mirror exists to
+    // prove the monetary facts did not move when the arithmetic was lifted, so
+    // it states null: the preservation baseline predates the field, and a
+    // number here would make the mirror assert something the baseline never
+    // captured.
+    embeddedRecovery: null,
   };
 }
 
@@ -274,7 +280,7 @@ test("a computed zero is a price; an unpriced cell is not", () => {
   const computedZero = composeTierMoney({
     quantity: qtyZeroTier.quantity,
     lineTotals: [0],
-    feeAmounts: [],
+    feeAmounts: [], embeddedRecovery: null,
   });
   assert.equal(computedZero.goodsTotal, 0, "a computed zero survives as zero");
   assert.equal(computedZero.hasUnpricedLine, false, "it is priced -- at zero");
@@ -283,7 +289,7 @@ test("a computed zero is a price; an unpriced cell is not", () => {
   const unpriced = composeTierMoney({
     quantity: 1000,
     lineTotals: [null],
-    feeAmounts: [],
+    feeAmounts: [], embeddedRecovery: null,
   });
   assert.equal(unpriced.hasUnpricedLine, true);
   assert.equal(unpriced.perUnitGoods, null, "no per-unit claim without a price");
@@ -300,7 +306,7 @@ test("a computed zero is a price; an unpriced cell is not", () => {
   const mixed = composeTierMoney({
     quantity: 1000,
     lineTotals: [2500, null],
-    feeAmounts: [],
+    feeAmounts: [], embeddedRecovery: null,
   });
   assert.equal(mixed.goodsTotal, 2500, "the total covers what IS priced");
   assert.equal(mixed.hasUnpricedLine, true, "and says the rest is not");

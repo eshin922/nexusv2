@@ -44,6 +44,16 @@ export function composeTierMoney(input: {
    * NULL = not billed at this tier.
    */
   feeAmounts: ReadonlyArray<number | null>;
+  /**
+   * In-unit-price recovery already embedded in these line totals, summed from
+   * the costing ladder's own report. NULL where attribution is unavailable.
+   *
+   * Passed IN rather than derived: the amount depends on the pricing ladder -
+   * a legacy charge rode the adjustment and any lift, an elected one was added
+   * after them - and a formula for it here would be a second authority for the
+   * ladder. This composer states figures; it does not price.
+   */
+  embeddedRecovery: number | null;
 }): CustomerViewTierMoney {
   let goodsTotal = 0;
   let pricedCount = 0;
@@ -72,6 +82,8 @@ export function composeTierMoney(input: {
   const perUnitTurnkey = pricedCount > 0 ? turnkeyTotal / input.quantity : null;
 
   return {
+    // Stated, never recomputed. It is already inside `goodsTotal`.
+    embeddedRecovery: input.embeddedRecovery,
     goodsTotal,
     feesTotal,
     turnkeyTotal,

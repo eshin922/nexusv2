@@ -49,7 +49,7 @@ const tier = (
   label: id.toUpperCase(),
   full: "Tier 1",
   quantity,
-  money: composeTierMoney({ quantity, lineTotals, feeAmounts }),
+  money: composeTierMoney({ embeddedRecovery: null, quantity, lineTotals, feeAmounts }),
 });
 
 const sku = (id: string, ...tier_prices: Array<number | null>): CpdfSku => ({
@@ -73,7 +73,7 @@ function assertBasis(
   // reads are the facts these SKUs imply.
   const composed: CpdfTier[] = tiers.map((t, i) => ({
     ...t,
-    money: composeTierMoney({
+    money: composeTierMoney({ embeddedRecovery: null,
       quantity: t.quantity,
       lineTotals: skus.map((sk) =>
         sk.tier_prices[i] === null ? null : (sk.tier_prices[i] as number) * t.quantity,
