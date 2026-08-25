@@ -246,6 +246,23 @@ export type CustomerView = {
   freightLines: ReadonlyArray<CustomerViewFreightLine>;
   /** Index into `tiers` of the recommended tier (visual ★). */
   recommendedTierIdx: number | null;
+  /**
+   * Which tier's amounts the one-time fee section quotes.
+   *
+   * The fee matrix has one column per tier and the document prints one of
+   * them. Which one is a customer-facing presentation fact, so it is decided
+   * ONCE here rather than by each renderer.
+   *
+   * It was not, and the parity pass caught it: the PDF used
+   * `recommendedTierIdx ?? 0` while the live renderer used the first shown
+   * tier, so the two quoted different columns and a fee line appeared in one
+   * document and not the other. Two renderers making the same decision
+   * separately is the defect, not the disagreement it produced.
+   *
+   * The recommended tier when there is one; otherwise the first tier that
+   * exists — which is a basis, not a recommendation, and the document says so.
+   */
+  feeBasisTierIdx: number;
   pdfLayout: CustomerViewPdfLayout;
   detailLevel: CustomerViewDetailLevel;
   /**

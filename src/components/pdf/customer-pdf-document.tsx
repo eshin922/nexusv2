@@ -192,6 +192,7 @@ export function CustomerPdfDocument({
     quote,
     tiers,
     recommendedTierIdx,
+    feeBasisTierIdx,
     serviceFees,
     freightLines,
   } = data;
@@ -323,6 +324,7 @@ export function CustomerPdfDocument({
                   <ChargesBlock
                     tiers={tiers}
                     recommendedTierIdx={recommendedTierIdx}
+                    feeBasisTierIdx={feeBasisTierIdx}
                     serviceFees={serviceFees}
                     freightLines={freightLines}
                   />

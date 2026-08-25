@@ -396,6 +396,8 @@ export async function resolveCustomerView(args: {
     serviceFees,
     freightLines,
     recommendedTierIdx,
+    // Decided once. Both renderers read it; neither re-derives it.
+    feeBasisTierIdx: recommendedTierIdx ?? 0,
     // Snapshot-or-live reads per Step 4.4 brief §4:
     //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
     pdfLayout: isSent

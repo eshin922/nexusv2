@@ -74,7 +74,16 @@ test("the freight basis is stated, and is not a recommendation", () => {
   // The charges block quotes freight per unit for ONE tier and names it in a
   // sentence. With no recommendation it shows the first tier and says so —
   // a display basis, with no claim about which tier to buy.
-  assert.match(charges, /const basisIdx = recommendedTierIdx \?\? 0;/);
+  // The basis moved to the projection: `CustomerView.feeBasisTierIdx`, so the
+  // PDF and the live HTML renderer quote the SAME column. They did not --
+  // the PDF derived `recommendedTierIdx ?? 0` and the live renderer used the
+  // first shown tier, and a fee line appeared in one document and not the
+  // other. Two renderers answering one presentation question separately is
+  // the defect, whether or not they happen to agree.
+  //
+  // The fallback chain is retained for pre-lift callers and is still a
+  // BASIS, not a recommendation -- which is what this test is about.
+  assert.match(charges, /const basisIdx = feeBasisTierIdx \?\? recommendedTierIdx \?\? 0;/);
   assert.match(charges, /Freight amounts shown landed per unit for \{basisTier\.full\}/);
   // Matched on the CLAIM, not on the word. The first version forbade
   // /recommend/i and tripped on the prop name `recommendedTierIdx` — a test
