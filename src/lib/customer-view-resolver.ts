@@ -23,6 +23,7 @@
 
 import "server-only";
 
+import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
 import { desc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -221,7 +222,7 @@ export async function resolveCustomerView(args: {
     }
   }
 
-  const tiers: CustomerViewTier[] = bundle.data.costing.tiers.map((t) => ({
+  const tierBase = bundle.data.costing.tiers.map((t) => ({
     id: t.tierId,
     label: t.label,
     quantity: t.qty,
@@ -259,14 +260,20 @@ export async function resolveCustomerView(args: {
       pack: null,
       unitsPerPack: 1,
       tierPrices,
+      // Composed once, by the one function that composes it.
+      tierLineTotals: composeLineTotals(
+        tierPrices,
+        tierBase.map((t) => t.quantity),
+      ),
       shape,
     };
   });
 
 
+
   // Real recommendedTierIdx from quote_tiers.recommended (Step 4.3).
   const tierRecommendedRows =
-    tiers.length > 0
+    tierBase.length > 0
       ? await db
           .select({
             id: quoteTiers.id,
@@ -290,7 +297,7 @@ export async function resolveCustomerView(args: {
   // A recommendation is a commercial claim. It comes from the flag or it does
   // not exist, and it is never inferred from tier order.
   const idx = recommendedTierId
-    ? tiers.findIndex((t) => t.id === recommendedTierId)
+    ? tierBase.findIndex((t) => t.id === recommendedTierId)
     : -1;
   const recommendedTierIdx = idx === -1 ? null : idx;
 
@@ -323,6 +330,36 @@ export async function resolveCustomerView(args: {
       tierAmounts: l.cells.map((c) => (c.state === "priced" ? c.lineAmount : null)),
       qtyLabel: l.displayQtyLabel ?? "1",
     }));
+
+  // Placed AFTER `serviceFees` deliberately. It reads them, and `.map()`
+  // runs immediately -- referencing a `const` declared further down is a
+  // TDZ ReferenceError at runtime. TypeScript does not catch it, because
+  // the reference sits inside a callback and it cannot prove when the
+  // callback runs; `tsc --noEmit` was clean on exactly that crash.
+  // ── THE TIER'S MONETARY FACTS ────────────────────────────────────────
+  //
+  // Lifted out of `customer-pdf-helpers.ts`, where they were computed at render
+  // time and made the PDF an authority over customer economics. The litmus:
+  // if the PDF disappeared tomorrow, a tier's total and its displayed unit
+  // price would still have to exist for Customer View. Pagination would not.
+  //
+  // COMPOSITION, NOT PRICING. Every figure below is a sum or a quotient of
+  // values this projection already carries. No rate is looked up, no markup is
+  // decided, no recovery treatment is resolved — those happened upstream in
+  // governed code and arrive here settled.
+  //
+  // Accumulated in SKU order, and fees added after goods, because that is the
+  // order the lifted implementation used. A sum reordered is a sum changed at
+  // the last decimal place, and these figures are asserted bit-for-bit against
+  // the pre-lift baseline.
+  const tiers: CustomerViewTier[] = tierBase.map((t, ti) => ({
+    ...t,
+    money: composeTierMoney({
+      quantity: t.quantity,
+      lineTotals: skus.map((sku) => sku.tierLineTotals[ti]),
+      feeAmounts: serviceFees.map((f) => f.tierAmounts[ti]),
+    }),
+  }));
 
   // BV-009: freight remains in commercial costing. When bundled into unit
   // price it has no separate customer-facing line, avoiding double signaling.

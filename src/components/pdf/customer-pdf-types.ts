@@ -17,6 +17,8 @@
 // is the load-bearing fidelity — the JSX reads `sku.tier_prices[ti]`
 // verbatim per CD `pdf-render.jsx:125`. Adapter handles snake↔camel.
 
+import type { CustomerViewTierMoney } from "@/types/quote";
+
 export type CpdfVendor = {
   name: string;
   sub: string;
@@ -69,9 +71,17 @@ export type CpdfTier = {
   full: string;
   quantity: number;
   recommended?: boolean;
+  /**
+   * The tier's monetary facts, composed upstream on `CustomerView` and carried
+   * here unchanged. The adapter reshapes for layout; it does not compute
+   * economics, and this type exists so that stays visible.
+   */
+  money: CustomerViewTierMoney;
 };
 
 export type CpdfSku = {
+  /** Extended amounts per tier, composed on `CustomerView`. */
+  tier_line_totals?: ReadonlyArray<number | null>;
   id: string;
   code: string;
   name: string;

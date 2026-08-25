@@ -26,6 +26,7 @@
  */
 
 import assert from "node:assert/strict";
+import { composeTierMoney } from "../../src/lib/customer-money.ts";
 import test from "node:test";
 import { readdir, readFile } from "node:fs/promises";
 import { unpricedLinePhrase } from "../../src/components/pdf/customer-pdf-unpriced.ts";
@@ -69,8 +70,23 @@ test("no tier is named by literal in the customer render tree", async () => {
 // ── the replacement actually names the right lines ────────────────────────
 
 const TIERS = [
-  { id: "t1", label: "T1", full: "Tier 1", quantity: 1000 },
-  { id: "t2", label: "T2", full: "Tier 2", quantity: 5000 },
+  // `money` is composed by the one function that composes it. This suite is
+  // about identity strings, not economics, so the figures are whatever these
+  // fixtures imply — the point is that they are not invented here.
+  {
+    id: "t1",
+    label: "T1",
+    full: "Tier 1",
+    quantity: 1000,
+    money: composeTierMoney({ quantity: 1000, lineTotals: [], feeAmounts: [] }),
+  },
+  {
+    id: "t2",
+    label: "T2",
+    full: "Tier 2",
+    quantity: 5000,
+    money: composeTierMoney({ quantity: 5000, lineTotals: [], feeAmounts: [] }),
+  },
 ];
 const sku = (code: string, prices: Array<number | null>) => ({
   id: code,

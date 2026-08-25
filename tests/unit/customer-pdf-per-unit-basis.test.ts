@@ -21,6 +21,7 @@
 // falsification cases below.
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { composeTierMoney } from "../../src/lib/customer-money.ts";
 import { tierGrand } from "../../src/components/pdf/customer-pdf-helpers.ts";
 import type {
   CpdfServiceFee,
@@ -30,11 +31,25 @@ import type {
 
 const NO_FEES: ReadonlyArray<CpdfServiceFee> = [];
 
-const tier = (quantity: number, id = "t1"): CpdfTier => ({
+/**
+ * The tier now carries its composed facts, because `tierGrand` READS them
+ * rather than computing them — the arithmetic moved to the projection.
+ *
+ * Composed here with the SAME function the resolver calls, not a restatement
+ * of it. A fixture that restates the composition would certify a mirror rather
+ * than the thing that ships, and would keep passing while the two drifted.
+ */
+const tier = (
+  quantity: number,
+  id = "t1",
+  lineTotals: ReadonlyArray<number | null> = [],
+  feeAmounts: ReadonlyArray<number | null> = [],
+): CpdfTier => ({
   id,
   label: id.toUpperCase(),
   full: "Tier 1",
   quantity,
+  money: composeTierMoney({ quantity, lineTotals, feeAmounts }),
 });
 
 const sku = (id: string, ...tier_prices: Array<number | null>): CpdfSku => ({
@@ -43,6 +58,7 @@ const sku = (id: string, ...tier_prices: Array<number | null>): CpdfSku => ({
   name: id,
   pack: null,
   tier_prices,
+  tier_line_totals: tier_prices,
   shape: "flat",
 });
 
@@ -53,17 +69,29 @@ function assertBasis(
   ti: number,
   opts: { foldFees?: boolean; fees?: ReadonlyArray<CpdfServiceFee> } = {}
 ): { total: number; perUnit: number | null } {
+  // The tiers under test are rebuilt from these SKUs, so the facts the helper
+  // reads are the facts these SKUs imply.
+  const composed: CpdfTier[] = tiers.map((t, i) => ({
+    ...t,
+    money: composeTierMoney({
+      quantity: t.quantity,
+      lineTotals: skus.map((sk) =>
+        sk.tier_prices[i] === null ? null : (sk.tier_prices[i] as number) * t.quantity,
+      ),
+      feeAmounts: (opts.fees ?? NO_FEES).map((f) => f.tier_amounts[i]),
+    }),
+  }));
   const { total, perUnit } = tierGrand(
     skus,
-    tiers,
+    composed,
     ti,
     opts.foldFees ?? false,
     opts.fees ?? NO_FEES
   );
   assert.notEqual(perUnit, null, "priced tier must produce a per-unit");
   assert.ok(
-    Math.abs(perUnit! * tiers[ti].quantity - total) < 1e-9,
-    `perUnit × quantity must equal total — got ${perUnit} × ${tiers[ti].quantity} = ${perUnit! * tiers[ti].quantity}, total ${total}`
+    Math.abs(perUnit! * composed[ti].quantity - total) < 1e-9,
+    `perUnit × quantity must equal total — got ${perUnit} × ${composed[ti].quantity} = ${perUnit! * tiers[ti].quantity}, total ${total}`
   );
   return { total, perUnit };
 }
@@ -171,7 +199,9 @@ test("8 · FALSIFICATION — the pre-repair denominator is provably different", 
   // the point. Uses N > 1 and unequal prices so neither a cardinality nor
   // a mean implementation can slip through.
   const rows = [sku("a", 4), sku("b", 6), sku("c", 2)];
-  const tiers = [tier(1000)];
+  // Composed from these rows, since `tierGrand` now reads the facts rather
+  // than deriving them.
+  const tiers = [tier(1000, "t1", rows.map((r) => (r.tier_prices[0] as number) * 1000))];
   const { total, perUnit } = tierGrand(rows, tiers, 0, false, NO_FEES);
 
   const pricedCount = rows.filter((r) => r.tier_prices[0] != null).length;
@@ -188,10 +218,12 @@ test("9 · no rows priced — stays null, never a governed $0.00", () => {
   // customer-pdf-grand-total-row.tsx:82. Preserved through the repair:
   // without the pricedCount guard, a fully-unpriced tier carrying folded
   // fees would print "from $0.00 /unit".
-  const tiers = [tier(1000)];
   const fees: CpdfServiceFee[] = [
     { id: "f1", scope: "project", label: "Setup", sub: "", tier_amounts: [2000], qty_label: "" },
   ];
+  // Nothing priced, but a fee IS billed — the case where a missing guard
+  // would print "from $0.00 /unit" off the folded fee alone.
+  const tiers = [tier(1000, "t1", [null, null], [2000])];
   const r = tierGrand([sku("a", null), sku("b", null)], tiers, 0, true, fees);
   assert.equal(r.hasUnpriced, true);
   assert.equal(r.perUnit, null, "no priced rows ⇒ no per-unit claim");
