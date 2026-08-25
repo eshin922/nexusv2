@@ -386,7 +386,21 @@ export async function resolveCustomerView(args: {
       paymentTerms,
       paymentTermsSource,
       leadTime,
-      customerFacingNotes: quote.customerFacingNotes,
+      // ── M2 · frozen once sent, like every field beside it ──────────────
+      //
+      // This was the ONE customer-facing text read live on a sent quote.
+      // Payment terms, lead time, incoterms and T&Cs all branch here; the note
+      // did not, so editing it after send restated a quote the customer
+      // already held — their copy and this one simply stopped agreeing, with
+      // nothing failing and nothing warning.
+      //
+      // The fallback to the live note is for quotes sent BEFORE the snapshot
+      // column existed. Their true sent value is unrecoverable; the backfill
+      // adopted the live note, so this reproduces exactly what they render
+      // today rather than blanking a note the customer can see.
+      customerFacingNotes: isSent
+        ? (quote.customerFacingNotesSnapshot ?? quote.customerFacingNotes)
+        : quote.customerFacingNotes,
       incoterms,
       tcs,
     },

@@ -621,6 +621,21 @@ export const quotes = pgTable(
     leadTimeSnapshot: text("lead_time_snapshot"),
     incotermsSnapshot: text("incoterms_snapshot"),
     tcsSnapshot: text("tcs_snapshot"),
+    /**
+     * The customer note as it was at send.
+     *
+     * The last customer-facing text to join this fleet, and the one that
+     * needed it most: every field beside it resolved `isSent ? snapshot :
+     * live` while the note was read live on sent quotes, so editing it after
+     * send restated a quote the customer already held. Nothing failed and
+     * nothing warned — the customer's copy and Nexus's simply stopped
+     * agreeing.
+     *
+     * NULL on drafts, which read `quotes.customer_facing_notes` live. That
+     * column remains the only place the note is AUTHORED; this is the frozen
+     * copy, never a second author.
+     */
+    customerFacingNotesSnapshot: text("customer_facing_notes_snapshot"),
     daysValidSnapshot: integer("days_valid_snapshot"),
     // DEC-8: PreparedBy contact snapshot at send. Same rationale as
     // DEC-7 — customer view of an already-sent quote must always show
@@ -870,6 +885,18 @@ export const quoteSnapshots = pgTable(
     // (v3 §5.1 amendment 3 — moves from quotes.accepted_snapshot_json).
     // NULL until Mark Accepted; set at that transition (Step 7).
     acceptedSnapshotJson: jsonb("accepted_snapshot_json"),
+    // ── M2 · the customer note is frozen like every field beside it ────────
+    //
+    // It was the only customer-facing text read LIVE on a sent quote. Payment
+    // terms, lead time, incoterms and T&Cs all resolve `isSent ? snapshot :
+    // live`; the note did not, and nothing captured it here. So editing it
+    // after send changed what an already-sent quote said — the customer held
+    // one document and Nexus reported another, silently.
+    //
+    // Written in the send transaction from quotes.customer_facing_notes, which
+    // remains the single authored owner. This is the frozen copy, not a second
+    // author.
+    customerFacingNotes: text("customer_facing_notes"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -4290,4 +4317,139 @@ export const quoteSnapshotChargeRecovery = pgTable(
     mode: recoveryMode("mode").notNull(),
   },
   (t) => [primaryKey({ columns: [t.snapshotId, t.chargeKey] })],
+);
+
+// ─── G4 · Customer presentation profile ─────────────────────────────────────
+//
+// What the operator has decided the customer will SEE. Not what the quote
+// costs, not what it recommends, not what it says — only which of those facts
+// are presented, and in what shape.
+//
+// ── THE OWNERSHIP LINE, AND WHY IT IS DRAWN HERE ────────────────────────────
+//
+// Four authorities described this record differently, and picking the easiest
+// to wire would have created a second source of truth for a customer-facing
+// fact. Edward's disposition (`docs/g4-presentation-profile-disposition.md`)
+// splits by what KIND of fact each one is:
+//
+//   recommendation   → quote_tiers.recommended        (a quote fact)
+//   note content     → quotes.customer_facing_notes   (a quote fact)
+//   visibility · itemization · layout · shape → here  (presentation facts)
+//
+// Two of those were live questions. `quote_tiers.recommended` already existed
+// with its own audit trail, so duplicating it here would have meant two columns
+// answering "which tier do we recommend". `quotes.customer_facing_notes`
+// already existed, was already authored on Setup, and already printed verbatim
+// above How to accept — so a `customer_note` column here would have given one
+// printed sentence two owners and two authoring surfaces, with nothing in the
+// schema saying which one the customer receives. Both were caught by the §0.5
+// pass before any DDL was written (`docs/g4-schema-verification.md`).
+//
+// Card 2 edits both kinds of fact. It says so, using the existing provenance
+// grammar, rather than presenting a governed quote fact as a presentation
+// choice.
+//
+// So: nothing economic, nothing contractual, nothing identifying, no
+// recommendation and no note text. The schema is the enforcement.
+//
+// ── VERSIONING ──────────────────────────────────────────────────────────────
+//
+// Keyed `(quote_id, quote_version)` because `reviseQuote` bumps
+// `version_number` on the SAME quotes row. Without the version in the key a
+// revision would silently inherit nothing and the surface would fall back to
+// defaults — an operator revising a sent quote would lose every presentation
+// choice the customer has already seen.
+//
+// `reviseQuote` therefore copies this row forward transactionally, and edits
+// after that point write only the NEW version. Copying forward is the easy
+// half; never writing through to the record the customer already saw is the
+// half that matters.
+export const presentationProfile = pgTable(
+  "presentation_profile",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    quoteVersion: integer("quote_version").notNull(),
+
+    // The existing pgEnums, deliberately. `pdf_layout` and `detail_level`
+    // already exist and are already used by quotes.*_snapshot and
+    // quote_snapshots. Minting a parallel vocabulary here would give one
+    // concept two spellings at the type level.
+    layout: pdfLayout("layout").notNull().default("tier_table"),
+    detailLevel: detailLevel("detail_level").notNull().default("itemized"),
+
+    // Required iff layout = 'single_tier' — enforced below rather than
+    // remembered. ON DELETE SET NULL rather than CASCADE: deleting a tier must
+    // not delete the presentation record for the whole quote.
+    presentedTierId: uuid("presented_tier_id").references(() => quoteTiers.id, {
+      onDelete: "set null",
+    }),
+
+    // Disclosure, never economics. `include_fee_lines = false` collapses the
+    // ITEMIZATION and never removes the charge: the fold sentence still states
+    // the total. "Hide the fee lines" and "omit the fees" are one edit apart
+    // and the second is a customer-facing misstatement, so the distinction is
+    // asserted by falsification in the tests rather than trusted here.
+    includeFeeLines: boolean("include_fee_lines").notNull().default(true),
+    includeTerms: boolean("include_terms").notNull().default(true),
+    includeAddendum: boolean("include_addendum").notNull().default(false),
+    // Whether the note PRINTS. What it SAYS is quotes.customer_facing_notes.
+    includeNote: boolean("include_note").notNull().default(true),
+
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("presentation_profile_quote_version_idx").on(
+      t.quoteId,
+      t.quoteVersion,
+    ),
+    check(
+      "presentation_profile_presented_tier_required",
+      sql`${t.layout} <> 'single_tier' OR ${t.presentedTierId} IS NOT NULL`,
+    ),
+  ],
+);
+
+// "Tiers shown" — the one presentation fact the reference's Card 2 needs that
+// no existing column carries. Per-tier because that is what the control is: a
+// toggle per tier, not a count and not a range.
+//
+// Absence means shown. A tier with no row here is presented, so adding a tier
+// to a quote cannot silently hide it from a customer.
+export const presentationProfileTier = pgTable(
+  "presentation_profile_tier",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    quoteVersion: integer("quote_version").notNull(),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    shown: boolean("shown").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("presentation_profile_tier_idx").on(
+      t.quoteId,
+      t.quoteVersion,
+      t.tierId,
+    ),
+  ],
 );

@@ -23,7 +23,7 @@ via 9 call sites in `src/app/actions/quotes.ts` + 7 in
 (`src/lib/quote-guards.ts`) which the cost-input tree-resolvers call
 after loading the quote.
 
-Columns frozen at this checkpoint (16):
+Columns frozen at this checkpoint (17):
 
 | Column | Notes |
 |---|---|
@@ -42,11 +42,43 @@ Columns frozen at this checkpoint (16):
 | `pdf_layout_snapshot` | Slice 11 render axis |
 | `detail_level_snapshot` | Slice 11 render axis |
 | `include_spec_addendum_snapshot` | Slice 11 render axis |
+| `customer_facing_notes_snapshot` | the customer note (G4 · M2 — see below) |
 | `pdf_url` | persisted PDF signed URL |
 
 Sibling table `quote_snapshots` mirrors these fields with per-version
 history; each `sendQuote` INSERTs a fresh row keyed on
 `(quote_id, version_number)`.
+
+**`customer_facing_notes_snapshot` was the last customer-facing text to join
+this list, added 2026-08-25 (migrations 0102 + 0103).** Every field beside it
+resolved `isSent ? snapshot : live` while the note was read LIVE on sent
+quotes, and nothing captured it in either store. So editing the note after send
+restated a quote the customer already held — their copy and Nexus's simply
+stopped agreeing, with nothing failing and nothing warning.
+
+It is the clearest case for why this list is kept: the note had been outside it
+for as long as it existed, and the omission was invisible from every direction
+except comparing the field against its own neighbours.
+
+`quotes.customer_facing_notes` remains the only place the note is AUTHORED. The
+snapshot columns are the frozen copy, never a second author.
+
+### `presentation_profile` — frozen by VERSION, not by column
+
+The presentation profile (migration 0102) is a freeze-list member of a
+different shape. It is not copied into a snapshot column; it is keyed
+`(quote_id, quote_version)` and made immutable two ways at once:
+
+- every writer goes through `quoteByIdDraft`, so a **sent** quote refuses
+  profile edits outright — otherwise the record of what the customer saw would
+  become editable after they saw it;
+- `reviseQuote` copies the row forward to the new version inside the same
+  transaction, and edits after that address the new version only. The prior
+  version's row is never written through.
+
+Any future writer of these tables must call `quoteByIdDraft` (or
+`assertNotFrozen` at minimum) for the same reason. See
+`src/app/actions/presentation-profile.ts`, which is the only writer today.
 
 ### Checkpoint 2 — sent → accepted (via `markAccepted`)
 
