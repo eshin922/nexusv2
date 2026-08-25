@@ -79,3 +79,23 @@ test("the canon is the approved vocabulary, not merely self-consistent", () => {
     assert.equal(chargePolicy(key as never).label, label);
   }
 });
+
+test("the Price Build reads the canon rather than restating it", async () => {
+  // A consumer that did not exist when the canon was written: the Price Build's
+  // Additional charges rows. It renders `chargePolicy(...).label`, so it cannot
+  // drift — a hardcoded string here would be a fourth authority on a charge's
+  // name, and the one nobody would think to check.
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../../src/lib/costing.ts", import.meta.url), "utf8");
+  const block = src.slice(
+    src.indexOf("for (const ch of pt.constructed?.charges ?? [])"),
+    src.indexOf("revenueOperands.push("),
+  );
+  assert.match(block, /chargePolicy\(ch\.chargeKey\)\.label/);
+  for (const canon of ["Tooling", "Artwork & plate", "Project setup", "R&D", "Other service"]) {
+    assert.ok(
+      !block.includes(`"${canon}"`),
+      `"${canon}" must come from the registry, not be written here`,
+    );
+  }
+});
