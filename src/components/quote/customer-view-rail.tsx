@@ -26,6 +26,7 @@ import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import { AccountingInstruction } from "./accounting-instruction";
 import { FinalizeQuoteButton } from "./finalize-quote-button";
 import { CardCommercialRecovery } from "./card-commercial-recovery";
+import type { AuthoritativeProjection } from "./authoritative-projection";
 import {
   CardCustomerPresentation,
   type PresentationState,
@@ -73,6 +74,7 @@ export function CustomerViewRail({
   tiers,
   belowFloor,
   accountingInstruction,
+  onAuthoritative,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -98,6 +100,7 @@ export function CustomerViewRail({
   belowFloor: BelowFloorProjection;
   /** Internal, never printed. See the resolver's note on why it is not on the view. */
   accountingInstruction: string | null;
+  onAuthoritative?: (p: AuthoritativeProjection) => void;
 }) {
   const isDraft = quoteStatus === "draft";
 
@@ -262,6 +265,7 @@ export function CustomerViewRail({
 
         {/* ── Card 1 · commercial recovery ───────────────────────────── */}
         <CardCommercialRecovery
+          onAuthoritative={onAuthoritative}
           quoteId={quoteId}
           rows={recoveryRows}
           rollups={rollups}

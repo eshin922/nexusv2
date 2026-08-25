@@ -59,6 +59,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { setChargeRecovery } from "@/app/actions/commercial-recovery";
+import type { AuthoritativeProjection } from "./authoritative-projection";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { RecoveryMode } from "@/lib/commercial-recovery/registry";
 import type { QuotePerTierRollup } from "@/lib/costing";
@@ -90,6 +91,7 @@ function marginState(
 export function CardCommercialRecovery({
   quoteId,
   rows,
+  onAuthoritative,
   rollups,
   shownTierIds,
   floorMarginPct,
@@ -98,6 +100,14 @@ export function CardCommercialRecovery({
 }: {
   quoteId: string;
   rows: RecoveryChargeRow[];
+  /**
+   * Hands up the AUTHORITATIVE projection the write produced.
+   *
+   * Not a hint and not an optimistic guess: the action re-ran the real
+   * resolver after committing, so this is the same governed state the next
+   * page render will produce, arriving one render earlier.
+   */
+  onAuthoritative?: (p: AuthoritativeProjection) => void;
   /** Every governed tier — the gate evaluates all of them, not only those shown. */
   rollups: readonly QuotePerTierRollup[];
   shownTierIds: readonly string[];
@@ -166,7 +176,16 @@ export function CardCommercialRecovery({
         setPending(null);
         return;
       }
-      // NOT cleared here. The write is done; the surface has not caught up.
+      // The surface catches up NOW, from the state the write produced.
+      //
+      // This is what the operator was waiting on. The election committed in
+      // under a second and the answer used to arrive only with the next
+      // full-page render - measured at 1994-4041ms on production, with the
+      // segment and the document both landing in one frame at the very end.
+      // For those seconds the control looked like it had not worked.
+      if (res.data.projection) onAuthoritative?.(res.data.projection);
+      // Still set, because the revalidation may still be in flight and the
+      // pending guard below ends on whichever answer arrives first.
       writeDone.current = true;
     });
   }
