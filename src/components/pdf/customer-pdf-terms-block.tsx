@@ -53,6 +53,24 @@ export function TermsBlock({
   );
 }
 
+/**
+ * Customer Terms & Conditions.
+ *
+ * Absent when unconfigured — no heading, no placeholder. A Terms heading over
+ * nothing tells the customer a clause exists and then declines to state it,
+ * which is worse than silence on the one document the firm does not get to
+ * clarify afterwards (Pattern 45).
+ */
+export function TcsBlock({ tcs }: { tcs: string | null }) {
+  if (tcs == null || tcs.length === 0) return null;
+  return (
+    <View style={styles.notes}>
+      <Text style={styles.notesLabel}>{"Terms & conditions".toUpperCase()}</Text>
+      <Text style={styles.notesP}>{tcs}</Text>
+    </View>
+  );
+}
+
 export function NotesBlock({ notes }: { notes: string | null }) {
   if (notes == null || notes.length === 0) return null;
   return (
