@@ -21,6 +21,7 @@ import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
 import { CustomerViewLive } from "./customer-view-live";
+import type { AuthoritativeProjection } from "./authoritative-projection";
 import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
 
 // Slice 11 Step 6.4 — QuoteHost is now an iframe-driven preview
@@ -150,6 +151,45 @@ export function QuoteHost({
     setDetailLevel,
     setIncludeSpecAddendum: setAddendumOn,
   } = useQuoteAxis();
+
+  // ── THE ANSWER ARRIVES WITH THE WRITE, NOT WITH THE NEXT RENDER ────────
+  //
+  // A recovery election commits in under a second. The result used to reach
+  // the screen only when the full-page revalidation landed - measured on
+  // production at 1994-4041ms from click, with the selected segment and the
+  // customer document both changing in a single frame at the very end. For
+  // those seconds the control looked like it had done nothing, and operators
+  // reported it as broken. It was not broken; it was silent.
+  //
+  // `setChargeRecovery` now re-runs THE resolver after committing and returns
+  // what it produced, so the surface can show the governed answer at the
+  // action-return boundary.
+  //
+  // This is not an optimistic state. Nothing here is guessed, and no
+  // commercial consequence is computed on the client: this is the server's own
+  // projection, from the same function the render uses, displayed sooner.
+  const [authoritative, setAuthoritative] =
+    useState<AuthoritativeProjection | null>(null);
+
+  // The revalidation still runs, and when it lands it SUPERSEDES this.
+  //
+  // Props changing means a newer server render has arrived, so the override is
+  // dropped rather than allowed to shadow it. Without this the surface would
+  // pin the first post-write answer and quietly ignore every later one -
+  // including changes made somewhere else entirely.
+  const lastPropView = useRef(view);
+  useEffect(() => {
+    if (lastPropView.current !== view) {
+      lastPropView.current = view;
+      setAuthoritative(null);
+    }
+  }, [view]);
+
+  // What the surface actually shows. Both come from the same projection, so
+  // Card 1 and the document can never be a render apart from each other.
+  const shownView = authoritative?.view ?? view;
+  const shownRecoveryRows = authoritative?.recoveryRows ?? recoveryRows;
+
 
   // ── THE PREVIEW'S VERSION KEY ───────────────────────────────────────────
   //
@@ -328,7 +368,7 @@ export function QuoteHost({
                   container drew for the iframe -- the canonical `.pp-sheet`
                   brings its own, and both would double them. */}
               <div className="cv-sheet cv-sheet-live">
-                <CustomerViewLive view={view} />
+                <CustomerViewLive view={shownView} />
               </div>
             </div>
           </div>
@@ -336,7 +376,8 @@ export function QuoteHost({
           <CustomerViewRail
             quoteId={quoteId}
             quoteStatus={quoteStatus}
-            recoveryRows={recoveryRows}
+            recoveryRows={shownRecoveryRows}
+            onAuthoritative={setAuthoritative}
             recoveryInstructions={recoveryInstructions}
             rollups={quoteRollup}
             governed={governed}
