@@ -22,6 +22,7 @@
  * Card 0 is read-only by definition, which is why it can be complete now.
  */
 
+import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import { CardCommercialRecovery } from "./card-commercial-recovery";
 import {
   CardCustomerPresentation,
@@ -68,6 +69,7 @@ export function CustomerViewRail({
   pageCount,
   presentation,
   tiers,
+  belowFloor,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -89,11 +91,23 @@ export function CustomerViewRail({
   presentation: PresentationState;
   /** The quote's tiers, for the visibility toggles and the recommendation. */
   tiers: readonly PresentationTier[];
+  /** The send gate's own verdict, evaluated once upstream. */
+  belowFloor: BelowFloorProjection;
 }) {
   const isDraft = quoteStatus === "draft";
-  const blocked = rollups.some(
-    (t) => t.blendedMarginPct !== null && t.blendedMarginPct < governed.floorMarginPct - 1e-6,
-  );
+
+  // THE SAME VERDICT THE SEND GATE REACHES.
+  //
+  // This used to be `rollups.some(t => t.blendedMarginPct < floor - 1e-6)`,
+  // which was wrong twice over: it re-derived a threshold the costing layer
+  // already governs as `blendedMarginStatus`, and it read no authorizations at
+  // all. So a below-floor tier that had been properly authorized still showed
+  // `blocked` and offered "Request pricing approval" - sending an operator to
+  // seek approval they already held, for a send the gate would have allowed.
+  //
+  // Wrong in the direction that wastes an approver's time and teaches
+  // operators to distrust the surface. Now one evaluation, shared.
+  const blocked = !belowFloor.ok;
 
   // Card 3 · commercial agreement, one row per CHARGE. The frozen instruction
   // is per (charge, owner, tier); Accounting reads a charge, so identical
@@ -338,10 +352,21 @@ export function CustomerViewRail({
 
         <div className="cv-checks">
           <div className="cv-check">
-            <span className="cv-mark" data-ok={blocked ? "no" : "yes"}>{blocked ? "!" : "✓"}</span>
+            <span className="cv-mark" data-ok={blocked ? "no" : "yes"}>{blocked ? "!" : "\u2713"}</span>
+            {/* The verdict's OWN words when it refuses. "A governed tier is
+                below the margin floor" was true and useless: it did not say
+                which tier, and it did not distinguish never-authorized from
+                authorized-then-invalidated from state-has-changed-since -
+                three refusals that send an operator to three different places.
+                The authorization core already writes those sentences. */}
             {blocked
-              ? "A governed tier is below the margin floor"
-              : "Every governed tier is at or above the floor"}
+              ? belowFloor.tiers
+                  .filter((t) => !t.ok)
+                  .map((t) => `${t.label} - ${t.message}`)
+                  .join(" ")
+              : belowFloor.anyBelowFloor
+                ? "Below floor, and authorized"
+                : "Every governed tier is at or above the floor"}
           </div>
           <div className="cv-check">
             <span className="cv-mark" data-ok="yes">✓</span>
@@ -354,14 +379,25 @@ export function CustomerViewRail({
           </div>
         </div>
 
-        {/* Freeze & send is the governing wording — D2. It is deliberately
-            not wired here: this increment restores composition, and the send
-            path is certified elsewhere. */}
+        {/* FINALIZE QUOTE, not "Freeze & send".
+            Edward's call, 2026-08-25. Nexus does not email the customer, and
+            this footer says so two lines above: "Delivery is manual - Nexus
+            does not email the customer." A button promising to send, directly
+            beneath a line saying nothing is sent, is the surface contradicting
+            itself about the one act the operator is about to perform.
+            What the button does is freeze the quote and produce the artifact.
+            It is now called that. */}
         <button className="cv-primary" type="button" disabled
                 data-state={!isDraft ? "frozen" : blocked ? "blocked" : "ready"}
-                title="Not wired in this increment — the send path is unchanged and lives on the Send sub-tab."
+                title={
+                  !isDraft
+                    ? "This quote is already frozen."
+                    : blocked
+                      ? "A below-floor tier is not authorized. See the check above."
+                      : "Not wired in this increment - the send path lives on the Send sub-tab."
+                }
                 data-testid="cv-primary">
-          {!isDraft ? "Frozen — start v2" : blocked ? "Request pricing approval" : "Freeze & send"}
+          {!isDraft ? "Frozen - start v2" : blocked ? "Request pricing approval" : "Finalize quote"}
         </button>
 
         <div className="cv-secondary">

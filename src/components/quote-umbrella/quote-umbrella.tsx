@@ -17,6 +17,7 @@
 // their step lands.
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,
   PresentationTier,
@@ -67,6 +68,7 @@ export function QuoteUmbrella({
   recoveryRows,
   presentation,
   presentationTiers,
+  belowFloor,
   governed,
   presentationRestored,
   allowSimulatedComplete,
@@ -173,6 +175,7 @@ export function QuoteUmbrella({
   recoveryRows: RecoveryChargeRow[];
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
+  belowFloor: BelowFloorProjection;
   governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
   presentationRestored: boolean;
@@ -323,6 +326,7 @@ export function QuoteUmbrella({
               recoveryRows={recoveryRows}
           presentation={presentation}
           presentationTiers={presentationTiers}
+          belowFloor={belowFloor}
               quoteRollup={quoteRollup}
               governed={governed}
               presentationRestored={presentationRestored}

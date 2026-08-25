@@ -176,10 +176,25 @@ test("1+2 · quoteRollup revenue, cost and margin derive from the construction",
 test("3+4 · the fingerprint and the SEND gate read that rollup", async () => {
   const gate = codeOnly(await read("src/lib/below-floor-send-gate.ts"));
   assert.match(gate, /bundle\.data\.costing\.quoteRollup/);
+  // The fingerprinting moved into `below-floor-projection`, shared with the
+  // Customer View footer so the surface and the gate cannot answer the same
+  // question differently. The property is unchanged: whatever is fingerprinted
+  // must be the rollup that was just read, not a second one.
   assert.match(
     gate,
+    /rollups: bundle\.data\.costing\.quoteRollup/,
+    "the gate must hand the projection the rollup it just read",
+  );
+  const proj = codeOnly(await read("src/lib/below-floor-projection.ts"));
+  assert.match(
+    proj,
     /fingerprintCommercialState\(\{[\s\S]{0,220}?totalRevenue: tier\.totalRevenue[\s\S]{0,120}?totalCost: tier\.totalCost/,
-    "the gate fingerprints something other than the rollup it just read",
+    "the projection fingerprints something other than the rollup it was given",
+  );
+  assert.doesNotMatch(
+    proj,
+    /getCostingBundle|computeQuoteCosting/,
+    "the projection must not read a second costing of its own",
   );
   // The fingerprint itself takes the three terms and derives nothing.
   const fp = codeOnly(await read("src/lib/below-floor-authorization.ts"));
