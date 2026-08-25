@@ -1,0 +1,419 @@
+/* CANONICAL — Pattern 30 verbatim adoption.
+   ═══════════════════════════════════════════════════════════════════════════
+   Source: docs/design-prototypes/dist/Nexus Customer PDF Render/app/cpdf/
+           styles.css, from the line marked "THE PAGED ARTIFACT" to the end.
+   Copied unedited. Edit upstream and re-copy; do not edit here.
+
+   This is the SAME source the customer PDF was ported from
+   (`customer-pdf-styles.ts` is its react-pdf translation, at 0.75x for pt).
+   So the live HTML preview and the PDF artifact are two renderings of one
+   stylesheet rather than two designs that resemble each other — which is what
+   makes "the operator should recognise them as the same document" a property
+   rather than an aspiration.
+
+   ── SELF-CONTAINED PALETTE, DELIBERATELY ────────────────────────────────
+   `.pp-sheet` declares its own `--pp-*` tokens locally. The source says why:
+   the artifact is print-target and theme-independent. It therefore depends on
+   NO project token, which also means it cannot be broken by one going missing
+   — the failure that silently dropped every size and leading from the rail
+   stylesheet when five undefined tokens were referenced.
+
+   Do not "modernise" these into project tokens. A customer document that
+   changed colour with an operator's theme would be a different document.
+
+   ── WHAT IS NOT HERE ────────────────────────────────────────────────────
+   The upstream `.cpdf-*` preview chrome (stage, toolbar, ribbon) is excluded.
+   Its own header calls it preview-only and "NOT part of the artifact".
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════
+   THE PAGED ARTIFACT  ·  everything below = react-pdf-portable
+   ════════════════════════════════════════════════════════════ */
+
+/* US Letter page box. Print-fixed palette (local, theme-independent). */
+.pp-sheet {
+  --pp-ink:      oklch(0.21 0.018 255);
+  --pp-ink-2:    oklch(0.36 0.016 255);
+  --pp-ink-3:    oklch(0.52 0.014 255);
+  --pp-muted:    oklch(0.60 0.012 255);
+  --pp-rule:     oklch(0.86 0.010 90);
+  --pp-rule-2:   oklch(0.74 0.012 90);
+  --pp-strong:   oklch(0.21 0.018 255);
+  --pp-rec-edge: oklch(0.46 0.03 255);
+  --pp-rec-tint: oklch(0.975 0.020 95);
+  --pp-star:     oklch(0.56 0.13 72);
+  --pp-paper:    oklch(0.995 0.002 95);
+
+  position: relative;
+  width: 816px;
+  min-height: 1056px;
+  margin: 0 auto;
+  background: var(--pp-paper);
+  color: var(--pp-ink);
+  font-family: "Newsreader", Georgia, serif;
+  padding: 56px 64px 88px;            /* bottom pad reserves the fixed footer band */
+  box-sizing: border-box;
+  display: flex; flex-direction: column;
+  box-shadow:
+    0 1px 0 oklch(0 0 0 / 0.18),
+    0 24px 50px oklch(0 0 0 / 0.30),
+    0 60px 110px oklch(0 0 0 / 0.16);
+}
+.pp-sheet + .pp-sheet { margin-top: 0; }
+.pp-sheet * { box-sizing: border-box; }
+.pp-flow { flex: 1 0 auto; }          /* flowing content; footer pinned below */
+
+/* ─── Masthead (first page only) ──────────────────────────── */
+.pp-masthead {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1.5px solid var(--pp-strong);
+}
+.pp-masthead .v-name {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 27px; font-weight: 500; letter-spacing: -0.02em;
+  color: var(--pp-ink); line-height: 1.05;
+}
+.pp-masthead .v-sub {
+  font-size: 12px; color: var(--pp-ink-3); margin-top: 5px; max-width: 42ch; line-height: 1.45;
+}
+.pp-masthead .v-meta {
+  text-align: right; flex-shrink: 0; margin-left: 28px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px; color: var(--pp-ink-3); letter-spacing: 0.03em; line-height: 1.85;
+}
+.pp-masthead .v-meta .qnum {
+  display: block; font-size: 16px; color: var(--pp-ink); letter-spacing: 0.02em; margin-bottom: 6px;
+}
+.pp-masthead .v-meta strong { color: var(--pp-ink-2); font-weight: 500; }
+
+/* Parties (first page only) */
+.pp-parties { display: flex; margin-top: 18px; }
+.pp-parties .party { flex: 1; padding-right: 24px; }
+.pp-parties .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pp-muted); margin-bottom: 5px;
+}
+.pp-parties .pname {
+  font-size: 16px; font-weight: 500; color: var(--pp-ink); margin-bottom: 2px;
+}
+.pp-parties .pline { font-size: 12px; color: var(--pp-ink-2); line-height: 1.5; }
+
+/* ─── Section heads ───────────────────────────────────────── */
+.pp-eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--pp-muted); margin: 0 0 6px;
+}
+.pp-h2 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 18px; font-weight: 500; letter-spacing: -0.01em;
+  color: var(--pp-ink); margin: 0 0 4px;
+}
+.pp-h3 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 14px; font-weight: 600; letter-spacing: -0.005em;
+  color: var(--pp-ink); margin: 0 0 6px;
+}
+.pp-lede {
+  font-size: 11.5px; color: var(--pp-ink-2); line-height: 1.55;
+  max-width: 64ch; margin: 0;
+}
+.pp-lede em { font-style: italic; color: var(--pp-ink); }
+.pp-section { margin-top: 26px; }
+.pp-section.tight { margin-top: 16px; }
+
+/* ─── Pricing table (flex rows/cols — no <table>, no grid) ── */
+.pp-table { display: flex; flex-direction: column; margin-top: 14px; }
+.pp-thead {
+  display: flex; align-items: flex-end;
+  border-bottom: 1.5px solid var(--pp-strong);
+  padding-bottom: 7px;
+}
+.pp-thead.continued { border-top: none; }
+.pp-tbody { display: flex; flex-direction: column; }
+.pp-tr {
+  display: flex; align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--pp-rule);
+}
+.pp-tbody .pp-tr:last-child { border-bottom: 1px solid var(--pp-rule); }
+
+/* columns */
+.pp-c-prod { flex: 2.5 1 0; min-width: 0; padding-right: 14px; }
+.pp-c-num  {
+  flex: 1 1 0; min-width: 0; text-align: right;
+  border-left: 1px solid transparent; border-right: 1px solid transparent;
+  padding: 0 8px;
+}
+.pp-thead .pp-c-num { align-self: flex-end; }
+
+/* recommended column — redundant signals that survive grayscale:
+   bordered column box + tint + bold weight + ★/label in the header */
+.pp-c-rec { border-left-color: var(--pp-rec-edge); border-right-color: var(--pp-rec-edge); background: var(--pp-rec-tint); }
+.pp-thead .pp-c-rec { border-top: 1px solid var(--pp-rec-edge); padding-top: 5px; }
+
+/* header cell content */
+.pp-th-lab {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.06em; color: var(--pp-ink); font-weight: 500;
+}
+.pp-c-prod .pp-th-lab { letter-spacing: 0.12em; text-transform: uppercase; font-size: 9px; color: var(--pp-muted); }
+.pp-th-sub {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px; letter-spacing: 0.04em; color: var(--pp-muted); margin-top: 3px; font-weight: 400;
+}
+.pp-th-rec {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--pp-ink);
+}
+.pp-th-rec .star { color: var(--pp-star); font-size: 10px; }
+.pp-th-sub .rec-word { color: var(--pp-star); letter-spacing: 0.10em; }
+
+/* body cells */
+.pp-prod-name { font-size: 13px; font-weight: 500; color: var(--pp-ink); line-height: 1.25; }
+.pp-prod-meta {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px; color: var(--pp-muted); letter-spacing: 0.02em; margin-top: 3px;
+}
+.pp-prod-meta .code { color: var(--pp-ink-3); }
+.pp-prod-flat { font-style: italic; font-size: 10.5px; color: var(--pp-ink-3); margin-top: 3px; }
+.pp-price {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px; color: var(--pp-ink); font-variant-numeric: tabular-nums;
+}
+.pp-c-rec .pp-price { font-weight: 600; }
+.pp-price.dash { color: var(--pp-muted); }
+.pp-price.req {
+  font-family: "Newsreader", Georgia, serif; font-style: italic;
+  font-size: 11px; color: var(--pp-muted); white-space: nowrap;
+}
+.pp-table-foot {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.04em; color: var(--pp-muted);
+  margin-top: 8px; display: flex; justify-content: space-between;
+}
+
+/* ─── Charges block (one-time fees + pass-through freight) ── */
+.pp-charges { /* kept-together block (react-pdf wrap={false}) */ }
+.pp-charge-sub { font-size: 10.5px; font-style: italic; color: var(--pp-ink-3); margin: 2px 0 8px; }
+.pp-charge-group-label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--pp-muted); margin: 12px 0 2px;
+}
+.pp-charge-row {
+  display: flex; align-items: baseline;
+  padding: 8px 0; border-bottom: 1px solid var(--pp-rule);
+}
+.pp-charge-row .c-label { flex: 1; padding-right: 14px; }
+.pp-charge-row .c-label .t { font-size: 12.5px; color: var(--pp-ink); }
+.pp-charge-row .c-label .s { display: block; font-size: 10.5px; font-style: italic; color: var(--pp-muted); margin-top: 2px; line-height: 1.4; }
+.pp-charge-row .c-qty {
+  flex: 0 0 130px; text-align: right; padding-right: 16px;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 9.5px; color: var(--pp-ink-3); letter-spacing: 0.02em;
+}
+.pp-charge-row .c-amt {
+  flex: 0 0 96px; text-align: right;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; font-weight: 500; color: var(--pp-ink); font-variant-numeric: tabular-nums;
+}
+.pp-charge-row .c-amt .per { font-size: 9px; font-weight: 400; color: var(--pp-muted); margin-left: 2px; }
+
+/* ─── Terms block (flex-wrap, no grid) ────────────────────── */
+.pp-terms {
+  display: flex; flex-wrap: wrap;
+  border-top: 1.5px solid var(--pp-strong);
+  padding-top: 16px; margin-top: 8px;
+}
+.pp-term { flex: 0 0 50%; padding: 0 24px 16px 0; }
+.pp-term .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pp-muted); margin-bottom: 4px;
+}
+.pp-term .value { font-size: 12.5px; color: var(--pp-ink); line-height: 1.45; }
+
+/* Notes callout */
+.pp-notes {
+  margin-top: 6px; padding: 12px 16px;
+  background: oklch(0.97 0.010 90);
+  border-left: 3px solid var(--pp-rule-2);
+}
+.pp-notes .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pp-muted); margin-bottom: 5px;
+}
+.pp-notes p { font-size: 11px; color: var(--pp-ink-2); line-height: 1.55; margin: 0; }
+
+/* How-to-accept */
+.pp-accept { margin-top: 22px; }
+.pp-accept p { font-size: 11.5px; color: var(--pp-ink-2); line-height: 1.55; margin: 0; max-width: 64ch; }
+
+/* ─── Running header (continuation pages — react-pdf fixed) ── */
+.pp-runhead {
+  position: absolute; top: 28px; left: 64px; right: 64px;
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-bottom: 8px; border-bottom: 1px solid var(--pp-rule);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.06em; color: var(--pp-ink-3);
+}
+.pp-runhead .l { color: var(--pp-ink-2); }
+.pp-runhead .l strong { color: var(--pp-ink); font-weight: 500; letter-spacing: 0.10em; text-transform: uppercase; }
+.pp-runhead .r { text-transform: uppercase; letter-spacing: 0.10em; color: var(--pp-muted); }
+.pp-sheet.continuation { padding-top: 64px; }
+
+/* ─── Footer (every page — react-pdf fixed) ───────────────── */
+.pp-footer {
+  position: absolute; left: 64px; right: 64px; bottom: 30px;
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-top: 10px; border-top: 1px solid var(--pp-rule);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px; letter-spacing: 0.05em; color: var(--pp-muted);
+}
+.pp-footer .l strong { color: var(--pp-ink-3); font-weight: 500; letter-spacing: 0.10em; text-transform: uppercase; }
+
+/* ════════════════════════════════════════════════════════════
+   ADDENDUM 1 · line totals · grand turnkey total · turnkey-only
+   ════════════════════════════════════════════════════════════ */
+
+/* line total stacked under the unit price (Q1 — in-cell, columns are tight) */
+.pp-linetotal {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px; color: var(--pp-muted); letter-spacing: 0.01em;
+  margin-top: 3px; font-variant-numeric: tabular-nums;
+}
+.pp-c-rec .pp-linetotal { color: var(--pp-ink-3); }
+
+/* Grand turnkey-total row — sits under the table, strong separator above */
+.pp-grand {
+  display: flex; align-items: baseline;
+  border-top: 1.5px solid var(--pp-strong);
+  padding: 11px 0 0; margin-top: 2px;
+}
+.pp-grand .g-label {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 14px; font-weight: 600; color: var(--pp-ink); letter-spacing: -0.005em;
+}
+.pp-grand .g-sub { font-size: 10px; font-style: italic; color: var(--pp-muted); margin-top: 1px; }
+.pp-grand .pp-c-rec { border-bottom: 1px solid var(--pp-rec-edge); padding-bottom: 8px; }
+.pp-grand-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 14px; font-weight: 600; color: var(--pp-ink); font-variant-numeric: tabular-nums;
+}
+.pp-grand-num.req {
+  font-family: "Newsreader", Georgia, serif; font-style: italic; font-weight: 500;
+  font-size: 12px; color: var(--pp-ink-2);
+}
+.pp-grand-unit {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px; color: var(--pp-ink-3); letter-spacing: 0.01em;
+  margin-top: 4px; font-variant-numeric: tabular-nums;
+}
+.pp-c-rec .pp-grand-unit { color: var(--pp-ink-2); }
+.pp-grand-unit .per { color: var(--pp-muted); }
+.pp-grand-num .from { font-family: "Newsreader", Georgia, serif; font-style: italic; font-weight: 400; font-size: 10px; color: var(--pp-muted); margin-right: 3px; }
+/* notes under the grand row */
+.pp-grand-notes { margin-top: 9px; display: flex; flex-direction: column; gap: 3px; }
+.pp-grand-note {
+  font-family: "Newsreader", Georgia, serif; font-size: 10.5px; color: var(--pp-ink-3); line-height: 1.45;
+}
+.pp-grand-note .k {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 8.5px;
+  letter-spacing: 0.10em; text-transform: uppercase; color: var(--pp-muted); margin-right: 6px;
+}
+.pp-grand-note.freight { color: var(--pp-ink-2); }
+.pp-grand-note .amt { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pp-ink-2); }
+
+/* ─── Turnkey-only mode (no SKU rows; sparse-but-confident) ── */
+.pp-turnkey { margin-top: 6px; }
+.pp-turnkey .pp-lede { margin-bottom: 18px; }
+
+/* tier_table turnkey-only → per-tier cards */
+.pp-tk-cards { display: flex; align-items: stretch; }
+.pp-tk-card {
+  flex: 1 1 0; min-width: 0;
+  padding: 16px 16px 18px;
+  border: 1px solid var(--pp-rule);
+  border-right-width: 0;
+}
+.pp-tk-card:last-child { border-right-width: 1px; }
+.pp-tk-card.rec {
+  border: 1.5px solid var(--pp-rec-edge);
+  background: var(--pp-rec-tint);
+  margin: -2px -1px; z-index: 1; position: relative;
+}
+.pp-tk-tier {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px; letter-spacing: 0.06em; color: var(--pp-ink); font-weight: 500;
+  display: flex; align-items: center; gap: 4px;
+}
+.pp-tk-tier .star { color: var(--pp-star); }
+.pp-tk-qty {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.04em; color: var(--pp-muted); margin-top: 3px;
+}
+.pp-tk-rec-word { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 8px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--pp-star); margin-top: 5px; }
+.pp-tk-total {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 24px; font-weight: 500; letter-spacing: -0.02em; color: var(--pp-ink);
+  margin-top: 14px; font-variant-numeric: tabular-nums; line-height: 1.05;
+}
+.pp-tk-card.rec .pp-tk-total { font-weight: 600; }
+.pp-tk-perunit {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px; color: var(--pp-ink-3); letter-spacing: 0.01em;
+  margin-top: 5px; font-variant-numeric: tabular-nums;
+}
+.pp-tk-perunit .per { color: var(--pp-muted); }
+.pp-tk-total .from { font-family: "Newsreader", Georgia, serif; font-style: italic; font-size: 12px; font-weight: 400; color: var(--pp-muted); display: block; }
+.pp-tk-total.req { font-size: 15px; font-style: italic; font-weight: 500; color: var(--pp-ink-2); }
+
+/* single_tier turnkey-only → one hero figure */
+.pp-tk-hero {
+  display: flex; align-items: baseline; justify-content: space-between;
+  border-top: 1.5px solid var(--pp-strong); border-bottom: 1.5px solid var(--pp-strong);
+  padding: 20px 0; margin: 4px 0 0;
+}
+.pp-tk-hero .h-meta { }
+.pp-tk-hero .h-label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--pp-muted); margin-bottom: 6px;
+}
+.pp-tk-hero .h-tier { font-family: "Newsreader", Georgia, serif; font-size: 16px; color: var(--pp-ink); }
+.pp-tk-hero .h-tier .star { color: var(--pp-star); }
+.pp-tk-hero .h-qty { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; color: var(--pp-ink-3); margin-top: 3px; letter-spacing: 0.03em; }
+.pp-tk-hero .h-num {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 40px; font-weight: 600; letter-spacing: -0.03em; color: var(--pp-ink);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.pp-tk-hero .h-num.req { font-size: 24px; font-style: italic; font-weight: 500; color: var(--pp-ink-2); }
+.pp-tk-hero-unit {
+  text-align: right; margin-top: 8px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px; color: var(--pp-ink); font-variant-numeric: tabular-nums; font-weight: 500;
+}
+.pp-tk-hero-unit .per { font-weight: 400; color: var(--pp-muted); font-size: 10px; letter-spacing: 0.02em; }
+
+/* what's-included block (Q3 — fills the vacated space) */
+.pp-tk-included {
+  margin-top: 20px; padding: 14px 18px;
+  background: oklch(0.975 0.008 90);
+  border: 1px solid var(--pp-rule);
+}
+.pp-tk-included .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--pp-muted); margin-bottom: 8px;
+}
+.pp-tk-scope { font-size: 12px; color: var(--pp-ink); line-height: 1.5; }
+.pp-tk-scope .code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; color: var(--pp-ink-3); }
+.pp-tk-incl-list { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.pp-tk-incl {
+  font-family: "Newsreader", Georgia, serif; font-size: 11px; color: var(--pp-ink-2); line-height: 1.4;
+  display: flex; gap: 8px;
+}
+.pp-tk-incl .tick { color: var(--pp-ink-3); flex-shrink: 0; }
+.pp-tk-incl.out .tick { color: var(--pp-muted); }
+.pp-tk-incl.out { color: var(--pp-ink-3); font-style: italic; }

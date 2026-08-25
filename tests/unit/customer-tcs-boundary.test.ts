@@ -108,7 +108,12 @@ test("both documents label T&Cs, not just carry them", async () => {
   // terms" in the terms grid, which sits three lines above the clause it was
   // supposed to be finding. A pattern that matches the neighbourhood of the
   // thing is not a pattern for the thing.
-  assert.match(live, /<div className="cvl-eyebrow">Terms &amp; conditions<\/div>/);
+  // Asserted on the heading TEXT, not on the class that carries it. The class
+  // changed once already (Gate B moved the heading onto the canonical `.label`
+  // register), and a test pinned to the class would have failed for a styling
+  // change while a test pinned to `/terms/` would have passed for a missing
+  // heading. The text is the thing under contract.
+  assert.match(live, /<div className="label">Terms &amp; conditions<\/div>/);
   assert.match(block, /\{"Terms & conditions"\.toUpperCase\(\)\}/);
 
   // And the broad pattern must not be what either assertion rests on. If a

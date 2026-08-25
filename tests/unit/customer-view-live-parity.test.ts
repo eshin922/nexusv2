@@ -194,11 +194,19 @@ test("both documents describe an unpriced cell in the same words", async () => {
   );
 
   // A cell with no price.
-  assert.match(table, />quote on request</, "the PDF's cell wording");
-  assert.match(live, />quote on request</, "the live renderer must match it");
+  //
+  // Matched as the ELEMENT'S TEXT, tolerating the line breaks a formatter puts
+  // inside a JSX element — `/>phrase</` asserted that the phrase and its tags
+  // shared a source line, which is a fact about Prettier, not about the
+  // document. It went red on a transcription that changed no wording at all.
+  const asElementText = (phrase: string) =>
+    new RegExp(">" + String.raw`\s*` + phrase + String.raw`\s*` + "<");
+
+  assert.match(table, asElementText("quote on request"), "the PDF's cell wording");
+  assert.match(live, asElementText("quote on request"), "the live renderer must match it");
 
   // A tier with nothing priced at all.
-  assert.match(live, />total on request</);
+  assert.match(live, asElementText("total on request"));
   assert.ok(grand.includes("total on request"), "the PDF uses the same phrase");
 
   // Neither may render a governed zero for an unpriced state (OD-005).
