@@ -451,21 +451,22 @@
 .cv-primary[data-state="ready"] { background: var(--accent); color: var(--paper); }
 .cv-primary[data-state="blocked"] { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
 .cv-primary[data-state="frozen"] { background: var(--paper-2); border-color: var(--rule-2); color: var(--ink-2); }
-/* Inert for the visual review, and it must LOOK inert. A disabled full-width
-   accent button still reads as the primary action; an operator would try it.
-   The state colours above stay so the hierarchy can be judged, muted here so
-   the affordance cannot be mistaken for a live one. */
+/* Muted, because a disabled full-width accent button still reads as the primary
+   action and an operator would try it. The state colours above stay so the
+   hierarchy can be judged.
+
+   The " · not wired yet" suffix that used to be appended here is GONE. It was
+   added while this button was genuinely inert for a visual review, and it
+   outlived that: once the button was wired, every legitimate refusal wore it.
+   An operator holding a real work item -- resolve a recovery placement, get a
+   below-floor tier authorized, revise a frozen quote -- was told the feature
+   did not exist. The button's own label already says what is wrong and the
+   check above it says why, so the suffix contradicted a truthful surface with
+   a stale one. */
 .cv-primary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
   filter: saturate(0.65);
-}
-.cv-primary:disabled::after {
-  content: " · not wired yet";
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
-  opacity: 0.8;
 }
 
 .cv-secondary { display: flex; gap: 7px; margin-top: 7px; }
