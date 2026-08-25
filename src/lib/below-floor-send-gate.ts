@@ -5,10 +5,7 @@ import { db } from "@/db";
 import { belowFloorAuthorizations } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { ActionGuardError, ERR } from "@/lib/action-result";
-import {
-  evaluateBelowFloorAuthorization,
-  fingerprintCommercialState,
-} from "@/lib/below-floor-authorization";
+import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
 
 /**
  * The floor gate at SEND. Refuses before any external artifact exists.
@@ -74,24 +71,20 @@ export async function requireBelowFloorAuthorizedToSend(input: {
     .from(belowFloorAuthorizations)
     .where(eq(belowFloorAuthorizations.quoteId, input.quoteId));
 
-  const refusals: string[] = [];
-  for (const tier of belowFloor) {
-    const verdict = evaluateBelowFloorAuthorization({
-      authorizations,
-      scope: {
-        quoteVersionNumber: input.quoteVersionNumber,
-        tierId: tier.tierId,
-      },
-      // Fingerprinted from THIS read, so an authorization is current against
-      // the economics being sent rather than against some other snapshot.
-      currentFingerprint: fingerprintCommercialState({
-        totalRevenue: tier.totalRevenue,
-        totalCost: tier.totalCost,
-        blendedMarginPct: tier.blendedMarginPct,
-      }),
-    });
-    if (!verdict.ok) refusals.push(`${tier.label} — ${verdict.message}`);
-  }
+  // The SAME evaluation the Customer View footer shows the operator. It used
+  // to live here alone, and the footer answered the identical question with a
+  // hand-rolled margin comparison that read no authorizations at all — so a
+  // properly authorized quote was told to seek approval it already held, for a
+  // send this gate would have allowed. One authority now; see
+  // `below-floor-projection`.
+  const projection = projectBelowFloorAuthorization({
+    rollups: bundle.data.costing.quoteRollup,
+    authorizations,
+    quoteVersionNumber: input.quoteVersionNumber,
+  });
+  const refusals = projection.tiers
+    .filter((t) => !t.ok)
+    .map((t) => `${t.label} — ${t.message}`);
 
   if (refusals.length > 0) {
     // Every failing tier, not the first. An operator who fixes one and is then

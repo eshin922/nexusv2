@@ -25,10 +25,12 @@ import "server-only";
 
 import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
 import { applyTierVisibility } from "@/lib/customer-tier-visibility";
+import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
+  belowFloorAuthorizations,
   firmSettings,
   presentationProfile,
   presentationProfileTier,
@@ -96,6 +98,15 @@ export type ResolveCustomerViewResult =
       /** Recovery workspace rows, from the same bundle read. */
       /** The frozen recovery instruction, projected from the construction. */
       recoveryInstructions: import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
+      /**
+       * The footer's verdict — the SAME evaluation the send gate performs.
+       *
+       * The footer used to compute `blocked` from a hand-rolled margin
+       * comparison and read no authorizations at all, so a properly authorized
+       * quote was told to request approval it already held, for a send the gate
+       * would have allowed. Two answers to one question; now one.
+       */
+      belowFloor: import("./below-floor-projection").BelowFloorProjection;
       /** Card 1 · one row per governed recoverable charge. */
       recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
       /**
@@ -550,6 +561,31 @@ export async function resolveCustomerView(args: {
       (s) => s.id === skuId && s.skuRole === "leaf",
     );
 
+  // The floor verdict, evaluated exactly as the send gate evaluates it.
+  //
+  // Loaded unconditionally rather than behind an "is anything below floor"
+  // guard: the projection needs the rows to decide, and a quote with nothing
+  // below floor reads an empty set and returns ok. The gate keeps its
+  // short-circuit because it runs on the write path where the query is worth
+  // avoiding; a page render is already reading far more than this.
+  const authorizationRows = await db
+    .select({
+      id: belowFloorAuthorizations.id,
+      quoteVersionNumber: belowFloorAuthorizations.quoteVersionNumber,
+      tierId: belowFloorAuthorizations.tierId,
+      approvedByUserId: belowFloorAuthorizations.approvedByUserId,
+      stateFingerprint: belowFloorAuthorizations.stateFingerprint,
+      invalidatedAt: belowFloorAuthorizations.invalidatedAt,
+    })
+    .from(belowFloorAuthorizations)
+    .where(eq(belowFloorAuthorizations.quoteId, quoteId));
+
+  const belowFloorProjection = projectBelowFloorAuthorization({
+    rollups: bundle.data.costing.quoteRollup,
+    authorizations: authorizationRows,
+    quoteVersionNumber: quote.versionNumber,
+  });
+
   // Hidden tiers are removed HERE, once, so neither renderer has to skip
   // positions in six index-aligned arrays without ever getting it wrong. See
   // `customer-tier-visibility`.
@@ -584,6 +620,7 @@ export async function resolveCustomerView(args: {
      * from a second read.
      */
     recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
+    belowFloor: belowFloorProjection,
     presentation: {
       layout: profile?.layout ?? "tier_table",
       detailLevel: profile?.detailLevel ?? "itemized",

@@ -17,6 +17,7 @@
 // QuoteHost with all its chrome intact → light Advance bar.
 
 import { QuoteHost } from "@/components/quote/quote-host";
+import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,
   PresentationTier,
@@ -42,6 +43,7 @@ export function TabPreviewQuote({
   recoveryRows,
   presentation,
   presentationTiers,
+  belowFloor,
   quoteRollup,
   governed,
   presentationRestored,
@@ -73,6 +75,7 @@ export function TabPreviewQuote({
   recoveryRows: RecoveryChargeRow[];
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
+  belowFloor: BelowFloorProjection;
   quoteRollup: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
   presentationRestored: boolean;
@@ -95,6 +98,7 @@ export function TabPreviewQuote({
       recoveryRows={recoveryRows}
       presentation={presentation}
       presentationTiers={presentationTiers}
+          belowFloor={belowFloor}
       quoteRollup={quoteRollup}
       governed={governed}
       presentationRestored={presentationRestored}

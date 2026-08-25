@@ -115,18 +115,40 @@ test("the send gate runs before any external artifact exists", async () => {
 });
 
 test("the send gate re-uses the authorization core; it does not re-implement it", async () => {
+  // The gate used to call the core directly. It now delegates to
+  // `below-floor-projection`, which the Customer View footer ALSO reads — the
+  // repair for a footer that answered the same question with a hand-rolled
+  // margin comparison and no authorizations at all.
+  //
+  // The requirement is unchanged and is now satisfied one level down, so this
+  // asserts the delegation AND that the delegate is the thing doing the reuse.
+  // Asserting only the delegation would let the projection re-implement the
+  // core and this test would never notice.
   const src = codeOnly(await SEND_GATE());
-  assert.match(src, /evaluateBelowFloorAuthorization\(/);
-  assert.match(src, /fingerprintCommercialState\(/);
-  // No local notion of who may approve, and no local floor comparison.
+  assert.match(src, /projectBelowFloorAuthorization\(/, "the gate delegates");
   assert.doesNotMatch(src, /commercialApprover/);
   assert.doesNotMatch(src, /floorMarginPct\s*[<>]/);
+
+  const projection = codeOnly(await read("src/lib/below-floor-projection.ts"));
+  assert.match(projection, /evaluateBelowFloorAuthorization\(/);
+  assert.match(projection, /fingerprintCommercialState\(/);
+  assert.doesNotMatch(projection, /commercialApprover/);
+  // And the governed status, never a re-derived floor comparison.
+  assert.match(projection, /blendedMarginStatus === "BELOW_FLOOR"/);
+  assert.doesNotMatch(projection, /floorMarginPct/);
 });
 
 test("the send gate checks EVERY below-floor tier", async () => {
+  // Still every tier; the loop moved into the shared projection with the rest.
+  // An operator who fixes one tier and is then refused for the next has been
+  // made to discover the work one item at a time.
+  const projection = codeOnly(await read("src/lib/below-floor-projection.ts"));
+  assert.match(projection, /belowFloor\.map\(/, "every below-floor tier is evaluated");
+  assert.match(projection, /tiers\.every\(\(t\) => t\.ok\)/, "one bad tier fails the quote");
+
   const src = codeOnly(await SEND_GATE());
-  assert.match(src, /for \(const tier of belowFloor\)/, "every tier, not the first");
   assert.match(src, /refusals\.join/, "report all failing tiers at once");
+  assert.match(src, /filter\(\(t\) => !t\.ok\)/, "and refuse on every one of them");
 });
 
 test("the send gate short-circuits when nothing is below floor", async () => {

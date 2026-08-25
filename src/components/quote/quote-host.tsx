@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useLayoutEffect, useRef } from "react";
+import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   CustomerView,
   CustomerViewDetailLevel,
@@ -87,6 +88,7 @@ export function QuoteHost({
   view,
   presentation,
   presentationTiers,
+  belowFloor,
   quoteId,
   quoteStatus,
   recoveryInstructions,
@@ -102,6 +104,7 @@ export function QuoteHost({
   /** Card 2 edits this; Card 3 projects it. One record, resolved once. */
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
+  belowFloor: BelowFloorProjection;
   quoteId: string;
   quoteStatus: string;
   /** Projected from the same construction the send transaction freezes. */
@@ -343,6 +346,7 @@ export function QuoteHost({
             pageCount={addendumOn ? 2 : 1}
             presentation={presentation}
             tiers={presentationTiers}
+            belowFloor={belowFloor}
           />
         </div>
       ) : (
