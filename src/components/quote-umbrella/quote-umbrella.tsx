@@ -69,6 +69,7 @@ export function QuoteUmbrella({
   presentation,
   presentationTiers,
   belowFloor,
+  accountingInstruction,
   governed,
   presentationRestored,
   allowSimulatedComplete,
@@ -176,6 +177,7 @@ export function QuoteUmbrella({
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
+  accountingInstruction: string | null;
   governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
   presentationRestored: boolean;
@@ -327,6 +329,7 @@ export function QuoteUmbrella({
           presentation={presentation}
           presentationTiers={presentationTiers}
           belowFloor={belowFloor}
+          accountingInstruction={accountingInstruction}
               quoteRollup={quoteRollup}
               governed={governed}
               presentationRestored={presentationRestored}

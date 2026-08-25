@@ -89,6 +89,7 @@ export function QuoteHost({
   presentation,
   presentationTiers,
   belowFloor,
+  accountingInstruction,
   quoteId,
   quoteStatus,
   recoveryInstructions,
@@ -105,6 +106,7 @@ export function QuoteHost({
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
+  accountingInstruction: string | null;
   quoteId: string;
   quoteStatus: string;
   /** Projected from the same construction the send transaction freezes. */
@@ -347,6 +349,7 @@ export function QuoteHost({
             presentation={presentation}
             tiers={presentationTiers}
             belowFloor={belowFloor}
+            accountingInstruction={accountingInstruction}
           />
         </div>
       ) : (

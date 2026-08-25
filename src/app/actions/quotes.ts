@@ -2122,6 +2122,9 @@ export async function sendQuote(
             // resolving that duplication, and writing only one of them is how
             // a fact ends up frozen in the store nothing reads.
             customerFacingNotes: quote.customerFacingNotes ?? null,
+            // Frozen with the version it was written for. Accounting reads it
+            // after acceptance; the quote it describes must not have moved on.
+            accountingInstruction: quote.accountingInstruction ?? null,
           },
           // Slice 11 Step 6.6 — persisted PDF forensic markers.
           // sendUuid ties to the storage-path file for audit

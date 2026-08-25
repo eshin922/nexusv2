@@ -44,6 +44,7 @@ export function TabPreviewQuote({
   presentation,
   presentationTiers,
   belowFloor,
+  accountingInstruction,
   quoteRollup,
   governed,
   presentationRestored,
@@ -76,6 +77,7 @@ export function TabPreviewQuote({
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
+  accountingInstruction: string | null;
   quoteRollup: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
   presentationRestored: boolean;
@@ -99,6 +101,7 @@ export function TabPreviewQuote({
       presentation={presentation}
       presentationTiers={presentationTiers}
           belowFloor={belowFloor}
+          accountingInstruction={accountingInstruction}
       quoteRollup={quoteRollup}
       governed={governed}
       presentationRestored={presentationRestored}

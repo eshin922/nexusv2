@@ -636,6 +636,21 @@ export const quotes = pgTable(
      * copy, never a second author.
      */
     customerFacingNotesSnapshot: text("customer_facing_notes_snapshot"),
+    /**
+     * The authored instruction to Accounting — INTERNAL, never printed.
+     *
+     * Card 3's own subtitle states both properties: "Inherited on acceptance.
+     * Never printed for the customer." The boundary verifier makes the second
+     * structural rather than a promise — the customer render tree may not
+     * import from the schema and `CustomerView` has no field for this, so
+     * there is nowhere for it to leak to.
+     *
+     * Frozen at send into `quote_snapshots.accounting_instruction`. Accounting
+     * acts on it after acceptance, and an instruction editable at that point
+     * would let the booking instruction drift from the quote it was written
+     * for — the customer note's defect, one audience over.
+     */
+    accountingInstruction: text("accounting_instruction"),
     daysValidSnapshot: integer("days_valid_snapshot"),
     // DEC-8: PreparedBy contact snapshot at send. Same rationale as
     // DEC-7 — customer view of an already-sent quote must always show
@@ -897,6 +912,8 @@ export const quoteSnapshots = pgTable(
     // remains the single authored owner. This is the frozen copy, not a second
     // author.
     customerFacingNotes: text("customer_facing_notes"),
+    /** The frozen instruction to Accounting, copied in the send transaction. */
+    accountingInstruction: text("accounting_instruction"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

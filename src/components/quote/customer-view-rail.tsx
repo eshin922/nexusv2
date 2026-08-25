@@ -23,6 +23,8 @@
  */
 
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
+import { AccountingInstruction } from "./accounting-instruction";
+import { FinalizeQuoteButton } from "./finalize-quote-button";
 import { CardCommercialRecovery } from "./card-commercial-recovery";
 import {
   CardCustomerPresentation,
@@ -70,6 +72,7 @@ export function CustomerViewRail({
   presentation,
   tiers,
   belowFloor,
+  accountingInstruction,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -93,6 +96,8 @@ export function CustomerViewRail({
   tiers: readonly PresentationTier[];
   /** The send gate's own verdict, evaluated once upstream. */
   belowFloor: BelowFloorProjection;
+  /** Internal, never printed. See the resolver's note on why it is not on the view. */
+  accountingInstruction: string | null;
 }) {
   const isDraft = quoteStatus === "draft";
 
@@ -329,11 +334,12 @@ export function CustomerViewRail({
           </div>
 
           <div className="cv-section">
-            <p className="cv-note" data-testid="cv-accounting-gap">
-              The authored instruction to Accounting is not here yet - it is an
-              authored field this surface does not own. It arrives with the
-              freeze contract rather than as a box that forgets.
-            </p>
+            <span className="cv-eyebrow">Instruction to Accounting &middot; authored here</span>
+            <AccountingInstruction
+              quoteId={quoteId}
+              editable={isDraft}
+              value={accountingInstruction}
+            />
           </div>
         </section>
       </div>
@@ -387,18 +393,30 @@ export function CustomerViewRail({
             itself about the one act the operator is about to perform.
             What the button does is freeze the quote and produce the artifact.
             It is now called that. */}
-        <button className="cv-primary" type="button" disabled
-                data-state={!isDraft ? "frozen" : blocked ? "blocked" : "ready"}
-                title={
-                  !isDraft
-                    ? "This quote is already frozen."
-                    : blocked
-                      ? "A below-floor tier is not authorized. See the check above."
-                      : "Not wired in this increment - the send path lives on the Send sub-tab."
-                }
-                data-testid="cv-primary">
-          {!isDraft ? "Frozen - start v2" : blocked ? "Request pricing approval" : "Finalize quote"}
-        </button>
+        <FinalizeQuoteButton
+          quoteId={quoteId}
+          // Refused when the quote is already frozen, when a below-floor tier
+          // is unauthorized, or when the deal has no HubSpot link. The floor
+          // condition PREDICTS `sendQuote`'s own refusal from the same shared
+          // projection - so the operator learns it before clicking rather than
+          // after, and the two can never disagree.
+          disabled={!isDraft || blocked}
+          dataState={!isDraft ? "frozen" : blocked ? "blocked" : "ready"}
+          title={
+            !isDraft
+              ? "This quote is already frozen. Revise it to start a new version."
+              : blocked
+                ? "A below-floor tier is not authorized. See the check above."
+                : "Freezes this version and produces the customer PDF. Delivery stays manual."
+          }
+          label={
+            !isDraft
+              ? "Frozen - start v2"
+              : blocked
+                ? "Request pricing approval"
+                : "Finalize quote"
+          }
+        />
 
         <div className="cv-secondary">
           <a href={pdfHref} target="_blank" rel="noreferrer"

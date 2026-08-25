@@ -23,7 +23,7 @@ via 9 call sites in `src/app/actions/quotes.ts` + 7 in
 (`src/lib/quote-guards.ts`) which the cost-input tree-resolvers call
 after loading the quote.
 
-Columns frozen at this checkpoint (17):
+Columns frozen at this checkpoint (18):
 
 | Column | Notes |
 |---|---|
@@ -43,6 +43,7 @@ Columns frozen at this checkpoint (17):
 | `detail_level_snapshot` | Slice 11 render axis |
 | `include_spec_addendum_snapshot` | Slice 11 render axis |
 | `customer_facing_notes_snapshot` | the customer note (G4 · M2 — see below) |
+| `accounting_instruction` | Card 3's authored instruction (internal, never printed) |
 | `pdf_url` | persisted PDF signed URL |
 
 Sibling table `quote_snapshots` mirrors these fields with per-version

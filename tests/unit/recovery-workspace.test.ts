@@ -701,9 +701,11 @@ test("the controls that exist persist, and the one that does not says so", async
     assert.match(card, new RegExp(writer), `Card 2 must persist via ${writer}`);
   }
 
-  // The authored Accounting instruction genuinely does not exist yet, so that
-  // gap is still stated rather than faked.
-  assert.match(raw, /cv-accounting-gap/);
+  // The authored Accounting instruction now exists too, so the gap note that
+  // stood in for it is gone. Card 3 is complete: a read-only commercial
+  // agreement, a derived "Customer received", and an authored instruction.
+  assert.doesNotMatch(raw, /cv-accounting-gap/, "the accounting gap is filled");
+  assert.match(raw, /<AccountingInstruction/, "the instruction is authored here");
 });
 
 test("unknown recovery is unavailable, never $0", async () => {
