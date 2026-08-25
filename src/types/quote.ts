@@ -263,6 +263,23 @@ export type CustomerView = {
    * exists — which is a basis, not a recommendation, and the document says so.
    */
   feeBasisTierIdx: number;
+  /**
+   * Whether the tier total is the ALL-IN figure with one-time fees folded in.
+   *
+   * True when the quote carries separately-stated charges: the fee lines are
+   * itemised AND included in the tier total, so "Turnkey total · all-in for
+   * this tier's order" means what it says.
+   *
+   * A presentation fact about the document, decided once. The second parity
+   * defect of this exact shape: the PDF folded whenever charges existed while
+   * the live renderer folded only in the turnkey-only layout, so the two
+   * printed tier totals differing by the whole fee amount -- $23,247.60
+   * against $16,807.60 on the same tier of the same quote.
+   *
+   * Every presentation decision left to the renderers is a parity defect
+   * waiting to happen. They belong here.
+   */
+  foldFeesIntoTotal: boolean;
   pdfLayout: CustomerViewPdfLayout;
   detailLevel: CustomerViewDetailLevel;
   /**

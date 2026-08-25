@@ -398,6 +398,9 @@ export async function resolveCustomerView(args: {
     recommendedTierIdx,
     // Decided once. Both renderers read it; neither re-derives it.
     feeBasisTierIdx: recommendedTierIdx ?? 0,
+    // Same rule the adapter's `hasCharges` has always used, stated once here so
+    // both renderers read it rather than each deriving it.
+    foldFeesIntoTotal: serviceFees.length > 0 || freightLines.length > 0,
     // Snapshot-or-live reads per Step 4.4 brief §4:
     //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
     pdfLayout: isSent

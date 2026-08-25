@@ -174,8 +174,8 @@ export function customerViewToCpdf(
 
   // Compose flags per CA disposition (modified Option 1 —
   // orthogonal, not mutually exclusive).
-  const hasCharges =
-    view.serviceFees.length > 0 || view.freightLines.length > 0;
+  // Read from the projection, not re-derived. One rule, one place.
+  const hasCharges = view.foldFeesIntoTotal;
   const hasUnpriced = view.skus.some((s) =>
     s.tierPrices.some((p) => p === null),
   );
