@@ -220,16 +220,43 @@ export function QuoteHost({
   // and `previewStale` keeps saying so until it succeeds.
   const [blobSrc, setBlobSrc] = useState<string | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  /**
+   * The newest document anyone has asked for.
+   *
+   * ── WHY THIS IS EXPLICIT RATHER THAN LEFT TO THE EFFECT'S CLEANUP ───────
+   *
+   * Fetches are asynchronous and unordered: elect A, elect B, and B's request
+   * can finish first. If A then resolves and promotes, the operator is left
+   * looking at a document OLDER than the state beside it — the same class of
+   * defect this whole sequence has been chasing, arriving by a new route.
+   *
+   * The effect's `cancelled` flag does already prevent it, because React runs
+   * cleanup before the next effect. But that makes the property a consequence
+   * of React's scheduling rather than something this code states, and it would
+   * break silently if the effect were ever restructured. A stale promotion is
+   * not the kind of thing to leave resting on an implementation detail of
+   * somebody else's library.
+   *
+   * So the digest is compared at the moment of promotion, against what is
+   * wanted right then.
+   */
+  const latestWanted = useRef(targetSrc);
   useEffect(() => {
+    latestWanted.current = targetSrc;
     if (loadedFor === targetSrc) return;
+    const requested = targetSrc;
     let cancelled = false;
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const res = await fetch(targetSrc);
-          if (!res.ok || cancelled) return;
+          const res = await fetch(requested);
+          if (!res.ok || cancelled || latestWanted.current !== requested) return;
           const blob = await res.blob();
-          if (cancelled) return;
+          // Checked AGAIN after the second await: the state can move while the
+          // body is being read, and reading it is not instant for a 46KB
+          // document on a slow connection.
+          if (cancelled || latestWanted.current !== requested) return;
           const next = URL.createObjectURL(blob);
           setBlobSrc((prev) => {
             // Release the previous document; nothing references it after the
@@ -238,7 +265,7 @@ export function QuoteHost({
             if (prev) URL.revokeObjectURL(prev);
             return next;
           });
-          setLoadedFor(targetSrc);
+          setLoadedFor(requested);
         } catch {
           // Leave the current document in place.
         }

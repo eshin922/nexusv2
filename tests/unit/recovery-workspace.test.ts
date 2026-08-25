@@ -803,6 +803,34 @@ test("the preview follows the answer; it does not gate it", async () => {
   );
 });
 
+test("an older document can never replace a newer one", async () => {
+  // Fetches are asynchronous and unordered: elect A, elect B, and B can finish
+  // first. If A then resolves and promotes, the operator is left looking at a
+  // document OLDER than the state beside it -- the same defect this sequence
+  // has been chasing, arriving by a new route.
+  //
+  // The effect's cleanup already prevents it, but that makes the property a
+  // consequence of React's scheduling rather than something the code states.
+  // A stale promotion must not rest on an implementation detail of somebody
+  // else's library, so the digest is compared at the moment of promotion.
+  const host = await readFile(
+    new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
+    "utf8",
+  );
+  const flat = host.replace(/\s+/g, " ");
+
+  assert.ok(flat.includes("const latestWanted = useRef(targetSrc)"));
+  assert.ok(flat.includes("latestWanted.current = targetSrc;"));
+  // The request is captured, so the comparison is against what THIS fetch
+  // asked for rather than whatever the closure happens to see later.
+  assert.ok(flat.includes("const requested = targetSrc;"));
+  assert.ok(flat.includes("await fetch(requested)"));
+  // Guarded after BOTH awaits -- state can move while the body is being read.
+  const guards = flat.split("latestWanted.current !== requested").length - 1;
+  assert.ok(guards >= 2, `expected a guard after each await, found ${guards}`);
+  assert.ok(flat.includes("setLoadedFor(requested)"), "must record what was actually promoted");
+});
+
 test("the preview fetches the document before showing it", async () => {
   // Two attempts failed the same way. Swapping the src via `key` unmounts and
   // remounts, so the pane blanked for a whole render. Loading into a hidden
