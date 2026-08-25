@@ -351,6 +351,68 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 )}
               </div>
 
+              {/* ── What the turnkey total is made of ───────────────
+                  Native rows of the pricing table, in tier-column geometry, so
+                  each figure sits under its own tier and reads as part of the
+                  quote rather than as an annotation on it.
+
+                  ORDER IS THE COMMERCIAL STATEMENT. The two components come
+                  first and the turnkey total closes beneath them, because it
+                  is the final result and the strongest row. Sitting above its
+                  own components -- as it did -- made the total read as the
+                  headline and the parts as a footnote explaining it.
+
+                  Subordinate, not diagnostic: same families and alignment as
+                  the product rows, one step quieter in weight and colour. The
+                  uppercase mono micro-caps this replaced were an engineering
+                  register on a customer document.
+
+                  There is NO recovery line here. What portion of the unit price
+                  recovers a one-time charge is how DPS builds a price, not
+                  something the client is party to; it stays in the projection
+                  for the operator-facing reconciliation and is not rendered.
+
+                  Shown only when charges exist. With none, the subtotal equals
+                  the total and the separate row is zero -- two rows that state
+                  nothing. */}
+              {hasCharges && (
+                <div className="pp-components" data-testid="cvl-components">
+                  <div className="pp-component-row" role="row">
+                    <div className="pp-c-prod" role="rowheader">
+                      <span className="pp-component-k">Unit-price subtotal</span>
+                    </div>
+                    {cols.map(({ ti, tier, rec }) => (
+                      <div
+                        key={tier.id}
+                        role="cell"
+                        className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
+                      >
+                        <span className="pp-component-num">
+                          {money(tiers[ti].money.goodsTotal)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pp-component-row" role="row">
+                    <div className="pp-c-prod" role="rowheader">
+                      <span className="pp-component-k">Separate charges</span>
+                    </div>
+                    {cols.map(({ ti, tier, rec }) => (
+                      <div
+                        key={tier.id}
+                        role="cell"
+                        className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
+                      >
+                        <span className="pp-component-num">
+                          {money(tiers[ti].money.feesTotal)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* ── Turnkey total ─────────────────────────────────── */}
               <div className="pp-grand" role="row">
                 <div className="pp-c-prod" role="rowheader">
@@ -390,90 +452,6 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                   );
                 })}
               </div>
-
-              {/* ── THE RECONCILIATION ────────────────────────────────
-                  What the all-in total is made of, per tier.
-
-                  It reads as a disclosure, not a sum to perform: the recovery
-                  is ALREADY inside the unit-price subtotal, so the line says
-                  "includes" rather than presenting a pre-recovery figure to
-                  add to. There is no governed pre-recovery subtotal, and
-                  inventing one would put a number on a customer document that
-                  nothing computes.
-
-                  Every figure is per tier and read from the projection. The
-                  separate-charges row uses each tier's OWN feesTotal - the fee
-                  itemization below quotes a single basis tier, which is right
-                  for the detail and cannot reconcile four columns.
-
-                  Recovery shows an em dash where a final sell override
-                  replaced the ladder: the override discards the rungs beneath
-                  it, so there is no fact about how much of that price is
-                  recovery. A number there would close only because it had been
-                  chosen to. */}
-              {hasCharges && (
-                <div className="pp-recon" data-testid="cvl-reconciliation">
-                  <div className="pp-recon-row">
-                    <div className="pp-c-prod">
-                      <span className="pp-recon-k">Unit-price subtotal</span>
-                    </div>
-                    {cols.map(({ ti, tier, rec }) => (
-                      <div
-                        key={tier.id}
-                        className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
-                      >
-                        {money(tiers[ti].money.goodsTotal)}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="pp-recon-row pp-recon-sub">
-                    <div className="pp-c-prod">
-                      <span className="pp-recon-k">
-                        &#8627; includes recovery
-                      </span>
-                    </div>
-                    {cols.map(({ ti, tier, rec }) => {
-                      const embedded = tiers[ti].money.embeddedRecovery;
-                      return (
-                        <div
-                          key={tier.id}
-                          className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
-                          title={
-                            embedded === null
-                              ? "Not attributable - final sell is overridden."
-                              : undefined
-                          }
-                        >
-                          {embedded === null ? "\u2014" : money(embedded)}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="pp-recon-row">
-                    <div className="pp-c-prod">
-                      <span className="pp-recon-k">Separate charges</span>
-                    </div>
-                    {cols.map(({ ti, tier, rec }) => (
-                      <div
-                        key={tier.id}
-                        className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
-                      >
-                        {money(tiers[ti].money.feesTotal)}
-                      </div>
-                    ))}
-                  </div>
-
-                  {cols.some((c) => tiers[c.ti].money.embeddedRecovery === null) && (
-                    <div className="pp-recon-note">
-                      Not attributable &mdash; final sell is overridden for that
-                      tier. The quoted price stands; its internal attribution is
-                      unavailable.
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* ALL-IN and PLUS only. The PER UNIT / INCLUDES / FROM legends
                   were removed from the artifact 2026-08-20 as reading
