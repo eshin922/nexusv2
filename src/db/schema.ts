@@ -621,6 +621,21 @@ export const quotes = pgTable(
     leadTimeSnapshot: text("lead_time_snapshot"),
     incotermsSnapshot: text("incoterms_snapshot"),
     tcsSnapshot: text("tcs_snapshot"),
+    /**
+     * The customer note as it was at send.
+     *
+     * The last customer-facing text to join this fleet, and the one that
+     * needed it most: every field beside it resolved `isSent ? snapshot :
+     * live` while the note was read live on sent quotes, so editing it after
+     * send restated a quote the customer already held. Nothing failed and
+     * nothing warned — the customer's copy and Nexus's simply stopped
+     * agreeing.
+     *
+     * NULL on drafts, which read `quotes.customer_facing_notes` live. That
+     * column remains the only place the note is AUTHORED; this is the frozen
+     * copy, never a second author.
+     */
+    customerFacingNotesSnapshot: text("customer_facing_notes_snapshot"),
     daysValidSnapshot: integer("days_valid_snapshot"),
     // DEC-8: PreparedBy contact snapshot at send. Same rationale as
     // DEC-7 — customer view of an already-sent quote must always show

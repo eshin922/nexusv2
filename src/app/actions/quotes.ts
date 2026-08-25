@@ -51,6 +51,8 @@ import {
   quoteSnapshotChargeRecovery,
   quoteSnapshotRecoveryInstructions,
   quoteSnapshots,
+  presentationProfile,
+  presentationProfileTier,
   quoteSnapshotArtifacts,
   quoteSnapshotFreightInputs,
   quoteSnapshotFreightWorkbooks,
@@ -2060,6 +2062,10 @@ export async function sendQuote(
           validUntil: validUntilIso,
           // DEC-7: commercial snapshots
           tcsSnapshot: firm.tcsDefault ?? null,
+          // M2 — the note joins the fleet it always belonged to. Taken from
+          // the quote, not from firm settings: the note is authored per quote,
+          // and this is a copy of what is being sent, never a second author.
+          customerFacingNotesSnapshot: quote.customerFacingNotes ?? null,
           paymentTermsSnapshot: governedPaymentTerms,
           leadTimeSnapshot: firm.leadTimeDefault ?? null,
           incotermsSnapshot: firm.incotermsDefault ?? null,
@@ -2110,6 +2116,12 @@ export async function sendQuote(
             pdfLayout: pdfLayoutSnapshot,
             detailLevel: detailLevelSnapshot,
             includeSpecAddendum: includeSpecAddendumSnapshot,
+            // Same value into the versioned record, written in the same
+            // transaction. Nexus freezes sent facts in two stores and
+            // sendQuote writes both; the note is not the place to start
+            // resolving that duplication, and writing only one of them is how
+            // a fact ends up frozen in the store nothing reads.
+            customerFacingNotes: quote.customerFacingNotes ?? null,
           },
           // Slice 11 Step 6.6 — persisted PDF forensic markers.
           // sendUuid ties to the storage-path file for audit
@@ -2312,6 +2324,78 @@ export async function reviseQuote(
           updatedAt: revisedAt,
         })
         .where(eq(quotes.id, quoteId));
+
+      // ── C2 · the revision INHERITS the presentation profile ─────────────
+      //
+      // The profile is keyed `(quote_id, quote_version)` and this bumps the
+      // version on the SAME quotes row. Without a carry-forward the new
+      // version has no profile at all, the surface falls back to defaults, and
+      // an operator who revises a sent quote silently loses every presentation
+      // choice the customer has already seen. A revision continues a
+      // conversation the customer is already part of.
+      //
+      // Copied INSIDE this transaction, so a revision either gets its profile
+      // or does not happen.
+      //
+      // And the prior version's row is left exactly as it was. That is the
+      // half a carry-forward usually gets wrong: copying forward is easy, and
+      // writing THROUGH to the record the customer already saw is the failure
+      // it exists to prevent. Subsequent edits address `newVersion` and cannot
+      // reach `priorVersion`.
+      const [priorProfile] = await tx
+        .select()
+        .from(presentationProfile)
+        .where(
+          and(
+            eq(presentationProfile.quoteId, quoteId),
+            eq(presentationProfile.quoteVersion, priorVersion),
+          ),
+        )
+        .limit(1);
+
+      if (priorProfile) {
+        await tx
+          .insert(presentationProfile)
+          .values({
+            quoteId,
+            quoteVersion: newVersion,
+            layout: priorProfile.layout,
+            detailLevel: priorProfile.detailLevel,
+            presentedTierId: priorProfile.presentedTierId,
+            includeFeeLines: priorProfile.includeFeeLines,
+            includeTerms: priorProfile.includeTerms,
+            includeAddendum: priorProfile.includeAddendum,
+            includeNote: priorProfile.includeNote,
+            updatedByUserId: user.id,
+          })
+          .onConflictDoNothing();
+
+        // Per-tier visibility travels with it. Absence means shown, so a quote
+        // with no hidden tiers copies nothing and still renders identically —
+        // but a quote that HAS hidden one must not un-hide it on revision.
+        const priorTiers = await tx
+          .select()
+          .from(presentationProfileTier)
+          .where(
+            and(
+              eq(presentationProfileTier.quoteId, quoteId),
+              eq(presentationProfileTier.quoteVersion, priorVersion),
+            ),
+          );
+        if (priorTiers.length > 0) {
+          await tx
+            .insert(presentationProfileTier)
+            .values(
+              priorTiers.map((t) => ({
+                quoteId,
+                quoteVersion: newVersion,
+                tierId: t.tierId,
+                shown: t.shown,
+              })),
+            )
+            .onConflictDoNothing();
+        }
+      }
 
       // Audit — dedicated action name per v3 §5.1 R3 amendment 7.
       // diff_json captures the state transition + linked snapshot id
