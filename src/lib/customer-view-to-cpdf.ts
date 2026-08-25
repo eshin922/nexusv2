@@ -99,6 +99,17 @@ export function customerViewToCpdf(
     lead_time: view.quote.leadTime ?? "",
     incoterms: view.quote.incoterms ?? "",
     customer_facing_notes: view.quote.customerFacingNotes,
+    // Carried, not defaulted.
+    //
+    // This line is the repair: the projection has always resolved T&Cs from
+    // Admin Settings (draft) or the quote's snapshot (sent), and this adapter
+    // silently dropped them, so the customer's artifact of record has never
+    // printed a clause the firm configured.
+    //
+    // NULL passes through as null rather than "" — the renderer must be able
+    // to tell "no T&Cs configured" from "empty T&Cs", and an empty string
+    // would render an empty Terms heading over nothing.
+    tcs: view.quote.tcs,
   };
 
   const tiers: CpdfTier[] = view.tiers.map((t, idx) => ({

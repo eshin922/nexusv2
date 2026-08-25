@@ -55,7 +55,12 @@ import { Parties } from "./customer-pdf-parties";
 import { PricingFoot } from "./customer-pdf-pricing-foot";
 import { PricingTable } from "./customer-pdf-pricing-table";
 import { styles } from "./customer-pdf-styles";
-import { HowToAccept, NotesBlock, TermsBlock } from "./customer-pdf-terms-block";
+import {
+  HowToAccept,
+  NotesBlock,
+  TcsBlock,
+  TermsBlock,
+} from "./customer-pdf-terms-block";
 import { TurnkeySummary } from "./customer-pdf-turnkey-summary";
 import type {
   CpdfData,
@@ -331,6 +336,7 @@ export function CustomerPdfDocument({
             {showTermsHead && <PassThroughTermsHead />}
             <TermsBlock quote={quote} incoterms={quote.incoterms} />
             <NotesBlock notes={quote.customer_facing_notes} />
+            <TcsBlock tcs={quote.tcs} />
             <HowToAccept />
           </View>
         </View>

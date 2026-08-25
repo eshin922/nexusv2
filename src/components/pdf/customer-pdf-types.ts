@@ -61,6 +61,19 @@ export type CpdfQuote = {
    */
   incoterms: string;
   customer_facing_notes: string | null;
+  /**
+   * Customer Terms & Conditions.
+   *
+   * Content authority is Admin Settings (`firm_settings.tcs_default`) on a
+   * draft, and the quote's own `tcs_snapshot` once sent — so a later change to
+   * the firm default cannot restate a quote the customer already has.
+   *
+   * NULL means genuinely unconfigured, and renders as nothing. It does not mean
+   * "not shown": whether the block appears is a presentation choice and lives
+   * elsewhere. Content authority and presentation choice are different
+   * questions, and conflating them is how a configured clause goes missing.
+   */
+  tcs: string | null;
 };
 
 export type CpdfTier = {
