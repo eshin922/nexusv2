@@ -103,6 +103,29 @@ test("Finalize calls the certified path and invents no gate of its own", async (
   assert.match(btn, /setError\(r\.error\.message\)/);
 });
 
+test("the unresolved-costs refusal renders as a work list, not a sentence", async () => {
+  // `action-result.ts` states the requirement where the code is declared:
+  // UNRESOLVED_COSTS "has its own code because it is the one refusal the UI
+  // must render as a work list rather than a sentence - error.details carries
+  // the rows."
+  //
+  // The first version of this button showed `error.message` for everything, so
+  // the operator was told "Resolve costs before sending." and not WHICH costs.
+  // A refusal that names no work is a dead end wearing the clothes of an
+  // instruction. Found on the consolidated walk, by being refused.
+  const btn = codeOnly(await read("src/components/quote/finalize-quote-button.tsx"));
+  assert.match(btn, /ERR\.UNRESOLVED_COSTS/);
+  assert.match(btn, /r\.error\.details/, "the rows come from the refusal itself");
+  assert.match(btn, /<UnresolvedCostsNotice/, "and reuse the existing notice");
+
+  // From the refusal, never from a prop: a list sourced separately could
+  // describe a different read than the one that declined.
+  assert.ok(
+    !/unresolved=\{props\.|unresolvedCosts\}/.test(btn),
+    "the work list must come from the refusal, not a parallel prop",
+  );
+});
+
 test("the button says what it does; the action keeps the name the system knows", async () => {
   const rail = await read("src/components/quote/customer-view-rail.tsx");
   assert.match(rail, /Finalize quote/);
