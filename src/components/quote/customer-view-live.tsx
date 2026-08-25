@@ -135,7 +135,11 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                     return (
                       <td key={tiers[ti].id}>
                         {price === null ? (
-                          <span className="cvl-onrequest">on request</span>
+                          // The PDF's wording, verbatim. This said "on
+                          // request" and the PDF says "quote on request" --
+                          // the same state described two ways to the customer,
+                          // which is a content difference, not a styling one.
+                          <span className="cvl-onrequest">quote on request</span>
                         ) : (
                           <>
                             <div>{unit(price)}</div>
