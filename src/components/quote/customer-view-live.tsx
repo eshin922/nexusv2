@@ -231,7 +231,15 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
         {quote.customerFacingNotes && (
           <p className="cvl-notes">{quote.customerFacingNotes}</p>
         )}
-        {quote.tcs && <p className="cvl-tcs">{quote.tcs}</p>}
+        {/* Under its own heading, matching the PDF. Without it the customer
+            reads the clause as a continuation of the notes above, and the two
+            documents carry different labels for the same content. */}
+        {quote.tcs && (
+          <>
+            <div className="cvl-eyebrow">Terms &amp; conditions</div>
+            <p className="cvl-tcs">{quote.tcs}</p>
+          </>
+        )}
       </section>
     </article>
   );
