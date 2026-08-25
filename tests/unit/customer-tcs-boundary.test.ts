@@ -103,6 +103,18 @@ test("both documents label T&Cs, not just carry them", async () => {
   // it is looking for from unrelated text will report the answer you expect.
   const live = await read("src/components/quote/customer-view-live.tsx");
   const block = await read("src/components/pdf/customer-pdf-terms-block.tsx");
-  assert.match(live, /Terms &amp; conditions/, "the live renderer must label it");
-  assert.match(block, /"Terms & conditions"\.toUpperCase\(\)/, "so must the PDF");
+  // Asserted on the EXACT section heading, never a generic /terms/ pattern.
+  // The broad pattern is what produced the false green: it matches "Payment
+  // terms" in the terms grid, which sits three lines above the clause it was
+  // supposed to be finding. A pattern that matches the neighbourhood of the
+  // thing is not a pattern for the thing.
+  assert.match(live, /<div className="cvl-eyebrow">Terms &amp; conditions<\/div>/);
+  assert.match(block, /\{"Terms & conditions"\.toUpperCase\(\)\}/);
+
+  // And the broad pattern must not be what either assertion rests on. If a
+  // future edit loosens these back to /terms/, this fails.
+  for (const [name, src] of [["live", live], ["pdf", block]] as const) {
+    const headingCount = (src.match(/Terms &(amp;)? conditions/g) ?? []).length;
+    assert.ok(headingCount >= 1, `${name} must carry the exact heading text`);
+  }
 });
