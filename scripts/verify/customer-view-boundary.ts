@@ -61,6 +61,11 @@ const EXTRA_RENDER_PATH_FILES: readonly string[] = [
   join(ROOT, "src", "lib", "pdf-palette.ts"),
   join(ROOT, "src", "lib", "quote-pdf-document.tsx"),
   join(ROOT, "src", "lib", "customer-view-to-cpdf.ts"),
+  // The live HTML renderer. A sibling formatting consumer of the same
+  // projection, bound by the same rules -- a renderer added OUTSIDE
+  // src/components/pdf/ must still be scanned, or the boundary applies only to
+  // the renderer that happened to predate it.
+  join(ROOT, "src", "components", "quote", "customer-view-live.tsx"),
 ];
 
 // Slice RI.8 surface naming canon — path patterns updated:
