@@ -107,6 +107,7 @@ import { requireRevisable } from "@/lib/quote-guards";
 import { hasSendableCommercialStructure } from "@/lib/send-gate";
 import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { requireBelowFloorAuthorizedToSend } from "@/lib/below-floor-send-gate";
+import { requireNoUnbillableRecoveryToSend } from "@/lib/unbillable-recovery-send-gate";
 import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
@@ -1541,6 +1542,10 @@ export async function sendQuote(
       quoteId,
       quoteVersionNumber: quote.versionNumber,
     });
+
+    // Recovery placed where the customer's quote cannot bill it. Same
+    // placement as the gate above, same reason: refuse before any artifact.
+    await requireNoUnbillableRecoveryToSend({ quoteId });
 
     // Resolve the send's commercial policy onto canonical quote_leaves.id
     // before producing an external artifact. Compatibility identity failures

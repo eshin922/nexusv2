@@ -51,6 +51,7 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import {
+  OTC_COLUMN_TO_CHARGE,
   RECOVERY_MODES,
   chargePolicy,
   type RecoveryChargeKey,
@@ -96,6 +97,42 @@ function parseMode(raw: FormDataEntryValue | null): RecoveryMode | null {
  * settled. Conservative in the only direction that cannot produce a wrong
  * number.
  */
+/**
+ * Charge keys with any contribution owned by a Direct Service leaf.
+ *
+ * A Direct Service's production row is the one keyed by `quoteLeafId` rather
+ * than `assemblyId` — the same discriminator `costing-adapter.ts` uses to set
+ * `ownerKind`. Read here rather than inferred from the constructed state so the
+ * writer does not have to run the engine to validate an election.
+ *
+ * A column is a contribution when it is non-zero. A $0 column is not a charge,
+ * and refusing an election on account of one would deny a placement over money
+ * that does not exist.
+ */
+async function directServiceChargeKeys(quoteId: string): Promise<Set<RecoveryChargeKey>> {
+  const leafIds = (
+    await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(eq(quoteLeaves.quoteId, quoteId))
+  ).map((r) => r.id);
+  if (leafIds.length === 0) return new Set();
+
+  const rows = await db
+    .select()
+    .from(assemblyProductionInputs)
+    .where(inArray(assemblyProductionInputs.quoteLeafId, leafIds));
+
+  const keys = new Set<RecoveryChargeKey>();
+  for (const row of rows) {
+    for (const [column, chargeKey] of Object.entries(OTC_COLUMN_TO_CHARGE) as Array<
+      [string, RecoveryChargeKey]
+    >) {
+      const raw = (row as Record<string, unknown>)[column];
+      if (raw === null || raw === undefined) continue;
+      if (Math.abs(Number(raw)) > 0) keys.add(chargeKey);
+    }
+  }
+  return keys;
+}
+
 async function allocationStatesInQuote(quoteId: string): Promise<boolean[]> {
   const assemblyIds = (
     await db.select({ id: assemblies.id }).from(assemblies).where(eq(assemblies.quoteId, quoteId))
@@ -211,9 +248,11 @@ export async function setChargeRecovery(
       // Static policy AND this quote's allocation state, asked through the one
       // function resolution asks. A refusal reaching an operator carries the
       // governed reason verbatim rather than a generic rejection.
+      const directService = await directServiceChargeKeys(quoteId);
       for (const allocate of await allocationStatesInQuote(quoteId)) {
         const reason = refusalFor(chargeKey, mode, {
           perAssemblyAllocate: allocate,
+          hasDirectServiceContribution: directService.has(chargeKey),
         });
         if (reason) throw new ActionGuardError(ERR.VALIDATION, reason);
       }
@@ -322,8 +361,12 @@ export async function previewChargeRecovery(
     // Preview only what could actually be committed. A figure for a refused
     // contract invites the operator to plan around it.
     if (mode !== null) {
+      const directService = await directServiceChargeKeys(quoteId);
       for (const perAssemblyAllocate of await allocationStatesInQuote(quoteId)) {
-        const reason = refusalFor(chargeKey, mode, { perAssemblyAllocate });
+        const reason = refusalFor(chargeKey, mode, {
+          perAssemblyAllocate,
+          hasDirectServiceContribution: directService.has(chargeKey),
+        });
         if (reason) throw new ActionGuardError(ERR.VALIDATION, reason);
       }
     }
