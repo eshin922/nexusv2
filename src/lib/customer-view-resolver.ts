@@ -24,10 +24,19 @@
 import "server-only";
 
 import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
-import { desc, eq, isNull } from "drizzle-orm";
+import { applyTierVisibility } from "@/lib/customer-tier-visibility";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
-import { firmSettings, projects, quotes, quoteTiers, users } from "@/db/schema";
+import {
+  firmSettings,
+  presentationProfile,
+  presentationProfileTier,
+  projects,
+  quotes,
+  quoteTiers,
+  users,
+} from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
 import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
@@ -90,6 +99,40 @@ export type ResolveCustomerViewResult =
       /** Card 1 · one row per governed recoverable charge. */
       recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
       /**
+       * Card 2 · what the operator has decided the customer will SEE, and
+       * Card 3's "Customer received" is a projection of exactly this.
+       *
+       * One record read once. Card 2 renders it as controls and Card 3 renders
+       * it as prose, so the two cannot disagree about what the document does —
+       * which they would the moment either derived its own copy.
+       */
+      presentation: {
+        layout: "tier_table" | "single_tier";
+        detailLevel: "itemized" | "turnkey_only";
+        presentedTierId: string | null;
+        includeFeeLines: boolean;
+        includeTerms: boolean;
+        includeAddendum: boolean;
+        includeNote: boolean;
+        /** Tier ids the operator has hidden. Absence means shown. */
+        hiddenTierIds: string[];
+        /** The note's text, from its one owner. Card 2 edits it there. */
+        customerNote: string | null;
+        /** Whether a profile row exists yet; false means every value is a default. */
+        stored: boolean;
+        /**
+         * EVERY tier, including the hidden ones.
+         *
+         * Card 2's visibility toggles must list what the operator can show as
+         * well as what they can hide. Sourcing them from the returned `view`
+         * would list only the VISIBLE tiers — the ones that survived
+         * `applyTierVisibility` — so hiding a tier would remove its own toggle
+         * and there would be no way back. A one-way door built out of a filter
+         * applied one step too early.
+         */
+        allTiers: { id: string; label: string; quantity: number; recommended: boolean }[];
+      };
+      /**
        * Card 0 · the read-only mirror.
        *
        * Per D5 the authority's "Approved recovery" IS the governed
@@ -136,6 +179,43 @@ export async function resolveCustomerView(args: {
     .orderBy(desc(firmSettings.effectiveFrom))
     .limit(1);
   const firm = firmRows[0] ?? null;
+
+  // ── The presentation profile for THIS version ──────────────────────────
+  //
+  // Keyed `(quote_id, quote_version)`. A revision bumps the version and copies
+  // the row forward, so reading the CURRENT version is what makes a revision
+  // continue the conversation the customer is already part of rather than
+  // start from defaults.
+  //
+  // Absent for a quote created between the migration and its first edit, which
+  // is why every read below falls back to the same value the column defaults
+  // to. Absence and default are the same document.
+  const [profile] = await db
+    .select()
+    .from(presentationProfile)
+    .where(
+      and(
+        eq(presentationProfile.quoteId, quoteId),
+        eq(presentationProfile.quoteVersion, quote.versionNumber),
+      ),
+    )
+    .limit(1);
+
+  // Hidden tiers only. ABSENCE MEANS SHOWN, so a quote that has hidden nothing
+  // reads zero rows here and every tier is presented — including any tier added
+  // after the profile was written, which is the property that keeps a new tier
+  // from being silently withheld from a customer.
+  const hiddenTierRows = await db
+    .select({ tierId: presentationProfileTier.tierId })
+    .from(presentationProfileTier)
+    .where(
+      and(
+        eq(presentationProfileTier.quoteId, quoteId),
+        eq(presentationProfileTier.quoteVersion, quote.versionNumber),
+        eq(presentationProfileTier.shown, false),
+      ),
+    );
+  const hiddenTierIds = new Set(hiddenTierRows.map((r) => r.tierId));
 
   const addendumData = await loadQuoteAddendum(quoteId);
   const bundle = await getCostingBundle(quoteId, commercialSettingsOverride);
@@ -417,23 +497,44 @@ export async function resolveCustomerView(args: {
     foldFeesIntoTotal: serviceFees.length > 0 || freightLines.length > 0,
     // Snapshot-or-live reads per Step 4.4 brief §4:
     //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
+    // ── DRAFT AXES NOW HAVE A RECORD ───────────────────────────────────
+    //
+    // Precedence on a draft: searchParams, then the PROFILE, then the quote's
+    // own snapshot columns.
+    //
+    // The profile is the new middle term and it is what closes G4's gap. Before
+    // it, a draft's axes fell through to `quotes.*_snapshot` — the LAST SENT
+    // values — so an operator's choices on an unsent quote survived only as URL
+    // parameters and were gone on reload. Card 2 said so in as many words.
+    //
+    // searchParams still win, and still must: `sendQuote` passes the operator's
+    // current toggles as parameters at send time, so the document that goes out
+    // is the one on screen. The snapshot fallback stays for quotes that predate
+    // the profile.
     pdfLayout: isSent
       ? (quote.pdfLayoutSnapshot ?? "tier_table")
       : layout === "tier_table" || layout === "single_tier"
         ? layout
-        : (quote.pdfLayoutSnapshot ?? "tier_table"),
+        : (profile?.layout ?? quote.pdfLayoutSnapshot ?? "tier_table"),
     detailLevel: isSent
       ? (quote.detailLevelSnapshot ?? "itemized")
       : detail === "itemized" || detail === "turnkey_only"
         ? detail
-        : (quote.detailLevelSnapshot ?? "itemized"),
+        : (profile?.detailLevel ?? quote.detailLevelSnapshot ?? "itemized"),
     includeSpecAddendum: isSent
       ? (quote.includeSpecAddendumSnapshot ?? false)
       : addendum === "1" || addendum === "true"
         ? true
         : addendum === "0" || addendum === "false"
           ? false
-          : (quote.includeSpecAddendumSnapshot ?? false),
+          : (profile?.includeAddendum ?? quote.includeSpecAddendumSnapshot ?? false),
+    // No searchParam override and no snapshot column for these three: they are
+    // new with the profile, so the profile (or its default) is the only source.
+    // A sent quote keeps rendering them at the default it was sent under, which
+    // is what it was sent under.
+    includeFeeLines: profile?.includeFeeLines ?? true,
+    includeTerms: profile?.includeTerms ?? true,
+    includeNote: profile?.includeNote ?? true,
   };
 
   /**
@@ -449,9 +550,17 @@ export async function resolveCustomerView(args: {
       (s) => s.id === skuId && s.skuRole === "leaf",
     );
 
+  // Hidden tiers are removed HERE, once, so neither renderer has to skip
+  // positions in six index-aligned arrays without ever getting it wrong. See
+  // `customer-tier-visibility`.
+  //
+  // Applied after the view is fully composed, so nothing downstream of it is
+  // recomputed: the figures that survive are the same objects they were.
+  const presentedView = applyTierVisibility(view, [...hiddenTierIds]);
+
   return {
     ok: true,
-    view,
+    view: presentedView,
     addendumData,
     project,
     quote,
@@ -475,6 +584,27 @@ export async function resolveCustomerView(args: {
      * from a second read.
      */
     recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
+    presentation: {
+      layout: profile?.layout ?? "tier_table",
+      detailLevel: profile?.detailLevel ?? "itemized",
+      presentedTierId: profile?.presentedTierId ?? null,
+      includeFeeLines: profile?.includeFeeLines ?? true,
+      includeTerms: profile?.includeTerms ?? true,
+      includeAddendum: profile?.includeAddendum ?? false,
+      includeNote: profile?.includeNote ?? true,
+      hiddenTierIds: [...hiddenTierIds],
+      // Read from the note's ONE owner. Card 2 edits that column; nothing here
+      // holds a second copy of the text.
+      customerNote: quote.customerFacingNotes,
+      stored: profile !== undefined,
+      // From the UNFILTERED view, deliberately — see the type.
+      allTiers: view.tiers.map((t, i) => ({
+        id: t.id,
+        label: t.label,
+        quantity: t.quantity,
+        recommended: view.recommendedTierIdx === i,
+      })),
+    },
     recoveryRows: buildRecoveryWorkspace({
       costing: bundle.data.costing,
       isLeaf: ownsItsCharges,

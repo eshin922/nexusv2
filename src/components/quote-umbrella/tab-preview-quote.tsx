@@ -17,6 +17,10 @@
 // QuoteHost with all its chrome intact → light Advance bar.
 
 import { QuoteHost } from "@/components/quote/quote-host";
+import type {
+  PresentationState,
+  PresentationTier,
+} from "@/components/quote/card-customer-presentation";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { QuotePerTierRollup } from "@/lib/costing";
@@ -36,6 +40,8 @@ export function TabPreviewQuote({
   quoteNumberDb,
   recoveryInstructions,
   recoveryRows,
+  presentation,
+  presentationTiers,
   quoteRollup,
   governed,
   presentationRestored,
@@ -65,6 +71,8 @@ export function TabPreviewQuote({
   quoteNumberDb: string | null;
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
   recoveryRows: RecoveryChargeRow[];
+  presentation: PresentationState;
+  presentationTiers: readonly PresentationTier[];
   quoteRollup: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
   presentationRestored: boolean;
@@ -85,6 +93,8 @@ export function TabPreviewQuote({
       quoteStatus={quoteStatus}
       recoveryInstructions={recoveryInstructions}
       recoveryRows={recoveryRows}
+      presentation={presentation}
+      presentationTiers={presentationTiers}
       quoteRollup={quoteRollup}
       governed={governed}
       presentationRestored={presentationRestored}

@@ -150,9 +150,18 @@ test("a sent quote refuses presentation edits", async () => {
     "updatePresentationDetail",
     "updatePresentationTierShown",
   ];
+  // Sliced writer-to-writer rather than on a closing-brace pattern. The first
+  // version looked for a "}" on its own line; the file is CRLF, so that match
+  // failed, the slice was empty, and assert.match ran against "" — after
+  // passing while the working copy still had LF endings.
+  //
+  // A test whose result depends on line endings is testing the checkout, not
+  // the code. Line-ending assumptions have broken three assertions in this
+  // area now, so this one has none.
+  const chunks = src.split(/(?=export async function )/);
   for (const w of writers) {
-    const body = src.slice(src.indexOf(`export async function ${w}`));
-    const scoped = body.slice(0, body.indexOf("\n}\n") + 1);
+    const scoped = chunks.find((c) => c.startsWith(`export async function ${w}`));
+    assert.ok(scoped, `${w} not found — the writer list is stale`);
     assert.match(scoped, /quoteByIdDraft/, `${w} must refuse a non-draft quote`);
     // Redundant on purpose: the §0.5 protocol greps for this symbol, and a
     // writer that satisfies the rule through a differently-named guard is

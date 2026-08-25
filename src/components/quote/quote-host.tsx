@@ -8,6 +8,10 @@ import type {
 } from "@/types/quote";
 import { PreviewToolbar } from "./preview-toolbar";
 import { CustomerViewRail } from "./customer-view-rail";
+import type {
+  PresentationState,
+  PresentationTier,
+} from "./card-customer-presentation";
 import type { GovernedSummary } from "./customer-view-rail";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
@@ -81,6 +85,8 @@ function hashString(input: string): string {
 
 export function QuoteHost({
   view,
+  presentation,
+  presentationTiers,
   quoteId,
   quoteStatus,
   recoveryInstructions,
@@ -93,6 +99,9 @@ export function QuoteHost({
   isHubspotLinked,
 }: {
   view: CustomerView;
+  /** Card 2 edits this; Card 3 projects it. One record, resolved once. */
+  presentation: PresentationState;
+  presentationTiers: readonly PresentationTier[];
   quoteId: string;
   quoteStatus: string;
   /** Projected from the same construction the send transaction freezes. */
@@ -332,6 +341,8 @@ export function QuoteHost({
             onDetailLevelChange={setDetailLevel}
             pdfHref={targetSrc}
             pageCount={addendumOn ? 2 : 1}
+            presentation={presentation}
+            tiers={presentationTiers}
           />
         </div>
       ) : (

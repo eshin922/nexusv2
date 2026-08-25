@@ -29,12 +29,18 @@ export function ChargesBlock({
   feeBasisTierIdx,
   serviceFees,
   freightLines,
+  includeFeeLines = true,
 }: {
   tiers: ReadonlyArray<CpdfTier>;
   recommendedTierIdx: number | null;
   feeBasisTierIdx?: number;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
+  /**
+   * When false the itemization collapses and the DISCLOSURE stays: the total
+   * is still stated on the document. Hiding lines is not omitting charges.
+   */
+  includeFeeLines?: boolean;
 }) {
   // The per-unit freight basis. Named in the sentence below, so it must be a
   // tier that exists — but it is NOT a recommendation. With no recommended
@@ -46,6 +52,10 @@ export function ChargesBlock({
   // the defect regardless of whether they happen to agree.
   const basisIdx = feeBasisTierIdx ?? recommendedTierIdx ?? 0;
   const basisTier = tiers[basisIdx];
+  // READ, never summed here. The fee total is composed once on CustomerView;
+  // a renderer that re-added the fee amounts would be a second authority over
+  // the figure it is disclosing.
+  const feeTotalAtBasis = basisTier?.money.feesTotal ?? 0;
   // One column of a matrix is being printed. Where the columns agree that is
   // the whole story and saying so would be noise; where they do not, printing
   // one figure unqualified would state a fee the other tiers do not carry.
@@ -76,7 +86,13 @@ export function ChargesBlock({
           shape as the C2-B gate: an unconditional header with zero
           rows beneath reads as a broken render, not an empty state.
           Symmetric with the freight header below. */}
-      {serviceFees.length > 0 && (
+      {/* C1 — the itemization collapses; the money is still stated. */}
+      {!includeFeeLines && (
+        <Text style={styles.chargeSub}>
+          {`One-time fees of ${money(feeTotalAtBasis)} are included in the totals above — itemization available on request.`}
+        </Text>
+      )}
+      {includeFeeLines && serviceFees.length > 0 && (
         <>
           <Text style={styles.chargeGroupLabel}>
             {"Project & SKU fees · one-time".toUpperCase()}
@@ -101,12 +117,12 @@ export function ChargesBlock({
           ))}
         </>
       )}
-      {freightLines.length > 0 && (
+      {includeFeeLines && freightLines.length > 0 && (
         <Text style={styles.chargeGroupLabel}>
           {"Pass-through freight · billed at cost".toUpperCase()}
         </Text>
       )}
-      {freightLines.map((fl) => (
+      {includeFeeLines && freightLines.map((fl) => (
         <View key={fl.id} style={styles.chargeRow}>
           <View style={styles.cLabel}>
             <Text style={styles.cLabelT}>{fl.label}</Text>
