@@ -5855,6 +5855,37 @@ git diff --stat main...HEAD           # every file
 If either exceeds what the description covers, either split the branch or widen
 the description. Say which, explicitly, when asking for the merge.
 
+### The complement: an enumeration proves what enters, not what is missing
+
+**Banked 2026-08-24, same day, from the commit that lifted the customer
+arithmetic.**
+
+`git add -u` stages TRACKED files only. A new file that was never staged cannot
+appear in `git diff --stat main...HEAD`, so the enumeration above reports a
+complete-looking list with the new file absent — and reads as correct.
+
+**Reference moment.** The arithmetic lift shipped every CALLER of
+`src/lib/customer-money.ts` and not the composer itself. Local runs passed
+because the file was on disk. CI could not resolve it:
+
+```
+ERR_MODULE_NOT_FOUND: Cannot find module '.../src/lib/customer-money.ts'
+```
+
+The enumeration had said 12 files, and 12 files was true — of what was staged.
+
+**So the pre-merge check is two commands, not one:**
+
+```
+git log --oneline main..HEAD      # what enters
+git diff --stat main...HEAD       # which files
+git status --short                # what is MISSING, including untracked
+```
+
+The first two catch a branch carrying more than its description. The third
+catches one carrying less. They fail in opposite directions and neither
+substitutes for the other.
+
 **Cross-references.**
 - Memory `feedback_stacked_pr_retarget` — GitHub does not auto-retarget a
   stacked PR unless its base is deleted. Same family: branch topology producing
