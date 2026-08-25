@@ -483,9 +483,12 @@ test("relocating an ELECTED charge does not invalidate an approval", () => {
 // WHAT THE LADDER ACTUALLY EMBEDDED
 // ═══════════════════════════════════════════════════════════════════════
 //
-// The customer document says "Unit-price subtotal ... includes recovery $X".
-// X has to be what the ladder REALLY put in the price, and that differs by
-// provenance:
+// `embeddedRecoveryTotal` is what the ladder REALLY put in the unit price.
+//
+// The customer document no longer prints it -- recovery is internal pricing
+// vocabulary and was removed from the client's paper -- but the fact is still
+// projected, and the operator-facing reconciliation is built on it. It has to
+// be right for the same reason it always did, and it differs by provenance:
 //
 //   ELECTED  added after the ladder            -> exactly the recovery
 //   LEGACY   enters as cost, rides adj + lift  -> recovery x (1 + gpa)

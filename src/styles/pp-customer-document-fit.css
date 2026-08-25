@@ -138,45 +138,39 @@
   padding-bottom: 40px;
 }
 
-/* ── The reconciliation ───────────────────────────────────────────────────
-   Same column grid as the pricing table, so each figure sits under its own
-   tier. Quieter than the grand row: this explains that number, it does not
-   compete with it. Nexus addition — the canonical round has no equivalent,
-   because the recovery treatments it describes had no document-side
-   explanation until now. */
-.pp-recon {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--pp-rule);
+/* ── What the turnkey total is made of ───────────────────────────────────
+   NATIVE ROWS of the pricing table, not an annotation beneath it: the same
+   column flex, the same baseline alignment, the same rule and the same two
+   families as the product rows above. One step quieter in colour and weight,
+   so they read as components of the total that follows rather than competing
+   with it.
+
+   This replaces a mono uppercase micro-caps treatment, which put an
+   engineering register on a customer document.
+
+   The recommended column's tint and edges continue through these rows because
+   `.pp-c-rec` is applied per cell exactly as in the table body — the banded
+   column must not break one row short of the total. Nexus addition; the
+   canonical round has no equivalent. */
+.pp-components {
+  display: flex;
+  flex-direction: column;
 }
-.pp-recon-row {
+.pp-component-row {
   display: flex;
   align-items: baseline;
-  padding: 2px 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--pp-rule);
 }
-.pp-recon-k {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--pp-ink-3);
+.pp-component-k {
+  font-family: var(--display);
+  font-size: 12px;
+  color: var(--pp-ink-2);
 }
-.pp-recon-row .pp-c-num {
+.pp-component-num {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--pp-ink-2);
   font-variant-numeric: tabular-nums;
 }
-/* The "includes" line is subordinate to the subtotal above it: it explains
-   part of that figure rather than adding to it. */
-.pp-recon-sub .pp-recon-k,
-.pp-recon-sub .pp-c-num {
-  color: var(--pp-muted);
-}
-.pp-recon-note {
-  margin-top: 5px;
-  font-family: var(--display);
-  font-size: 10px;
-  line-height: 1.4;
-  color: var(--pp-muted);
-}
+.pp-c-rec .pp-component-num { color: var(--pp-ink); }
