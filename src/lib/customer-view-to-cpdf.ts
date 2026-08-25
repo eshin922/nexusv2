@@ -92,7 +92,18 @@ export function customerViewToCpdf(
   const quote: CpdfQuote = {
     quote_number: view.quote.quoteNumber ?? "",
     project_title: view.quote.projectTitle,
-    // Draft render uses today; sent renders the frozen date.
+    // TODO(bounded-cleanup, Gate B cutover 2026-08-24): a draft has NOT been
+    // issued, and this prints today's date as its issue date. Edward's
+    // disposition during the Gate B production walk: the truthful V1 behaviour
+    // is draft -> no issue date, sent/frozen -> the actual sentDate, unset
+    // governed date -> an em dash. `CustomerViewLive` already does that; this
+    // is the legacy inconsistency, recorded rather than rewritten because the
+    // artifact of record is not this slice's to change and the cutover was not
+    // to be held for it.
+    //
+    // The repair is to drop the `?? opts.todayIso` fallback and let the PDF's
+    // masthead omit the line the way the live renderer does — which also
+    // removes `todayIso` from the adapter's options if nothing else wants it.
     issued_date: view.quote.sentDate ?? opts.todayIso,
     valid_until: view.quote.validUntil ?? "",
     payment_terms: view.quote.paymentTerms ?? "",
