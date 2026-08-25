@@ -752,38 +752,61 @@ test("the gate stays while visual fidelity is unapproved", async () => {
   }
 });
 
-test("the customer document follows the commercial recovery state", async () => {
-  // The iframe src was keyed on `view.quote.sentDate ?? \`draft-${quoteStatus}\``,
-  // which on a DRAFT is the constant "draft-draft". The iframe is keyed on that
-  // src, so electing a recovery treatment updated the rail and left the
-  // document beside it rendered from before the election.
+test("the preview is keyed on the WHOLE customer view, not part of it", async () => {
+  // Three keys have been tried here, and the first two were both too narrow:
   //
-  // Two operator reports came from this one defect: "the buttons don't change
-  // anything on the quote", and "Artwork & plate is Separate but has no PDF
-  // line". The projection was correct in both cases -- captured either side of
-  // an election on production, the artwork line appears exactly when the
-  // placement is separate. They were reading a stale document.
+  //   `draft-${quoteStatus}`   constant on drafts -- the document never
+  //                            refreshed at all
+  //   recovery instruction     fixed Card 1, but a packaging or freight edit
+  //                            that moves unit prices without touching OTC
+  //                            recovery left it unchanged and stale again
+  //   the whole view           anything that can change the document changes
+  //                            the key, by construction
+  //
+  // The third is the only one that does not require someone to remember to add
+  // a field when the document grows one.
   const host = await readFile(
     new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
     "utf8",
   );
   const flat = host.replace(/\s+/g, " ");
 
-  // The lifecycle half is kept -- it still does its original job.
-  assert.ok(flat.includes("view.quote.sentDate ??"), "the draft → sent buster must survive");
-  // And the commercial half is added.
   assert.ok(
-    flat.includes("const recoveryVersion = recoveryInstructions"),
-    "the src must move with the recovery state",
+    flat.includes("const viewDigest = hashString(JSON.stringify(view))"),
+    "the key must fingerprint the whole projected view",
   );
-  assert.ok(flat.includes("hashString(recoveryVersion)"));
-  // Keyed on treatment AND the amounts, so a placement move and an amount move
-  // both invalidate. Treatment alone would miss a re-rate.
-  assert.ok(flat.includes("i.treatment"));
-  assert.ok(flat.includes("i.separateInvoiceAmount"));
-  // Still one src, still keyed -- the remount is what refreshes it.
-  assert.ok(flat.includes("<iframe key={iframeSrc} src={iframeSrc}"));
+  // It fingerprints; it must not decide. No commercial arithmetic here.
+  const digestLine = host.slice(host.indexOf("const viewDigest"), host.indexOf("const iframeVersion"));
+  assert.doesNotMatch(digestLine, /[*+\-/]\s*\d|recoverableSell|margin/i,
+    "the digest must not derive commercial values");
 });
+
+test("the preview follows the answer; it does not gate it", async () => {
+  // Rendering the customer PDF costs 1904-2627ms, measured on production.
+  // Keying the iframe straight off the live src put that render in front of
+  // the operator's authoritative answer.
+  const host = await readFile(
+    new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
+    "utf8",
+  );
+  const flat = host.replace(/\s+/g, " ");
+
+  // Coalesced: a burst of elections costs one regeneration, not one per click.
+  assert.ok(flat.includes("setTimeout(() => setLoadingSrc(targetSrc), PREVIEW_COALESCE_MS)"));
+  // Double-buffered: the visible document is never torn down to load the next.
+  assert.ok(flat.includes("<iframe key={shownSrc} src={shownSrc}"));
+  assert.ok(flat.includes('className="cv-sheet-buffer"'));
+  assert.ok(flat.includes("setShownSrc(loadingSrc); setLoadingSrc(null);"));
+  // Downloads take the LIVE key -- never an artifact older than what is shown.
+  assert.ok(flat.includes("pdfHref={targetSrc}"));
+  // A caption, not a curtain: nothing about the preview disables a control.
+  assert.ok(flat.includes('data-testid="cv-preview-updating"'));
+  assert.ok(
+    !/disabled=\{[^}]*previewStale/.test(host),
+    "the preview state must never disable a commercial control",
+  );
+});
+
 
 test("the workspace height is derived from the shell, not assumed", async () => {
   // The first attempt guessed `calc(100vh - 50px)`. The real chrome is 261px,
