@@ -744,16 +744,41 @@ export function PricingSurfaceShell({
       ) {
         continue;
       }
+      // ── the two grains ────────────────────────────────────────────────
+      // Read from the graph, never recomposed here. `unit-price-sell` states
+      // what the unit price IS; `separate-charges` states the order-level
+      // amounts at their own grain. Multiplying one by tier quantity and adding
+      // the other is the only arithmetic this surface does, and it reconciles
+      // to the customer document exactly.
+      const findNode = (name: string) =>
+        priceBuildGraph?.nodes.find((n) => n.key === quoteScopeKey(tierUuid, name));
+      const upsNode = findNode("per-unit/unit-price-sell");
+      const sepNode = findNode("separate-charges");
+      const badNode = findNode("unbillable-recovery");
+      const operandsOf = (n: typeof upsNode) =>
+        (n?.operands ?? []).map((o) => ({
+          key: o.key,
+          label: o.label,
+          value: o.value,
+        }));
+      const qty = rollupByTierUuid.get(tierUuid)?.qty ?? 0;
+
       byNumeric.set(numeric, {
         pkg, prod, raw, frt, dt, baseSell, quoted, unitCost, decision,
+        unitPriceSell: upsNode?.value ?? null,
+        unitPriceParts: operandsOf(upsNode),
+        separateCharges: operandsOf(sepNode),
+        separateChargesTotal: sepNode?.value ?? 0,
+        unbillableCharges: operandsOf(badNode),
+        unbillableTotal: badNode?.value ?? 0,
+        qty,
+        // From the GOVERNED unit-price sell, not from the rounded figure the
+        // row displays: 5.8610 x 5,000 is 29,305.00 where the governed product
+        // is 29,305.12, and an order total that disagrees with the customer
+        // document by twelve cents is worse than one carrying more decimals.
+        orderTotal: (upsNode?.value ?? 0) * qty + (sepNode?.value ?? 0),
         margin: readNodeValue(priceBuildGraph, quoteScopeKey(tierUuid, "margin"), priceBuildEvaluation),
-        // ONE-TIME CHARGES, kept apart. They bill as fixed amounts and are not
-        // part of any per-unit figure, so they are stated as a tier total
-        // beside the build rather than folded into it. The Production/OTC
-        // accounting semantics are a separate body of work; this only
-        // preserves the distinction.
-        oneTimeCharges:
-          rollupByTierUuid.get(tierUuid)?.costBreakdown.serviceFees ?? 0,
+        unitPriceSellKey: quoteScopeKey(tierUuid, "per-unit/unit-price-sell"),
         keys: {
           pkg: quoteScopeKey(tierUuid, "per-unit/pkg"),
           prod: quoteScopeKey(tierUuid, "per-unit/prod"),

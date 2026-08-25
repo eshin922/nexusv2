@@ -11,6 +11,7 @@ import {
 } from "./costing-nodes";
 import {
   OTC_COLUMN_TO_CHARGE,
+  chargePolicy,
   type RecoveryChargeKey,
 } from "./commercial-recovery/registry";
 import {
@@ -20,6 +21,7 @@ import {
   type ConstructedCommercialState,
 } from "./commercial-recovery/construct";
 import type { ChargeElection } from "./commercial-recovery/resolve";
+import { isUnbillablePlacement } from "./commercial-recovery/unbillable-placements";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -3987,6 +3989,18 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     let overrideDeltaPU = 0;
     let embeddedRecoveryTotalTier = 0;
     const embeddedRecoveryOperands: CostingNode[] = [];
+    // ONE-TIME CHARGES AT THEIR OWN GRAIN — tier amounts, never per unit.
+    //
+    // A charge billed on its own line is billed ONCE, at the order. Dividing it
+    // by tier quantity to make a per-unit column add up would state that the
+    // customer pays it per unit, which the customer document does not say and
+    // the customer does not do.
+    //
+    // Billed and unbillable are kept apart. A Direct Service placed on a
+    // separate line produces revenue the document cannot charge, so it must not
+    // sum into a figure an operator reads as what the customer owes.
+    const separateChargeOperands: CostingNode[] = [];
+    const unbillableChargeOperands: CostingNode[] = [];
     for (const top of topLevel) {
       const r = rollupBySku.get(top.id);
       if (!r) continue;
@@ -3999,6 +4013,28 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // NULL is not zero: an overridden cell has no attributable recovery, and
       // adding 0 would state that it embeds none.
       embeddedRecoveryTotalTier += pt.embeddedRecoveryTotal ?? 0;
+      for (const ch of pt.constructed?.charges ?? []) {
+        if (ch.placement !== "separate_line") continue;
+        const amount = ch.separateInvoiceAmount ?? 0;
+        if (amount === 0) continue;
+        const target = isUnbillablePlacement(ch)
+          ? unbillableChargeOperands
+          : separateChargeOperands;
+        target.push({
+          key: nodeKey(
+            "quote",
+            tier.id,
+            isUnbillablePlacement(ch) ? "unbillable-recovery" : "separate-charges",
+            top.id,
+            ch.chargeKey,
+          ),
+          kind: "origin",
+          label: chargePolicy(ch.chargeKey).label + " · " + top.skuLabel,
+          value: amount,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      }
       if ((pt.embeddedRecoveryTotal ?? 0) !== 0) {
         // Per OWNER, from each cell's own figure — exact by construction,
         // because it is literally what the engine put in that cell's price.
@@ -4388,6 +4424,33 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         op: "base sell + pricing levers + recovery in the unit price",
         operands: unitPriceSellOperands,
       });
+
+      // Tier-scope, NOT per unit — see the collection above.
+      if (separateChargeOperands.length > 0) {
+        graphNodes.push({
+          key: nodeKey("quote", tier.id, "separate-charges"),
+          kind: "sum",
+          label: "Charges billed separately",
+          value: separateChargeOperands.reduce((a, n) => a + n.value, 0),
+          unit: "usd",
+          op: "sum of " + separateChargeOperands.length + " charge(s)",
+          operands: separateChargeOperands,
+        });
+      }
+      // Emitted APART, and summed into nothing. This is revenue the engine
+      // counts and the customer document cannot bill (#416); folding it in
+      // beside legitimate charges would let an operator read it as money owed.
+      if (unbillableChargeOperands.length > 0) {
+        graphNodes.push({
+          key: nodeKey("quote", tier.id, "unbillable-recovery"),
+          kind: "sum",
+          label: "Recovery this quote cannot bill",
+          value: unbillableChargeOperands.reduce((a, n) => a + n.value, 0),
+          unit: "usd",
+          op: "sum of " + unbillableChargeOperands.length + " charge(s)",
+          operands: unbillableChargeOperands,
+        });
+      }
 
       const revenuePerUnit = alloc(
         "revenue",
