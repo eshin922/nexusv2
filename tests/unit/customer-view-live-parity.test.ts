@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
+import { codeOnly } from "../support/code-only.ts";
+
 import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
 import {
   lineTotal,
@@ -209,12 +211,17 @@ test("both documents describe an unpriced cell in the same words", async () => {
   assert.match(live, asElementText("total on request"));
   assert.ok(grand.includes("total on request"), "the PDF uses the same phrase");
 
-  // Neither may render a governed zero for an unpriced state (OD-005).
-  // The renderer must contain no literal money zero at all: every amount it
-  // shows comes from the projection, and an unpriced one is rendered as
+  // Neither may render a governed zero for an unpriced state (OD-005). Every
+  // amount shown comes from the projection, and an unpriced one is rendered as
   // words rather than as a price the firm never quoted.
+  //
+  // Asserted over CODE, not the raw file. It read the file, and then a comment
+  // explaining WHY a zero must not be printed tripped it -- the check flagging
+  // its own rationale. A comment cannot render, so it cannot be the defect;
+  // narrowing to code keeps every rendered zero caught and stops the guard
+  // forbidding the explanation of itself.
   assert.ok(
-    !live.includes("$0.00"),
+    !codeOnly(live).includes("$0.00"),
     "the live renderer must not carry a literal $0.00",
   );
 });

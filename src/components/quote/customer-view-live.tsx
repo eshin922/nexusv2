@@ -377,6 +377,11 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                   nothing. */}
               {hasCharges && (
                 <div className="pp-components" data-testid="cvl-components">
+                  {/* A tier whose total reads "total on request" has no known
+                      subtotal either. Printing $0.00 there would tell the
+                      customer the goods cost nothing, which is the opposite of
+                      "not yet priced" (OD-005). The em dash is this document's
+                      existing mark for a fact it does not have. */}
                   <div className="pp-component-row" role="row">
                     <div className="pp-c-prod" role="rowheader">
                       <span className="pp-component-k">Unit-price subtotal</span>
@@ -388,7 +393,9 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                         className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
                       >
                         <span className="pp-component-num">
-                          {money(tiers[ti].money.goodsTotal)}
+                          {tiers[ti].money.perUnitTurnkey === null
+                            ? "—"
+                            : money(tiers[ti].money.goodsTotal)}
                         </span>
                       </div>
                     ))}
@@ -405,7 +412,9 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                         className={"pp-c-num" + (rec ? " pp-c-rec" : "")}
                       >
                         <span className="pp-component-num">
-                          {money(tiers[ti].money.feesTotal)}
+                          {tiers[ti].money.perUnitTurnkey === null
+                            ? "—"
+                            : money(tiers[ti].money.feesTotal)}
                         </span>
                       </div>
                     ))}

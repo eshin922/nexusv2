@@ -669,6 +669,41 @@ export const styles = StyleSheet.create({
   },
 
   // ─── pp-grand · .g-label · .g-sub · (.pp-c-rec) ──────────────
+  // ── What the turnkey total is made of ─────────────────────────────────
+  // Parity with the live customer document (`.pp-component-row` /
+  // `.pp-component-k` / `.pp-component-num` in pp-customer-document-fit.css).
+  //
+  // The preview IS the customer document; this file produces the artifact the
+  // customer actually receives. They disagreed on this block -- the preview
+  // showed the two components, the PDF showed only the total -- which made the
+  // thing an operator reviews a different commercial statement from the thing
+  // that gets sent.
+  //
+  // Pattern 48: every dimension is the CSS px value x 0.75.
+  //   padding 7px -> 5.25   border 1px -> 0.75   font 12px -> 9
+  componentRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    paddingVertical: 5.25,
+    borderBottomWidth: 0.75,
+    borderBottomColor: PP_RULE,
+    borderBottomStyle: "solid",
+  },
+  componentK: {
+    fontFamily: PDF_FONT_FAMILY.serif,
+    fontSize: 9,
+    color: PP_INK_2,
+  },
+  componentNum: {
+    fontFamily: PDF_FONT_FAMILY.mono,
+    fontSize: 9,
+    color: PP_INK_2,
+    ...PDF_TABULAR_NUMS,
+  },
+  // .pp-c-rec .pp-component-num { color: var(--pp-ink) }
+  componentNumRec: {
+    color: PP_INK,
+  },
   grand: {
     flexDirection: "row",
     alignItems: "baseline",
