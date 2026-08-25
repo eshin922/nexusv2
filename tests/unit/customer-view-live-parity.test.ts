@@ -169,3 +169,44 @@ test("parity · the HTML renderer reads the projection and nothing else", async 
     "a null figure must render as absence, never as zero",
   );
 });
+
+test("both documents describe an unpriced cell in the same words", async () => {
+  // Parity finding 4, found on a production draft carrying three unpriced
+  // cells. The PDF said "quote on request"; the live renderer said "on
+  // request". The same customer-facing state, described two ways -- a content
+  // difference, not a styling one, and exactly what this gate exists to catch.
+  //
+  // Asserted on the exact phrases. A looser /request/ would match "Per-tier
+  // amounts available on request" in the charges block and pass while the cell
+  // label diverged -- the same too-broad-pattern mistake that produced a false
+  // green on T&Cs.
+  const live = await readFile(
+    new URL("../../src/components/quote/customer-view-live.tsx", import.meta.url),
+    "utf8",
+  );
+  const table = await readFile(
+    new URL("../../src/components/pdf/customer-pdf-pricing-table.tsx", import.meta.url),
+    "utf8",
+  );
+  const grand = await readFile(
+    new URL("../../src/components/pdf/customer-pdf-grand-total-row.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // A cell with no price.
+  assert.match(table, />quote on request</, "the PDF's cell wording");
+  assert.match(live, />quote on request</, "the live renderer must match it");
+
+  // A tier with nothing priced at all.
+  assert.match(live, />total on request</);
+  assert.ok(grand.includes("total on request"), "the PDF uses the same phrase");
+
+  // Neither may render a governed zero for an unpriced state (OD-005).
+  // The renderer must contain no literal money zero at all: every amount it
+  // shows comes from the projection, and an unpriced one is rendered as
+  // words rather than as a price the firm never quoted.
+  assert.ok(
+    !live.includes("$0.00"),
+    "the live renderer must not carry a literal $0.00",
+  );
+});

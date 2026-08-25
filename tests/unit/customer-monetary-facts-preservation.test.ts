@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { composeTierMoney } from "@/lib/customer-money";
 import {
   lineTotal,
   serviceFeesTotal,
@@ -249,4 +250,59 @@ test("baseline · nothing priced is unavailable, never zero", () => {
   assert.equal(none.perUnit, null);
   assert.equal(none.hasUnpriced, true);
   assert.equal(none.total, 0);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// UNPRICED IS NOT ZERO.
+//
+// A governed or computed zero IS a price: the firm has quoted this, and it
+// costs nothing. An unpriced cell is a REQUEST STATE: the firm has not quoted
+// it at all. The customer must be able to tell those apart, and the two look
+// identical the moment either is rendered as the other.
+//
+// Both states occur together on production draft 3761d2ad -- three unpriced
+// cells alongside six genuine $0.00 extended amounts, the zeros arising
+// because its tiers carry quantity zero. That quote is the reason this
+// distinction is pinned rather than assumed: it is the case where getting it
+// wrong would be invisible, because zeros are already on the page.
+// ═══════════════════════════════════════════════════════════════════════
+
+test("a computed zero is a price; an unpriced cell is not", () => {
+  const qtyZeroTier = { quantity: 0 };
+
+  // A PRICED line at zero quantity: the extended amount is genuinely 0.
+  const computedZero = composeTierMoney({
+    quantity: qtyZeroTier.quantity,
+    lineTotals: [0],
+    feeAmounts: [],
+  });
+  assert.equal(computedZero.goodsTotal, 0, "a computed zero survives as zero");
+  assert.equal(computedZero.hasUnpricedLine, false, "it is priced -- at zero");
+
+  // An UNPRICED line: null in, and it must not become 0 anywhere.
+  const unpriced = composeTierMoney({
+    quantity: 1000,
+    lineTotals: [null],
+    feeAmounts: [],
+  });
+  assert.equal(unpriced.hasUnpricedLine, true);
+  assert.equal(unpriced.perUnitGoods, null, "no per-unit claim without a price");
+  assert.equal(unpriced.perUnitTurnkey, null);
+
+  // The two are distinguishable. If `hasUnpricedLine` ever came back false for
+  // the unpriced case, or a null per-unit came back as 0, the renderer would
+  // print a price the firm never quoted and nothing else would notice.
+  assert.notEqual(unpriced.hasUnpricedLine, computedZero.hasUnpricedLine);
+  assert.notEqual(unpriced.perUnitGoods, computedZero.perUnitGoods);
+
+  // And a MIXED tier -- one priced line, one unpriced -- carries both facts at
+  // once: a total covering what is priced, and the flag saying it is partial.
+  const mixed = composeTierMoney({
+    quantity: 1000,
+    lineTotals: [2500, null],
+    feeAmounts: [],
+  });
+  assert.equal(mixed.goodsTotal, 2500, "the total covers what IS priced");
+  assert.equal(mixed.hasUnpricedLine, true, "and says the rest is not");
+  assert.equal(mixed.perUnitGoods, 2.5, "a lower bound, which the document marks \"from\"");
 });

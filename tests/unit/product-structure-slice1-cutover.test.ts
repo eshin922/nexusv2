@@ -441,6 +441,17 @@ const classifiedIdentityFiles = new Set([
   // display label, which is empty for grouped members, so two leaves collided
   // onto one entry and the check passed while covering half of what it claimed.
   // Writes nothing.
+  "scripts/gate-1b/gate-a-coverage-candidates.ts",
+  // CLASSIFIED — read-only Gate A coverage search. Joins `quote_leaves` to
+  // find quotes carrying a customer note or a possibly-unpriced cell, so the
+  // parity gate is exercised on real production data rather than closed by
+  // marking items N/A. Selects only; writes nothing.
+  "scripts/gate-1b/gate-a-unpriced-candidates.ts",
+  // CLASSIFIED — read-only. Ranks quotes by whether their leaves carry cost
+  // inputs at every tier, as candidates for a browser sweep. It RANKS; it does
+  // not determine. Unpriced is an evaluated customer-view result, and the
+  // earlier attempt that tried to read it from a table was wrong for exactly
+  // that reason.
   "scripts/gate-1b/case6-mixed.ts",
   // CLASSIFIED — read-only #321 discrimination proof. Queries `assembly_leaves`
   // DELIBERATELY: it SIMULATES the removed legacy ownership gate so the old
