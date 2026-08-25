@@ -194,42 +194,66 @@ export function QuoteHost({
   // regeneration rather than one per click. Writes are untouched: they stay
   // immediate and individually governed, and only the artifact is coalesced.
   // Same discipline as the realtime reconcile pipe, pointed outward.
-  // ── TWO FRAMES, ONE VISIBLE. NEITHER IS EVER TORN DOWN. ─────────────────
+  // ── THE BYTES ARRIVE BEFORE THE FRAME DOES ──────────────────────────────
   //
-  // The first attempt at this was not a double-buffer, and shipped: it loaded
-  // the replacement in a hidden frame, then "promoted" it by assigning its src
-  // to the VISIBLE frame's `key`. Changing a key unmounts and remounts, so the
-  // visible frame threw away the buffer's work and loaded the same document a
-  // second time from scratch. The operator still saw the pane blank; the flash
-  // had only moved 600ms later. Reported as "I'm still seeing the page
-  // refresh", which is exactly what it was.
+  // Two attempts at hiding this failed, and both failed for the same reason.
   //
-  // A real double-buffer never moves a src between frames. Two slots stay
-  // mounted for the life of the surface, each with a stable key. A new document
-  // loads into whichever slot is currently hidden, and promotion is a CSS
-  // visibility flip on an already-rendered frame — no unmount, no refetch, no
-  // blank, and the swap costs one frame.
+  // The first swapped the src on the visible frame via its `key`, which
+  // unmounts and remounts: the pane blanked for a whole render. The second
+  // loaded a replacement in a hidden frame and promoted it on `onLoad` — but
+  // `onLoad` fires when the DOCUMENT has loaded, not when the PDF plugin has
+  // PAINTED it. So promotion happened early and the operator saw the viewer's
+  // empty canvas, which Chrome paints dark. Reported as "it flashes black",
+  // and that is precisely what it was.
   //
-  // Everything else in the tree is untouched by this, so rail scroll, the
-  // cards, and the focused element survive. The PDF plugin's own zoom belongs
-  // to the viewer and cannot cross documents; that is the one thing that
-  // legitimately resets.
-  const [slots, setSlots] = useState<{ a: string; b: string | null }>({ a: targetSrc, b: null });
-  const [active, setActive] = useState<"a" | "b">("a");
-  const shownSrc = active === "a" ? slots.a : (slots.b as string);
-  const idleKey = active === "a" ? "b" : "a";
-
+  // There is no event for "the PDF is on screen", so no amount of frame
+  // juggling can time the swap correctly. The fix is to remove the thing being
+  // waited on: fetch the document to completion FIRST, then hand the frame a
+  // blob it can render from memory. Nothing is on screen while a network round
+  // trip and a 2s server render happen, because they have already happened.
+  //
+  // One frame, no `key`, so nothing is ever unmounted. Repainting from a local
+  // blob is a frame or two rather than seconds.
+  //
+  // A failed fetch changes nothing: the current document stays. A preview that
+  // silently keeps showing the last good state is better than one that blanks,
+  // and `previewStale` keeps saying so until it succeeds.
+  const [blobSrc, setBlobSrc] = useState<string | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   useEffect(() => {
-    if (targetSrc === shownSrc) return;
-    // Already loading this exact document into the idle slot.
-    if (slots[idleKey] === targetSrc) return;
-    const t = setTimeout(() => {
-      setSlots((prev) => ({ ...prev, [idleKey]: targetSrc }));
+    if (loadedFor === targetSrc) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(targetSrc);
+          if (!res.ok || cancelled) return;
+          const blob = await res.blob();
+          if (cancelled) return;
+          const next = URL.createObjectURL(blob);
+          setBlobSrc((prev) => {
+            // Release the previous document; nothing references it after the
+            // swap, and a preview left open all afternoon would otherwise hold
+            // every version it had ever shown.
+            if (prev) URL.revokeObjectURL(prev);
+            return next;
+          });
+          setLoadedFor(targetSrc);
+        } catch {
+          // Leave the current document in place.
+        }
+      })();
     }, PREVIEW_COALESCE_MS);
-    return () => clearTimeout(t);
-  }, [targetSrc, shownSrc, slots, idleKey]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [targetSrc, loadedFor]);
 
-  const previewStale = targetSrc !== shownSrc;
+  // Before the first blob resolves, the route URL is the document — the
+  // ordinary first paint, unchanged.
+  const shownSrc = blobSrc ?? targetSrc;
+  const previewStale = loadedFor !== targetSrc && blobSrc !== null;
 
   // Slice 11 Step 6 FU — snapshot-lock indicator. Sent quotes
   // render the immutable snapshot (per Step 4.4 read-path); the
@@ -360,25 +384,9 @@ export function QuoteHost({
             )}
             <div className="cv-canvas">
               <div className="cv-sheet">
-                {(["a", "b"] as const).map((slot) =>
-                  slots[slot] === null ? null : (
-                    <iframe
-                      // Keyed by SLOT, never by src. The frame outlives every
-                      // document it shows, which is what makes the swap free.
-                      key={slot}
-                      src={slots[slot] as string}
-                      title="Customer PDF preview"
-                      aria-hidden={active !== slot}
-                      className={active === slot ? undefined : "cv-sheet-buffer"}
-                      onLoad={() => {
-                        // Promote only the slot that was loading, and only once
-                        // it carries what is currently wanted -- a late load
-                        // from a superseded document must not win.
-                        if (slot !== active && slots[slot] === targetSrc) setActive(slot);
-                      }}
-                    />
-                  ),
-                )}
+                {/* No `key`. This frame is mounted once and lives for the life of
+                    the surface; only what it points at changes. */}
+                <iframe src={shownSrc} title="Customer PDF preview" />
               </div>
             </div>
           </div>
@@ -512,7 +520,6 @@ export function QuoteHost({
               The two-pane composition is what makes following worthwhile,
               and this branch does not have it. */}
           <iframe
-            key={targetSrc}
             src={targetSrc}
             title="Customer PDF preview"
             style={{

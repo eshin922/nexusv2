@@ -803,34 +803,39 @@ test("the preview follows the answer; it does not gate it", async () => {
   );
 });
 
-test("the preview frames are keyed by SLOT, never by document", async () => {
-  // The first attempt shipped a fake double-buffer: it loaded the replacement
-  // in a hidden frame, then promoted it by assigning that src to the VISIBLE
-  // frame's `key`. Changing a key unmounts and remounts, so the visible frame
-  // discarded the buffer's work and refetched the same document -- the pane
-  // still blanked, the flash had merely moved later. Reported as "I'm still
-  // seeing the page refresh", which is what it was.
+test("the preview fetches the document before showing it", async () => {
+  // Two attempts failed the same way. Swapping the src via `key` unmounts and
+  // remounts, so the pane blanked for a whole render. Loading into a hidden
+  // frame and promoting on `onLoad` promoted too early, because `onLoad` fires
+  // when the DOCUMENT loads, not when the PDF plugin has PAINTED it — the
+  // operator saw the viewer's empty canvas, which Chrome paints dark.
   //
-  // A frame keyed by its SLOT outlives every document it shows, so promotion
-  // is a visibility flip on something already rendered.
+  // There is no "painted" event, so no frame juggling can time the swap. The
+  // fix removes what is being waited on: fetch to completion first, then render
+  // from a local blob.
   const host = await readFile(
     new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
     "utf8",
   );
   const flat = host.replace(/\s+/g, " ");
 
-  assert.ok(flat.includes("key={slot}"), "frames must be keyed by slot");
-  assert.ok(
-    !flat.includes("key={shownSrc}") && !flat.includes("key={previewSrc}"),
-    "keying a preview frame by its src remounts it and refetches the document",
-  );
-  // Promotion is a state flip, not a src move between frames.
-  assert.ok(flat.includes("setActive(slot)"));
-  // A late load from a superseded document must not win.
-  assert.ok(flat.includes("slots[slot] === targetSrc"));
-  // Both slots stay mounted; only visibility differs.
-  assert.ok(flat.includes('className={active === slot ? undefined : "cv-sheet-buffer"}'));
+  // Bytes first.
+  assert.ok(flat.includes("const blob = await res.blob()"));
+  assert.ok(flat.includes("URL.createObjectURL(blob)"));
+  // One frame, never keyed, so it is never unmounted.
+  assert.ok(flat.includes('<iframe src={shownSrc} title="Customer PDF preview" />'));
+  assert.ok(!/key=\{(shownSrc|previewSrc|slot|targetSrc)\}/.test(host),
+    "keying the preview frame remounts it and reintroduces the blank");
+  // The previous document is released; a preview left open must not retain
+  // every version it has shown.
+  assert.ok(flat.includes("URL.revokeObjectURL(prev)"));
+  // A failed fetch leaves the current document in place.
+  assert.ok(flat.includes("// Leave the current document in place."));
+  // Still coalesced, and downloads still take the live route URL.
+  assert.ok(flat.includes("PREVIEW_COALESCE_MS"));
+  assert.ok(flat.includes("pdfHref={targetSrc}"));
 });
+
 
 
 
