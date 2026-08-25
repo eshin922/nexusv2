@@ -26,6 +26,7 @@ import "server-only";
 import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
 import { applyTierVisibility } from "@/lib/customer-tier-visibility";
 import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
+import { findUnbillablePlacements } from "@/lib/commercial-recovery/unbillable-placements";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -107,6 +108,19 @@ export type ResolveCustomerViewResult =
        * would have allowed. Two answers to one question; now one.
        */
       belowFloor: import("./below-floor-projection").BelowFloorProjection;
+      /**
+       * Recovery placed where this quote cannot bill it.
+       *
+       * Empty on every well-formed quote. Non-empty means the engine is
+       * counting revenue the customer document does not ask for, and the
+       * surface must say so rather than show a green pre-flight.
+       *
+       * The SAME function the send gate calls, over the SAME constructed state
+       * this view was built from. The gate remains the boundary; this is the
+       * surface telling the operator before they reach it, and the two cannot
+       * disagree because there is only one detection.
+       */
+      unbillableRecovery: import("./commercial-recovery/unbillable-placements").UnbillablePlacement[];
       /**
        * Card 3's authored instruction to Accounting.
        *
@@ -651,6 +665,18 @@ export async function resolveCustomerView(args: {
     quoteVersionNumber: quote.versionNumber,
   });
 
+  // Recovery the quote cannot bill. Detected here, not re-derived: the send
+  // gate calls this same function over this same constructed state, and a
+  // second implementation would be free to disagree with the boundary about
+  // whether the quote may go out.
+  //
+  // Declared before the return that reads it. This file has twice shipped a
+  // read above its declaration, and the second one took down every quote page.
+  const unbillableRecovery = findUnbillablePlacements({
+    skuRollups: bundle.data.costing.skuRollups,
+    tierLabels: new Map(bundle.data.costing.quoteRollup.map((r) => [r.tierId, r.label])),
+  });
+
   // Hidden tiers are removed HERE, once, so neither renderer has to skip
   // positions in six index-aligned arrays without ever getting it wrong. See
   // `customer-tier-visibility`.
@@ -686,6 +712,7 @@ export async function resolveCustomerView(args: {
      */
     recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
     belowFloor: belowFloorProjection,
+    unbillableRecovery,
     // Live on a draft, frozen once sent - the same rule as every other quote
     // fact, and the reason is the same: Accounting acts on this after
     // acceptance, and it must describe the quote it was written for.

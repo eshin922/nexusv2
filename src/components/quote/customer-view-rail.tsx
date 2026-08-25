@@ -35,6 +35,10 @@ import {
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import { chargePolicy } from "@/lib/commercial-recovery/registry";
+import {
+  summariseUnbillablePlacements,
+  type UnbillablePlacement,
+} from "@/lib/commercial-recovery/unbillable-placements";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { CustomerViewDetailLevel, CustomerViewPdfLayout } from "@/types/quote";
 
@@ -73,6 +77,7 @@ export function CustomerViewRail({
   presentation,
   tiers,
   belowFloor,
+  unbillableRecovery,
   accountingInstruction,
   onAuthoritative,
 }: {
@@ -98,6 +103,12 @@ export function CustomerViewRail({
   tiers: readonly PresentationTier[];
   /** The send gate's own verdict, evaluated once upstream. */
   belowFloor: BelowFloorProjection;
+  /**
+   * Recovery placed where this quote cannot bill it — the same finding the
+   * send gate refuses on, resolved from the same constructed state. Empty on
+   * every well-formed quote.
+   */
+  unbillableRecovery: UnbillablePlacement[];
   /** Internal, never printed. See the resolver's note on why it is not on the view. */
   accountingInstruction: string | null;
   onAuthoritative?: (p: AuthoritativeProjection) => void;
@@ -116,6 +127,13 @@ export function CustomerViewRail({
   // Wrong in the direction that wastes an approver's time and teaches
   // operators to distrust the surface. Now one evaluation, shared.
   const blocked = !belowFloor.ok;
+  // A known-invalid state must not read as ready. Until this existed the
+  // checklist showed three ticks on a quote carrying $1,727.60 of recovery the
+  // document does not bill, and the operator only learned something was wrong
+  // by clicking - where an unrelated Costs refusal answered first, so they
+  // learned about freight markup instead.
+  const unbillable = summariseUnbillablePlacements(unbillableRecovery);
+  const hasUnbillable = unbillable.length > 0;
 
   // Card 3 · commercial agreement, one row per CHARGE. The frozen instruction
   // is per (charge, owner, tier); Accounting reads a charge, so identical
@@ -361,6 +379,15 @@ export function CustomerViewRail({
         </div>
 
         <div className="cv-checks">
+          {/* Led with, when present. An unbillable placement is a defect in what
+              the quote CHARGES, not a policy step an operator can approve, and
+              it must not sit below two ticks reading as ready. */}
+          {unbillable.map((line) => (
+            <div className="cv-check" key={line}>
+              <span className="cv-mark" data-ok="no">!</span>
+              {line}
+            </div>
+          ))}
           <div className="cv-check">
             <span className="cv-mark" data-ok={blocked ? "no" : "yes"}>{blocked ? "!" : "\u2713"}</span>
             {/* The verdict's OWN words when it refuses. "A governed tier is
@@ -404,21 +431,33 @@ export function CustomerViewRail({
           // condition PREDICTS `sendQuote`'s own refusal from the same shared
           // projection - so the operator learns it before clicking rather than
           // after, and the two can never disagree.
-          disabled={!isDraft || blocked}
-          dataState={!isDraft ? "frozen" : blocked ? "blocked" : "ready"}
+          // Also refused while any recovery is placed where this quote cannot
+          // bill it. That condition PREDICTS `sendQuote`'s own refusal from the
+          // same detection, so the operator learns it here rather than by
+          // clicking - and on the one quote carrying this state, clicking
+          // reached an unrelated Costs refusal first and taught them nothing
+          // about it.
+          disabled={!isDraft || hasUnbillable || blocked}
+          dataState={
+            !isDraft ? "frozen" : hasUnbillable ? "blocked" : blocked ? "blocked" : "ready"
+          }
           title={
             !isDraft
               ? "This quote is already frozen. Revise it to start a new version."
-              : blocked
-                ? "A below-floor tier is not authorized. See the check above."
-                : "Freezes this version and produces the customer PDF. Delivery stays manual."
+              : hasUnbillable
+                ? "Recovery is placed where this quote cannot bill it. See the check above."
+                : blocked
+                  ? "A below-floor tier is not authorized. See the check above."
+                  : "Freezes this version and produces the customer PDF. Delivery stays manual."
           }
           label={
             !isDraft
               ? "Frozen - start v2"
-              : blocked
-                ? "Request pricing approval"
-                : "Finalize quote"
+              : hasUnbillable
+                ? "Resolve recovery placement"
+                : blocked
+                  ? "Request pricing approval"
+                  : "Finalize quote"
           }
         />
 

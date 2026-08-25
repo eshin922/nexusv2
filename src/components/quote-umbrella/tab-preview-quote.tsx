@@ -17,6 +17,7 @@
 // QuoteHost with all its chrome intact → light Advance bar.
 
 import { QuoteHost } from "@/components/quote/quote-host";
+import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,
@@ -44,6 +45,7 @@ export function TabPreviewQuote({
   presentation,
   presentationTiers,
   belowFloor,
+  unbillableRecovery,
   accountingInstruction,
   quoteRollup,
   governed,
@@ -77,6 +79,7 @@ export function TabPreviewQuote({
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
+  unbillableRecovery: UnbillablePlacement[];
   accountingInstruction: string | null;
   quoteRollup: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
@@ -101,6 +104,7 @@ export function TabPreviewQuote({
       presentation={presentation}
       presentationTiers={presentationTiers}
           belowFloor={belowFloor}
+          unbillableRecovery={unbillableRecovery}
           accountingInstruction={accountingInstruction}
       quoteRollup={quoteRollup}
       governed={governed}
