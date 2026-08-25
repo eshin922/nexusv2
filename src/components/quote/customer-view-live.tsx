@@ -58,6 +58,10 @@ function qtyLabel(n: number): string {
 export function CustomerViewLive({ view }: { view: CustomerView }) {
   const { tiers, skus, serviceFees, quote, vendor, customer } = view;
   const turnkey = view.detailLevel === "turnkey_only";
+  // Whether the tier total folds the fees is the PROJECTION's decision, not
+  // this renderer's. Deriving it from the layout here made the HTML print a
+  // goods-only total where the PDF printed the all-in one.
+  const fold = view.foldFeesIntoTotal;
   const singleTier = view.pdfLayout === "single_tier";
   const shown =
     singleTier && view.recommendedTierIdx !== null
@@ -152,8 +156,8 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 const m = tiers[ti].money;
                 // Selection, not construction: which composed figure this shape
                 // shows. Both were summed once, upstream.
-                const total = turnkey ? m.turnkeyTotal : m.goodsTotal;
-                const per = turnkey ? m.perUnitTurnkey : m.perUnitGoods;
+                const total = fold ? m.turnkeyTotal : m.goodsTotal;
+                const per = fold ? m.perUnitTurnkey : m.perUnitGoods;
                 return (
                   <td key={tiers[ti].id}>
                     {per === null ? (
