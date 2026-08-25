@@ -1,0 +1,139 @@
+/* Nexus adaptations to the canonical customer-document register.
+   ═══════════════════════════════════════════════════════════════════════════
+   Pattern 30: `pp-customer-document.css` is the upstream file, copied
+   unedited. Everything Nexus needs that CD's standalone prototype did not is
+   here instead, so an R-round refresh stays a re-copy.
+
+   Two adaptations. Nothing else belongs in this file.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1 · FONT BINDING ────────────────────────────────────────────────────
+   The canonical rules name their families literally — `"Newsreader"`,
+   `"JetBrains Mono"` — because the prototype loaded them under those names.
+
+   Nexus loads both through `next/font/google`, which self-hosts them under
+   GENERATED family names and publishes those names as the `--display` and
+   `--mono` variables. A literal `"Newsreader"` matches nothing, and the stack
+   falls through to `Georgia, serif`.
+
+   That failure is silent. The document still renders, still lays out, and
+   still looks like a serif document — it is simply set in the wrong face,
+   against a PDF that registers the real Newsreader and gets it. Two documents
+   that are supposed to be one artifact, differing in a way no test asserts on
+   and no error reports, which is the same shape as every other instrument
+   this project has been caught by. Bound explicitly rather than assumed.
+
+   The selector lists are MECHANICALLY DERIVED from the canonical file — every
+   rule whose body names each family. Regenerate them on any re-copy; do not
+   extend them by hand, or a new canonical rule will quietly go unbound.  */
+
+.pp-sheet,
+.pp-masthead .v-name,
+.pp-h2,
+.pp-h3,
+.pp-price.req,
+.pp-grand .g-label,
+.pp-grand-num.req,
+.pp-grand-num .from,
+.pp-grand-note,
+.pp-tk-total,
+.pp-tk-total .from,
+.pp-tk-hero .h-tier,
+.pp-tk-hero .h-num,
+.pp-tk-incl {
+  font-family: var(--display);
+}
+
+.pp-masthead .v-meta,
+.pp-parties .label,
+.pp-eyebrow,
+.pp-th-lab,
+.pp-th-sub,
+.pp-prod-meta,
+.pp-price,
+.pp-table-foot,
+.pp-charge-group-label,
+.pp-charge-row .c-qty,
+.pp-charge-row .c-amt,
+.pp-term .label,
+.pp-notes .label,
+.pp-runhead,
+.pp-footer,
+.pp-linetotal,
+.pp-grand-num,
+.pp-grand-unit,
+.pp-grand-note .k,
+.pp-grand-note .amt,
+.pp-tk-tier,
+.pp-tk-qty,
+.pp-tk-rec-word,
+.pp-tk-perunit,
+.pp-tk-hero .h-label,
+.pp-tk-hero .h-qty,
+.pp-tk-hero-unit,
+.pp-tk-included .label,
+.pp-tk-scope .code {
+  font-family: var(--mono);
+}
+
+/* The `.pp-price.req` / `.pp-grand-num.req` pair above are Newsreader-italic
+   in canon and appear in the mono list's `.pp-price` / `.pp-grand-num` base.
+   Source order resolves it the way canon does — the `.req` modifier follows
+   the base rule in the canonical file, and follows it here too. */
+
+/* ── 2 · FIT TO THE PANE ─────────────────────────────────────────────────
+   `.pp-sheet` is a fixed 816 x 1056px box — US Letter at 96dpi. It is
+   SCALED to the available width, never reflowed.
+
+   A preview whose columns re-wrapped to fit the operator's pane would stop
+   being a preview of what the customer receives, which is the only reason
+   this renderer exists. A PDF viewer zooms for the same reason.
+
+   Scaled with `zoom`, which scales the LAYOUT BOX. `transform` does not, so
+   it required the wrapper's height to be reserved by hand — and a reserve of
+   one page's height silently cropped the notes, the T&Cs and the acceptance
+   block off every quote that runs longer than a page. See the component.  */
+
+.pp-fit {
+  width: 100%;
+  /* Horizontal ONLY. `overflow: hidden` clipped the document at the reserved
+     height and silently removed the notes, the T&Cs and the acceptance block
+     from a preview that still looked complete. Vertical overflow must be able
+     to escape; the wrapper's height is measured from the document, not
+     assumed from a page. */
+  overflow-x: hidden;
+}
+
+.pp-fit-inner {
+  width: 816px;
+  /* `zoom` is set inline, from the measured width ratio. It scales the layout
+     box, so this element needs no height of its own and the document can
+     never be cropped by one that is wrong. */
+}
+
+/* Canon centres the sheet in a wide stage (`margin: 0 auto`). Inside a pane
+   the wrapper is already the sheet's width, so centring there would do
+   nothing on the sheet and hide the origin the transform scales from. */
+.pp-fit .pp-sheet {
+  margin: 0;
+}
+
+/* Canon pins `.pp-footer` to the bottom of a fixed page box, modelling
+   react-pdf's `fixed` per-page chrome. This preview is one continuous
+   document, so there is no page for it to pin to — absolutely positioned it
+   printed across the middle of the terms grid, over live content, on any
+   quote that runs past a single page (which is most of them, once notes and
+   T&Cs are present). Returned to flow at the document's end. */
+.pp-fit .pp-footer {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  margin-top: 26px;
+}
+
+/* Canon reserves the footer band with the sheet's bottom padding. In flow the
+   footer occupies its own space, so the reserve becomes a trailing gap. */
+.pp-fit .pp-sheet {
+  padding-bottom: 40px;
+}
