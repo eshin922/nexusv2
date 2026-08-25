@@ -124,7 +124,7 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed, presentation, belowFloor } =
+    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed, presentation, belowFloor, accountingInstruction } =
       result;
     if (project.id !== projectId) notFound();
 
@@ -376,6 +376,7 @@ export default async function CustomerViewPage({
           // a tier's own toggle the moment it was hidden — a one-way door.
           presentationTiers={presentation.allTiers}
           belowFloor={belowFloor}
+          accountingInstruction={accountingInstruction}
           governed={governed}
           presentationRestored={presentationRestored}
           acceptancePrefill={acceptancePrefill}

@@ -107,6 +107,15 @@ export type ResolveCustomerViewResult =
        * would have allowed. Two answers to one question; now one.
        */
       belowFloor: import("./below-floor-projection").BelowFloorProjection;
+      /**
+       * Card 3's authored instruction to Accounting.
+       *
+       * Deliberately NOT on `CustomerView`. That type is the customer document,
+       * and this is the one field on Card 3 the customer must never see - so it
+       * travels beside the view rather than inside it, and the boundary
+       * verifier keeps the render tree unable to reach it either way.
+       */
+      accountingInstruction: string | null;
       /** Card 1 · one row per governed recoverable charge. */
       recoveryRows: import("./commercial-recovery/workspace-view").RecoveryChargeRow[];
       /**
@@ -621,6 +630,12 @@ export async function resolveCustomerView(args: {
      */
     recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
     belowFloor: belowFloorProjection,
+    // Live on a draft, frozen once sent - the same rule as every other quote
+    // fact, and the reason is the same: Accounting acts on this after
+    // acceptance, and it must describe the quote it was written for.
+    accountingInstruction: isSent
+      ? (quote.accountingInstruction ?? null)
+      : (quote.accountingInstruction ?? null),
     presentation: {
       layout: profile?.layout ?? "tier_table",
       detailLevel: profile?.detailLevel ?? "itemized",
