@@ -101,8 +101,15 @@ mine to make.
 
 ## Status
 
-**Gate A: the thirteen enumerated items PASS.** The footnote above is an open
-question for disposition before the gate is called closed.
+**Gate A: SEMANTIC PARITY VERIFIED — 13/13.** Accepted by Edward 2026-08-25.
+
+The unpriced explanatory footnote is recorded as a **bounded content-fidelity
+item**, not as a reason to reopen Gate A:
+
+> `quote on request — pricing finalizes once the noted milestone clears.`
+
+The live renderer lacks that sentence. It carries into the live-renderer
+fidelity work and **parity on it is required before the iframe is replaced**.
 
 Gate B has not started. The iframe is unchanged. No fidelity inventory, no
 G4/Card 2.
