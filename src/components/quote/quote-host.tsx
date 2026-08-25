@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useLayoutEffect, useRef } from "react";
+import { useEffect, useState, useLayoutEffect, useRef } from "react";
 import type {
   CustomerView,
   CustomerViewDetailLevel,
@@ -76,6 +76,14 @@ function buildIframeSrc(
  * query string. Collisions would show a stale document, which is the defect
  * this is fixing, so it is 32-bit rather than something shorter.
  */
+/**
+ * How long the preview waits for the operator to stop changing things.
+ *
+ * Long enough that tabbing through several treatments regenerates once; short
+ * enough that a single deliberate change does not feel abandoned.
+ */
+const PREVIEW_COALESCE_MS = 600;
+
 function hashString(input: string): string {
   let h = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -143,46 +151,72 @@ export function QuoteHost({
     setIncludeSpecAddendum: setAddendumOn,
   } = useQuoteAxis();
 
-  // Cache-buster: the quote's lifecycle state AND its commercial recovery
-  // state.
+  // ── THE PREVIEW'S VERSION KEY ───────────────────────────────────────────
   //
-  // ── WHY THE SECOND HALF EXISTS ──────────────────────────────────────────
+  // This was `view.quote.sentDate ?? \`draft-${quoteStatus}\``, a constant on
+  // drafts, so the iframe never reloaded and the document beside the control
+  // showed the state from page load. The first repair keyed it on the recovery
+  // instruction, which fixed Card 1 and left a narrower version of the same
+  // hole: a packaging or freight edit that moves unit prices without touching
+  // OTC recovery leaves that digest unchanged, and the document goes stale
+  // again.
   //
-  // This was `view.quote.sentDate ?? \`draft-${quoteStatus}\``, which on a
-  // DRAFT is the constant string "draft-draft". It never moved for any
-  // commercial edit, and the iframe is keyed on this src — so electing a
-  // recovery treatment updated the rail and left the document beside it
-  // showing the state before the election.
+  // So the key is the WHOLE projected view — the object the renderer is built
+  // from. Anything that can change the document changes the key, by
+  // construction rather than by remembering to add a field.
   //
-  // The operator reported it twice, and both reports were right in a way that
-  // looked like two different bugs: first "the buttons don't change anything
-  // on the quote", then "Artwork & plate is Separate but has no line in the
-  // PDF". The projection was correct throughout — captured either side of an
-  // election, the artwork line appears exactly when the placement is separate
-  // and disappears exactly when it is in unit price. What they were reading
-  // was a document rendered before they touched the control.
-  //
-  // The original cache-buster was not wrong; it was built for the draft → sent
-  // transition and did that job. What it never accounted for is that a draft's
-  // commercial content can change while the operator is looking at it.
-  //
-  // Keyed on the FROZEN INSTRUCTION projection rather than on the elections,
-  // because the instruction is what the document is built from: it moves when
-  // an election moves, when a legacy placement moves, and when an amount moves,
-  // and it does not move when something the customer never sees changes. This
-  // is a cache key over authoritative data, not a second calculation — nothing
-  // here decides anything, it only notices.
-  const recoveryVersion = recoveryInstructions
-    .map((i) => `${i.chargeKey}:${i.ownerRef}:${i.tierId}:${i.treatment}:${i.governedRecovery ?? "?"}:${i.separateInvoiceAmount ?? "?"}`)
-    .join("|");
-  const iframeVersion = `${view.quote.sentDate ?? `draft-${quoteStatus}`}~${hashString(recoveryVersion)}`;
-  const iframeSrc = buildIframeSrc(
+  // It fingerprints; it does not decide. No commercial value is derived here
+  // and nothing is reconstructed: `view` is already resolved, and this only
+  // notices that it differs from the last one.
+  const viewDigest = hashString(JSON.stringify(view));
+  const iframeVersion = `${view.quote.sentDate ?? `draft-${quoteStatus}`}~${viewDigest}`;
+  const targetSrc = buildIframeSrc(
     quoteId,
     pdfLayout,
     detailLevel,
     addendumOn,
     iframeVersion,
   );
+
+  // ── THE PREVIEW FOLLOWS; IT DOES NOT LEAD ───────────────────────────────
+  //
+  // Rendering the customer PDF costs 1904-2627ms, measured three times on
+  // production. Keying the iframe directly off `targetSrc` put that render in
+  // front of the operator's answer: elect a treatment, wait for a PDF nobody
+  // asked for yet, then see the selection move.
+  //
+  // The authoritative commercial state — Card 1's selection and the margin
+  // cards — comes from the RSC re-render and is already on screen. The preview
+  // catches up afterwards, from that same resolved state. It is one authority
+  // arriving at two speeds, not two authorities.
+  //
+  // COALESCED. Each change re-arms the timer, so a burst of elections costs ONE
+  // regeneration rather than one per click. Writes are untouched: they stay
+  // immediate and individually governed, and only the artifact is coalesced.
+  // Same discipline as the realtime reconcile pipe, pointed outward.
+  // DOUBLE-BUFFERED, so the shell never blanks.
+  //
+  // Swapping the src on the visible iframe tears the document down, shows an
+  // empty pane for the ~2s the render takes, and then paints the new one. That
+  // reads as the surface reloading, which is exactly what an operator reported
+  // — and it is not made acceptable by the write underneath being correct.
+  //
+  // Instead the replacement loads in a second, hidden iframe and is promoted
+  // only once it has finished. The visible document stays mounted and readable
+  // throughout; the swap itself is a single frame. Nothing else in the tree is
+  // keyed on any of this, so the rail, its scroll position, the cards and the
+  // focused element are untouched.
+  //
+  // The PDF plugin's own zoom and page position cannot survive a new document —
+  // that state belongs to the viewer, not to us. Everything else does.
+  const [shownSrc, setShownSrc] = useState(targetSrc);
+  const [loadingSrc, setLoadingSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (targetSrc === shownSrc || targetSrc === loadingSrc) return;
+    const t = setTimeout(() => setLoadingSrc(targetSrc), PREVIEW_COALESCE_MS);
+    return () => clearTimeout(t);
+  }, [targetSrc, shownSrc, loadingSrc]);
+  const previewStale = loadingSrc !== null || targetSrc !== shownSrc;
 
   // Slice 11 Step 6 FU — snapshot-lock indicator. Sent quotes
   // render the immutable snapshot (per Step 4.4 read-path); the
@@ -302,9 +336,31 @@ export function QuoteHost({
               </div>
             )}
 
+            {/* Restrained, and deliberately NOT a blocker: the commercial
+                controls stay live while this shows. The operator has their
+                authoritative answer already; this only says the document is
+                catching up. */}
+            {previewStale && (
+              <div className="cv-preview-updating" role="status" data-testid="cv-preview-updating">
+                Updating preview…
+              </div>
+            )}
             <div className="cv-canvas">
               <div className="cv-sheet">
-                <iframe key={iframeSrc} src={iframeSrc} title="Customer PDF preview" />
+                <iframe key={shownSrc} src={shownSrc} title="Customer PDF preview" />
+                {loadingSrc && (
+                  <iframe
+                    key={loadingSrc}
+                    src={loadingSrc}
+                    title="Customer PDF preview (loading)"
+                    aria-hidden
+                    className="cv-sheet-buffer"
+                    onLoad={() => {
+                      setShownSrc(loadingSrc);
+                      setLoadingSrc(null);
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -320,7 +376,7 @@ export function QuoteHost({
             onPdfLayoutChange={setPdfLayout}
             detailLevel={detailLevel}
             onDetailLevelChange={setDetailLevel}
-            pdfHref={iframeSrc}
+            pdfHref={targetSrc}
             pageCount={addendumOn ? 2 : 1}
           />
         </div>
@@ -434,9 +490,12 @@ export function QuoteHost({
             margin: "0 auto",
           }}
         >
+          {/* Legacy path: direct and uncoalesced, as it has always been.
+              The two-pane composition is what makes following worthwhile,
+              and this branch does not have it. */}
           <iframe
-            key={iframeSrc}
-            src={iframeSrc}
+            key={targetSrc}
+            src={targetSrc}
             title="Customer PDF preview"
             style={{
               width: "100%",
