@@ -130,6 +130,13 @@ export function CardCommercialRecovery({
   const [, startTransition] = useTransition();
 
   const present = rows.filter((r) => r.present);
+  // Rows carrying ONLY a Direct Service contribution. They are not recovery
+  // charges — a Direct Service is already its own priced customer line, with
+  // no fee for an election to place — so they get no control. They are still
+  // shown, because they were shown yesterday as controls advertising amounts
+  // like $4,480 and $9,800, and dropping them silently would look like the
+  // money went somewhere. Named for what they are instead.
+  const serviceOnly = rows.filter((r) => !r.present && r.serviceContext !== null);
 
   /**
    * Picking elects. The document and the margin cards are the confirmation.
@@ -227,7 +234,13 @@ export function CardCommercialRecovery({
               <div className="cv-charge-head">
                 <span className="cv-charge-label">{row.label}</span>
                 <span className="cv-charge-amt">
-                  {/* BV-013 · D5: unknown recovery is unavailable, never $0. */}
+                  {/* The ACTIONABLE amount — what this control can move.
+                      It used to be the sum of the one-time fee and any Direct
+                      Service sharing the same BV-011 destination, which is the
+                      right aggregation for accounting and the wrong one for a
+                      control: on a production quote this read $12,510 while
+                      the election moved $5,600.
+                      BV-013 · D5: unknown recovery is unavailable, never $0. */}
                   {row.totalRecovery === null ? "not priced" : usd(row.totalRecovery)}
                 </span>
               </div>
@@ -254,6 +267,16 @@ export function CardCommercialRecovery({
                       ? " · inherited"
                       : " · elected"}
               </div>
+              {row.serviceContext !== null && (
+                <div className="cv-charge-service">
+                  plus{" "}
+                  {row.serviceContext.recovery === null
+                    ? "an unpriced"
+                    : usd(row.serviceContext.recovery)}{" "}
+                  billed as a service line — already priced to the customer, not
+                  a one-time charge, and not moved by this control
+                </div>
+              )}
               <div className="cv-opts">
                 {row.options.map((opt) => {
                   // The treatment IN FORCE, whatever put it there. Reading this
@@ -322,6 +345,34 @@ export function CardCommercialRecovery({
           );
         })
       )}
+
+      {/* Charges whose ONLY contribution is a Direct Service.
+          There is no fee to place, so there is no election — the control that
+          used to sit here advertised $4,480 on four production quotes and
+          $9,800 on another, and could move none of it. Shown, not silently
+          dropped: the amount was on this card yesterday, and removing it
+          without a word would read as money going missing rather than as a
+          line being correctly reclassified. */}
+      {serviceOnly.map((row) => (
+        <div
+          key={row.chargeKey}
+          className="cv-charge cv-charge-service-only"
+          data-testid={`charge-service-${row.chargeKey}`}
+        >
+          <div className="cv-charge-head">
+            <span className="cv-charge-label">{row.label}</span>
+            <span className="cv-charge-amt">
+              {row.serviceContext?.recovery === null
+                ? "not priced"
+                : usd(row.serviceContext?.recovery ?? 0)}
+            </span>
+          </div>
+          <div className="cv-charge-policy">
+            billed as a service line · already priced to the customer · not a
+            one-time recovery charge
+          </div>
+        </div>
+      ))}
 
       <div className="cv-margin-block">
         <div className="cv-eyebrow">

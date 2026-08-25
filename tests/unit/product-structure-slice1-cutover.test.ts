@@ -497,6 +497,22 @@ const classifiedIdentityFiles = new Set([
   // id sets only, resolves nothing through the legacy junction for any
   // commercial purpose, and writes nothing.
   "scripts/organizer/freight-discriminator-evidence.ts",
+  // CLASSIFIED — read-only Card 1 grain classification. Reads
+  // `assembly_production_inputs` and reports, per recovery charge, how much of
+  // what Card 1 advertises is an Item-Group-authored one-time fee versus a
+  // Direct Service leaf that is already its own priced customer line.
+  //
+  // It touches the identity only through the table's own XOR: a production row
+  // carries `assembly_id` OR `quote_leaf_id`, and which one is set IS the
+  // grain. It resolves nothing through the legacy junction, joins no
+  // commercial value through the identity, and writes nothing.
+  "scripts/gate-1b/card1-grain-classification.ts",
+  // CLASSIFIED — read-only certification of the same repair. Reads the same
+  // XOR (`assembly_id` vs `quote_leaf_id`) to separate the actionable one-time
+  // fee from the Direct Service contribution, and asserts every control
+  // governs exactly what it advertises. Elects nothing, resolves nothing
+  // through the legacy junction, writes nothing.
+  "scripts/gate-1b/card1-grain-certify.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

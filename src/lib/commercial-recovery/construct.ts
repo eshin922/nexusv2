@@ -61,11 +61,31 @@ export type ChargeEconomicsInput = {
   chargeKey: RecoveryChargeKey;
   cost: number;
   recoverableSell: number | null;
+  /**
+   * The commercial grain of the source. Optional here because the constructor
+   * does not use it: placement, revenue and amortization are identical for
+   * both, and must stay identical -- this repair is an operator/control
+   * boundary, not an economic one.
+   *
+   * Carried only so it survives the construction and reaches the presentation
+   * layer, which is the one place that has to tell an actionable fee from a
+   * Direct Service line that is already its own priced customer line.
+   */
+  ownerKind?: "assembly" | "direct_service";
 };
 
 export type PlacedCharge = {
   chargeKey: RecoveryChargeKey;
   placement: ChargePlacement;
+  /**
+   * Copied through from the economics, unread by everything here.
+   *
+   * A Direct Service leaf writes its own cost into a fee column, so without
+   * this the placed charge is indistinguishable from a fee an Item Group
+   * authored -- which is how Card 1 came to advertise $12,510 of recovery for
+   * a control able to move $5,600, and $9,800 for one able to move nothing.
+   */
+  ownerKind: "assembly" | "direct_service";
   /**
    * Whether an operator elected this placement or it fell through to the
    * legacy per-assembly boolean.
@@ -438,6 +458,7 @@ export function composeFromPlacements(
         chargeKey: e.chargeKey,
         placement,
         source,
+        ownerKind: e.ownerKind ?? "assembly",
         // Copied. Not recomputed, not re-rated, not rounded.
         cost: e.cost,
         recoverableSell: e.recoverableSell,

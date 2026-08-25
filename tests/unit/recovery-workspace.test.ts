@@ -1016,3 +1016,154 @@ test("every custom property the Customer View references is defined", async () =
   assert.ok(used.size > 10, `only ${used.size} tokens scanned — the regex is not matching`);
   assert.ok(defined.has("--ui"), "the token file was not read");
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// COMMERCIAL GRAIN · a control governs a FEE, never a priced service line
+// ═══════════════════════════════════════════════════════════════════════
+//
+// `assembly_production_inputs` carries an XOR — `assembly_id` OR
+// `quote_leaf_id` — and a Direct Service leaf writes its own cost into a fee
+// column. `formulation` writes `rdTotal`; `testing_micros` is written by a
+// Direct Service and by nothing else.
+//
+// Until the grain was carried through, the charge economics could not tell the
+// two apart, so Card 1 summed them into one actionable amount and attached one
+// recovery election to the total. On production that read $12,510 for a control
+// able to move $5,600, and $9,800 and $4,480 for controls able to move nothing
+// whatever. An operator elected the largest number on the surface and watched
+// most of it sit still — which is exactly what it did.
+//
+// A Direct Service is ALREADY a priced customer line. There is no fee to place,
+// so there is nothing for an election to move. Recovery treatment is NOT
+// extended to it; the amount is disclosed as context and carries no control.
+
+const svcProd = (over: Record<string, unknown> = {}) =>
+  ({
+    quoteSkuId: "leaf", tierId: "t1",
+    ownerKind: "direct_service",
+    allocateServiceFeesToCost: false,
+    setupFeeTotal: null, toolingTotal: null,
+    toolingArtworkTotal: null, artworkTotal: null, rdTotal: 2000,
+    testingMicrosTotal: null, otherServiceTotal: null,
+    fillingBlendingCost: null, cmAssemblyTotal: null, bulkRawCost: null,
+    actualUnitsProduced: null,
+    ...over,
+  }) as never;
+
+const feeProd = (over: Record<string, unknown> = {}) =>
+  ({
+    quoteSkuId: "leaf", tierId: "t1",
+    ownerKind: "assembly",
+    allocateServiceFeesToCost: false,
+    setupFeeTotal: null, toolingTotal: null,
+    toolingArtworkTotal: null, artworkTotal: null, rdTotal: 1000,
+    testingMicrosTotal: null, otherServiceTotal: null,
+    fillingBlendingCost: null, cmAssemblyTotal: null, bulkRawCost: null,
+    actualUnitsProduced: null,
+    ...over,
+  }) as never;
+
+/** One leaf per production row, so each keeps its own owner kind. */
+function costingOf(prods: unknown[], rate: number | null) {
+  return {
+    skuRollups: prods.map((p, i) => ({
+      skuId: `leaf-${i}`,
+      perTier: [
+        {
+          tierId: "t1",
+          constructed: constructCommercial(
+            chargeEconomicsFor(p as never, rate),
+            [],
+            false,
+          ),
+        },
+      ],
+    })),
+  };
+}
+
+test("a fee and a service sharing one charge do not share one figure", () => {
+  const rows = buildRecoveryWorkspace({
+    costing: costingOf([feeProd(), svcProd()], 0.4),
+    isLeaf: ownsCharges,
+    elections: [],
+    allocationStates: [false],
+  });
+  const rd = rows.find((r) => r.chargeKey === "rd_formulation")!;
+
+  // The actionable figure is the FEE alone — 1000 at 0.4.
+  assert.equal(rd.totalCost, 1000);
+  assert.equal(rd.totalRecovery, 1400);
+
+  // The service is carried apart, not added in and not discarded.
+  assert.deepEqual(rd.serviceContext, { cost: 2000, recovery: 2800 });
+
+  // The pre-repair figure, asserted explicitly so the regression has a name.
+  // Summing them gave 4200 against a control that could only ever move 1400.
+  assert.notEqual(rd.totalRecovery, 4200);
+
+  // And it still offers a control, because there IS a fee to place.
+  assert.equal(rd.present, true);
+});
+
+test("a charge that is only a service offers no control at all", () => {
+  const rows = buildRecoveryWorkspace({
+    costing: costingOf([svcProd()], 0.4),
+    isLeaf: ownsCharges,
+    elections: [],
+    allocationStates: [false],
+  });
+  const rd = rows.find((r) => r.chargeKey === "rd_formulation")!;
+
+  // Not present as a DECISION. This is the $9,800-and-$4,480 case: a control
+  // advertising an amount it cannot move is worse than no control, because the
+  // operator acts on it and nothing happens.
+  assert.equal(rd.present, false);
+  assert.equal(rd.totalCost, 0);
+
+  // But the money is not hidden — it is disclosed as what it is.
+  assert.deepEqual(rd.serviceContext, { cost: 2000, recovery: 2800 });
+});
+
+test("a service placed differently cannot blank the fee's selected segment", () => {
+  // `placements` drives which segment reads as in force. When the service was
+  // counted, a service placed differently from the fee made the row `mixed`,
+  // no segment could honestly claim to be in force, and the control rendered
+  // with nothing selected on a quote that plainly had a treatment.
+  const rows = buildRecoveryWorkspace({
+    costing: costingOf(
+      [feeProd(), svcProd({ allocateServiceFeesToCost: true })],
+      0.4,
+    ),
+    isLeaf: ownsCharges,
+    elections: [],
+    allocationStates: [false, true],
+  });
+  const rd = rows.find((r) => r.chargeKey === "rd_formulation")!;
+
+  assert.equal(rd.mixed, false, "the service must not make the fee read as mixed");
+  assert.equal(rd.placements.length, 1);
+  assert.notEqual(rd.effectiveMode, null, "a fee with one placement has a treatment");
+});
+
+test("the grain reaches the projection without the math branching on it", async () => {
+  // The repair is an operator/control boundary and must not be an economic
+  // one. `ownerKind` is carried and read only by the presentation layer; if
+  // the math ever branches on it, placement or pricing could differ by owner
+  // and the customer's number would depend on who authored a row.
+  const costing = codeOnly(await read("src/lib/costing.ts"));
+  const construct = codeOnly(await read("src/lib/commercial-recovery/construct.ts"));
+  for (const [name, src] of [["costing", costing], ["construct", construct]] as const) {
+    for (const branch of [
+      /if\s*\([^)]*ownerKind/,
+      /ownerKind\s*===\s*"direct_service"\s*\?/,
+      /switch\s*\([^)]*ownerKind/,
+    ]) {
+      assert.doesNotMatch(
+        src,
+        branch,
+        `${name} branches on ownerKind — the grain must not change any amount`,
+      );
+    }
+  }
+});

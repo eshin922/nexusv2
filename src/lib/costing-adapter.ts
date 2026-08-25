@@ -425,6 +425,11 @@ export function buildQuoteCostingInputFromNewModel(
     production.push({
       quoteSkuId: targetLeafId,
       tierId: api.tierId,
+      // The XOR, carried rather than re-derived. `quoteLeafId` set means a
+      // Direct Service authored this row; `assemblyId` means an Item Group
+      // did. Downstream could not previously tell, and Card 1 summed a priced
+      // service line into an actionable fee because of it.
+      ownerKind: api.quoteLeafId ? "direct_service" : "assembly",
       allocateServiceFeesToCost: api.allocateServiceFeesToCost,
       fillingBlendingCost: numOrNull(api.fillingBlendingCost),
       cmAssemblyTotal: numOrNull(api.cmAssemblyTotal),

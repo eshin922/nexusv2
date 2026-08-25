@@ -101,10 +101,40 @@ export type RecoveryChargeRow = {
    *     in force and no segment can honestly claim to be it.
    */
   effectiveMode: RecoveryMode | null;
-  /** Summed straight off the constructed state. Never recomputed. */
+  /**
+   * The ACTIONABLE cost — one-time fees only, the portion this row's control
+   * can actually move. Summed straight off the constructed state, never
+   * recomputed.
+   */
   totalCost: number;
   /** Null when any instance's recovery is unknown — see BV-013. */
   totalRecovery: number | null;
+  /**
+   * A Direct Service contribution sharing this charge's accounting
+   * destination, held APART from the actionable figures above.
+   *
+   * ── WHY THIS IS NOT ADDED IN ────────────────────────────────────────────
+   *
+   * `rd_total` and the `formulation` Direct Service both resolve to the BV-011
+   * destination `OTC - Formulation`. Aggregating them is correct for
+   * accounting and wrong for a control: the recovery election moves the fee,
+   * and a Direct Service is ALREADY a priced customer line with no fee to
+   * place, so an election over it is inert.
+   *
+   * Summed together, Card 1 advertised $12,510 of recovery on a production
+   * quote where the control could move $5,600 -- and $9,800 on another where
+   * it could move nothing whatever. The operator elected the largest number on
+   * the surface and watched most of it sit still, which is exactly what it did.
+   *
+   * Null when the charge carries no service contribution, which is every
+   * charge on all but two quotes in the current population. Not zero: zero
+   * would put a Direct Service row on a charge that has none.
+   *
+   * Recovery treatment is NOT extended to Direct Service leaves -- that would
+   * be new commercial functionality. This is presentation: the amount is
+   * disclosed as context and carries no control.
+   */
+  serviceContext: { cost: number; recovery: number | null } | null;
   options: ChargeModeOption[];
 };
 
@@ -147,11 +177,36 @@ export function buildRecoveryWorkspace(input: {
 
   return RECOVERY_CHARGES.map((policy) => {
     const placed = placedByCharge.get(policy.key) ?? [];
-    const placements = [...new Set(placed.map((p) => p.placement))];
+    // Placement — and therefore the segment shown as in force — is scoped to
+    // the ACTIONABLE charges. A Direct Service placed differently from the fee
+    // made the row read `mixed`, so no segment could honestly claim to be in
+    // force and the control rendered with nothing selected: the "R&D shows no
+    // election on a quote that plainly has one" case. The service was never
+    // something the control placed, so it must not be something the control
+    // reports on.
+    const actionable = placed.filter((p) => p.ownerKind !== "direct_service");
+    const placements = [...new Set(actionable.map((p) => p.placement))];
 
+    // Split by COMMERCIAL GRAIN, not by charge key. A one-time fee is
+    // actionable; a Direct Service leaf is already a priced customer line.
+    // Done for every charge uniformly rather than special-casing the one that
+    // surfaced it -- the classification pass found `rd_formulation` is the only
+    // charge carrying a service contribution today, and a rule that only knew
+    // about that key would be a fix for this quote rather than for the shape.
     let totalCost = 0;
     let totalRecovery: number | null = 0;
+    let svcCost = 0;
+    let svcRecovery: number | null = 0;
+    let svcPresent = false;
     for (const p of placed) {
+      if (p.ownerKind === "direct_service") {
+        svcPresent = true;
+        svcCost += p.cost;
+        if (svcRecovery !== null) {
+          svcRecovery = p.recoverableSell === null ? null : svcRecovery + p.recoverableSell;
+        }
+        continue;
+      }
       totalCost += p.cost;
       if (totalRecovery !== null) {
         // Unknown recovery makes the total unknown, not smaller. A number here
@@ -178,7 +233,10 @@ export function buildRecoveryWorkspace(input: {
       chargeKey: policy.key,
       label: policy.label,
       grain: chargePolicy(policy.key).grain,
-      present: placed.length > 0,
+      // Actionable presence. A charge whose only contribution is a Direct
+      // Service has no fee to place, so offering it a recovery control would
+      // be offering an inert one -- which is the $9,800-moves-nothing case.
+      present: placed.some((p) => p.ownerKind !== "direct_service"),
       placements,
       mixed: placements.length > 1,
       electedMode: elected,
@@ -189,6 +247,7 @@ export function buildRecoveryWorkspace(input: {
         placements.length === 1 ? MODE_BY_PLACEMENT[placements[0]] : null,
       totalCost,
       totalRecovery,
+      serviceContext: svcPresent ? { cost: svcCost, recovery: svcRecovery } : null,
       options,
     };
   });
