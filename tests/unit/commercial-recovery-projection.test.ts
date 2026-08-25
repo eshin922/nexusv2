@@ -183,3 +183,24 @@ test("only a separate_line placement emits a customer line", async () => {
     "the seam no longer gates the line on the construction's placement",
   );
 });
+
+test("no two governed charges print the same customer-facing qty label", async () => {
+  // A quote can carry both `toolingTotal` and the legacy combined
+  // `tooling_artwork_total`. Both printed "1 (tooling)", so the customer saw
+  // two identically-labelled lines with different amounts, and an operator who
+  // elected Tooling into the unit price saw a line still saying "(tooling)"
+  // and reported the control as broken. It was not: it had correctly moved the
+  // OTHER charge's line.
+  //
+  // Asserted against the source table rather than a rendered document, because
+  // the collision is a property of the table and a fixture would only catch it
+  // on a quote that happens to carry both.
+  const src = await readFile(
+    new URL("../../src/lib/commercial-projection.ts", import.meta.url),
+    "utf8",
+  );
+  const labels = [...src.matchAll(/qtyLabel: "([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(labels.length >= 6, "the OTC table was not found");
+  const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+  assert.deepEqual(dupes, [], `duplicate customer-facing qty labels: ${dupes.join(", ")}`);
+});
