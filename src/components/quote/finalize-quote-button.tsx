@@ -3,6 +3,9 @@
 import { useState, useTransition } from "react";
 
 import { sendQuote } from "@/app/actions/quotes";
+import { ERR } from "@/lib/action-result";
+import { UnresolvedCostsNotice } from "@/components/quote-umbrella/unresolved-costs-notice";
+import type { UnresolvedQuoteCost } from "@/lib/quote-cost-completeness-contract";
 import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
 
 /**
@@ -52,6 +55,20 @@ export function FinalizeQuoteButton({
   const { pdfLayout, detailLevel, includeSpecAddendum } = useQuoteAxis();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // ── ONE REFUSAL RENDERS AS A WORK LIST, NOT A SENTENCE ─────────────────
+  //
+  // `action-result.ts` says so where the code is declared: UNRESOLVED_COSTS
+  // "has its own code because it is the one refusal the UI must render as a
+  // work list rather than a sentence — `error.details` carries the rows."
+  //
+  // The first version of this button showed `error.message` for everything,
+  // so an operator was told "Resolve costs before sending." and not WHICH
+  // costs — a refusal that names no work is a dead end wearing the clothes of
+  // an instruction. Caught on the consolidated walk, by being refused.
+  //
+  // Read from the refusal itself rather than from a prop, so the list can
+  // never describe a different read than the one that declined.
+  const [unresolved, setUnresolved] = useState<readonly UnresolvedQuoteCost[]>([]);
 
   return (
     <>
@@ -68,6 +85,7 @@ export function FinalizeQuoteButton({
         data-testid="cv-primary"
         onClick={() => {
           setError(null);
+          setUnresolved([]);
           const fd = new FormData();
           fd.set("quoteId", quoteId);
           // The axes the operator is looking at, so the artifact that is
@@ -83,12 +101,22 @@ export function FinalizeQuoteButton({
             // tier and distinguishes never-authorized from invalidated from
             // state-has-changed — three refusals that send an operator to three
             // different places.
-            if (!r.ok) setError(r.error.message);
+            if (r.ok) return;
+            if (r.error.code === ERR.UNRESOLVED_COSTS && Array.isArray(r.error.details)) {
+              setUnresolved(r.error.details as UnresolvedQuoteCost[]);
+              return;
+            }
+            setError(r.error.message);
           });
         }}
       >
         {pending ? "Finalizing…" : label}
       </button>
+      {unresolved.length > 0 && (
+        <div data-testid="cv-finalize-unresolved">
+          <UnresolvedCostsNotice unresolved={unresolved} />
+        </div>
+      )}
       {error && (
         <div className="cv-finalize-error" role="alert" data-testid="cv-finalize-error">
           {error}
