@@ -194,29 +194,42 @@ export function QuoteHost({
   // regeneration rather than one per click. Writes are untouched: they stay
   // immediate and individually governed, and only the artifact is coalesced.
   // Same discipline as the realtime reconcile pipe, pointed outward.
-  // DOUBLE-BUFFERED, so the shell never blanks.
+  // ── TWO FRAMES, ONE VISIBLE. NEITHER IS EVER TORN DOWN. ─────────────────
   //
-  // Swapping the src on the visible iframe tears the document down, shows an
-  // empty pane for the ~2s the render takes, and then paints the new one. That
-  // reads as the surface reloading, which is exactly what an operator reported
-  // — and it is not made acceptable by the write underneath being correct.
+  // The first attempt at this was not a double-buffer, and shipped: it loaded
+  // the replacement in a hidden frame, then "promoted" it by assigning its src
+  // to the VISIBLE frame's `key`. Changing a key unmounts and remounts, so the
+  // visible frame threw away the buffer's work and loaded the same document a
+  // second time from scratch. The operator still saw the pane blank; the flash
+  // had only moved 600ms later. Reported as "I'm still seeing the page
+  // refresh", which is exactly what it was.
   //
-  // Instead the replacement loads in a second, hidden iframe and is promoted
-  // only once it has finished. The visible document stays mounted and readable
-  // throughout; the swap itself is a single frame. Nothing else in the tree is
-  // keyed on any of this, so the rail, its scroll position, the cards and the
-  // focused element are untouched.
+  // A real double-buffer never moves a src between frames. Two slots stay
+  // mounted for the life of the surface, each with a stable key. A new document
+  // loads into whichever slot is currently hidden, and promotion is a CSS
+  // visibility flip on an already-rendered frame — no unmount, no refetch, no
+  // blank, and the swap costs one frame.
   //
-  // The PDF plugin's own zoom and page position cannot survive a new document —
-  // that state belongs to the viewer, not to us. Everything else does.
-  const [shownSrc, setShownSrc] = useState(targetSrc);
-  const [loadingSrc, setLoadingSrc] = useState<string | null>(null);
+  // Everything else in the tree is untouched by this, so rail scroll, the
+  // cards, and the focused element survive. The PDF plugin's own zoom belongs
+  // to the viewer and cannot cross documents; that is the one thing that
+  // legitimately resets.
+  const [slots, setSlots] = useState<{ a: string; b: string | null }>({ a: targetSrc, b: null });
+  const [active, setActive] = useState<"a" | "b">("a");
+  const shownSrc = active === "a" ? slots.a : (slots.b as string);
+  const idleKey = active === "a" ? "b" : "a";
+
   useEffect(() => {
-    if (targetSrc === shownSrc || targetSrc === loadingSrc) return;
-    const t = setTimeout(() => setLoadingSrc(targetSrc), PREVIEW_COALESCE_MS);
+    if (targetSrc === shownSrc) return;
+    // Already loading this exact document into the idle slot.
+    if (slots[idleKey] === targetSrc) return;
+    const t = setTimeout(() => {
+      setSlots((prev) => ({ ...prev, [idleKey]: targetSrc }));
+    }, PREVIEW_COALESCE_MS);
     return () => clearTimeout(t);
-  }, [targetSrc, shownSrc, loadingSrc]);
-  const previewStale = loadingSrc !== null || targetSrc !== shownSrc;
+  }, [targetSrc, shownSrc, slots, idleKey]);
+
+  const previewStale = targetSrc !== shownSrc;
 
   // Slice 11 Step 6 FU — snapshot-lock indicator. Sent quotes
   // render the immutable snapshot (per Step 4.4 read-path); the
@@ -347,19 +360,24 @@ export function QuoteHost({
             )}
             <div className="cv-canvas">
               <div className="cv-sheet">
-                <iframe key={shownSrc} src={shownSrc} title="Customer PDF preview" />
-                {loadingSrc && (
-                  <iframe
-                    key={loadingSrc}
-                    src={loadingSrc}
-                    title="Customer PDF preview (loading)"
-                    aria-hidden
-                    className="cv-sheet-buffer"
-                    onLoad={() => {
-                      setShownSrc(loadingSrc);
-                      setLoadingSrc(null);
-                    }}
-                  />
+                {(["a", "b"] as const).map((slot) =>
+                  slots[slot] === null ? null : (
+                    <iframe
+                      // Keyed by SLOT, never by src. The frame outlives every
+                      // document it shows, which is what makes the swap free.
+                      key={slot}
+                      src={slots[slot] as string}
+                      title="Customer PDF preview"
+                      aria-hidden={active !== slot}
+                      className={active === slot ? undefined : "cv-sheet-buffer"}
+                      onLoad={() => {
+                        // Promote only the slot that was loading, and only once
+                        // it carries what is currently wanted -- a late load
+                        // from a superseded document must not win.
+                        if (slot !== active && slots[slot] === targetSrc) setActive(slot);
+                      }}
+                    />
+                  ),
                 )}
               </div>
             </div>
