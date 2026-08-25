@@ -68,79 +68,64 @@ export function longDate(s: string | null | undefined): string {
  * tier, so the sum is taken down one column — a NULL entry meaning the fee is
  * allocated into that tier's unit prices and must not be added again.
  */
+/**
+ * ── THESE READ; THEY NO LONGER COMPUTE ───────────────────────────────────
+ *
+ * Each of these used to do commercial arithmetic here, at render time:
+ * `lineTotal` multiplied price by quantity, `serviceFeesTotal` summed the
+ * per-tier fee amounts, and `tierGrand` summed the line totals, folded in the
+ * fees and divided to get the displayed per-unit price.
+ *
+ * That made the renderer an authority over customer economics, and it cost a
+ * customer-facing defect: the T-1 repair found the per-unit divided by a ROW
+ * CARDINALITY, printing $4.00 where $12.00 was owed, correct only at one
+ * priced row — which is why it survived.
+ *
+ * The figures are now composed once on `CustomerView` and carried through the
+ * adapter unchanged. What is left here is lookup and selection: given the
+ * shape the document is being drawn in, which already-composed figure does it
+ * show? That is a presentation question, and it belongs here.
+ *
+ * The signatures are unchanged so that call sites did not have to move in the
+ * same commit that moved the arithmetic. One thing at a time.
+ */
+
+/** The tier's one-time fee total, as composed upstream. */
 export function serviceFeesTotal(
-  serviceFees: ReadonlyArray<CpdfServiceFee>,
-  ti: number
+  _serviceFees: ReadonlyArray<CpdfServiceFee>,
+  ti: number,
+  tiers?: ReadonlyArray<CpdfTier>
 ): number {
-  return serviceFees.reduce((a, f) => a + (f.tier_amounts[ti] ?? 0), 0);
+  return tiers?.[ti]?.money.feesTotal ?? 0;
 }
 
-/** price × tiers[ti].quantity; null-safe. CD `pdf-render.jsx:27`. */
+/** The extended amount for a SKU at a tier, as composed upstream. */
 export function lineTotal(
-  price: number | null,
-  tiers: ReadonlyArray<CpdfTier>,
+  sku: CpdfSku,
+  _tiers: ReadonlyArray<CpdfTier>,
   ti: number
 ): number | null {
-  return price == null ? null : price * tiers[ti].quantity;
+  return sku.tier_line_totals?.[ti] ?? null;
 }
 
-/** Per-tier grand total + flags. CD `pdf-render.jsx:28-38`.
+/**
+ * The tier's displayed figures.
  *
- * Returns:
- * - `total`: sum of (price × tier qty) across priced SKUs, plus
- *   `serviceFeesTotal` if `foldFees` true
- * - `hasUnpriced`: any SKU in set with null at this tier
- * - `perUnit`: blended all-in unit price (total ÷ units shipped at this tier)
+ * `foldFees` SELECTS between two already-composed totals; it does not create
+ * one. Folded is the turnkey figure, unfolded is goods only, and both were
+ * summed upstream in one place.
  */
 export function tierGrand(
-  skuSet: ReadonlyArray<CpdfSku>,
+  _skuSet: ReadonlyArray<CpdfSku>,
   tiers: ReadonlyArray<CpdfTier>,
   ti: number,
   foldFees: boolean,
-  serviceFees: ReadonlyArray<CpdfServiceFee>
+  _serviceFees: ReadonlyArray<CpdfServiceFee>
 ): { total: number; hasUnpriced: boolean; perUnit: number | null } {
-  let priced = 0;
-  let pricedCount = 0;
-  let hasUnpriced = false;
-  skuSet.forEach((s) => {
-    const p = s.tier_prices[ti];
-    if (p == null) {
-      hasUnpriced = true;
-    } else {
-      priced += p * tiers[ti].quantity;
-      pricedCount++;
-    }
-  });
-  const total = priced + (foldFees ? serviceFeesTotal(serviceFees, ti) : 0);
-
-  // T-1 repair (2026-08-11). Was `pricedCount * tiers[ti].quantity`.
-  //
-  // `pricedCount` is a ROW CARDINALITY, not a quantity — it counts priced
-  // SKU rows. Multiplying shipped quantity by it produced a denominator
-  // with no commercial meaning, and the printed per-unit came out at 1/N
-  // of the true value (N = priced row count). It read correctly only at
-  // N = 1, which is why it survived.
-  //
-  // Every row's price is per finished unit of the order: `lineTotal` (and
-  // `priced` above) multiplies EVERY row by the same `tiers[ti].quantity`.
-  // So `total` is already Σ(per-unit prices) × quantity, and the governed
-  // shipped quantity is the only correct divisor. Component-level
-  // multiplicity (`assembly_leaves.quantity`) is folded into each row's
-  // per-unit price upstream in the math layer, never into tier quantity.
-  //
-  // Invariant this restores — and the docstring's, and the one the PDF
-  // prints for the customer in `customer-pdf-grand-total-row.tsx`
-  // ("the turnkey total divided by units shipped"):
-  //
-  //     perUnit × tiers[ti].quantity === total
-  //
-  // `pricedCount > 0` is retained deliberately: it is the "no rows priced"
-  // signal. `customer-pdf-grand-total-row.tsx:82` reads `perUnit == null`
-  // to render "total on request" rather than a governed $0.00 (OD-005).
-  // Dropping that guard would print "from $0.00 /unit" on a fully
-  // unpriced tier carrying folded fees.
-  const shippedQty = tiers[ti].quantity;
-  const perUnit =
-    pricedCount > 0 && shippedQty > 0 ? total / shippedQty : null;
-  return { total, hasUnpriced, perUnit };
+  const m = tiers[ti].money;
+  return {
+    total: foldFees ? m.turnkeyTotal : m.goodsTotal,
+    hasUnpriced: m.hasUnpricedLine,
+    perUnit: foldFees ? m.perUnitTurnkey : m.perUnitGoods,
+  };
 }

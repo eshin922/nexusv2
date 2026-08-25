@@ -66,8 +66,17 @@ test("5 · treatment reaches neither the customer view nor the math", () => {
   // The reason removal cannot change output: nothing downstream consumes it.
   // If this ever fails, the affordance removal has become a behaviour change
   // and the disposition needs revisiting.
-  // The resolver never mentions it at all.
-  assert.doesNotMatch(resolver, /treatment/);
+  // The resolver never mentions it at all -- in CODE.
+  //
+  // Comments are stripped first. This fired on a comment reading "no recovery
+  // treatment is resolved", which is a statement that the resolver does NOT do
+  // the thing, and the guard read it as evidence that it does. A prose mention
+  // is not a use, and a check that cannot tell them apart reports the opposite
+  // of the truth on the sentence that says so most clearly.
+  const resolverCode = resolver
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(new RegExp("//[^" + String.fromCharCode(10) + "]*", "g"), "");
+  assert.doesNotMatch(resolverCode, /treatment/);
 
   // costing.ts DOES mention it — but only as a type literal on the freight
   // input shapes and as `treatment: leg.treatment`, carried through to the

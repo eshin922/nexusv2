@@ -123,8 +123,58 @@ export type CustomerViewSku = {
    * NULL element = "quote on request" (NOT $0.00, NOT em-dash).
    */
   tierPrices: ReadonlyArray<number | null>;
+  /**
+   * The extended amount per tier — `tierPrices[i] × tiers[i].quantity`,
+   * composed once here rather than in each renderer. NULL where the unit price
+   * is null, and never 0: an unpriced line is not a free one.
+   */
+  tierLineTotals: ReadonlyArray<number | null>;
   /** "step↓" | "flat" | "partial" | other shape descriptor. Drives flat-row treatment. */
   shape: "step↓" | "flat" | "partial" | string;
+};
+
+/**
+ * The customer-facing monetary facts for one tier.
+ *
+ * ── WHY THESE LIVE ON THE PROJECTION ────────────────────────────────────
+ *
+ * They used to be computed in the PDF renderer, at render time
+ * (`customer-pdf-helpers.ts`). That made the renderer an authority over
+ * customer economics, and it has already cost a customer-facing defect: the
+ * T-1 repair found the displayed per-unit divided by a ROW CARDINALITY,
+ * printing $4.00 where $12.00 was owed, correct only at one priced row.
+ *
+ * The litmus for what belongs here: if the PDF disappeared tomorrow, would the
+ * fact still need to exist? A tier's total, its displayed unit price, its
+ * one-time-fee total and whether it is fully priced all answer yes. Pagination
+ * and column widths answer no, and stay in the renderer.
+ *
+ * ── THIS IS COMPOSITION, NOT PRICING ────────────────────────────────────
+ *
+ * Every value here is a sum or a quotient of figures the projection ALREADY
+ * carries. No rate is looked up, no markup is decided, no recovery treatment is
+ * resolved — all of that happened upstream, in governed code, and arrives here
+ * already settled. Adding any of it to this layer would make a second costing
+ * engine out of a projection.
+ */
+export type CustomerViewTierMoney = {
+  /** Σ (unit price × tier quantity) across priced SKUs. Products only. */
+  goodsTotal: number;
+  /** Σ one-time fees billed AT THIS TIER. A fee null at a tier is not billed there. */
+  feesTotal: number;
+  /** `goodsTotal + feesTotal` — the all-in figure, fees folded. */
+  turnkeyTotal: number;
+  /**
+   * The two displayed unit prices: goods-only, and all-in.
+   *
+   * NULL when nothing is priced at this tier. Not zero — the document says
+   * "total on request" there, and a governed $0.00 is a price the firm has not
+   * quoted (OD-005).
+   */
+  perUnitGoods: number | null;
+  perUnitTurnkey: number | null;
+  /** Any SKU unpriced at this tier. Drives "total on request". */
+  hasUnpricedLine: boolean;
 };
 
 export type CustomerViewTier = {
@@ -132,6 +182,8 @@ export type CustomerViewTier = {
   /** "Tier 1" — never the internal label. */
   label: string;
   quantity: number;
+  /** Composed once, upstream of every renderer. See `CustomerViewTierMoney`. */
+  money: CustomerViewTierMoney;
 };
 
 export type CustomerViewServiceFee = {

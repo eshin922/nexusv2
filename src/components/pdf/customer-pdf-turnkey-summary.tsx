@@ -83,14 +83,14 @@ export function TurnkeySummary({
             Project setup {"&"} tooling — included in the unit price.
           </Text>
         )}
-        {foldFees && serviceFeesTotal(serviceFees, basisIdx) > 0 && (
+        {foldFees && serviceFeesTotal(serviceFees, basisIdx, tiers) > 0 && (
           // Slice 11 Step 8 matrix smoke Cluster 2B fix (2026-07-27):
           // gate on real fee total, not just `foldFees`. See
           // GrandTotalRow's matching fix for full rationale.
           <Text style={styles.tkIncl}>
             <Text style={styles.tkInclTick}>→</Text>
             {"  "}
-            One-time project {"&"} SKU fees ({money(serviceFeesTotal(serviceFees, basisIdx))})
+            One-time project {"&"} SKU fees ({money(serviceFeesTotal(serviceFees, basisIdx, tiers))})
             — folded into the total.
           </Text>
         )}

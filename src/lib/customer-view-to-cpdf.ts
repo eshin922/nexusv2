@@ -109,6 +109,8 @@ export function customerViewToCpdf(
     quantity: t.quantity,
     // Q-C: normalize `recommendedTierIdx` → per-tier boolean.
     recommended: view.recommendedTierIdx === idx,
+    // Carried, not recomputed. The adapter's job is layout shaping.
+    money: t.money,
   }));
 
   const skus: CpdfSku[] = view.skus.map((s) => ({
@@ -117,6 +119,7 @@ export function customerViewToCpdf(
     name: s.name,
     pack: s.pack,
     tier_prices: s.tierPrices,
+    tier_line_totals: s.tierLineTotals,
     shape: s.shape,
   }));
 

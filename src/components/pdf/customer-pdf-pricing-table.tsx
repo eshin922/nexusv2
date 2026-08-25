@@ -138,7 +138,7 @@ export function PricingTable({
               {cols.map(({ tier, ti }) => {
                 const p = sku.tier_prices[ti];
                 const rec = !isSingle && tier.recommended === true;
-                const lt = lineTotal(p ?? null, tiers, ti);
+                const lt = lineTotal(sku, tiers, ti);
                 let unitNode;
                 if (p == null) {
                   unitNode = (
