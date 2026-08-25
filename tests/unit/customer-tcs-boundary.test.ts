@@ -90,3 +90,19 @@ test("the pending stub cannot suppress configured T&Cs", async () => {
   const resolver = await read("src/lib/customer-view-resolver.ts");
   assert.doesNotMatch(resolver, /QUOTE_STUBS/, "the resolver must not substitute a stub for T&Cs");
 });
+
+test("both documents label T&Cs, not just carry them", async () => {
+  // Parity finding 3. Both renderers printed the T&Cs BODY; only the PDF put
+  // it under a heading, so the same clause carried different labels in the two
+  // documents and the customer reading the HTML would take it as a
+  // continuation of the notes above.
+  //
+  // It also exposed a reporting error worth keeping: the first parity report
+  // claimed "T&Cs present in both" on the strength of a regex matching /terms/,
+  // which matches "Payment terms". An instrument that cannot tell the heading
+  // it is looking for from unrelated text will report the answer you expect.
+  const live = await read("src/components/quote/customer-view-live.tsx");
+  const block = await read("src/components/pdf/customer-pdf-terms-block.tsx");
+  assert.match(live, /Terms &amp; conditions/, "the live renderer must label it");
+  assert.match(block, /"Terms & conditions"\.toUpperCase\(\)/, "so must the PDF");
+});
