@@ -622,8 +622,28 @@ export async function updateQuoteNotes(
     const quote = await loadQuoteOrThrow(quoteId);
     assertDraft(quote);
 
-    const internal = trimOrNull(formData.get("internalNotes"));
-    const customer = trimOrNull(formData.get("customerFacingNotes"));
+    // ── ABSENT IS NOT EMPTY ────────────────────────────────────────────
+    //
+    // This wrote BOTH columns from FormData unconditionally, so a caller that
+    // sent one field silently NULLED the other. It was safe only while the one
+    // caller was a form submitting both.
+    //
+    // Card 2's customer-note control is a single field, and pointing it here
+    // would have wiped `internal_notes` on every quote that had them — two
+    // production drafts today, and no error, no warning, no way for the
+    // operator to know. Found on the consolidated walk before it reached a
+    // quote that had any.
+    //
+    // A key that is not in the payload means "not being edited"; an empty
+    // string still means "cleared". The existing caller sends both keys and is
+    // unaffected — clearing still works, because clearing sends "" rather than
+    // sending nothing.
+    const internal = formData.has("internalNotes")
+      ? trimOrNull(formData.get("internalNotes"))
+      : quote.internalNotes;
+    const customer = formData.has("customerFacingNotes")
+      ? trimOrNull(formData.get("customerFacingNotes"))
+      : quote.customerFacingNotes;
 
     const diff = diffOf(
       {
