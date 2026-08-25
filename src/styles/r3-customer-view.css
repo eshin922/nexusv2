@@ -512,3 +512,16 @@
  * that the document keeps compressing, which the authority anticipates by
  * naming 816 as the floor "below which the document re-compresses" — a
  * consequence it describes rather than forbids. */
+
+/* A charge whose only contribution is a Direct Service: disclosed, never
+   actionable. Quieter than an elected charge because it is context rather
+   than a decision, and visibly not a control so nobody waits for one. */
+.cv-charge-service-only {
+  opacity: 0.82;
+}
+.cv-charge-service {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}

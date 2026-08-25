@@ -212,6 +212,31 @@ export type CostingPackagingInput = {
 export type CostingProductionInput = {
   quoteSkuId: string;
   tierId: string;
+  /**
+   * WHO authored this production row — an Item Group, or a Direct Service leaf.
+   *
+   * `assembly_production_inputs` carries an XOR: `assembly_id` OR
+   * `quote_leaf_id`. Both branches land here as the same shape, and until this
+   * slot existed nothing downstream could tell them apart.
+   *
+   * That mattered in one specific place. A Direct Service leaf writes its own
+   * cost into a fee column -- `formulation` into `rdTotal` -- so the charge
+   * economics saw an OTC fee indistinguishable from one an Item Group had
+   * authored. Card 1 then summed both into one actionable charge and attached a
+   * recovery control to the total: on a production quote it advertised
+   * $12,510 while the control could move $5,600, and on another it advertised
+   * $9,800 and could move nothing at all. A Direct Service IS already a priced
+   * customer line; there is nothing for a recovery election to move.
+   *
+   * An input slot, deliberately, rather than new compute -- the math layer
+   * stays model-agnostic. Nothing in the math branches on it, and no amount,
+   * placement or accounting destination depends on it. It exists so a
+   * PRESENTATION layer can tell an actionable fee from a priced service line.
+   *
+   * Optional, defaulting to `assembly`: every existing caller means that, and
+   * the one caller that does not now says so.
+   */
+  ownerKind?: "assembly" | "direct_service";
   allocateServiceFeesToCost: boolean;
   fillingBlendingCost: number | null;
   cmAssemblyTotal: number | null;
@@ -1009,6 +1034,17 @@ export type ChargeEconomics = {
   chargeKey: RecoveryChargeKey;
   /** The governed column this came from — traceable without grepping. */
   sourceColumn: string;
+  /**
+   * The COMMERCIAL GRAIN of the source: a one-time fee an Item Group authored,
+   * or a Direct Service leaf that is already its own customer line.
+   *
+   * Recovery treatment is a decision about a fee. A Direct Service has no fee
+   * to place -- its cost is its line -- so an election over it is inert. Card 1
+   * reads this to keep the two apart; the construction, the placement, the
+   * customer economics and the BV-011 destination all ignore it and are
+   * unchanged by its presence.
+   */
+  ownerKind: "assembly" | "direct_service";
   /** What DPS pays. COST TRUTH: invariant under every recovery election. */
   cost: number;
   /**
@@ -1078,6 +1114,7 @@ export function chargeEconomicsFor(
     out.push({
       chargeKey: chargeKey as RecoveryChargeKey,
       sourceColumn: column,
+      ownerKind: production?.ownerKind ?? "assembly",
       cost,
       recoverableSell: ratePct === null ? null : cost * (1 + ratePct),
       rateCategory: ratePct === null ? null : PRODUCTION_MARKUP_CATEGORY,

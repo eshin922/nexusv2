@@ -166,10 +166,25 @@ test("emitting charges moved no existing number", () => {
 test("the handoff carries no placement, by construction", () => {
   // If a placement field ever appears here, the cost layer has started
   // deciding something that belongs to the constructor.
+  //
+  // `ownerKind` was added and is deliberately allowed: it records WHO authored
+  // the row -- an Item Group, or a Direct Service leaf -- which the cost layer
+  // already knows and nothing in the math branches on. It says nothing about
+  // where the charge lands, which is the thing this test exists to keep out.
+  // The distinction matters because a Direct Service writes its own cost into
+  // a fee column, so without it Card 1 could not tell an actionable fee from a
+  // priced customer line and advertised recovery it could not move.
   for (const c of charges(true)) {
     const keys = Object.keys(c).sort();
     assert.deepEqual(keys, [
-      "chargeKey", "cost", "ratePct", "rateCategory", "recoverableSell", "sourceColumn",
+      "chargeKey", "cost", "ownerKind", "ratePct", "rateCategory",
+      "recoverableSell", "sourceColumn",
     ].sort());
+
+    // The real invariant, asserted directly rather than implied by the list
+    // above -- a key set is a proxy, and this is the property.
+    for (const forbidden of ["placement", "mode", "revenueContribution", "amortization"]) {
+      assert.ok(!(forbidden in c), `the cost layer must not state ${forbidden}`);
+    }
   }
 });
