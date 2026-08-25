@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { CustomerViewLive } from "@/components/quote/customer-view-live";
 import { SurfaceChrome } from "@/components/nav/surface-chrome";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -65,6 +66,8 @@ export default async function CustomerViewPage({
      * send, review, accepted, tier (see subtabs.ts SUBTABS canon).
      */
     tab?: string;
+    /** Parity-evidence mount. Admin-only, temporary. */
+    live?: string;
   }>;
 }) {
   // 2026-06-17 prod-hang Vercel-side instrumentation (see
@@ -76,7 +79,7 @@ export default async function CustomerViewPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { dev, legacy, layout, detail, addendum, tab } = await searchParams;
+  const { dev, legacy, layout, detail, addendum, tab, live } = await searchParams;
   const activeTabRaw = parseSubTabParam(tab);
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
@@ -318,6 +321,26 @@ export default async function CustomerViewPage({
     console.log(
       `[quote:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`,
     );
+    // ── PARITY EVIDENCE MOUNT ────────────────────────────────────────────
+    //
+    // `?live=1` renders the live HTML document ALONGSIDE nothing else, for one
+    // purpose: extracting its content to compare against the PDF's, from the
+    // same resolved CustomerView, on production.
+    //
+    // It does NOT replace the iframe. The disposition is explicit that the
+    // preview is not swapped until parity evidence is clean, and evidence
+    // gathered by making the change under test is not evidence.
+    //
+    // Admin-gated by the same condition as the restored surface, and removed
+    // once the comparison is recorded.
+    if (live === "1" && viewer.role === "admin") {
+      return (
+        <main style={{ padding: 24 }} data-testid="live-parity-mount">
+          <CustomerViewLive view={view} />
+        </main>
+      );
+    }
+
     return (
       // The viewport the umbrella shell sizes against. The chrome takes its
       // natural height; `.r8-shell` grows into what remains. Before this, the
