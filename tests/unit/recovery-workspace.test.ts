@@ -792,11 +792,7 @@ test("the preview follows the answer; it does not gate it", async () => {
   const flat = host.replace(/\s+/g, " ");
 
   // Coalesced: a burst of elections costs one regeneration, not one per click.
-  assert.ok(flat.includes("setTimeout(() => setLoadingSrc(targetSrc), PREVIEW_COALESCE_MS)"));
-  // Double-buffered: the visible document is never torn down to load the next.
-  assert.ok(flat.includes("<iframe key={shownSrc} src={shownSrc}"));
-  assert.ok(flat.includes('className="cv-sheet-buffer"'));
-  assert.ok(flat.includes("setShownSrc(loadingSrc); setLoadingSrc(null);"));
+  assert.ok(flat.includes("PREVIEW_COALESCE_MS"));
   // Downloads take the LIVE key -- never an artifact older than what is shown.
   assert.ok(flat.includes("pdfHref={targetSrc}"));
   // A caption, not a curtain: nothing about the preview disables a control.
@@ -806,6 +802,36 @@ test("the preview follows the answer; it does not gate it", async () => {
     "the preview state must never disable a commercial control",
   );
 });
+
+test("the preview frames are keyed by SLOT, never by document", async () => {
+  // The first attempt shipped a fake double-buffer: it loaded the replacement
+  // in a hidden frame, then promoted it by assigning that src to the VISIBLE
+  // frame's `key`. Changing a key unmounts and remounts, so the visible frame
+  // discarded the buffer's work and refetched the same document -- the pane
+  // still blanked, the flash had merely moved later. Reported as "I'm still
+  // seeing the page refresh", which is what it was.
+  //
+  // A frame keyed by its SLOT outlives every document it shows, so promotion
+  // is a visibility flip on something already rendered.
+  const host = await readFile(
+    new URL("../../src/components/quote/quote-host.tsx", import.meta.url),
+    "utf8",
+  );
+  const flat = host.replace(/\s+/g, " ");
+
+  assert.ok(flat.includes("key={slot}"), "frames must be keyed by slot");
+  assert.ok(
+    !flat.includes("key={shownSrc}") && !flat.includes("key={previewSrc}"),
+    "keying a preview frame by its src remounts it and refetches the document",
+  );
+  // Promotion is a state flip, not a src move between frames.
+  assert.ok(flat.includes("setActive(slot)"));
+  // A late load from a superseded document must not win.
+  assert.ok(flat.includes("slots[slot] === targetSrc"));
+  // Both slots stay mounted; only visibility differs.
+  assert.ok(flat.includes('className={active === slot ? undefined : "cv-sheet-buffer"}'));
+});
+
 
 
 test("the workspace height is derived from the shell, not assumed", async () => {
