@@ -111,3 +111,41 @@ export function describeUnbillablePlacements(rows: readonly UnbillablePlacement[
     );
   });
 }
+
+/**
+ * The same finding, grouped for the pre-flight checklist.
+ *
+ * One line per (charge, owner) with every affected tier and its amount, rather
+ * than the gate's one-line-per-tier work list: the checklist is read before the
+ * operator acts, and four near-identical sentences about one charge read as
+ * four problems.
+ *
+ * The words live beside the detection so the surface and the boundary cannot
+ * describe the same state differently.
+ */
+export function summariseUnbillablePlacements(rows: readonly UnbillablePlacement[]): string[] {
+  const groups = new Map<string, UnbillablePlacement[]>();
+  for (const r of rows) {
+    const k = `${r.chargeKey}::${r.ownerLabel}`;
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  return [...groups.values()].map((g) => {
+    const first = g[0]!;
+    const amounts = g
+      .map((r) =>
+        r.unbilledRevenue === null
+          ? `${r.tierLabel}: not governed`
+          : `${r.tierLabel}: $${r.unbilledRevenue.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}`,
+      )
+      .join(" · ");
+    return (
+      `Unresolved - ${first.label} on ${first.ownerLabel} is set to bill separately, ` +
+      `but ${first.ownerLabel} is a Direct Service and has no separate fee line on ` +
+      `the customer's quote. It counts as revenue the customer is not billed ` +
+      `(${amounts}). Set ${first.label} to In unit price, or remove the charge.`
+    );
+  });
+}

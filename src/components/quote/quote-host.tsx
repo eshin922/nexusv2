@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useLayoutEffect, useRef } from "react";
+import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   CustomerView,
@@ -90,6 +91,7 @@ export function QuoteHost({
   presentation,
   presentationTiers,
   belowFloor,
+  unbillableRecovery,
   accountingInstruction,
   quoteId,
   quoteStatus,
@@ -107,6 +109,7 @@ export function QuoteHost({
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
+  unbillableRecovery: UnbillablePlacement[];
   accountingInstruction: string | null;
   quoteId: string;
   quoteStatus: string;
@@ -390,6 +393,7 @@ export function QuoteHost({
             presentation={presentation}
             tiers={presentationTiers}
             belowFloor={belowFloor}
+            unbillableRecovery={unbillableRecovery}
             accountingInstruction={accountingInstruction}
           />
         </div>

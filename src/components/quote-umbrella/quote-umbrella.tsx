@@ -17,6 +17,7 @@
 // their step lands.
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,
@@ -69,6 +70,7 @@ export function QuoteUmbrella({
   presentation,
   presentationTiers,
   belowFloor,
+  unbillableRecovery,
   accountingInstruction,
   governed,
   presentationRestored,
@@ -177,6 +179,7 @@ export function QuoteUmbrella({
   presentation: PresentationState;
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
+  unbillableRecovery: UnbillablePlacement[];
   accountingInstruction: string | null;
   governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
@@ -329,6 +332,7 @@ export function QuoteUmbrella({
           presentation={presentation}
           presentationTiers={presentationTiers}
           belowFloor={belowFloor}
+          unbillableRecovery={unbillableRecovery}
           accountingInstruction={accountingInstruction}
               quoteRollup={quoteRollup}
               governed={governed}

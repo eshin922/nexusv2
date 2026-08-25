@@ -143,9 +143,14 @@ test("Finalize is refused on a frozen quote and on an unauthorized floor", async
   const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));
   assert.match(
     rail,
-    /disabled=\{!isDraft \|\| blocked\}/,
-    "both refusals, from the shared verdict",
+    /disabled=\{!isDraft \|\| hasUnbillable \|\| blocked\}/,
+    "every refusal, each from a shared verdict",
   );
+  // `hasUnbillable` joined the two originals when the surface was made to
+  // report recovery placed where the quote cannot bill it. It is the same
+  // shape as `blocked`: a projection resolved once and read by both the
+  // control and the send gate, never a condition this component decides.
+  assert.match(rail, /const hasUnbillable = unbillable\.length > 0/);
   // `blocked` is the shared projection, not a local margin comparison — pinned
   // by the footer-authority suite, and asserted here too because this is the
   // control that acts on it.
