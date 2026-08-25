@@ -120,6 +120,71 @@ const FORBIDDEN_SYMBOLS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
 ];
 
 /**
+ * ── THE ARITHMETIC BOUNDARY ──────────────────────────────────────────────
+ *
+ * A customer renderer may SELECT, FORMAT and ARRANGE. It may not construct
+ * commercial amounts.
+ *
+ * This is a rule because it was once false. `customer-pdf-helpers.ts` computed
+ * extended line totals, one-time fee totals, tier grand totals and the
+ * displayed per-unit price — in the render layer, at render time — and it cost
+ * a customer-facing defect: the T-1 repair found the per-unit divided by a ROW
+ * CARDINALITY, printing $4.00 where $12.00 was owed, correct only at one
+ * priced row, which is why it survived to reach customers.
+ *
+ * Those figures now live on `CustomerView`, composed once by
+ * `src/lib/customer-money.ts`. This keeps them there.
+ *
+ * ── WHY THE PATTERNS LOOK THE WAY THEY DO ────────────────────────────────
+ *
+ * They match the SHAPES of commercial construction rather than arithmetic in
+ * general, because a renderer legitimately does arithmetic on layout: column
+ * widths, page counts, index offsets. A blanket ban on `*` would be unusable
+ * and would be turned off within a week.
+ *
+ * So each pattern names a construction the projection already performs. If a
+ * renderer needs one of these, the answer is a field on `CustomerView`, not an
+ * exception here.
+ *
+ * Comments are stripped before matching (`codeOnly`). A prose mention is not a
+ * use, and this estate has had guards report the opposite of the truth on the
+ * sentence that stated it most clearly.
+ */
+const FORBIDDEN_ARITHMETIC: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  {
+    // price × quantity, in either order, however the operands are spelled.
+    pattern: /\b\w*(?:price|rate|amount)\w*\s*\*\s*\w*(?:qty|quantity|units)\w*/i,
+    reason: "extended amount — price × quantity is composed on CustomerView",
+  },
+  {
+    pattern: /\b\w*(?:qty|quantity|units)\w*\s*\*\s*\w*(?:price|rate|amount)\w*/i,
+    reason: "extended amount — quantity × price is composed on CustomerView",
+  },
+  {
+    // total ÷ quantity — the displayed per-unit. The T-1 shape.
+    pattern: /\b\w*total\w*\s*\/\s*\w*(?:qty|quantity|units|count)\w*/i,
+    reason: "displayed per-unit — total ÷ quantity is composed on CustomerView",
+  },
+  {
+    // Summing customer charges. `reduce` over anything fee/charge/amount-shaped.
+    pattern: /\b\w*(?:fee|charge|amount|total|price)\w*\s*\.\s*reduce\s*\(/i,
+    reason: "summing customer charges — totals are composed on CustomerView",
+  },
+  {
+    // Rates and markup are resolved upstream, in governed code.
+    pattern: /\b(markup|markupPct|recoverableSell|governedRate|rateFor)\b/,
+    reason: "rate/markup resolution belongs to governed costing, not a renderer",
+  },
+];
+
+const arithmeticViolations: {
+  file: string;
+  line: number;
+  text: string;
+  reason: string;
+}[] = [];
+
+/**
  * The seam's OUTPUT, checked separately.
  *
  * Pattern 51: the boundary is enforced on the projected shape, not on the
@@ -128,6 +193,20 @@ const FORBIDDEN_SYMBOLS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
  * the seam produces, which is where a forbidden field would have to appear
  * before any renderer could read it.
  */
+/**
+ * The composition seam — exempt from the arithmetic rule BY DESIGN.
+ *
+ * Pattern 51: this is where the figures are supposed to be composed. Forbidding
+ * arithmetic here would forbid the thing the file exists to do, and would push
+ * the composition back into the renderers this rule is protecting.
+ *
+ * The exemption is narrow and named. It is not a general allowlist.
+ */
+const SEAM_FILES: readonly string[] = [
+  join(ROOT, "src", "lib", "customer-money.ts"),
+  join(ROOT, "src", "lib", "customer-view-resolver.ts"),
+];
+
 const PROJECTED_SHAPE_FILES: readonly string[] = [
   join(ROOT, "src", "types", "quote.ts"),
   join(ROOT, "src", "components", "pdf", "customer-pdf-types.ts"),
@@ -192,7 +271,41 @@ for (const file of [
         });
       }
     }
+    // Arithmetic is checked on RENDERERS ONLY.
+    //
+    // The projected-shape files are type declarations and the composition seam
+    // is where composition is supposed to happen — Pattern 51. Scanning them
+    // would forbid the thing they exist to do, which is the anti-pattern that
+    // rule was written against.
+    if (!PROJECTED_SHAPE_FILES.includes(file) && !SEAM_FILES.includes(file)) {
+      for (const { pattern, reason } of FORBIDDEN_ARITHMETIC) {
+        if (pattern.test(text)) {
+          arithmeticViolations.push({
+            file: relative(ROOT, file),
+            line: i + 1,
+            text: text.trim().slice(0, 120),
+            reason,
+          });
+        }
+      }
+    }
   });
+}
+
+if (arithmeticViolations.length > 0) {
+  console.error(
+    "[customer-view-boundary] ARITHMETIC BOUNDARY VIOLATION — a customer renderer is constructing a commercial amount.",
+  );
+  for (const v of arithmeticViolations) {
+    console.error(`  ${v.file}:${v.line}`);
+    console.error(`    ${v.text}`);
+    console.error(`    reason:  ${v.reason}`);
+    console.error();
+  }
+  console.error(
+    "Fix: compose the figure once, on CustomerView, via src/lib/customer-money.ts, and have the renderer read it. A renderer may select, format and arrange; it may not construct amounts. This rule exists because the per-unit price was once divided by a row cardinality here, and printed $4.00 where $12.00 was owed.",
+  );
+  process.exit(1);
 }
 
 if (symbolViolations.length > 0) {
@@ -230,6 +343,7 @@ if (violations.length > 0) {
 console.log(
   `[customer-view-boundary] OK — ${files.length} file(s) verified clean ` +
     `(src/components/pdf/ + ${EXTRA_RENDER_PATH_FILES.length} extra render-path files), ` +
-    `and ${FORBIDDEN_SYMBOLS.length} internal-only symbol(s) absent from the render tree ` +
+    `and ${FORBIDDEN_SYMBOLS.length} internal-only symbol(s) absent from the render tree, ` +
+    `${FORBIDDEN_ARITHMETIC.length} arithmetic shape(s) absent from renderers ` +
     `and the projected shape.`
 );
