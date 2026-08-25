@@ -181,7 +181,10 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
           <h2>One-time fees</h2>
           <dl>
             {serviceFees.map((f) => {
-              const basis = shown[0];
+              // The projection decides which column is quoted. Reading
+              // `shown[0]` here was a second renderer making the same
+              // presentation decision independently, and it disagreed.
+              const basis = view.feeBasisTierIdx;
               const amount = f.tierAmounts[basis];
               // A fee not billed at this tier is not shown as zero.
               if (amount === null) return null;

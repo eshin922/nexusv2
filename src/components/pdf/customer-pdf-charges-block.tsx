@@ -26,11 +26,13 @@ import type {
 export function ChargesBlock({
   tiers,
   recommendedTierIdx,
+  feeBasisTierIdx,
   serviceFees,
   freightLines,
 }: {
   tiers: ReadonlyArray<CpdfTier>;
   recommendedTierIdx: number | null;
+  feeBasisTierIdx?: number;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
 }) {
@@ -38,7 +40,11 @@ export function ChargesBlock({
   // tier that exists — but it is NOT a recommendation. With no recommended
   // tier the block states which tier the amounts are shown for and claims
   // nothing about which one to buy.
-  const basisIdx = recommendedTierIdx ?? 0;
+  // The projection decides which column is quoted. This used to re-derive it
+  // as `recommendedTierIdx ?? 0`, and the live renderer derived it differently
+  // -- two renderers answering one presentation question separately, which is
+  // the defect regardless of whether they happen to agree.
+  const basisIdx = feeBasisTierIdx ?? recommendedTierIdx ?? 0;
   const basisTier = tiers[basisIdx];
   // One column of a matrix is being printed. Where the columns agree that is
   // the whole story and saying so would be noise; where they do not, printing

@@ -148,6 +148,8 @@ export type CpdfData = {
    * could not represent "no recommendation" and therefore always made one.
    */
   recommendedTierIdx: number | null;
+  /** Which tier's amounts the fee section quotes. Composed on CustomerView. */
+  feeBasisTierIdx?: number;
   skus: ReadonlyArray<CpdfSku>;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;

@@ -165,6 +165,8 @@ export function customerViewToCpdf(
     // Tier 1" on the strength of a fallback, and the second fabrication of the
     // same value sat one layer under the first.
     recommendedTierIdx: view.recommendedTierIdx,
+    // Carried, not re-derived. Both renderers quote the same column.
+    feeBasisTierIdx: view.feeBasisTierIdx,
     skus,
     serviceFees,
     freightLines,
