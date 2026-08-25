@@ -33,6 +33,25 @@ import { chargePolicy } from "@/lib/commercial-recovery/registry";
  * construction stated them.
  */
 
+/**
+ * THE rule, in one place.
+ *
+ * A Direct Service leaf has no parent assembly, so the customer projection --
+ * which keys one-time lines per assembly -- has no key to bill it under. Placed
+ * on a separate line it therefore produces revenue the engine counts and the
+ * document cannot charge.
+ *
+ * Exported because the engine states the same fact when it builds the tier's
+ * charge nodes. Two copies of this condition would be two authorities on
+ * whether a quote may go out, free to disagree.
+ */
+export function isUnbillablePlacement(charge: {
+  ownerKind: string;
+  placement: string;
+}): boolean {
+  return charge.ownerKind === "direct_service" && charge.placement === "separate_line";
+}
+
 export type UnbillablePlacement = {
   chargeKey: RecoveryChargeKey;
   /** The charge's canonical name, as Card 1 and the quote both show it. */
@@ -75,8 +94,7 @@ export function findUnbillablePlacements(input: {
   for (const sku of input.skuRollups) {
     for (const cell of sku.perTier) {
       for (const charge of cell.constructed?.charges ?? []) {
-        if (charge.ownerKind !== "direct_service") continue;
-        if (charge.placement !== "separate_line") continue;
+        if (!isUnbillablePlacement(charge)) continue;
         found.push({
           chargeKey: charge.chargeKey as RecoveryChargeKey,
           label: chargePolicy(charge.chargeKey as RecoveryChargeKey).label,

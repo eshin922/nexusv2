@@ -330,7 +330,6 @@ function EntireQuoteBuild({
     </div>
   );
 
-  const anyCharges = columns.some((c) => (byTier.get(c.numericId)?.oneTimeCharges ?? 0) !== 0);
 
   return (
     <div className="r11-stack">
@@ -394,34 +393,183 @@ function EntireQuoteBuild({
         <><span className="n">Quoted less base</span><span className="s">difference after all levers &middot; derived, not entered</span></>,
         "decision", (n) => (n >= 0 ? "+" : "") + fmtUsd4(n), "delta")}
 
-      {band("eq-result", "Final quoted sell", "result")}
-      {row("eq-quoted", "r11-srow total rule r11-band-total",
-        <><span className="n">Final quoted sell</span><span className="s">per unit · everything quoted</span></>,
-        "quoted", (n) => fmtUsd4(n))}
+      {/* ── UNIT PRICING · the result of the build above ──────────────────
+          Unit-price sell REPLACES Final quoted sell as the operator-facing
+          result. Final quoted sell was quoted revenue per unit — tier revenue
+          divided by tier quantity — which folds separately-billed one-time
+          charges into a per-unit figure and so states that the customer pays
+          them per unit. They are billed once, at the order.
+
+          Read from the governed `unit-price-sell` node, never recomposed here.
+          The lever rows ARE its operands, so a lever that did not act emits no
+          operand and no row: +$0.0000 would say something happened. */}
+      {band("eq-result", "Unit-price sell", "result")}
+      {(byTier.get(columns[0]!.numericId)?.unitPriceParts ?? [])
+        .filter((part) => !part.key.endsWith("/base"))
+        .map((part) => {
+          const suffix = part.key.split("/").slice(-1)[0]!;
+          return (
+            <div className="r11-srow" key={part.key}>
+              <div className="r11-slab">
+                <span className="n">{part.label.replace(/, per unit$/, "")}</span>
+              </div>
+              {columns.map((c) => {
+                const mine = byTier
+                  .get(c.numericId)
+                  ?.unitPriceParts.find((x) => x.key.endsWith(suffix));
+                return (
+                  <div className="r11-scell flat" key={c.numericId}>
+                    <span className="sell">
+                      {mine ? (mine.value >= 0 ? "+" : "") + fmtUsd4(mine.value) : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      <div className="r11-srow total rule r11-band-total">
+        <div className="r11-slab">
+          <span className="n">Unit-price sell</span>
+          <span className="s">per unit · what the unit price is</span>
+        </div>
+        {columns.map((c) => {
+          const t = byTier.get(c.numericId);
+          return (
+            <div className="r11-scell flat" key={c.numericId}>
+              <span className="sell">
+                {t?.unitPriceSell === null || t?.unitPriceSell === undefined
+                  ? "—"
+                  : fmtUsd4(t.unitPriceSell)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
       {row("eq-cost", "r11-srow", <><span className="n">Unit cost</span><span className="s">from Costs</span></>, "unitCost", (n) => fmtUsd4(n))}
       {row("eq-margin", "r11-srow", <span className="n">Margin</span>, "margin", (n) => fmtPct(n) + "%", "mg")}
 
-      {/*
-        ONE-TIME CHARGES sit OUTSIDE the per-unit build, because they are not
-        per-unit. Folding a fixed fee into a unit price makes the price depend
-        on the tier quantity in a way the customer document does not, and the
-        two would stop reconciling. The Production/OTC accounting semantics are
-        a separate body of work; this only keeps the distinction visible.
-      */}
-      {anyCharges && (
+      {/* ── ADDITIONAL CHARGES · billed once, at the order ────────────────
+          Tier amounts, NOT amortised. This block replaces a row that showed
+          `costBreakdown.serviceFees` — the firm's COST, on a sell-side
+          surface — captioned "excluded from the per-unit figure above" while
+          the per-unit figure above it included their amortised revenue. Both
+          halves of that caption were false. */}
+      {columns.some((c) => (byTier.get(c.numericId)?.separateCharges.length ?? 0) > 0) && (
         <>
-          {band("eq-otc", "One-time charges", "billed separately · not per unit")}
-          <div className="r11-srow">
+          {band("eq-sep", "Additional charges", "billed separately · tier amounts, not per unit")}
+          {(byTier.get(columns[0]!.numericId)?.separateCharges ?? []).map((charge) => {
+            const suffix = charge.key.split("/").slice(-2).join("/");
+            return (
+              <div className="r11-srow" key={charge.key}>
+                <div className="r11-slab">
+                  <span className="n">{charge.label}</span>
+                </div>
+                {columns.map((c) => {
+                  const mine = byTier
+                    .get(c.numericId)
+                    ?.separateCharges.find((x) => x.key.endsWith(suffix));
+                  return (
+                    <div className="r11-scell flat" key={c.numericId}>
+                      <span className="sell">{mine ? fmtUsd2(mine.value) : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+          <div className="r11-srow total rule">
             <div className="r11-slab">
-              <span className="n">Project &amp; SKU fees</span>
-              <span className="s">tier total, excluded from the per-unit figure above</span>
+              <span className="n">Total separate charges</span>
             </div>
             {columns.map((c) => (
               <div className="r11-scell flat" key={c.numericId}>
-                <span className="sell">{fmtUsd2(byTier.get(c.numericId)?.oneTimeCharges ?? 0)}</span>
+                <span className="sell">
+                  {fmtUsd2(byTier.get(c.numericId)?.separateChargesTotal ?? 0)}
+                </span>
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {/* ── ORDER RECONCILIATION · the bridge between the two grains ──────
+          Computed from the GOVERNED unit-price sell, not from the rounded
+          figure displayed above: 5.8610 × 5,000 is 29,305.00 where the
+          governed product is 29,305.12. An order total that disagreed with the
+          customer document by twelve cents would be worse than one whose
+          multiplicand carries more precision than the row shows. */}
+      {band("eq-order", "Order reconciliation", "reconciles to the customer document")}
+      <div className="r11-srow">
+        <div className="r11-slab">
+          <span className="n">Unit-price sell × quantity</span>
+        </div>
+        {columns.map((c) => {
+          const t = byTier.get(c.numericId);
+          return (
+            <div className="r11-scell flat" key={c.numericId}>
+              <span className="sell">{fmtUsd2((t?.unitPriceSell ?? 0) * (t?.qty ?? 0))}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="r11-srow">
+        <div className="r11-slab">
+          <span className="n">+ Total separate charges</span>
+        </div>
+        {columns.map((c) => (
+          <div className="r11-scell flat" key={c.numericId}>
+            <span className="sell">
+              {fmtUsd2(byTier.get(c.numericId)?.separateChargesTotal ?? 0)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="r11-srow total rule r11-band-total">
+        <div className="r11-slab">
+          <span className="n">Turnkey total</span>
+          <span className="s">all-in for this tier&rsquo;s order</span>
+        </div>
+        {columns.map((c) => (
+          <div className="r11-scell flat" key={c.numericId}>
+            <span className="sell">{fmtUsd2(byTier.get(c.numericId)?.orderTotal ?? 0)}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── An error, not a pricing contributor ───────────────────────────
+          Revenue the engine counts and this quote cannot bill. It sums into
+          nothing above and must not: an operator reading it beside legitimate
+          charges would take it for money owed. Finalize refuses this state. */}
+      {columns.some((c) => (byTier.get(c.numericId)?.unbillableTotal ?? 0) !== 0) && (
+        <>
+          {band("eq-unbillable", "Not billable", "invalid placement · excluded from the totals above")}
+          {(columns
+            .map((c) => byTier.get(c.numericId)?.unbillableCharges ?? [])
+            .find((list) => list.length > 0) ?? []
+          ).map((charge) => {
+            const suffix = charge.key.split("/").slice(-2).join("/");
+            return (
+              <div className="r11-srow" key={charge.key}>
+                <div className="r11-slab">
+                  <span className="n">{charge.label}</span>
+                  <span className="s">
+                    a Direct Service has no separate fee line — set it to In unit price, or remove it
+                  </span>
+                </div>
+                {columns.map((c) => {
+                  const mine = byTier
+                    .get(c.numericId)
+                    ?.unbillableCharges.find((x) => x.key.endsWith(suffix));
+                  return (
+                    <div className="r11-scell flat" key={c.numericId}>
+                      <span className="sell">{mine ? fmtUsd2(mine.value) : "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </>
       )}
     </div>
@@ -847,8 +995,29 @@ export type EntireQuoteTier = {
   quoted: number;
   unitCost: number;
   margin: number | null;
-  /** Tier TOTAL, not per unit. Billed as fixed charges; never folded in. */
-  oneTimeCharges: number;
+  /**
+   * ── THE TWO GRAINS ──────────────────────────────────────────────────
+   *
+   * `unitPriceSell` is what a unit price IS: base sell, the levers that moved
+   * it, and the recovery elected INTO the price. `separateCharges` are billed
+   * once at the order and are stated as tier amounts — dividing them by
+   * quantity to make a per-unit column add up would say the customer pays them
+   * per unit, which they do not.
+   *
+   * `unbillableCharges` is revenue the engine counts and the document cannot
+   * bill (#416). It is carried apart and sums into NOTHING: an operator must
+   * not read it as money owed.
+   */
+  unitPriceSell: number | null;
+  unitPriceParts: { key: string; label: string; value: number }[];
+  separateCharges: { key: string; label: string; value: number }[];
+  separateChargesTotal: number;
+  unbillableCharges: { key: string; label: string; value: number }[];
+  unbillableTotal: number;
+  qty: number;
+  /** Governed unit-price sell x quantity + separate charges. */
+  orderTotal: number;
+  unitPriceSellKey: string;
   keys: Record<
     "pkg" | "prod" | "raw" | "frt" | "dt" | "baseSell" | "decision" | "quoted" | "unitCost" | "margin",
     string
