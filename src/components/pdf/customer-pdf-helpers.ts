@@ -50,16 +50,14 @@ export function qtyK(n: number): string {
  * mode "—" for Valid-until reads honestly as "not yet computed";
  * real send populates real date per firm_settings.days_valid_default.
  */
-export function longDate(s: string | null | undefined): string {
-  if (s == null || s === "" || s === "Invalid Date") return "—";
-  const d = new Date(s + "T00:00:00");
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+/**
+ * Re-exported from `@/lib/customer-dates` so the PDF and the live HTML
+ * renderer write dates identically. It used to be defined here, and the live
+ * renderer — which must not import from this tree — printed the raw ISO
+ * string instead, so a sent quote read "September 20, 2026" in one document
+ * and "2026-09-20" in the other. Composed once, read twice.
+ */
+export { longDate } from "@/lib/customer-dates";
 
 /** Σ the fees separately billed AT TIER `ti`. CD `pdf-render.jsx:12`.
  *

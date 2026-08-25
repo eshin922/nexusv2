@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CustomerView } from "@/types/quote";
 import { extendedAmount, unitPrice } from "@/lib/money-display";
+import { longDate } from "@/lib/customer-dates";
 import "@/styles/pp-customer-document.css";
 import "@/styles/pp-customer-document-fit.css";
 
@@ -211,12 +212,12 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 )}
                 {quote.sentDate && (
                   <div>
-                    <strong>Issued</strong> · {quote.sentDate}
+                    <strong>Issued</strong> · {longDate(quote.sentDate)}
                   </div>
                 )}
                 {quote.validUntil && (
                   <div>
-                    <strong>Valid until</strong> · {quote.validUntil}
+                    <strong>Valid until</strong> · {longDate(quote.validUntil)}
                   </div>
                 )}
               </div>
@@ -520,7 +521,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
               <div className="pp-terms">
                 <div className="pp-term">
                   <div className="label">Valid until</div>
-                  <div className="value">{quote.validUntil ?? "—"}</div>
+                  <div className="value">{longDate(quote.validUntil)}</div>
                 </div>
                 <div className="pp-term">
                   <div className="label">Payment terms</div>

@@ -218,3 +218,40 @@ test("both documents describe an unpriced cell in the same words", async () => {
     "the live renderer must not carry a literal $0.00",
   );
 });
+
+test("both documents write dates in the same words", async () => {
+  // Found on a SENT production quote, by reading the rendered text back:
+  // the PDF printed "September 20, 2026" and the live renderer printed
+  // "2026-09-20", in the masthead's issue date, the masthead's validity date
+  // and the Valid until cell. Both were internally consistent. At preview
+  // scale both are just a date in the right place, so looking at it was never
+  // going to catch it.
+  //
+  // `CustomerView` carries ISO — correct for a projection, not what either
+  // document shows. The formatting is now composed once and read twice, the
+  // same shape as `customer-money.ts`, so the two cannot drift apart again by
+  // each being separately reasonable.
+  const live = await readFile(
+    new URL("../../src/components/quote/customer-view-live.tsx", import.meta.url),
+    "utf8",
+  );
+  const helpers = await readFile(
+    new URL("../../src/components/pdf/customer-pdf-helpers.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(live, /from "@\/lib\/customer-dates"/, "the live renderer reads the shared formatter");
+  assert.match(helpers, /from "@\/lib\/customer-dates"/, "so does the PDF");
+
+  // And the live renderer must not print a projection date raw. Any of the
+  // three date fields reaching the page without the formatter is the defect
+  // returning.
+  for (const field of ["quote.sentDate", "quote.validUntil"]) {
+    const raw = new RegExp("\{" + field.replace(".", "\.") + "\}");
+    assert.doesNotMatch(
+      live,
+      raw,
+      `${field} must be formatted, not printed as the ISO string it is stored as`,
+    );
+  }
+});
