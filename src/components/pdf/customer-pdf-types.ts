@@ -74,6 +74,19 @@ export type CpdfQuote = {
    * questions, and conflating them is how a configured clause goes missing.
    */
   tcs: string | null;
+  /**
+   * Presentation decisions, carried so the ARTIFACT honours them too.
+   *
+   * A control that changes the preview and not the PDF is worse than no
+   * control: the operator sees the document they asked for and the customer
+   * receives a different one.
+   *
+   * `include_fee_lines = false` collapses the ITEMIZATION only. The total is
+   * still stated and still disclosed in words — the charge never disappears.
+   */
+  include_fee_lines: boolean;
+  include_terms: boolean;
+  include_note: boolean;
 };
 
 export type CpdfTier = {

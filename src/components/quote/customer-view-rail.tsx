@@ -23,6 +23,11 @@
  */
 
 import { CardCommercialRecovery } from "./card-commercial-recovery";
+import {
+  CardCustomerPresentation,
+  type PresentationState,
+  type PresentationTier,
+} from "./card-customer-presentation";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import { chargePolicy } from "@/lib/commercial-recovery/registry";
@@ -61,6 +66,8 @@ export function CustomerViewRail({
   onDetailLevelChange,
   pdfHref,
   pageCount,
+  presentation,
+  tiers,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -74,6 +81,14 @@ export function CustomerViewRail({
   onDetailLevelChange: (next: CustomerViewDetailLevel) => void;
   pdfHref: string;
   pageCount: number;
+  /**
+   * Card 2 renders this as controls; Card 3 renders it as prose. ONE record,
+   * read once upstream — the two cards cannot disagree about what the document
+   * does, which they would the moment either derived its own copy.
+   */
+  presentation: PresentationState;
+  /** The quote's tiers, for the visibility toggles and the recommendation. */
+  tiers: readonly PresentationTier[];
 }) {
   const isDraft = quoteStatus === "draft";
   const blocked = rollups.some(
@@ -96,6 +111,74 @@ export function CustomerViewRail({
           : (prev?.amount ?? 0) + i.governedRecovery,
     });
   }
+
+  // Card 3 - "Customer received", derived from the SAME record Card 2 edits.
+  //
+  // Not stored. The authority is explicit that this is derived at render, and
+  // the reason is the one this workstream keeps meeting: a stored sentence is a
+  // second copy of a decision, and the two are free to drift the moment either
+  // side changes. Reading the projection means the prose cannot describe a
+  // document the customer did not receive.
+  const shownTiers = tiers.filter((t) => !presentation.hiddenTierIds.includes(t.id));
+  const recommended = tiers.find((t) => t.recommended);
+
+  const byWord = new Map<string, string[]>();
+  for (const a of agreement.values()) {
+    const list = byWord.get(a.word) ?? [];
+    list.push(a.label);
+    byWord.set(a.word, list);
+  }
+  const charges = (word: string) => byWord.get(word)?.join(", ") ?? null;
+
+  const customerReceived: [string, string][] = [
+    [
+      "Shape",
+      presentation.detailLevel === "itemized"
+        ? "Itemized - line by line"
+        : "Turnkey - one number",
+    ],
+    [
+      "Tiers",
+      presentation.layout === "single_tier"
+        ? `Single tier - ${recommended?.label ?? "none"}`
+        : `${shownTiers.length} of ${tiers.length} shown`,
+    ],
+    ["Recommended", recommended ? recommended.label : "none marked"],
+  ];
+
+  const inUnit = charges("in unit price");
+  if (inUnit) customerReceived.push(["In unit price", inUnit]);
+  const separate = charges("billed separately");
+  if (separate) customerReceived.push(["Billed separately", separate]);
+  const absorbed = charges("absorbed - not charged");
+  // The authority requires this line to say so explicitly. An absorbed charge
+  // is real money the firm gave up, and Accounting reading "absorbed" without
+  // it might reasonably expect the customer to have been told.
+  if (absorbed) {
+    customerReceived.push([
+      "Absorbed",
+      `${absorbed} - never shown to the customer`,
+    ]);
+  }
+
+  customerReceived.push(
+    [
+      "Fees",
+      presentation.includeFeeLines
+        ? "Itemized on the document"
+        : "Collapsed - total still stated",
+    ],
+    ["Terms", presentation.includeTerms ? "Printed" : "Not printed"],
+    ["Addendum", presentation.includeAddendum ? "Included" : "Not included"],
+    [
+      "Note",
+      !presentation.includeNote
+        ? "Not printed"
+        : presentation.customerNote && presentation.customerNote.trim().length > 0
+          ? "Printed above How to accept"
+          : "Printed - empty",
+    ],
+  );
 
   return (
     <aside className="cv-rail" data-testid="customer-view-rail">
@@ -169,56 +252,17 @@ export function CustomerViewRail({
           editable={isDraft}
         />
 
-        {/* ── Card 2 · customer presentation ─────────────────────────── */}
-        <section className="cv-card" data-testid="card-customer-presentation">
-          <div className="cv-card-head">
-            <span className="cv-step">2</span>
-            <div>
-              <div className="cv-card-title">Customer presentation</div>
-              <div className="cv-card-sub">Never changes economics. Display only.</div>
-            </div>
-          </div>
-
-          <div className="cv-section">
-            <div className="cv-field">
-              <span className="cv-eyebrow">Shape</span>
-              <div className="cv-choice">
-                <button type="button" aria-pressed={detailLevel === "itemized"}
-                        disabled={!isDraft}
-                        onClick={() => onDetailLevelChange("itemized")}
-                        data-testid="cv-detail-itemized">Itemized</button>
-                <button type="button" aria-pressed={detailLevel === "turnkey_only"}
-                        disabled={!isDraft}
-                        onClick={() => onDetailLevelChange("turnkey_only")}
-                        data-testid="cv-detail-turnkey">Turnkey</button>
-              </div>
-            </div>
-
-            <div className="cv-field">
-              <span className="cv-eyebrow">Tier layout</span>
-              <div className="cv-choice">
-                <button type="button" aria-pressed={pdfLayout === "tier_table"}
-                        disabled={!isDraft}
-                        onClick={() => onPdfLayoutChange("tier_table")}
-                        data-testid="cv-layout-tier-table">Tier table</button>
-                <button type="button" aria-pressed={pdfLayout === "single_tier"}
-                        disabled={!isDraft}
-                        onClick={() => onPdfLayoutChange("single_tier")}
-                        data-testid="cv-layout-single-tier">Single tier</button>
-              </div>
-            </div>
-          </div>
-
-          {/* Absent on purpose. See the header note. */}
-          <div className="cv-section">
-            <p className="cv-note" data-testid="cv-presentation-gap">
-              Tiers shown, recommended tier, the include toggles and the customer note are
-              not here yet: the presentation profile has no draft record, so those choices
-              would not survive a reload. They arrive with that schema rather than as
-              controls that quietly forget.
-            </p>
-          </div>
-        </section>
+        {/* Card 2 - customer presentation */}
+        <CardCustomerPresentation
+          quoteId={quoteId}
+          editable={isDraft}
+          presentation={presentation}
+          tiers={tiers}
+          detailLevel={detailLevel}
+          onDetailLevelChange={onDetailLevelChange}
+          pdfLayout={pdfLayout}
+          onPdfLayoutChange={onPdfLayoutChange}
+        />
 
         {/* ── Card 3 · accounting handoff ────────────────────────────── */}
         <section className="cv-card cv-card-accounting" data-testid="card-accounting-handoff">
@@ -255,12 +299,26 @@ export function CustomerViewRail({
             )}
           </div>
 
+          {/* Customer received - DERIVED.
+              A projection of the same record Card 2 edits, read once upstream.
+              Derived at render and never stored as prose: a stored sentence is
+              a second copy of the decision, free to disagree with the document
+              the moment either side changes. */}
+          <div className="cv-section">
+            <span className="cv-eyebrow">Customer received &middot; derived</span>
+            {customerReceived.map(([k, v]) => (
+              <div className="cv-kv" key={k}>
+                <span className="cv-kv-k">{k}</span>
+                <span className="cv-kv-v">{v}</span>
+              </div>
+            ))}
+          </div>
+
           <div className="cv-section">
             <p className="cv-note" data-testid="cv-accounting-gap">
-              <em>Customer received</em> and the authored instruction to Accounting are not
-              here yet. The first is a projection of the presentation profile, which has no
-              record; the second is an authored field this surface does not own yet. Neither
-              is derivable from what exists today.
+              The authored instruction to Accounting is not here yet - it is an
+              authored field this surface does not own. It arrives with the
+              freeze contract rather than as a box that forgets.
             </p>
           </div>
         </section>

@@ -322,6 +322,7 @@ export function CustomerPdfDocument({
               {hasCharges && (
                 <View style={styles.section}>
                   <ChargesBlock
+                    includeFeeLines={quote.include_fee_lines}
                     tiers={tiers}
                     recommendedTierIdx={recommendedTierIdx}
                     feeBasisTierIdx={feeBasisTierIdx}
@@ -336,8 +337,12 @@ export function CustomerPdfDocument({
           {/* Terms group — kept-together (wrap={false}) per audit §4 */}
           <View style={termsWrapperStyle} wrap={false}>
             {showTermsHead && <PassThroughTermsHead />}
-            <TermsBlock quote={quote} incoterms={quote.incoterms} />
-            <NotesBlock notes={quote.customer_facing_notes} />
+            {quote.include_terms && (
+              <TermsBlock quote={quote} incoterms={quote.incoterms} />
+            )}
+            <NotesBlock
+              notes={quote.include_note ? quote.customer_facing_notes : null}
+            />
             <TcsBlock tcs={quote.tcs} />
             <HowToAccept />
           </View>

@@ -447,7 +447,23 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                     </div>
                   )}
 
-                  {serviceFees.length > 0 && (
+                  {/* ── C1 · collapsing the itemization never removes the
+                      charge ────────────────────────────────────────────────
+                      `includeFeeLines = false` hides the LINES and keeps the
+                      money stated: the total is still disclosed, still inside
+                      the turnkey figure, and still described in words. "Hide
+                      the fee lines" and "omit the fees" are one edit apart and
+                      the second is a quote that charges for something it does
+                      not mention. */}
+                  {!view.includeFeeLines && basisTier && (
+                    <div className="pp-charge-sub" data-testid="cvl-fee-fold">
+                      One-time fees of {money(basisTier.money.feesTotal)} are
+                      included in the totals above — itemization available on
+                      request.
+                    </div>
+                  )}
+
+                  {view.includeFeeLines && serviceFees.length > 0 && (
                     <>
                       <div className="pp-charge-group-label">
                         Project &amp; SKU fees · one-time
@@ -481,7 +497,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                     </>
                   )}
 
-                  {hasSeparateFreight && (
+                  {view.includeFeeLines && hasSeparateFreight && (
                     <>
                       <div className="pp-charge-group-label">
                         Pass-through freight · billed at cost
@@ -518,6 +534,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 </>
               )}
 
+              {view.includeTerms && (
               <div className="pp-terms">
                 <div className="pp-term">
                   <div className="label">Valid until</div>
@@ -536,8 +553,9 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                   <div className="value">{quote.incoterms ?? "—"}</div>
                 </div>
               </div>
+              )}
 
-              {quote.customerFacingNotes && (
+              {view.includeNote && quote.customerFacingNotes && (
                 <div className="pp-notes">
                   <div className="label">Notes</div>
                   <p>{quote.customerFacingNotes}</p>

@@ -673,15 +673,37 @@ test("Card 2 holds no handler that could write economics", async () => {
   }
 });
 
-test("absent controls are stated as absent, not faked", async () => {
+test("the controls that exist persist, and the one that does not says so", async () => {
+  // This test used to assert the OPPOSITE, and was right to: the presentation
+  // profile had no record, so tiers-shown, the include toggles, the customer
+  // note and "Customer received" could not survive a reload. Rendering them
+  // anyway would have been worse than the gap, because an operator would have
+  // trusted them.
+  //
+  // G4 gave them a record. The gap note is gone because the gap is gone, and
+  // what replaces it is the check that they now write somewhere.
   const raw = await read(RAIL);
-  // The Layer-2 presentation profile has no record, so tiers-shown, the
-  // include toggles, the customer note and "Customer received" cannot persist.
-  // Rendering them anyway would be worse than the gap — an operator would
-  // trust them.
-  assert.match(raw, /cv-presentation-gap/);
+  const card = await read("src/components/quote/card-customer-presentation.tsx");
+
+  assert.doesNotMatch(raw, /cv-presentation-gap/, "the presentation gap is filled");
+  assert.match(raw, /customerReceived/, "Customer received is derived, not absent");
+
+  // Every control writes through an action. A control with an onClick that
+  // only touches React state is exactly the thing the old note warned about.
+  for (const writer of [
+    "updatePresentationInclude",
+    "updatePresentationDetail",
+    "updatePresentationLayout",
+    "updatePresentationTierShown",
+    "setTierRecommended",
+    "updateQuoteNotes",
+  ]) {
+    assert.match(card, new RegExp(writer), `Card 2 must persist via ${writer}`);
+  }
+
+  // The authored Accounting instruction genuinely does not exist yet, so that
+  // gap is still stated rather than faked.
   assert.match(raw, /cv-accounting-gap/);
-  assert.match(raw, /would not survive a reload/);
 });
 
 test("unknown recovery is unavailable, never $0", async () => {
@@ -698,17 +720,31 @@ test("unknown recovery is unavailable, never $0", async () => {
   assert.doesNotMatch(rail, /approvedRecovery === null \? usd\(0\)/);
 });
 
-test("the document keeps the PDF iframe — no second renderer", async () => {
-  // D7. A DOM preview would be a second renderer able to disagree with the
-  // artifact the customer receives.
-  const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
-  assert.match(host, /cv-sheet/);
-  assert.match(host, /<iframe/);
+test("the document width stays the authority's, whatever renders it", async () => {
+  // WHAT THIS USED TO ASSERT, AND WHY IT IS GONE
+  //
+  // "The document keeps the PDF iframe - no second renderer." D7's worry was
+  // real: a DOM preview CAN disagree with the artifact the customer receives.
+  // It was answered by evidence rather than by avoidance - Gate A certified
+  // semantic parity 13/13 against content extracted from the PDF's own
+  // streams, and Gate B transcribed the geometry from the stylesheet the PDF
+  // was itself ported from.
+  //
+  // The old test survived the cutover by ACCIDENT: it matched /<iframe/
+  // against the whole file, and the legacy non-restored branch still has one.
+  // So it kept passing while asserting a principle the project had overturned,
+  // which is worse than failing - a green test standing for a commitment
+  // nobody holds any more.
+  //
+  // What remains true is the width.
   const css = await read("src/styles/r3-customer-view.css");
-  // 816px is Letter at 96dpi — the authority's document width.
+  // 816px is Letter at 96dpi - the authority's document width.
   assert.match(css, /min\(816px, 100%\)/);
-  // And the reference's zoom stepper is deliberately not built.
-  assert.doesNotMatch(host, /transform: scale/);
+
+  // And the restored preview renders the projection, which the cutover test
+  // above pins in detail.
+  const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
+  assert.match(host, /<CustomerViewLive view=\{view\} \/>/);
 });
 
 test("the rail stays beside the document at every width", async () => {

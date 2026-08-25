@@ -17,6 +17,10 @@
 // their step lands.
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import type {
+  PresentationState,
+  PresentationTier,
+} from "@/components/quote/card-customer-presentation";
 import { useCallback } from "react";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
@@ -61,6 +65,8 @@ export function QuoteUmbrella({
   showStateSwitcher,
   recoveryInstructions,
   recoveryRows,
+  presentation,
+  presentationTiers,
   governed,
   presentationRestored,
   allowSimulatedComplete,
@@ -165,6 +171,8 @@ export function QuoteUmbrella({
   /** For the Accounting zone — the sentences the send freeze will write. */
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
   recoveryRows: RecoveryChargeRow[];
+  presentation: PresentationState;
+  presentationTiers: readonly PresentationTier[];
   governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
   presentationRestored: boolean;
@@ -313,6 +321,8 @@ export function QuoteUmbrella({
               quoteNumberDb={quoteNumberDb}
               recoveryInstructions={recoveryInstructions}
               recoveryRows={recoveryRows}
+          presentation={presentation}
+          presentationTiers={presentationTiers}
               quoteRollup={quoteRollup}
               governed={governed}
               presentationRestored={presentationRestored}

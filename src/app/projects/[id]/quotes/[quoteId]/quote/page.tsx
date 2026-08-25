@@ -124,7 +124,7 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed } =
+    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed, presentation } =
       result;
     if (project.id !== projectId) notFound();
 
@@ -370,6 +370,11 @@ export default async function CustomerViewPage({
           quoteRollup={quoteRollup}
           recoveryInstructions={recoveryInstructions}
           recoveryRows={recoveryRows}
+          presentation={presentation}
+          // EVERY tier, not the presented subset. `view.tiers` has already had
+          // the hidden ones removed, so building the toggles from it would drop
+          // a tier's own toggle the moment it was hidden — a one-way door.
+          presentationTiers={presentation.allTiers}
           governed={governed}
           presentationRestored={presentationRestored}
           acceptancePrefill={acceptancePrefill}

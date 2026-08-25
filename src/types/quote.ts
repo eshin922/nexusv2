@@ -291,4 +291,24 @@ export type CustomerView = {
    * `hasMeaningfulContent` guard.
    */
   includeSpecAddendum: boolean;
+  /**
+   * Whether one-time charges are ENUMERATED line by line.
+   *
+   * ── DISCLOSURE, NEVER ECONOMICS ────────────────────────────────────────
+   *
+   * `false` collapses the itemization and never removes the charge: the total
+   * is still stated, still inside the turnkey figure, and still disclosed in
+   * words. "Hide the fee lines" and "omit the fees" are one edit apart, and the
+   * second is a customer-facing misstatement — a quote that charges for
+   * something it does not mention.
+   *
+   * Every renderer honouring this must keep saying what the money IS.
+   * Falsified in the tests: for either value the printed total is identical and
+   * the fee total is still disclosed on the document.
+   */
+  includeFeeLines: boolean;
+  /** Whether the commercial terms block prints. */
+  includeTerms: boolean;
+  /** Whether the customer note prints. Its TEXT is `quote.customerFacingNotes`. */
+  includeNote: boolean;
 };

@@ -121,6 +121,11 @@ export function customerViewToCpdf(
     // to tell "no T&Cs configured" from "empty T&Cs", and an empty string
     // would render an empty Terms heading over nothing.
     tcs: view.quote.tcs,
+    // Carried, not re-derived. The preview and the artifact must make the same
+    // presentation decisions from the same record.
+    include_fee_lines: view.includeFeeLines,
+    include_terms: view.includeTerms,
+    include_note: view.includeNote,
   };
 
   const tiers: CpdfTier[] = view.tiers.map((t, idx) => ({
