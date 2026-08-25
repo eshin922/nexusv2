@@ -277,6 +277,33 @@ export async function resolveCustomerView(args: {
     return { ok: false, kind: "bundle_error", message: bundle.error.message };
   }
 
+  /**
+   * Which rollups OWN their charges, rather than carrying a merge of their
+   * children's.
+   *
+   * Defined once and passed to both readers. When they each built their own,
+   * one of them omitted it entirely and the workspace reported double the
+   * governed recovery on the operator's surface.
+   */
+  const ownsItsCharges = (skuId: string) =>
+    ((bundle.data.skus ?? []) as { id: string; skuRole?: string }[]).some(
+      (s) => s.id === skuId && s.skuRole === "leaf",
+    );
+
+  const embeddedRecoveryByTier = (() => {
+    const byTier = new Map<string, number | null>();
+    for (const rollup of bundle.data.costing.skuRollups ?? []) {
+      if (!ownsItsCharges(rollup.skuId)) continue;
+      for (const cell of rollup.perTier ?? []) {
+        const prior = byTier.get(cell.tierId);
+        if (prior === null) continue; // already unattributable
+        const v = cell.embeddedRecoveryTotal;
+        byTier.set(cell.tierId, v === null ? null : (prior ?? 0) + v);
+      }
+    }
+    return byTier;
+  })();
+
   const vendor: CustomerViewVendor = {
     name: firm?.vendorName ?? VENDOR_FIXTURE.name,
     sub: firm?.vendorTagline ?? VENDOR_FIXTURE.sub,
@@ -592,18 +619,6 @@ export async function resolveCustomerView(args: {
     includeNote: profile?.includeNote ?? true,
   };
 
-  /**
-   * Which rollups OWN their charges, rather than carrying a merge of their
-   * children's.
-   *
-   * Defined once and passed to both readers. When they each built their own,
-   * one of them omitted it entirely and the workspace reported double the
-   * governed recovery on the operator's surface.
-   */
-  const ownsItsCharges = (skuId: string) =>
-    ((bundle.data.skus ?? []) as { id: string; skuRole?: string }[]).some(
-      (s) => s.id === skuId && s.skuRole === "leaf",
-    );
 
 
   // ── IN-UNIT-PRICE RECOVERY, PER TIER ───────────────────────────────────
@@ -622,19 +637,6 @@ export async function resolveCustomerView(args: {
   // tier that summed only its attributable cells would print a number that
   // looks like the whole and is not - the failure this whole reconciliation
   // exists to prevent.
-  const embeddedRecoveryByTier = (() => {
-    const byTier = new Map<string, number | null>();
-    for (const rollup of bundle.data.costing.skuRollups ?? []) {
-      if (!ownsItsCharges(rollup.skuId)) continue;
-      for (const cell of rollup.perTier ?? []) {
-        const prior = byTier.get(cell.tierId);
-        if (prior === null) continue; // already unattributable
-        const v = cell.embeddedRecoveryTotal;
-        byTier.set(cell.tierId, v === null ? null : (prior ?? 0) + v);
-      }
-    }
-    return byTier;
-  })();
 
   // The floor verdict, evaluated exactly as the send gate evaluates it.
   //
