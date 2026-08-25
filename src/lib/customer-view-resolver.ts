@@ -492,6 +492,7 @@ export async function resolveCustomerView(args: {
       quantity: t.quantity,
       lineTotals: skus.map((sku) => sku.tierLineTotals[ti]),
       feeAmounts: serviceFees.map((f) => f.tierAmounts[ti]),
+      embeddedRecovery: embeddedRecoveryByTier.get(t.id) ?? null,
     }),
   }));
 
@@ -603,6 +604,37 @@ export async function resolveCustomerView(args: {
     ((bundle.data.skus ?? []) as { id: string; skuRole?: string }[]).some(
       (s) => s.id === skuId && s.skuRole === "leaf",
     );
+
+
+  // ── IN-UNIT-PRICE RECOVERY, PER TIER ───────────────────────────────────
+  //
+  // Summed over the rollups that OWN their charges - the same predicate the
+  // recovery workspace uses. An assembly's rollup carries the MERGE of its
+  // children's, so summing every rollup would count each charge twice, which
+  // is exactly how this model once reported double the governed recovery on
+  // the operator's surface.
+  //
+  // The value each rollup reports is what the LADDER embedded, computed where
+  // the ladder's own operands live. Nothing is priced or re-derived here; this
+  // adds up figures it is given.
+  //
+  // NULL propagates: one unattributable cell makes the tier unattributable. A
+  // tier that summed only its attributable cells would print a number that
+  // looks like the whole and is not - the failure this whole reconciliation
+  // exists to prevent.
+  const embeddedRecoveryByTier = (() => {
+    const byTier = new Map<string, number | null>();
+    for (const rollup of bundle.data.costing.skuRollups ?? []) {
+      if (!ownsItsCharges(rollup.skuId)) continue;
+      for (const cell of rollup.perTier ?? []) {
+        const prior = byTier.get(cell.tierId);
+        if (prior === null) continue; // already unattributable
+        const v = cell.embeddedRecoveryTotal;
+        byTier.set(cell.tierId, v === null ? null : (prior ?? 0) + v);
+      }
+    }
+    return byTier;
+  })();
 
   // The floor verdict, evaluated exactly as the send gate evaluates it.
   //

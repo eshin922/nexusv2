@@ -137,3 +137,46 @@
 .pp-fit .pp-sheet {
   padding-bottom: 40px;
 }
+
+/* ── The reconciliation ───────────────────────────────────────────────────
+   Same column grid as the pricing table, so each figure sits under its own
+   tier. Quieter than the grand row: this explains that number, it does not
+   compete with it. Nexus addition — the canonical round has no equivalent,
+   because the recovery treatments it describes had no document-side
+   explanation until now. */
+.pp-recon {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pp-rule);
+}
+.pp-recon-row {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 0;
+}
+.pp-recon-k {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pp-ink-3);
+}
+.pp-recon-row .pp-c-num {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--pp-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+/* The "includes" line is subordinate to the subtotal above it: it explains
+   part of that figure rather than adding to it. */
+.pp-recon-sub .pp-recon-k,
+.pp-recon-sub .pp-c-num {
+  color: var(--pp-muted);
+}
+.pp-recon-note {
+  margin-top: 5px;
+  font-family: var(--display);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--pp-muted);
+}

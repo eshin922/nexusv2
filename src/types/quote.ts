@@ -175,6 +175,28 @@ export type CustomerViewTierMoney = {
   perUnitTurnkey: number | null;
   /** Any SKU unpriced at this tier. Drives "total on request". */
   hasUnpricedLine: boolean;
+  /**
+   * How much in-unit-price recovery is ALREADY INSIDE `goodsTotal`.
+   *
+   * ── A DISCLOSURE, NOT AN ADDEND ────────────────────────────────────────
+   *
+   * This is not added to anything. The recovery is already in the unit prices,
+   * so the document says so - "Unit-price subtotal ... includes recovery $X" -
+   * rather than presenting a pre-recovery subtotal plus a recovery line. There
+   * is no governed pre-recovery subtotal to present, and inventing one would
+   * put a figure on a customer document that nothing computes.
+   *
+   * ── NULL IS AN ANSWER ──────────────────────────────────────────────────
+   *
+   * NULL when a final sell override replaces the ladder result for any cell in
+   * the tier. An override discards the rungs beneath it, so there is no fact
+   * about how much of the operator's price "is" recovery. The document shows an
+   * em dash and says why. A number there would reconcile only because it had
+   * been chosen to.
+   *
+   * Also NULL when a recovery amount itself is ungoverned (BV-013).
+   */
+  embeddedRecovery: number | null;
 };
 
 export type CustomerViewTier = {

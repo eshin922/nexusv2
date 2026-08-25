@@ -690,6 +690,37 @@ export type SkuPerTierRollup = {
    * re-deciding it.
    */
   constructed: ConstructedCommercialState;
+  /**
+   * What in-unit-price recovery ACTUALLY reached this cell's quoted sell.
+   *
+   * ── WHY THIS IS A COSTING FACT AND NOT A CONSTRUCTION ONE ───────────────
+   *
+   * The construction decides WHERE a charge lands. What a unit-price-placed
+   * charge then CONTRIBUTES to the customer's price is decided here, by the
+   * ladder, and the two answers differ by provenance:
+   *
+   *   ELECTED  the governed recovery is added AFTER the ladder, so the amount
+   *            embedded is exactly `unitPriceRecoveryElected`.
+   *   LEGACY   the fee enters as cost, is marked up with everything else, and
+   *            is then carried by the adjustment and any lift. So it embeds
+   *            `recovery x (1 + effectiveAdj) x (1 + cellLift)`.
+   *
+   * Those multipliers are the LADDER'S OWN, read here rather than re-derived,
+   * so this states what the ladder did instead of predicting it. It changes no
+   * price: every operand already existed and quoted sell is untouched.
+   *
+   * ── NULL IS A REAL ANSWER, NOT A MISSING ONE ───────────────────────────
+   *
+   * NULL when a final sell override replaces the ladder result. An override
+   * discards the rungs beneath it, so there is no fact about how much of the
+   * operator's price "is" recovery — electing can change the total by nothing
+   * at all. The document shows an em dash and says why rather than inventing
+   * an allocation that would reconcile only by construction.
+   *
+   * Also NULL when the recovery itself is unknown (BV-013): a total containing
+   * an unknown is unknown.
+   */
+  embeddedRecoveryTotal: number | null;
   contributionCostPerUnit: number;
   // Slice 9.3 — `requiredSellPerUnit` is the value used by all
   // downstream math (revenue, margin, partition). `computedSellPerUnit`
@@ -3126,6 +3157,26 @@ function computeLeafPerTier(args: {
   const revenue = requiredSellPerUnit * tierQty;
   const cost = contributionCostPerUnit * tierQty;
 
+  // ── WHAT THE LADDER ACTUALLY EMBEDDED ──────────────────────────────────
+  //
+  // Read from the ladder's own operands, not predicted from a formula of our
+  // own. See `embeddedRecoveryTotal` on the rollup type for why the elected
+  // and legacy halves differ and why an override makes this unknown.
+  const embeddedRecoveryTotal: number | null = (() => {
+    // An override discards the rungs beneath it. There is then no fact of the
+    // matter about how much of the operator's price is recovery.
+    if (cellOverride !== null) return null;
+    const all = constructed.unitPriceRecovery;
+    const elected = constructed.unitPriceRecoveryElected;
+    // Unknown recovery makes the total unknown rather than smaller.
+    if (all === null) return null;
+    const electedPart = elected ?? 0;
+    const legacyPart = all - electedPart;
+    // The legacy half rode the ladder; the elected half was added after it.
+    const carried = legacyPart * (1 + effectiveAdj) * (1 + (cellLift ?? 0));
+    return carried + electedPart;
+  })();
+
   return {
     tierId: tier.id,
     packagingCostPerUnit: packagingCostSum,
@@ -3148,6 +3199,7 @@ function computeLeafPerTier(args: {
     separateServicesMarkupSumPerUnit: separateServicesMarkupSum,
     chargeEconomics,
     constructed,
+    embeddedRecoveryTotal,
     contributionCostPerUnit,
     computedSellPerUnit,
     requiredSellPerUnit,
@@ -3197,6 +3249,9 @@ function computeLeafPerTier(args: {
 // Empty per-tier rollup for assemblies before children fold in.
 function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
   return {
+    // No children, so no charges and nothing embedded. Zero rather than null:
+    // this is a known-empty fold, not an unattributable one.
+    embeddedRecoveryTotal: 0,
     // P3-017 ladder — an assembly with no children has passed through no
     // levers, so every level and every contribution is zero. The identity
     // holds trivially, which is correct rather than merely convenient.
@@ -3432,6 +3487,18 @@ function rollUpAssemblyPerTier(
   const marginPct: number | null =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;
   return {
+    // Carried up UNSCALED, like the child charges beside it: these are
+    // tier-absolute amounts, not per-unit ones, so multiplying by
+    // qtyPerParent would inflate them (the OD-025 dimension trap).
+    //
+    // NULL if ANY child is unattributable. A parent that summed only its
+    // attributable children would print a number that looks like the whole
+    // and is not.
+    embeddedRecoveryTotal: children.some(
+      (c) => c.rollup.embeddedRecoveryTotal === null,
+    )
+      ? null
+      : children.reduce((a, c) => a + (c.rollup.embeddedRecoveryTotal ?? 0), 0),
     // A fold, not a cell. See the field's note.
     sellNodeKey: null,
     sellBeforeAdjustmentPerUnit: sellBeforeAdj,

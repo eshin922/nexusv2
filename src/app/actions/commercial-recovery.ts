@@ -63,6 +63,9 @@ import {
 } from "@/lib/commercial-recovery/impact";
 import { loadQuoteCostingInput } from "@/app/actions/costing";
 import { quoteByIdDraft } from "@/lib/quote-guards";
+import { resolveCustomerView } from "@/lib/customer-view-resolver";
+import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
+import type { CustomerView } from "@/types/quote";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 
 function parseChargeKey(raw: FormDataEntryValue | null): RecoveryChargeKey {
@@ -129,9 +132,57 @@ async function allocationStatesInQuote(quoteId: string): Promise<boolean[]> {
  * Returns the stored mode, or `null` when the charge has been returned to
  * legacy resolution.
  */
+/**
+ * What the election returns: the persisted fact, and the AUTHORITATIVE state
+ * that fact produces.
+ *
+ * ── WHY THE ACTION CARRIES THE PROJECTION ────────────────────────────────
+ *
+ * The election wrote in under a second and the operator then waited two to four
+ * more, watching a control that had not moved, because the answer only arrived
+ * with the next full-page render. Measured on production repeatedly:
+ * 1994-4041ms from click to any visible change, with the segment and the
+ * document both landing in one frame at the very end.
+ *
+ * A write that has already happened, whose consequences are already computed,
+ * should not be invisible until an unrelated render delivers it.
+ *
+ * ── NOT AN APPROXIMATION ─────────────────────────────────────────────────
+ *
+ * `view` and `recoveryRows` here are produced by `resolveCustomerView` — THE
+ * resolver, the same function the page render calls, after the write commits.
+ * Not a lightweight parallel computation of "what probably changed": the same
+ * governed facts, from the same code path, one render earlier.
+ *
+ * That distinction is the whole reason this is safe. A second, cheaper
+ * projection would be a second authority over customer economics, and the
+ * first time it disagreed the operator would be looking at a number the
+ * document does not have.
+ *
+ * The full RSC revalidation still runs afterwards for consistency. It is no
+ * longer what the operator waits on, and when it lands it must produce the
+ * same answer — which it does, because it is the same function over the same
+ * committed row.
+ */
+export type SetChargeRecoveryResult = {
+  quoteId: string;
+  chargeKey: RecoveryChargeKey;
+  mode: RecoveryMode | null;
+  /**
+   * The authoritative projection AFTER the write. Null only when the
+   * post-write resolve fails — in which case the surface keeps what it has and
+   * the revalidation still corrects it, so a failed re-read degrades to the
+   * old behaviour rather than to a wrong document.
+   */
+  projection: {
+    view: CustomerView;
+    recoveryRows: RecoveryChargeRow[];
+  } | null;
+};
+
 export async function setChargeRecovery(
   formData: FormData,
-): Promise<ActionResult<{ quoteId: string; chargeKey: RecoveryChargeKey; mode: RecoveryMode | null }>> {
+): Promise<ActionResult<SetChargeRecoveryResult>> {
   return runAction(async () => {
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
@@ -168,7 +219,10 @@ export async function setChargeRecovery(
       }
     }
 
-    if (from === mode) return { quoteId, chargeKey, mode };
+    // Nothing changed, so nothing to project: the surface already shows this
+    // answer, and re-resolving to hand back what is already on screen would
+    // spend a round trip to say so.
+    if (from === mode) return { quoteId, chargeKey, mode, projection: null };
 
     if (mode === null) {
       // Scoped to THIS charge. A quote-wide delete would clear every other
@@ -205,9 +259,30 @@ export async function setChargeRecovery(
       },
     });
 
+    // The authoritative state this election produces, from THE resolver.
+    //
+    // Read AFTER the write commits, so it reflects the row that now exists
+    // rather than the one that did. Costs one resolve — the same resolve the
+    // revalidation below is about to perform anyway, moved to where it can
+    // reach the operator immediately instead of a render later.
+    //
+    // A failure here is not a failure of the election: the write is committed
+    // and the revalidation will still deliver the result. So it degrades to
+    // null and the surface keeps what it has, rather than throwing away a
+    // successful write because a re-read did not come back.
+    let projection: SetChargeRecoveryResult["projection"] = null;
+    try {
+      const resolved = await resolveCustomerView({ quoteId });
+      if (resolved.ok) {
+        projection = { view: resolved.view, recoveryRows: resolved.recoveryRows };
+      }
+    } catch {
+      projection = null;
+    }
+
     revalidateQuoteTree(quote.projectId, quote.id);
 
-    return { quoteId, chargeKey, mode };
+    return { quoteId, chargeKey, mode, projection };
   });
 }
 

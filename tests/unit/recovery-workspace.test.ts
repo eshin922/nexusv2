@@ -746,7 +746,7 @@ test("the document width stays the authority's, whatever renders it", async () =
   // And the restored preview renders the projection, which the cutover test
   // above pins in detail.
   const host = codeOnly(await read("src/components/quote/quote-host.tsx"));
-  assert.match(host, /<CustomerViewLive view=\{view\} \/>/);
+  assert.match(host, /<CustomerViewLive view=\{shownView\} \/>/);
 });
 
 test("the rail stays beside the document at every width", async () => {
@@ -841,8 +841,18 @@ test("the preview renders the projection, and fetches nothing", async () => {
 
   // The preview IS the renderer, reading the same resolved projection the PDF
   // is built from.
-  assert.ok(flat.includes("<CustomerViewLive view={view} />"),
+  // `shownView` is the authoritative projection: the prop from the page
+  // render, or the one `setChargeRecovery` returned after re-running the same
+  // resolver. Both are server-computed governed state — the override exists to
+  // deliver the answer at the action-return boundary instead of a render
+  // later, not to compute a different one.
+  assert.ok(flat.includes("<CustomerViewLive view={shownView} />"),
     "the restored preview must render the projection directly");
+  assert.match(host, /const shownView = authoritative\?\.view \?\? view/,
+    "the shown view must be a projection, never a client-side derivation");
+  // And a newer server render must supersede the override, or the surface
+  // would pin the first post-write answer and ignore every later one.
+  assert.match(host, /setAuthoritative\(null\)/, "props supersede the override");
 
   // No iframe anywhere on the restored path. The legacy branch keeps its own,
   // which is why this asserts on the restored composition rather than on the

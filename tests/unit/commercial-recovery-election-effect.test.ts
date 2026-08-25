@@ -477,3 +477,56 @@ test("relocating an ELECTED charge does not invalidate an approval", () => {
     "doubling the charge did not move the fingerprint — it is measuring nothing",
   );
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// WHAT THE LADDER ACTUALLY EMBEDDED
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The customer document says "Unit-price subtotal ... includes recovery $X".
+// X has to be what the ladder REALLY put in the price, and that differs by
+// provenance:
+//
+//   ELECTED  added after the ladder            -> exactly the recovery
+//   LEGACY   enters as cost, rides adj + lift  -> recovery x (1 + gpa)
+//
+// A single formula for both would understate legacy by the adjustment, and the
+// reconciliation printed to the customer would fail to close by that amount on
+// every quote with a non-zero GPA. Ten of twelve production quotes are pure
+// legacy; three carry a non-zero adjustment.
+
+function embedded(allocate: boolean, elections: ChargeElection[] = []) {
+  const costing = computeQuoteCosting(costingInput(allocate, elections));
+  const leaf = costing.skuRollups.find((r) => r.skuId === "leaf");
+  return leaf?.perTier[0]?.embeddedRecoveryTotal ?? null;
+}
+
+test("a LEGACY unit-price charge embeds the ladder-inclusive amount", () => {
+  // Allocated into cost, so it is marked up AND carried by the adjustment.
+  // 1000 x 1.4 x 1.2 = 1680, not 1400. The 280 difference is the whole reason
+  // this cannot be `recoverableSell`.
+  assert.equal(embedded(true), SETUP * RATE * (1 + GPA));
+  assert.notEqual(embedded(true), SETUP * RATE);
+});
+
+test("an ELECTED unit-price charge embeds exactly the governed recovery", () => {
+  // Added after the ladder, so the adjustment does not reach it.
+  assert.equal(
+    embedded(false, [{ chargeKey: "project_setup", mode: "included" }]),
+    SETUP * RATE,
+  );
+});
+
+test("the two differ by exactly the adjustment", () => {
+  // The same identity the placement-neutrality test pins one level up, now
+  // asserted on the figure the customer document prints.
+  const legacy = embedded(true) ?? 0;
+  const elected = embedded(false, [{ chargeKey: "project_setup", mode: "included" }]) ?? 0;
+  assert.equal(Math.round((legacy - elected) * 100) / 100, SETUP * RATE * GPA);
+});
+
+test("a separately-billed charge embeds nothing in the unit price", () => {
+  // It is on its own line; claiming it were inside the rate would tell the
+  // customer they are paying for it twice.
+  assert.equal(embedded(false), 0);
+});

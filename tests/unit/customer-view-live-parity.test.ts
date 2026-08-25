@@ -58,7 +58,7 @@ const lineTotalsBySku = PRICES.map((p) => composeLineTotals(p, QTYS));
 
 const TIERS: CpdfTier[] = TIER_DEFS.map((t, ti) => ({
   ...t,
-  money: composeTierMoney({
+  money: composeTierMoney({ embeddedRecovery: null,
     quantity: t.quantity,
     lineTotals: lineTotalsBySku.map((lt) => lt[ti]),
     feeAmounts: FEE_AMOUNTS.map((f) => f[ti]),
