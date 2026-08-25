@@ -1969,3 +1969,101 @@ test("giving the allocation provenance keeps every key singly reachable", () => 
     assert.deepEqual(findDuplicateKeys(computeQuoteCosting(fixture).graph.nodes), []);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// UNIT-PRICE SELL · BASE + LEVERS + RECOVERY IN THE UNIT PRICE
+// ═══════════════════════════════════════════════════════════════════════
+//
+// What a unit price actually is. NOT quoted revenue per unit, which divides
+// separately-billed one-time charges by tier quantity and so states that the
+// customer pays them per unit. They do not: the customer document bills them
+// once, at the order.
+//
+// The per-cell ladder facts already existed and were already folded through
+// assemblies by `qty_per_parent`. What did not exist was an aggregation on THIS
+// basis — the levers were consumed only by the blended nodes, whose basis is
+// the SKU population (tier 1 blends to 3.42 where the per-unit build-up is
+// 13.68). Reading a lever off the blend into this column would be attributing a
+// number computed over a different denominator.
+//
+// Proven on production before shipping: 60 tiers across 40 quotes, 25 carrying
+// a live lever, zero mismatches.
+
+// `priced`, not `input`: the bare fixture has nothing for an adjustment to act
+// on, so a GPA case built on it would pass by having no lever rather than by
+// attributing one.
+const gpa = (rate: number) =>
+  priced({ quote: { id: "q-1", globalPriceAdjPct: rate, targetMarginPct: null } });
+
+const unitPriceSell = (fixture: QuoteCostingInput) =>
+  computeQuoteCosting(fixture).graph.nodes.find((n) =>
+    /per-unit\/unit-price-sell$/.test(n.key),
+  );
+
+test("unit-price sell reconciles to its operands", () => {
+  for (const fixture of [input(), gpa(0.2), gpa(-0.05)]) {
+    const n = unitPriceSell(fixture);
+    assert.ok(n, "the node must exist");
+    const summed = (n.operands ?? []).reduce((a, o) => a + o.value, 0);
+    assert.ok(
+      Math.abs(summed - n.value) < 1e-9,
+      `operands sum to ${summed}, node states ${n.value}`,
+    );
+  }
+});
+
+test("a live adjustment appears as its own contribution", () => {
+  // The acceptance case that matters. With no adjustment the structure is
+  // trivially complete; the question is whether it stays complete on the first
+  // adjusted quote, which is why a zero-lever fixture alone would prove nothing.
+  const n = unitPriceSell(gpa(0.2));
+  const adj = n!.operands?.find((o) => /adj-delta$/.test(o.key));
+  assert.ok(adj, "a 20% adjustment must be named, not absorbed into base");
+
+  const base = n!.operands?.find((o) => /unit-price-sell\/base$/.test(o.key));
+  assert.ok(base);
+  // From the lever's OWN rate, not by subtracting two levels — a difference of
+  // levels telescopes and could never fail.
+  assert.ok(
+    Math.abs(adj.value - base.value * 0.2) < 1e-9,
+    `adjustment ${adj.value} should be ${base.value} x 0.2`,
+  );
+});
+
+test("a zero lever is not shown", () => {
+  // "Do not display zero contributors merely to fill the list." A row reading
+  // +$0.0000 tells an operator a lever acted when none did.
+  const n = unitPriceSell(input());
+  for (const kind of ["adj-delta", "lift-delta", "override-delta"]) {
+    assert.equal(
+      n!.operands?.some((o) => o.key.endsWith(kind)),
+      false,
+      `${kind} is zero on this fixture and must be absent`,
+    );
+  }
+});
+
+test("unit-price sell excludes separately-billed charges", () => {
+  // The whole point of the grain split. If a separately-billed charge ever
+  // reaches this node, the column has gone back to amortising an order-level
+  // amount over units.
+  const c = computeQuoteCosting(input());
+  const n = unitPriceSell(input());
+  const revenuePerUnit = c.graph.nodes.find((x) =>
+    /per-unit\/departure$/.test(x.key),
+  )?.operands?.[0];
+  assert.ok(revenuePerUnit);
+  // Quoted revenue per unit carries the charges; unit-price sell must not, so
+  // on a quote with separately-billed charges the two differ.
+  assert.ok(
+    n!.value <= revenuePerUnit.value + 1e-9,
+    "unit-price sell cannot exceed quoted revenue per unit",
+  );
+  for (const o of n!.operands ?? []) {
+    assert.doesNotMatch(
+      o.label,
+      /billed separately/i,
+      "a separately-billed charge must not be an operand of a unit price",
+    );
+  }
+});

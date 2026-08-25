@@ -3967,11 +3967,57 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       dutyAndTariffMarkupSum: 0,
       separateServicesMarkupSum: 0,
     };
+    // ---------- the price ladder, aggregated on the PER-UNIT basis ----------
+    //
+    // The per-cell facts already exist and are already folded through
+    // assemblies by `qty_per_parent`. What did not exist was an aggregation on
+    // THIS basis: the levers were consumed only by the blended nodes, whose
+    // basis is the SKU population (tier 1 blends to 3.42 where the per-unit
+    // build-up is 13.68). Reading a lever off the blend into the per-unit
+    // column would be attributing a number computed over a different
+    // denominator.
+    //
+    // Every top-level cell is per-unit over the SAME tier quantity, so the sum
+    // IS the tier's per-unit figure. No re-weighting, and no new arithmetic —
+    // each delta still comes from its own lever's governed authority, which is
+    // what lets the identity below be false when something is wrong.
+    let sellBeforePU = 0;
+    let adjDeltaPU = 0;
+    let liftDeltaPU = 0;
+    let overrideDeltaPU = 0;
+    let embeddedRecoveryTotalTier = 0;
+    const embeddedRecoveryOperands: CostingNode[] = [];
     for (const top of topLevel) {
       const r = rollupBySku.get(top.id);
       if (!r) continue;
       const pt = r.perTier.find((p) => p.tierId === tier.id);
       if (!pt) continue;
+      sellBeforePU += pt.sellBeforeAdjustmentPerUnit;
+      adjDeltaPU += pt.adjDeltaPerUnit;
+      liftDeltaPU += pt.liftDeltaPerUnit;
+      overrideDeltaPU += pt.overrideDeltaPerUnit;
+      // NULL is not zero: an overridden cell has no attributable recovery, and
+      // adding 0 would state that it embeds none.
+      embeddedRecoveryTotalTier += pt.embeddedRecoveryTotal ?? 0;
+      if ((pt.embeddedRecoveryTotal ?? 0) !== 0) {
+        // Per OWNER, from each cell's own figure — exact by construction,
+        // because it is literally what the engine put in that cell's price.
+        //
+        // NOT per charge. A LEGACY unit-price charge enters as cost and is
+        // carried by the adjustment and any lift, so the amount that reached
+        // the price is not the governed recovery; naming charges here would
+        // require re-deriving that scaling and would misstate a legacy charge
+        // by exactly the adjustment. Per-charge naming needs the elected /
+        // legacy split handled explicitly.
+        embeddedRecoveryOperands.push({
+          key: nodeKey("quote", tier.id, "per-unit", "embedded-recovery", top.id),
+          kind: "origin",
+          label: top.skuLabel,
+          value: pt.embeddedRecoveryTotal ?? 0,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      }
       revenueOperands.push({
         key: nodeKey("quote", tier.id, "revenue", top.id),
         kind: "origin",
@@ -4125,6 +4171,27 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     // premise; see docs/validation/quote-translation-parity-matrix.md.
     const perUnitQty = num(tier.qty);
     if (perUnitQty > 0) {
+      /**
+       * A copy of `n` rooted at `key`, with its whole subtree re-keyed beneath.
+       *
+       * The graph is a TREE: one parent per node, every canonical key reachable
+       * exactly once, and `resolveNode` returns null for an ambiguous key — so
+       * embedding an already-parented node does not enrich the graph, it makes
+       * the embedded node unreadable to every consumer of its key. Both
+       * attempts to give a per-unit figure provenance hit this, and the second
+       * one silently emptied the cost stack.
+       *
+       * Re-keying states the same facts and the same values under a path that
+       * belongs to the new parent.
+       */
+      const reKey = (n: CostingNode, key: string): CostingNode => ({
+        ...n,
+        key,
+        operands: n.operands?.map((child) =>
+          reKey(child, nodeKey(key, child.key.slice(n.key.length + 1))),
+        ),
+      });
+
       const originOf = (label: string, value: number): CostingNode => ({
         key: nodeKey("quote", tier.id, "per-unit", label, "total"),
         kind: "origin",
@@ -4168,34 +4235,11 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         divisor: perUnitQty,
         operands: [
           source
-            ? // RE-KEYED under this allocation, not embedded.
-              //
-              // The graph is a TREE: one parent per node, every canonical key
-              // reachable exactly once. Embedding `quote/<tier>/revenue`
-              // directly made it reachable twice, and `resolveNode` returns
-              // null for an ambiguous key — so every consumer of tier revenue
-              // would have read NOTHING. The invariant caught it; it is not a
-              // detail to route around.
-              //
-              // So the source's decomposition is restated beneath this
-              // allocation under its own key namespace. Same facts, same
-              // values, distinct keys — the per-unit branch gains provenance
-              // without the tier-scope node losing resolvability.
-              {
-                ...source,
-                key: nodeKey("quote", tier.id, "per-unit", name, "total"),
-                operands: source.operands?.map((child) => ({
-                  ...child,
-                  key: nodeKey(
-                    "quote",
-                    tier.id,
-                    "per-unit",
-                    name,
-                    "total",
-                    child.key.slice(source.key.length + 1),
-                  ),
-                })),
-              }
+            ? // Re-keyed, not embedded — see `reKey`. The source's
+              // decomposition is restated beneath this allocation so the
+              // per-unit branch gains provenance without the tier-scope node
+              // losing resolvability.
+              reKey(source, nodeKey("quote", tier.id, "per-unit", name, "total"))
             : {
                 ...originOf(label, total),
                 key: nodeKey("quote", tier.id, "per-unit", name, "total"),
@@ -4252,6 +4296,99 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // Both carry the node that produced them, so the per-unit figures
       // decompose to the per-product operands instead of stopping at a
       // restatement of themselves.
+      // ---------- UNIT-PRICE SELL · what the unit price actually is --------
+      //
+      // Base sell, plus each lever that moved it, plus the recovery elected
+      // INTO the unit price. Nothing else: a charge billed on its own line is
+      // not part of a unit price, and dividing it by tier quantity to make a
+      // column add up would state that the customer pays it per unit. They do
+      // not — the customer document bills it once, at the order.
+      //
+      // A `sum`, so the graph's own reconciliation check asserts the identity
+      // on every quote in production rather than only in a fixture. If base
+      // sell and the ladder's own pre-adjustment level ever disagree — a cost
+      // component the stack does not render is the known candidate — this node
+      // fails to reconcile visibly instead of absorbing the difference.
+      const unitPriceSellOperands: CostingNode[] = [
+        reKey(
+          subtotalPerUnit,
+          nodeKey("quote", tier.id, "per-unit", "unit-price-sell", "base"),
+        ),
+        ...(adjDeltaPU !== 0
+          ? [{
+              key: nodeKey("quote", tier.id, "per-unit", "adj-delta"),
+              // TERMINAL, like the per-SKU rungs one scope down. The rate has
+              // an author, but the engine is pure and cannot read the audit
+              // trail — attributing one here would be the engine guessing.
+              // Enriching this is the provenance overlay's documented job.
+              kind: "origin" as const,
+              label: "Price adjustment contribution, per unit",
+              value: adjDeltaPU,
+              unit: "usd" as const,
+              origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+            }]
+          : []),
+        ...(liftDeltaPU !== 0
+          ? [{
+              key: nodeKey("quote", tier.id, "per-unit", "lift-delta"),
+              // TERMINAL, like the per-SKU rungs one scope down. The rate has
+              // an author, but the engine is pure and cannot read the audit
+              // trail — attributing one here would be the engine guessing.
+              // Enriching this is the provenance overlay's documented job.
+              kind: "origin" as const,
+              label: "Surgical lift contribution, per unit",
+              value: liftDeltaPU,
+              unit: "usd" as const,
+              origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+            }]
+          : []),
+        ...(overrideDeltaPU !== 0
+          ? [{
+              key: nodeKey("quote", tier.id, "per-unit", "override-delta"),
+              // TERMINAL, like the per-SKU rungs one scope down. The rate has
+              // an author, but the engine is pure and cannot read the audit
+              // trail — attributing one here would be the engine guessing.
+              // Enriching this is the provenance overlay's documented job.
+              kind: "origin" as const,
+              label: "Sell override contribution, per unit",
+              value: overrideDeltaPU,
+              unit: "usd" as const,
+              origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+            }]
+          : []),
+        ...(embeddedRecoveryTotalTier !== 0
+          ? [{
+              key: nodeKey("quote", tier.id, "per-unit", "embedded-recovery"),
+              kind: "allocation" as const,
+              label: "One-time charges recovered in the unit price",
+              value: embeddedRecoveryTotalTier / perUnitQty,
+              unit: "usd" as const,
+              op: "tier total / tier quantity",
+              divisor: perUnitQty,
+              operands: [
+                {
+                  key: nodeKey("quote", tier.id, "per-unit", "embedded-recovery", "total"),
+                  kind: "sum" as const,
+                  label: "One-time charges recovered in the unit price",
+                  value: embeddedRecoveryTotalTier,
+                  unit: "usd" as const,
+                  op: "sum of " + embeddedRecoveryOperands.length + " product(s)",
+                  operands: embeddedRecoveryOperands,
+                },
+              ],
+            }]
+          : []),
+      ];
+      graphNodes.push({
+        key: nodeKey("quote", tier.id, "per-unit", "unit-price-sell"),
+        kind: "sum",
+        label: "Unit-price sell",
+        value: unitPriceSellOperands.reduce((a, n) => a + n.value, 0),
+        unit: "usd",
+        op: "base sell + pricing levers + recovery in the unit price",
+        operands: unitPriceSellOperands,
+      });
+
       const revenuePerUnit = alloc(
         "revenue",
         "Quoted revenue per unit",
