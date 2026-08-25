@@ -4133,10 +4133,31 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         unit: "usd",
         origin: { grade: "thin", actor: null, when: null, doc: null },
       });
+      /**
+       * @param source the node that COMPUTED `total`, where one exists.
+       *
+       * ── WHY THIS PARAMETER EXISTS ─────────────────────────────────────
+       *
+       * Without it, every allocation terminated in a synthetic `origin` that
+       * restated its own input as though nobody had computed it. So the graph
+       * said tier revenue was an INPUT — a terminal, with thin provenance,
+       * meaning "set by someone we cannot attribute".
+       *
+       * It is nothing of the sort. `revenueNode` is a `sum` sitting a few lines
+       * above, with one operand per product plus separately-billed recovery,
+       * and `costNode` likewise. The chain was being cut at the exact point a
+       * reader starts asking questions, and an operator was then shown the
+       * leftover as though it were a decision somebody made.
+       *
+       * The synthetic origin is still correct for the cost-component
+       * allocations, which allocate accumulated scalars that no node produced.
+       * Absent `source`, the old behaviour is unchanged.
+       */
       const alloc = (
         name: string,
         label: string,
         total: number,
+        source?: CostingNode,
       ): CostingNode => ({
         key: nodeKey("quote", tier.id, "per-unit", name),
         kind: "allocation",
@@ -4146,10 +4167,39 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         op: "tier total / tier quantity",
         divisor: perUnitQty,
         operands: [
-          {
-            ...originOf(label, total),
-            key: nodeKey("quote", tier.id, "per-unit", name, "total"),
-          },
+          source
+            ? // RE-KEYED under this allocation, not embedded.
+              //
+              // The graph is a TREE: one parent per node, every canonical key
+              // reachable exactly once. Embedding `quote/<tier>/revenue`
+              // directly made it reachable twice, and `resolveNode` returns
+              // null for an ambiguous key — so every consumer of tier revenue
+              // would have read NOTHING. The invariant caught it; it is not a
+              // detail to route around.
+              //
+              // So the source's decomposition is restated beneath this
+              // allocation under its own key namespace. Same facts, same
+              // values, distinct keys — the per-unit branch gains provenance
+              // without the tier-scope node losing resolvability.
+              {
+                ...source,
+                key: nodeKey("quote", tier.id, "per-unit", name, "total"),
+                operands: source.operands?.map((child) => ({
+                  ...child,
+                  key: nodeKey(
+                    "quote",
+                    tier.id,
+                    "per-unit",
+                    name,
+                    "total",
+                    child.key.slice(source.key.length + 1),
+                  ),
+                })),
+              }
+            : {
+                ...originOf(label, total),
+                key: nodeKey("quote", tier.id, "per-unit", name, "total"),
+              },
         ],
       });
 
@@ -4199,8 +4249,18 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         operands: perUnitComponents,
       };
 
-      const revenuePerUnit = alloc("revenue", "Quoted revenue per unit", revenue);
-      graphNodes.push(alloc("cost-total", "Total cost per unit", cost));
+      // Both carry the node that produced them, so the per-unit figures
+      // decompose to the per-product operands instead of stopping at a
+      // restatement of themselves.
+      const revenuePerUnit = alloc(
+        "revenue",
+        "Quoted revenue per unit",
+        revenue,
+        revenueNode,
+      );
+      graphNodes.push(
+        alloc("cost-total", "Total cost per unit", cost, costNode),
+      );
 
       // The gap the Costs header shows between Sell and the rows above it.
       //

@@ -1907,3 +1907,65 @@ test("every canonical key is reachable exactly once, across all roots", () => {
     assert.deepEqual(findDuplicateKeys(computeQuoteCosting(fixture).graph.nodes), []);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// A TOTAL IS NOT AN INPUT
+// ═══════════════════════════════════════════════════════════════════════
+//
+// An operator asked where the "+$9.5676 pricing decision" on Tier 1 came from.
+// No such decision existed: the figure is a residual — quoted revenue per unit
+// minus the component build-up — and the graph could not say so, because
+// `alloc()` built every per-unit allocation over a synthetic `origin` that
+// restated its own input. The chain terminated at "tier revenue is an input
+// nobody can be attributed for".
+//
+// It is not an input. `quote/<tier>/revenue` is a `sum` with one operand per
+// product plus separately-billed recovery, built a few lines above.
+//
+// The cost of the terminal was not confusion. Tracing the residual by hand
+// turned up $1,727.60 of revenue inside it that the customer document never
+// billed. When "who decided this?" has no answer, nobody asks the next one.
+
+test("per-unit revenue decomposes; it does not terminate", () => {
+  const g = computeQuoteCosting(input()).graph;
+  const dep = g.nodes.find((n) => /per-unit\/departure$/.test(n.key));
+  assert.ok(dep, "the departure node must exist");
+
+  const revenuePerUnit = dep.operands?.[0];
+  assert.equal(revenuePerUnit?.kind, "allocation");
+
+  const total = revenuePerUnit?.operands?.[0];
+  assert.ok(total, "the allocation must have an operand");
+  assert.notEqual(
+    total.kind,
+    "origin",
+    "tier revenue is computed, not entered — a terminal ends attribution " +
+      "exactly where the reader's question begins",
+  );
+  assert.equal(total.kind, "sum");
+  assert.ok((total.operands?.length ?? 0) > 0, "carrying the operands it summed");
+});
+
+test("the restated decomposition reconciles to the value it explains", () => {
+  // Provenance that does not add up is worse than none.
+  const g = computeQuoteCosting(input()).graph;
+  const dep = g.nodes.find((n) => /per-unit\/departure$/.test(n.key));
+  assert.ok(dep?.operands?.[0]?.operands?.[0], "the chain must reach the sum");
+  const total = dep.operands[0].operands[0];
+  const summed = (total.operands ?? []).reduce((a, n) => a + n.value, 0);
+  assert.ok(
+    Math.abs(summed - total.value) < 1e-9,
+    `operands sum to ${summed}, node states ${total.value}`,
+  );
+});
+
+test("giving the allocation provenance keeps every key singly reachable", () => {
+  // The first attempt embedded `quote/<tier>/revenue` itself, so the key became
+  // reachable from two parents. `resolveNode` returns null for an ambiguous
+  // key, which would have made every consumer of tier revenue read NOTHING —
+  // a fix that silently broke the thing it was making legible. The
+  // decomposition is re-keyed beneath the allocation instead.
+  for (const fixture of [input(), input({ packaging: THREE_LINES })]) {
+    assert.deepEqual(findDuplicateKeys(computeQuoteCosting(fixture).graph.nodes), []);
+  }
+});
