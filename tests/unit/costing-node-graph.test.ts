@@ -2060,8 +2060,15 @@ test("a live adjustment appears as its own contribution", () => {
   // — recovery placement is value-invariant), so the adjustment's own rate
   // acts on `base - recovery`. This read `base.value * 0.2` while the recovery
   // was still being adjusted along with everything else.
-  const recovery = n!.operands?.find((o) => /embedded-recovery$/.test(o.key));
-  const priceable = base.value - (recovery?.value ?? 0);
+  // The un-priceable portion is the governed recovery INSIDE the base, and
+  // since the Price Build stopped double-counting it that amount is disclosed
+  // on the base row's note rather than added beside it. Reading it from there
+  // makes this assertion check the note is accurate as well: the amount the
+  // base says it contains must be exactly the amount the adjustment did not
+  // act on.
+  const inBase = Number(/Includes (-?[0-9.eE+]+) per unit/.exec(base.note ?? "")?.[1] ?? 0);
+  const addedRecovery = n!.operands?.find((o) => /embedded-recovery$/.test(o.key));
+  const priceable = base.value - inBase - (addedRecovery?.value ?? 0);
   assert.ok(
     Math.abs(adj.value - priceable * 0.2) < 1e-9,
     `adjustment ${adj.value} should be ${priceable} x 0.2`,

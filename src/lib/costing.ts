@@ -4342,6 +4342,10 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     let liftDeltaPU = 0;
     let overrideDeltaPU = 0;
     let embeddedRecoveryTotalTier = 0;
+    // The part of that recovery the LADDER ADDS, per unit — as opposed to the
+    // part that is already inside `base sell`. See the ladder below for why the
+    // distinction decides whether this is an addend or an annotation.
+    let addedRecoveryPU = 0;
     const embeddedRecoveryOperands: CostingNode[] = [];
     // ONE-TIME CHARGES AT THEIR OWN GRAIN — tier amounts, never per unit.
     //
@@ -4367,6 +4371,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // NULL is not zero: an overridden cell has no attributable recovery, and
       // adding 0 would state that it embeds none.
       embeddedRecoveryTotalTier += pt.embeddedRecoveryTotal ?? 0;
+      addedRecoveryPU += pt.amortizedRecoveryPerUnit;
       for (const ch of pt.constructed?.charges ?? []) {
         if (ch.placement !== "separate_line") continue;
         const amount = ch.separateInvoiceAmount ?? 0;
@@ -4747,29 +4752,57 @@ export function computeQuoteCosting(input: QuoteCostingInput,
               origin: { grade: "thin" as const, actor: null, when: null, doc: null },
             }]
           : []),
-        ...(embeddedRecoveryTotalTier !== 0
+        // ── RECOVERY IS A RUNG ONLY WHERE THE LADDER ACTUALLY ADDS IT ────
+        //
+        // This summed the WHOLE embedded recovery as a sibling addend, and
+        // `base sell` already contains most of it — a charge placed in the
+        // unit price enters through the production section, so its recovery is
+        // inside `Production sell per unit` before any rung is reached. The
+        // result was an operator total that double-counted the charge under a
+        // heading reading "reconciles to the customer document":
+        //
+        //     Price Build   unit-price sell $3.6827   turnkey $18,413.64
+        //     document                      $3.3467           $16,733.64
+        //
+        // Soak run 3 measured it; run 2's log shows the same gap on the
+        // pre-repair release, so it long predates value-invariance and was
+        // missed because both runs compared document to document.
+        //
+        // `amortizedRecoveryPerUnit` is the part the ladder genuinely adds
+        // after the levers — the ELECTED half. The rest is inside the base and
+        // is stated there as a note, which participates in no sum. The
+        // decomposition survives; the arithmetic stops being wrong.
+        ...(addedRecoveryPU !== 0
           ? [{
               key: nodeKey("quote", tier.id, "per-unit", "embedded-recovery"),
-              kind: "allocation" as const,
-              label: "One-time charges recovered in the unit price",
-              value: embeddedRecoveryTotalTier / perUnitQty,
+              kind: "origin" as const,
+              label: "One-time charges added to the unit price",
+              value: addedRecoveryPU,
               unit: "usd" as const,
-              op: "tier total / tier quantity",
-              divisor: perUnitQty,
-              operands: [
-                {
-                  key: nodeKey("quote", tier.id, "per-unit", "embedded-recovery", "total"),
-                  kind: "sum" as const,
-                  label: "One-time charges recovered in the unit price",
-                  value: embeddedRecoveryTotalTier,
-                  unit: "usd" as const,
-                  op: "sum of " + embeddedRecoveryOperands.length + " product(s)",
-                  operands: embeddedRecoveryOperands,
-                },
-              ],
+              origin: { grade: "thin" as const, actor: null, when: null, doc: null },
             }]
           : []),
       ];
+
+      // What the base already carries, said where it lives rather than added
+      // beside it. A NOTE, deliberately: the operator still needs to know the
+      // unit price contains a one-time charge and how much, and a note cannot
+      // disturb a sum. Rendering it as a zero rung would assert the charge is
+      // in the price at zero, which is the opposite of true.
+      const inBaseRecoveryPU =
+        embeddedRecoveryTotalTier / perUnitQty - addedRecoveryPU;
+      if (Math.abs(inBaseRecoveryPU) > 1e-9) {
+        const base = unitPriceSellOperands.find((n) =>
+          n.key.endsWith("/unit-price-sell/base"),
+        );
+        if (base) {
+          base.note =
+            "Includes " +
+            inBaseRecoveryPU +
+            " per unit of one-time charge recovery, already inside Production. No price adjustment or lift reaches it.";
+          base.noteLevel = "info";
+        }
+      }
       graphNodes.push({
         key: nodeKey("quote", tier.id, "per-unit", "unit-price-sell"),
         kind: "sum",
