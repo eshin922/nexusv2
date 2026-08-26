@@ -142,3 +142,37 @@ test("a charge dropped from the proposal is cleared, not left behind", async () 
   assert.match(src, /const orphans = prior\.filter/);
   assert.match(src, /action: "charge_recovery_cleared"/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// POLICY GOVERNS THE CHANGE, NOT THE STORED STATE
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Found on production the first time evaluate-first met a real quote. 4781e4bb
+// carries a grandfathered `rd_formulation: separate` that #416 now refuses. The
+// proposal is a SET, so clicking TOOLING re-submitted that stored election too,
+// and the whole proposal was refused — with a reason naming a charge the
+// operator had not touched. Every click on that quote was refused, including
+// the one that would have fixed it.
+//
+// A stored election is a FACT, not an act being performed now. Existing invalid
+// states are not ignored: they are flagged on the pre-flight and refused by the
+// send gate, which is where a state belongs.
+
+test("only elections that CHANGE are tested against policy", async () => {
+  const evaluate = codeOnly(await read("src/app/actions/commercial-recovery-evaluate.ts"));
+  assert.match(evaluate, /if \(ctx\.stored\.get\(e\.chargeKey\) === e\.mode\) continue;/);
+
+  const persist = codeOnly(await read(PERSIST));
+  // Same skip, so a save cannot refuse what an evaluation allowed.
+  assert.match(persist, /if \(priorByKey\.get\(chargeKey\) === mode\) continue;/);
+  const loop = persist.slice(persist.indexOf("for (const { chargeKey, mode } of requested)"));
+  assert.match(loop.slice(0, 400), /assertElectionAllowed\(chargeKey, mode, ctx\)/);
+});
+
+test("both paths diff against the SAME stored set", async () => {
+  // Two loaders would be two answers to "did this change", and the first
+  // divergence would evaluate an election cleanly and refuse it at save time.
+  const ctx = codeOnly(await read("src/lib/commercial-recovery/election-context.ts"));
+  assert.match(ctx, /stored: Map<string, string>/);
+  assert.match(ctx, /\.from\(quoteChargeRecovery\)/);
+});

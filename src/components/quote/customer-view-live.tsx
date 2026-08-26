@@ -403,7 +403,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
 
                   <div className="pp-component-row" role="row">
                     <div className="pp-c-prod" role="rowheader">
-                      <span className="pp-component-k">Separate charges</span>
+                      <span className="pp-component-k">One-time fees</span>
                     </div>
                     {cols.map(({ ti, tier, rec }) => (
                       <div

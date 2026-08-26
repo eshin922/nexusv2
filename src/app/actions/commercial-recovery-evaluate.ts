@@ -71,12 +71,26 @@ export async function evaluateChargeRecovery(input: {
       return { chargeKey: key, mode: e.mode as RecoveryMode };
     });
 
-    // POLICY FIRST, and here rather than only at save time. With evaluate-first
-    // the operator would otherwise see a governed result and a save failure
-    // moments later, which reads as the system changing its mind rather than as
-    // a rule it was always going to apply.
+    // POLICY GOVERNS THE CHANGE, NOT THE STORED STATE.
+    //
+    // Only elections that DIFFER from what is persisted are tested. A stored
+    // election is a fact, not an act being performed now, and re-litigating it
+    // on every proposal makes a quote carrying one refused election
+    // uneditable — including by the edit that would fix it.
+    //
+    // Found on production the first time evaluate-first met a real quote:
+    // 4781e4bb carries a grandfathered `rd_formulation: separate` that #416 now
+    // refuses, so clicking TOOLING re-submitted that election and the whole
+    // proposal was refused with a reason naming a charge the operator had not
+    // touched. Every click on that quote was refused.
+    //
+    // Existing invalid states are not ignored — they are surfaced on the
+    // pre-flight and refused by the send gate, which is where a STATE belongs.
     const ctx = await loadElectionContext(quoteId);
-    for (const e of elections) assertElectionAllowed(e.chargeKey, e.mode, ctx);
+    for (const e of elections) {
+      if (ctx.stored.get(e.chargeKey) === e.mode) continue;
+      assertElectionAllowed(e.chargeKey, e.mode, ctx);
+    }
 
     const resolved = await resolveCustomerView({ quoteId, proposedElections: elections });
     if (!resolved.ok) {

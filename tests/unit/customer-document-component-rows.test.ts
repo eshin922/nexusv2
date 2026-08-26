@@ -49,7 +49,7 @@ test("the components sit ABOVE the turnkey total", async () => {
 test("both components are present, and in commercial order", async () => {
   const src = codeOnly(await read(DOC));
   const subtotal = src.indexOf("Unit-price subtotal");
-  const separate = src.indexOf("Separate charges");
+  const separate = src.indexOf("One-time fees");
   const grand = src.indexOf("Turnkey total");
   assert.ok(subtotal > 0 && separate > 0, "both component rows render");
   assert.ok(subtotal < separate, "the subtotal precedes the separate charges");
@@ -106,4 +106,26 @@ test("the projection still carries the embedded-recovery fact", async () => {
   // it from the type would turn a display decision into data loss.
   const types = await read("src/types/quote.ts");
   assert.match(types, /embeddedRecovery/);
+});
+
+test("one name for one commercial concept on the customer document", async () => {
+  // The summary row and the itemised section beneath it are the same
+  // separately-billed customer charges. Calling one "Separate charges" and the
+  // other "One-time fees" made a client read two concepts where there is one.
+  //
+  // Scoped to the CUSTOMER renderers. Pricing keeps "Additional charges ·
+  // billed separately", which is an operator surface and says something the
+  // customer document does not need to.
+  for (const f of [
+    "src/components/quote/customer-view-live.tsx",
+    "src/components/pdf/customer-pdf-grand-total-row.tsx",
+  ]) {
+    const src = codeOnly(await read(f));
+    assert.match(src, /One-time fees/);
+    assert.doesNotMatch(
+      src,
+      /Separate charges/,
+      "two terms for one concept on a customer document",
+    );
+  }
 });

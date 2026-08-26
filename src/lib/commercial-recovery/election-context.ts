@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db } from "@/db";
-import { assemblies, assemblyProductionInputs, quoteLeaves } from "@/db/schema";
+import { assemblies, assemblyProductionInputs, quoteChargeRecovery, quoteLeaves } from "@/db/schema";
 import { ActionGuardError, ERR } from "@/lib/action-result";
 import { OTC_COLUMN_TO_CHARGE, type RecoveryChargeKey, type RecoveryMode } from "./registry";
 import { refusalFor } from "./resolve";
@@ -26,6 +26,14 @@ export type ElectionContext = {
   allocationStates: boolean[];
   /** Charges with any non-zero contribution owned by a Direct Service leaf. */
   directServiceKeys: Set<RecoveryChargeKey>;
+  /**
+   * What is currently STORED, so policy can be applied to the change alone.
+   *
+   * Loaded here rather than in either action because both must diff against
+   * the same source — and neither can import the other's loader, since a
+   * `"use server"` module may only export async server actions.
+   */
+  stored: Map<string, string>;
 };
 
 export async function loadElectionContext(quoteId: string): Promise<ElectionContext> {
@@ -76,7 +84,16 @@ export async function loadElectionContext(quoteId: string): Promise<ElectionCont
     }
   }
 
-  return { allocationStates: allocationStates.length ? allocationStates : [false], directServiceKeys };
+  const storedRows = await db
+    .select({ chargeKey: quoteChargeRecovery.chargeKey, mode: quoteChargeRecovery.mode })
+    .from(quoteChargeRecovery)
+    .where(eq(quoteChargeRecovery.quoteId, quoteId));
+
+  return {
+    allocationStates: allocationStates.length ? allocationStates : [false],
+    directServiceKeys,
+    stored: new Map(storedRows.map((r) => [r.chargeKey, r.mode] as const)),
+  };
 }
 
 /**

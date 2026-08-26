@@ -94,7 +94,7 @@ export function GrandTotalRow({
         <View>
           {[
             { key: "Unit-price subtotal", pick: (m: CpdfTier["money"]) => m.goodsTotal },
-            { key: "Separate charges", pick: (m: CpdfTier["money"]) => m.feesTotal },
+            { key: "One-time fees", pick: (m: CpdfTier["money"]) => m.feesTotal },
           ].map((row) => (
             <View key={row.key} style={styles.componentRow}>
               <View style={styles.cProd}>
