@@ -673,6 +673,9 @@ export const quotes = pgTable(
      * frozen alongside this one (Step 3).
      */
     customerNameSnapshot: text("customer_name_snapshot"),
+    customerContactSnapshot: text("customer_contact_snapshot"),
+    customerRoleSnapshot: text("customer_role_snapshot"),
+    customerAddressSnapshot: text("customer_address_snapshot"),
     // Slice 11 Step 4 — customer-PDF render axes. Snapshot fleet
     // members alongside DEC-7. Read path: draft = live
     // (searchParam ?? default); sent+ = snapshot column. NULL on
@@ -884,6 +887,9 @@ export const quoteSnapshots = pgTable(
     // #431 Step 1 — the CUSTOMER, versioned record half. Its mirror is
     // `quotes.customer_name_snapshot`, which is what the resolver reads.
     customerName: text("customer_name"),
+    customerContact: text("customer_contact"),
+    customerRole: text("customer_role"),
+    customerAddress: text("customer_address"),
     // Customer-PDF render axes (Slice 11 Step 4 mirror)
     pdfLayout: pdfLayout("pdf_layout"),
     detailLevel: detailLevel("detail_level"),
@@ -1885,6 +1891,22 @@ export const hubspotDealsCache = pgTable(
     pmEmail: text("pm_email"),
     associatedCompanyId: text("associated_company_id"),
     associatedCompanyName: text("associated_company_name"),
+    // #431 Step 2 — the customer's sourced identity. Address is the PRIMARY
+    // company's governed business address; contact is chosen by the rule in
+    // hubspot-customer-identity.ts, and customerContactSelection records WHICH
+    // branch fired so a blank contact is never ambiguous.
+    companyAddressLine1: text("company_address_line1"),
+    companyAddressLine2: text("company_address_line2"),
+    companyCity: text("company_city"),
+    companyState: text("company_state"),
+    companyPostalCode: text("company_postal_code"),
+    companyCountry: text("company_country"),
+    customerContactId: text("customer_contact_id"),
+    customerContactName: text("customer_contact_name"),
+    customerContactEmail: text("customer_contact_email"),
+    customerContactTitle: text("customer_contact_title"),
+    /** primary | sole | none_zero | none_multiple | unresolved */
+    customerContactSelection: text("customer_contact_selection"),
     // Slice 12 Step 8c-2 — NetSuite SO field-fill inputs.
     // Names mirror HubSpot property names verbatim (dumped 2026-07-28
     // against Epicuren deal 40412634025). Enum-labeled values (project_source,

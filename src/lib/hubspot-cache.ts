@@ -7,10 +7,14 @@ import {
   ACTIVE_STAGE_IDS,
   fetchCompanyIdsForDeals,
   fetchCompanyNames,
+  fetchCompanyAddresses,
+  fetchCustomerContactsForDeals,
   fetchOwnerDetails,
   getReadClient,
   HubspotError,
   type OwnerDetail,
+  type CompanyAddress,
+  type CustomerContact,
 } from "./hubspot";
 
 // How long a sync result is considered fresh enough to render directly
@@ -123,9 +127,18 @@ function toCacheRow(args: {
   deal: DealLike;
   companyIdByDealId: Map<string, string>;
   companyNameById: Map<string, string>;
+  companyAddressById: Map<string, CompanyAddress>;
+  contactByDealId: Map<string, CustomerContact>;
   ownerDetailsById: Map<string, OwnerDetail>;
 }): NewDealCacheRow {
-  const { deal, companyIdByDealId, companyNameById, ownerDetailsById } = args;
+  const {
+    deal,
+    companyIdByDealId,
+    companyNameById,
+    companyAddressById,
+    contactByDealId,
+    ownerDetailsById,
+  } = args;
   const props = deal.properties ?? {};
 
   const ownerId = props.hubspot_owner_id || null;
@@ -136,6 +149,8 @@ function toCacheRow(args: {
 
   const companyId = companyIdByDealId.get(deal.id) ?? null;
   const companyName = companyId ? companyNameById.get(companyId) ?? null : null;
+  const address = companyId ? companyAddressById.get(companyId) ?? null : null;
+  const contact = contactByDealId.get(deal.id) ?? null;
 
   return {
     dealId: deal.id,
@@ -151,6 +166,18 @@ function toCacheRow(args: {
     pmEmail: pm?.email ?? null,
     associatedCompanyId: companyId,
     associatedCompanyName: companyName,
+    // #431 Step 2 — sourced customer identity.
+    companyAddressLine1: address?.line1 ?? null,
+    companyAddressLine2: address?.line2 ?? null,
+    companyCity: address?.city ?? null,
+    companyState: address?.state ?? null,
+    companyPostalCode: address?.postalCode ?? null,
+    companyCountry: address?.country ?? null,
+    customerContactId: contact?.contactId ?? null,
+    customerContactName: contact?.name ?? null,
+    customerContactEmail: contact?.email ?? null,
+    customerContactTitle: contact?.title ?? null,
+    customerContactSelection: contact?.selection ?? null,
     // Slice 12 Step 8c-2 — SO field-fill props (8c-3 reads at markComplete).
     // HubSpot returns most enum properties as their label ("Domestic",
     // "Co-Packing", "Copacking"); business_segment comes back as the
@@ -218,12 +245,16 @@ async function fetchActivePage(args: {
   const companyIdByDealId = await fetchCompanyIdsForDeals(c, dealIds);
   const companyIds = Array.from(new Set(companyIdByDealId.values()));
   const companyNameById = await fetchCompanyNames(c, companyIds);
+  const companyAddressById = await fetchCompanyAddresses(c, companyIds);
+  const contactByDealId = await fetchCustomerContactsForDeals(c, dealIds);
 
   const rows = deals.map((d) =>
     toCacheRow({
       deal: d,
       companyIdByDealId,
       companyNameById,
+      companyAddressById,
+      contactByDealId,
       ownerDetailsById,
     }),
   );
@@ -289,11 +320,15 @@ export async function syncDealById(dealId: string): Promise<DealCacheRow | null>
   const companyIdByDealId = await fetchCompanyIdsForDeals(c, [dealId]);
   const companyIds = Array.from(new Set(companyIdByDealId.values()));
   const companyNameById = await fetchCompanyNames(c, companyIds);
+  const companyAddressById = await fetchCompanyAddresses(c, companyIds);
+  const contactByDealId = await fetchCustomerContactsForDeals(c, [dealId]);
 
   const row = toCacheRow({
     deal,
     companyIdByDealId,
     companyNameById,
+    companyAddressById,
+    contactByDealId,
     ownerDetailsById,
   });
 
@@ -315,6 +350,22 @@ export async function syncDealById(dealId: string): Promise<DealCacheRow | null>
         pmEmail: row.pmEmail,
         associatedCompanyId: row.associatedCompanyId,
         associatedCompanyName: row.associatedCompanyName,
+        // #431 Step 2 — the sourced customer identity must refresh on an
+        // EXISTING row, not only on first insert. Omitting them here would
+        // have left every already-cached deal permanently null: the values
+        // reach `values()` and are then discarded by the conflict path, which
+        // is invisible on a fresh row and silent on every other one.
+        companyAddressLine1: row.companyAddressLine1,
+        companyAddressLine2: row.companyAddressLine2,
+        companyCity: row.companyCity,
+        companyState: row.companyState,
+        companyPostalCode: row.companyPostalCode,
+        companyCountry: row.companyCountry,
+        customerContactId: row.customerContactId,
+        customerContactName: row.customerContactName,
+        customerContactEmail: row.customerContactEmail,
+        customerContactTitle: row.customerContactTitle,
+        customerContactSelection: row.customerContactSelection,
         createdAtHubspot: row.createdAtHubspot,
         updatedAtHubspot: row.updatedAtHubspot,
         lastSyncedAt: row.lastSyncedAt,

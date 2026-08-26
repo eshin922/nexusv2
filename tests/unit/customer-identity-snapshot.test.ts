@@ -79,15 +79,46 @@ test("the seller's freeze is untouched", async () => {
   assert.match(src, /quote\.preparedByEmailSnapshot/);
 });
 
-test("contact, role and address stay absent rather than guessed", async () => {
-  // Step 2 adds the HubSpot Companies/Contacts source; Step 3 freezes what it
-  // resolves. Until then these render as absent — the renderers are null-safe
-  // and have been since RI.6.
-  //
-  // The rule this guards is the one that outlives Step 2: a deal may have
-  // several associated contacts, and the selection rule is NOT decided. An
-  // arbitrary pick would put a named individual on a customer-facing quotation
-  // on the strength of a sort order.
+test("contact, role and address freeze in both stores too", async () => {
+  // Step 2/3 — the same two-store discipline as the name, for the three fields
+  // the HubSpot source now supplies.
+  const schema = await read("src/db/schema.ts");
+  for (const col of [
+    "customer_contact_snapshot",
+    "customer_role_snapshot",
+    "customer_address_snapshot",
+  ]) {
+    assert.match(schema, new RegExp(col), `quotes.${col} is missing`);
+  }
+  for (const col of ["customer_contact", "customer_role", "customer_address"]) {
+    assert.match(schema, new RegExp(`"${col}"`), `quote_snapshots.${col} is missing`);
+  }
+
+  const src = await read("src/app/actions/quotes.ts");
+  assert.match(src, /customerContactSnapshot: frozenCustomerContact/);
+  assert.match(src, /customerContact: frozenCustomerContact/);
+});
+
+test("the resolver reads them frozen-first, live only on drafts", async () => {
   const src = await read("src/lib/customer-view-resolver.ts");
-  assert.match(src, /contact: null,\s*\n\s*role: null,/);
+  for (const [snap, live] of [
+    ["customerContactSnapshot", "contact"],
+    ["customerRoleSnapshot", "role"],
+    ["customerAddressSnapshot", "address"],
+  ]) {
+    assert.match(
+      src,
+      new RegExp(`isSent \\? quote\\.${snap} : sourcedIdentity\\?\\.${live}`),
+      `${snap} does not resolve frozen-first`,
+    );
+  }
+});
+
+test("the customer's own email is not printed on their quote", async () => {
+  // Cached for operator surfaces, deliberately not rendered: PREPARED BY
+  // carries the seller's address so the customer can reply, and showing the
+  // customer their own address back adds nothing while putting a personal
+  // address into a document that gets forwarded.
+  const src = await read("src/lib/customer-view-resolver.ts");
+  assert.match(src, /email: null,/);
 });

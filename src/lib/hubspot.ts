@@ -5,6 +5,15 @@ import type {
   HubSpotProductCreateResult,
 } from "@/lib/integrations/hubspot-provider";
 import { normalizeHubSpotProductCreateInput } from "@/lib/integrations/hubspot-provider";
+import {
+  composeContactName,
+  selectContact,
+  selectPrimaryCompany,
+} from "@/lib/hubspot-customer-identity";
+import type {
+  ContactSelection,
+  SelectedContact,
+} from "@/lib/hubspot-customer-identity";
 
 // DPS "Sales" pipeline (id=108896657). Slice 2 surfaces only deals up to and
 // including the Project Setup ("Purchase Order") phase — anything in
@@ -275,8 +284,21 @@ export async function fetchCompanyIdsForDeals(
     });
     for (const r of resp.results ?? []) {
       const fromId = (r as unknown as { _from?: { id?: string } })._from?.id;
-      const toId = r.to?.[0]?.toObjectId;
-      if (fromId && toId !== undefined) map.set(fromId, String(toId));
+      if (!fromId) continue;
+      // The EXPLICITLY primary company, never `to[0]`.
+      //
+      // This read took the first association until #431 Step 2. Verified
+      // against the live schema: deal->companies defines `typeId 5, label
+      // "Primary"`, so a governed primary exists and the first row was only
+      // ever coincidentally the right one. Position is not intent, and this is
+      // the identity the customer's own quotation is addressed from.
+      const companyId = selectPrimaryCompany(
+        (r.to ?? []).map((t) => ({
+          companyId: String(t.toObjectId),
+          typeIds: (t.associationTypes ?? []).map((a) => Number(a.typeId)),
+        })),
+      );
+      if (companyId) map.set(fromId, companyId);
     }
   } catch {
     // Non-fatal: deals without associations just show no client name
@@ -302,6 +324,156 @@ export async function fetchCompanyNames(
     }
   } catch {
     // Non-fatal
+  }
+  return map;
+}
+
+export type CompanyAddress = {
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+};
+
+/**
+ * The company's governed business address. HubSpot is authoritative and the
+ * values pass through verbatim — including ones that look wrong, because
+ * correcting a customer's address on the way to their own quotation would put a
+ * value in front of them that exists nowhere in the CRM.
+ */
+export async function fetchCompanyAddresses(
+  c: Client,
+  companyIds: string[],
+): Promise<Map<string, CompanyAddress>> {
+  const map = new Map<string, CompanyAddress>();
+  if (companyIds.length === 0) return map;
+  try {
+    const resp = await c.crm.companies.batchApi.read({
+      inputs: companyIds.map((id) => ({ id })),
+      properties: ["address", "address2", "city", "state", "zip", "country"],
+      propertiesWithHistory: [],
+    });
+    for (const co of resp.results ?? []) {
+      const p = co.properties ?? {};
+      map.set(co.id, {
+        line1: p.address ?? null,
+        line2: p.address2 ?? null,
+        city: p.city ?? null,
+        state: p.state ?? null,
+        postalCode: p.zip ?? null,
+        country: p.country ?? null,
+      });
+    }
+  } catch {
+    // Non-fatal: a deal without a resolvable address renders without one.
+  }
+  return map;
+}
+
+export type CustomerContact = {
+  contactId: string | null;
+  selection: ContactSelection;
+  name: string | null;
+  email: string | null;
+  title: string | null;
+};
+
+const UNRESOLVED_CONTACT: CustomerContact = {
+  contactId: null,
+  selection: "unresolved",
+  name: null,
+  email: null,
+  title: null,
+};
+
+/**
+ * The customer contact for each deal, under the governed V1 selection rule
+ * (see `hubspot-customer-identity.ts`). Returns `unresolved` — never a blank
+ * that reads like "nobody is associated" — when the lookup itself fails.
+ */
+export async function fetchCustomerContactsForDeals(
+  c: Client,
+  dealIds: string[],
+): Promise<Map<string, CustomerContact>> {
+  const map = new Map<string, CustomerContact>();
+  if (dealIds.length === 0) return map;
+
+  let selectedByDeal: Map<string, SelectedContact>;
+  try {
+    const resp = await c.crm.associations.v4.batchApi.getPage("deals", "contacts", {
+      inputs: dealIds.map((id) => ({ id })),
+    });
+    selectedByDeal = new Map();
+    for (const r of resp.results ?? []) {
+      const fromId = (r as unknown as { _from?: { id?: string } })._from?.id;
+      if (!fromId) continue;
+      selectedByDeal.set(
+        fromId,
+        selectContact(
+          (r.to ?? []).map((t) => ({
+            contactId: String(t.toObjectId),
+            // HubSpot publishes no primary-contact association type for deals
+            // in this portal (deal->contacts defines only `typeId 3, label
+            // null`). The check stays anyway: it costs nothing, and if a
+            // primary label is ever defined, the rule's first branch starts
+            // working without another change here.
+            isPrimary: (t.associationTypes ?? []).some(
+              (a) => (a.label ?? "").toLowerCase() === "primary",
+            ),
+          })),
+        ),
+      );
+    }
+  } catch {
+    for (const id of dealIds) map.set(id, UNRESOLVED_CONTACT);
+    return map;
+  }
+
+  // Only the deals that actually selected someone need a contact read.
+  const wanted = [...selectedByDeal.values()]
+    .map((s) => s.contactId)
+    .filter((id): id is string => id !== null);
+
+  const detail = new Map<string, { name: string | null; email: string | null; title: string | null }>();
+  if (wanted.length > 0) {
+    try {
+      const resp = await c.crm.contacts.batchApi.read({
+        inputs: [...new Set(wanted)].map((id) => ({ id })),
+        properties: ["firstname", "lastname", "email", "jobtitle"],
+        propertiesWithHistory: [],
+      });
+      for (const ct of resp.results ?? []) {
+        const p = ct.properties ?? {};
+        detail.set(ct.id, {
+          name: composeContactName(p.firstname ?? null, p.lastname ?? null),
+          email: p.email ?? null,
+          title: p.jobtitle ?? null,
+        });
+      }
+    } catch {
+      for (const id of dealIds) map.set(id, UNRESOLVED_CONTACT);
+      return map;
+    }
+  }
+
+  for (const id of dealIds) {
+    const sel = selectedByDeal.get(id);
+    if (!sel) {
+      // The batch answered and simply did not mention this deal, which is
+      // HubSpot's way of saying it has no contact associations.
+      map.set(id, { contactId: null, selection: "none_zero", name: null, email: null, title: null });
+      continue;
+    }
+    const d = sel.contactId ? detail.get(sel.contactId) ?? null : null;
+    map.set(id, {
+      contactId: sel.contactId,
+      selection: sel.selection,
+      name: d?.name ?? null,
+      email: d?.email ?? null,
+      title: d?.title ?? null,
+    });
   }
   return map;
 }
