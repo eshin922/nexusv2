@@ -19,8 +19,7 @@ export type SurfaceKey =
   | "setup"
   | "cost_build"
   | "costing"
-  | "customer_view"
-  | "mark_accepted";
+  | "customer_view";
 
 export type SurfaceRoute = {
   /** URL pattern with `:id` (project) + `:qid` (quote) tokens. */
@@ -61,17 +60,12 @@ export const SURFACE_ROUTES: Record<SurfaceKey, SurfaceRoute> = {
   customer_view: {
     // RI.8 renamed /customer-view → /quote.
     routePattern: "/projects/:id/quotes/:qid/quote",
-    forwardTo: "mark_accepted",
+    // Terminal. The Quote umbrella carries the execute phase in its own
+    // sub-tabs; the standalone /mark-accepted surface it used to point at was
+    // removed as a second authoritative-looking Acceptance page.
+    forwardTo: null,
     backwardTo: "costing",
     displayLabel: "Quote",
-  },
-  mark_accepted: {
-    routePattern: "/projects/:id/quotes/:qid/mark-accepted",
-    // Terminal — no canonical next move once accepted.
-    forwardTo: null,
-    // Override flow returns to Cost build (Costs).
-    backwardTo: "cost_build",
-    displayLabel: "Mark accepted",
   },
 };
 
@@ -101,7 +95,6 @@ export function breadcrumbPath(target: SurfaceKey): SurfaceKey[] {
     "cost_build",
     "costing",
     "customer_view",
-    "mark_accepted",
   ];
   const idx = order.indexOf(target);
   if (idx < 0) return [target];

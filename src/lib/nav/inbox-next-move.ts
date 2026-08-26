@@ -23,17 +23,22 @@ const WARNING_KIND_TO_SURFACE: Record<string, SurfaceKey> = {
   blended_below_floor: "costing",
   cell_override_required: "costing",
 
-  // Override workflow — landed on Mark-Accepted
-  admin_override_pending: "mark_accepted",
-  admin_override_requested: "mark_accepted",
+  // Override workflow — the Quote umbrella, whose Acceptance sub-tab is the
+  // governed path. It used to point at the standalone /mark-accepted surface,
+  // removed as a second authoritative-looking Acceptance page. This table has
+  // no importer yet (the inbox has not landed), so nothing routed anywhere by
+  // it today — but leaving it aimed at a deleted surface would hand the
+  // eventual wiring a broken target.
+  admin_override_pending: "customer_view",
+  admin_override_requested: "customer_view",
 
   // Cost-input shape issues — resolution on Costs
   pass_through_freight_missing_customs: "cost_build",
   markup_above_5x_default: "cost_build",
   cost_input_missing: "cost_build",
 
-  // Customer-acceptance recorded but not finalized — Mark-Accepted
-  customer_acceptance_pending_mark: "mark_accepted",
+  // Customer-acceptance recorded but not finalized — the Quote umbrella.
+  customer_acceptance_pending_mark: "customer_view",
 
   // Setup-shape issues (SKU/tier configuration) — Setup
   no_tiers: "setup",
