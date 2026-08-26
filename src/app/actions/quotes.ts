@@ -1907,6 +1907,10 @@ export async function sendQuote(
         preparedByName: preparedBy.name,
         preparedByEmail: preparedBy.email,
         preparedByPhone: preparedBy.phone,
+        // #431 Step 1 — the CUSTOMER, frozen beside the seller. Without it a
+        // sent quote re-read projects.client_name live and could re-render
+        // addressed to a different customer after a HubSpot rename.
+        customerName: project.clientName ?? null,
         pdfLayout: pdfLayoutSnapshot,
         detailLevel: detailLevelSnapshot,
         includeSpecAddendum: includeSpecAddendumSnapshot,
@@ -2099,6 +2103,10 @@ export async function sendQuote(
           preparedByNameSnapshot: preparedBy.name,
           preparedByEmailSnapshot: preparedBy.email,
           preparedByPhoneSnapshot: preparedBy.phone,
+          // #431 Step 1 — the mirror the RESOLVER reads. Writing only the
+          // versioned record above would close the defect on paper and leave
+          // it open in the document; see 0103 for the time that happened.
+          customerNameSnapshot: project.clientName ?? null,
           // Slice 11 Step 4: customer-PDF render axes snapshots
           pdfLayoutSnapshot,
           detailLevelSnapshot,

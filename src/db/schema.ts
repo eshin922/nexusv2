@@ -662,6 +662,17 @@ export const quotes = pgTable(
     preparedByNameSnapshot: text("prepared_by_name_snapshot"),
     preparedByEmailSnapshot: text("prepared_by_email_snapshot"),
     preparedByPhoneSnapshot: text("prepared_by_phone_snapshot"),
+    /**
+     * #431 Step 1 — the CUSTOMER's identity at send. The sibling of
+     * `prepared_by_*` above, which freeze the seller: without this, a sent
+     * quote's PREPARED FOR block read `projects.client_name` live, so renaming
+     * the company in HubSpot re-addressed a quote that had already gone out.
+     *
+     * Name only. Contact, role and address have never existed in the schema;
+     * they arrive with the HubSpot Companies/Contacts source (Step 2) and are
+     * frozen alongside this one (Step 3).
+     */
+    customerNameSnapshot: text("customer_name_snapshot"),
     // Slice 11 Step 4 — customer-PDF render axes. Snapshot fleet
     // members alongside DEC-7. Read path: draft = live
     // (searchParam ?? default); sent+ = snapshot column. NULL on
@@ -866,10 +877,13 @@ export const quoteSnapshots = pgTable(
     leadTime: text("lead_time"),
     incoterms: text("incoterms"),
     daysValid: integer("days_valid"),
-    // Prepared-by snapshot (DEC-8 mirror)
+    // Prepared-by snapshot (DEC-8 mirror) — the SELLER.
     preparedByName: text("prepared_by_name"),
     preparedByEmail: text("prepared_by_email"),
     preparedByPhone: text("prepared_by_phone"),
+    // #431 Step 1 — the CUSTOMER, versioned record half. Its mirror is
+    // `quotes.customer_name_snapshot`, which is what the resolver reads.
+    customerName: text("customer_name"),
     // Customer-PDF render axes (Slice 11 Step 4 mirror)
     pdfLayout: pdfLayout("pdf_layout"),
     detailLevel: detailLevel("detail_level"),

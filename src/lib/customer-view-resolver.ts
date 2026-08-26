@@ -558,7 +558,23 @@ export async function resolveCustomerView(args: {
   const view: CustomerView = {
     vendor,
     customer: {
-      name: project.clientName ?? "{customer-pending}",
+      // #431 Step 1 — draft: live; sent+: snapshot. The same DEC-8 rule that
+      // governs `preparedBy` above, applied to the party on the other side of
+      // the document.
+      //
+      // Until now this read the live project name unconditionally, so renaming
+      // the company in HubSpot re-addressed quotes that had already been sent.
+      // The stored PDF was always safe; the read model was not, and it is what
+      // every internal surface and audit query reads.
+      //
+      // The fallback is deliberate rather than defensive: quotes sent before
+      // 0105 backfilled are covered by the migration, but a row that somehow
+      // carries no snapshot should still render the best name available rather
+      // than "{customer-pending}" on a real sent quote.
+      name:
+        (isSent ? quote.customerNameSnapshot : null) ??
+        project.clientName ??
+        "{customer-pending}",
       contact: null,
       role: null,
       email: null,
