@@ -12,6 +12,8 @@ import {
 // owners and audit trails. Reused rather than reimplemented — a second writer
 // for either is precisely the duplication the disposition removed.
 import { setTierRecommended, updateQuoteNotes } from "@/app/actions/quotes";
+import type { ActionResult } from "@/lib/action-result";
+import { runGoverned } from "@/lib/governed-action";
 import type { CustomerViewDetailLevel, CustomerViewPdfLayout } from "@/types/quote";
 
 export type PresentationState = {
@@ -89,6 +91,7 @@ export function CardCustomerPresentation({
   // One key, naming the control in flight. Keyed rather than boolean so a
   // pending toggle disables itself and nothing else.
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const [note, setNote] = useState(presentation.customerNote ?? "");
@@ -97,14 +100,24 @@ export function CardCustomerPresentation({
   const hidden = new Set(presentation.hiddenTierIds);
   const recommendedId = tiers.find((t) => t.recommended)?.id ?? null;
 
-  const run = (key: string, fd: FormData, fn: (f: FormData) => Promise<unknown>) => {
+  // The result was DISCARDED here, and `Promise<unknown>` is what allowed it:
+  // a refusal and a success were the same value, and a rejection was neither.
+  // The toggle moved on click and stayed moved whatever the server said, so a
+  // display axis the operator believed they had set could differ from the one
+  // the document is actually built from.
+  const run = <T,>(
+    key: string,
+    fd: FormData,
+    fn: (f: FormData) => Promise<ActionResult<T>>,
+  ) => {
     setBusy(key);
+    setError(null);
     startTransition(async () => {
-      try {
-        await fn(fd);
-      } finally {
-        setBusy(null);
-      }
+      const r = await runGoverned(() => fn(fd));
+      // Clears on every path, including the rejection that used to escape past
+      // the old `finally` — a control left permanently busy is its own defect.
+      setBusy(null);
+      if (r.kind !== "ok") setError(r.message);
     });
   };
 
@@ -137,6 +150,17 @@ export function CardCustomerPresentation({
           <div className="cv-card-sub">Never changes economics. Display only.</div>
         </div>
       </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="cv-charge"
+          data-testid="presentation-error"
+          style={{ color: "var(--bad)", font: "400 11.5px/1.45 var(--sans)" }}
+        >
+          {error}
+        </p>
+      )}
 
       {/* ── Shape ─────────────────────────────────────────────────────── */}
       <div className="cv-section">
@@ -366,8 +390,15 @@ export function CardCustomerPresentation({
             const fd = new FormData();
             fd.set("quoteId", quoteId);
             fd.set("customerFacingNotes", note);
+            setError(null);
             startTransition(async () => {
-              await updateQuoteNotes(fd);
+              const r = await runGoverned(() => updateQuoteNotes(fd));
+              if (r.kind !== "ok") {
+                // Stays UNSAVED. `setNoteSaved(true)` ran unconditionally, so
+                // a note that never reached the server lost its own warning.
+                setError(r.message);
+                return;
+              }
               setNoteSaved(true);
             });
           }}

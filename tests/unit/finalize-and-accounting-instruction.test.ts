@@ -100,7 +100,15 @@ test("Finalize calls the certified path and invents no gate of its own", async (
   // A refusal is shown, not swallowed. The gate's sentence names the tier and
   // distinguishes three reasons; discarding it would leave the operator with a
   // button that did nothing.
-  assert.match(btn, /setError\(r\.error\.message\)/);
+  assert.match(btn, /setError\(r\.message\)/);
+
+  // And so is a server that never answered. This assertion is the one soak run
+  // 5 would have needed: the refusal path was always shown, and a 503 reached
+  // NEITHER branch, so the freeze failed with nothing on screen and the button
+  // looking exactly as it had. `docs/validation/soak/run-05.md`.
+  assert.match(btn, /runGoverned\(\(\) => sendQuote\(fd\)\)/);
+  assert.match(btn, /r\.kind === "unreachable"/);
+  assert.match(btn, /runGovernedRaw/, "the elections flush is guarded the same way");
 });
 
 test("the unresolved-costs refusal renders as a work list, not a sentence", async () => {
@@ -115,7 +123,7 @@ test("the unresolved-costs refusal renders as a work list, not a sentence", asyn
   // instruction. Found on the consolidated walk, by being refused.
   const btn = codeOnly(await read("src/components/quote/finalize-quote-button.tsx"));
   assert.match(btn, /ERR\.UNRESOLVED_COSTS/);
-  assert.match(btn, /r\.error\.details/, "the rows come from the refusal itself");
+  assert.match(btn, /r\.details/, "the rows come from the refusal itself");
   assert.match(btn, /<UnresolvedCostsNotice/, "and reuse the existing notice");
 
   // From the refusal, never from a prop: a list sourced separately could

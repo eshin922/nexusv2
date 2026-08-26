@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 
 import { sendQuote } from "@/app/actions/quotes";
 import { ERR } from "@/lib/action-result";
+import { runGoverned, runGovernedRaw } from "@/lib/governed-action";
 import { UnresolvedCostsNotice } from "@/components/quote-umbrella/unresolved-costs-notice";
 import type { UnresolvedQuoteCost } from "@/lib/quote-cost-completeness-contract";
 import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
@@ -112,8 +113,15 @@ export function FinalizeQuoteButton({
             // operator is looking at a different one is the failure this
             // prevents.
             if (flushElections) {
-              const durable = await flushElections();
-              if (!durable) {
+              // The flush can fail to REACH the server as easily as it can
+              // report a failure, and both mean the same thing here: do not
+              // freeze an artifact from elections that are not durable.
+              const flushed = await runGovernedRaw(flushElections);
+              if (flushed.kind === "unreachable") {
+                setError(flushed.message);
+                return;
+              }
+              if (!flushed.value) {
                 setError(
                   "Your recovery elections have not been saved. Nothing was sent — " +
                     "check your connection and try again.",
@@ -121,18 +129,27 @@ export function FinalizeQuoteButton({
                 return;
               }
             }
-            const r = await sendQuote(fd);
+            const r = await runGoverned(() => sendQuote(fd));
             // The refusal is SHOWN, not swallowed. A below-floor quote fails
             // here with the authorization core's own sentence, which names the
             // tier and distinguishes never-authorized from invalidated from
             // state-has-changed — three refusals that send an operator to three
             // different places.
-            if (r.ok) return;
-            if (r.error.code === ERR.UNRESOLVED_COSTS && Array.isArray(r.error.details)) {
-              setUnresolved(r.error.details as UnresolvedQuoteCost[]);
+            //
+            // And a server that never answered is shown too, in its own words.
+            // Soak run 5 measured a 503 here that left the quote in `draft`
+            // with nothing on screen; the operator's evidence that the freeze
+            // had failed was that the page did not change.
+            if (r.kind === "ok") return;
+            if (r.kind === "unreachable") {
+              setError(r.message);
               return;
             }
-            setError(r.error.message);
+            if (r.code === ERR.UNRESOLVED_COSTS && Array.isArray(r.details)) {
+              setUnresolved(r.details as UnresolvedQuoteCost[]);
+              return;
+            }
+            setError(r.message);
           });
         }}
       >

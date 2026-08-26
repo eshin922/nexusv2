@@ -6,6 +6,7 @@ import { evaluateChargeRecovery } from "@/app/actions/commercial-recovery-evalua
 import { persistChargeRecoverySet } from "@/app/actions/commercial-recovery-persist";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { AuthoritativeProjection } from "./authoritative-projection";
+import { runGoverned } from "@/lib/governed-action";
 
 /** How long the draft waits before saving. Long enough that trying three
  *  placements in a row is one write; short enough that an operator who elects
@@ -13,6 +14,20 @@ import type { AuthoritativeProjection } from "./authoritative-projection";
 const SAVE_DEBOUNCE_MS = 600;
 
 export type RecoveryElection = { chargeKey: string; mode: string };
+
+/**
+ * Why a proposal did not take.
+ *
+ * `refused` is the ENGINE's answer and its `message` is authoritative — the
+ * election is wrong and changing it is the operator's next move. `unreachable`
+ * means the engine never answered, so nothing is known about the election
+ * itself and retrying is the next move. Collapsing the two into one string
+ * would tell the operator to do one when they need the other.
+ */
+export type RecoveryProposalFailure = {
+  kind: "refused" | "unreachable";
+  message: string;
+};
 
 export type RecoveryDraftState =
   /** Everything on screen is stored. */
@@ -95,13 +110,19 @@ export function useRecoveryDraft(input: {
 
   const save = useCallback(async (set: RecoveryElection[]) => {
     const seq = ++inFlight.current;
-    const res = await persistChargeRecoverySet({ quoteId, elections: set });
+    const res = await runGoverned(() =>
+      persistChargeRecoverySet({ quoteId, elections: set }),
+    );
     // A stale answer must not clear a newer pending write, or a fast save
     // landing behind a slow one would report the quote clean while the later
     // election is still unwritten.
     if (seq !== inFlight.current) return false;
-    if (!res.ok) {
-      setState({ status: "unsaved", message: res.error.message });
+    if (res.kind !== "ok") {
+      // `unsaved` for BOTH refusal and unreachable, and that is correct: the
+      // elections are not known to be durable either way, and `unsaved` is the
+      // state the finalize gate reads to refuse freezing an artifact built
+      // from them. Only the sentence differs.
+      setState({ status: "unsaved", message: res.message });
       return false;
     }
     if (!res.data.matchesRequested) {
@@ -126,7 +147,10 @@ export function useRecoveryDraft(input: {
    * failure: nothing was proposed, so nothing is pending.
    */
   const propose = useCallback(
-    async (chargeKey: string, mode: string | null): Promise<string | null> => {
+    async (
+      chargeKey: string,
+      mode: string | null,
+    ): Promise<RecoveryProposalFailure | null> => {
       const base = proposed.current ?? electedNow();
       const next = base.filter((e) => e.chargeKey !== chargeKey);
       if (mode !== null) next.push({ chargeKey, mode });
@@ -146,17 +170,27 @@ export function useRecoveryDraft(input: {
       proposed.current = next;
       setState({ status: "saving" });
 
-      const res = await evaluateChargeRecovery({ quoteId, elections: next });
-      if (!res.ok) {
-        // Refused: this election never happened. Roll back to what was
-        // proposed before it, so a later flush does not persist a set the
-        // engine rejected. A newer proposal has already replaced it — leave
-        // that alone.
+      const res = await runGoverned(() =>
+        evaluateChargeRecovery({ quoteId, elections: next }),
+      );
+      if (res.kind !== "ok") {
+        // Refused, OR never evaluated at all. BOTH roll back.
+        //
+        // The rollback used to hang off the refusal branch alone, and
+        // `proposed.current` is written BEFORE the await so that a second
+        // click composes onto the first. A rejection therefore skipped it and
+        // left a set recorded that the engine had never evaluated — which the
+        // debounced `save` would then have persisted as though it had been
+        // approved. An unevaluated election reaching the database is a
+        // commercial-state mutation on failure, not a display defect.
         if (proposed.current === next) {
           proposed.current = previous;
           setState(previous === null ? { status: "clean" } : { status: "saving" });
         }
-        return res.error.message;
+        return {
+          kind: res.kind === "unreachable" ? "unreachable" : "refused",
+          message: res.message,
+        };
       }
 
       // A newer proposal landed while this evaluation was in flight; its answer
