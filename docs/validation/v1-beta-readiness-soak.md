@@ -110,14 +110,49 @@ findings in repeat       N   <- the number that must trend to zero
 
 ## What "ready" would look like
 
-Not "no findings". A defensible beta gate:
+Not "no findings".
 
-- every workflow step exercised at least **three** times
-- the **last two consecutive runs** surface **no new correctness findings in
-  repeat territory**
-- every open `catastrophic` finding closed, and its fix walked
-- presentation and performance findings triaged, not necessarily fixed
+**The gate is at the WORKFLOW level, not the step level.** A step can pass three
+times while the sequence it sits in is still broken between steps — state
+carried wrong from W7 into W8, a surface that is correct alone and stale when
+reached from the step before it. Counting step passes would score that as
+converging. So:
 
-If repeat-territory findings are still arriving on run 4, we are not converging
-and the answer is more repair before more walking — which is a real answer, and
-the one that is currently unknown.
+> **Training-ready: two consecutive CLEAN END-TO-END runs of W1–W11, on the
+> SAME release, with no new correctness finding in repeat territory.**
+
+"Same release" is doing real work in that sentence. Two clean runs either side
+of a merge are two measurements of two products, and prove nothing jointly —
+which is the freeze rule stated as an acceptance criterion rather than as
+etiquette.
+
+Step-level coverage (**three** exercises per step) remains, but as COVERAGE
+rather than as the gate: it says we have looked at everything, while the
+end-to-end criterion says the thing works as a sequence.
+
+### What counts as a correctness finding
+
+The gate is about correctness, not polish. A finding is a **correctness**
+finding when it can cause any of:
+
+- **wrong money** — any figure a customer or Accounting could act on
+- **wrong state** — a quote, election, or record in a state the operator did
+  not intend or cannot see
+- **a blocked ordinary workflow** — a normal path an operator cannot complete
+- **misleading actionability** — a control that says it can do something it
+  cannot, or refuses without saying why
+
+That fourth class is deliberate. Two of this stretch's repairs were exactly
+that shape — `READY TO SEND` on a quote that could not send, and an enabled
+Preview on a locked quote — and neither moved a number. Filing them as
+presentation would have let the gate pass over the defects most likely to make
+an operator distrust the product.
+
+Presentation and performance findings are logged and triaged. They do not block
+the gate on their own.
+
+### And if it does not converge
+
+If repeat-territory correctness findings are still arriving on run 4, we are not
+converging, and the answer is more repair before more walking. That is a real
+answer, and it is the one currently unknown.
