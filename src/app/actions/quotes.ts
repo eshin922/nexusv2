@@ -28,6 +28,7 @@ import {
   assemblyLeafInputs,
   assemblyLeafOverrides,
   quoteClientTargets,
+  quoteLeafLifts,
   assemblyLeaves,
   assemblyProductionInputs,
   belowFloorAuthorizations,
@@ -3426,7 +3427,11 @@ export async function clearCustomerAcceptance(
 //             INCLUDING qty, quote-owned specs, per-leaf packaging inputs +
 //             overrides + targets, per-assembly production inputs, freight
 //             (leg groups, legs, POLICY columns + customs JSONB), pricing
-//             adjustments, BOTH working note fields, and recovery ELECTIONS
+//             adjustments, APPLIED SURGICAL LIFTS (`quote_leaf_lifts` — a
+//             lift is a price the operator decided, and a source that clears
+//             the floor only because of one produces a below-floor copy
+//             without it; soak run 3), BOTH working note fields,
+//             and recovery ELECTIONS
 //             (`quote_charge_recovery` — placement is economics; see the
 //             RECOVERY ELECTIONS block below for why, and note that its
 //             provenance is re-stamped to the copying operator while the
@@ -3999,6 +4004,62 @@ export async function cloneQuoteGraph(
             quoteLeafId: newLeafId,
             tierId: newTierId,
             clientTargetPricePerUnit: r.clientTargetPricePerUnit,
+          };
+        }),
+      );
+    }
+
+    // ── APPLIED SURGICAL LIFTS ─────────────────────────────────────────
+    //
+    // COMMERCIAL STATE, and the contract above is explicit about what that
+    // means: cost / sell / revenue / margin must match at every tier
+    // immediately after the copy. An applied lift is a price the operator
+    // decided; a copy without it is a different quote.
+    //
+    // Soak run 3 measured the consequence on a live quote. The source cleared
+    // the floor ONLY because of two applied lifts, so the copy did not clear
+    // it at all:
+    //
+    //     source   16,733.64   25.001%   BELOW_TARGET   sendable
+    //     copy     16,435.00   23.639%   BELOW_FLOOR    not sendable
+    //
+    // $298.64 cheaper and across the compliance boundary — an operator
+    // copying a compliant quote silently received a non-compliant one.
+    //
+    // Same defect, same place, as the recovery elections repaired the day
+    // before: `quote_leaf_lifts` appeared nowhere in this file and sat in none
+    // of Cloneable / Reset / Inherited. Present in no bucket is what an
+    // oversight looks like; a decision leaves a note.
+    //
+    // PROVENANCE RE-STAMPS. `created_at` / `updated_at` default to now,
+    // because these rows were created now, on a quote that did not exist
+    // before. The lift VALUE is the decision and carries; the claim about when
+    // it was made HERE does not. The table carries no actor column, so there
+    // is nothing further to re-attribute.
+    //
+    // Lifecycle state is NOT carried — a lift is a pricing decision, not a
+    // record of what happened to the quote.
+    const sourceLifts = await tx
+      .select()
+      .from(quoteLeafLifts)
+      .where(inArray(quoteLeafLifts.quoteLeafId, sourceLeafIds));
+    if (sourceLifts.length > 0) {
+      await tx.insert(quoteLeafLifts).values(
+        sourceLifts.map((r) => {
+          const newLeafId = quoteLeafIdMap.get(r.quoteLeafId);
+          const newTierId = tierIdMap.get(r.tierId);
+          // Fail loudly rather than dropping the row. A silently missing lift
+          // is exactly the failure this repair exists to remove, and it would
+          // reappear as a copy that quietly prices lower than its source.
+          if (!newLeafId || !newTierId)
+            throw new Error(
+              `clone: quote_leaf_lifts unmapped identity ` +
+                `(leaf=${r.quoteLeafId}, tier=${r.tierId})`,
+            );
+          return {
+            quoteLeafId: newLeafId,
+            tierId: newTierId,
+            liftPct: r.liftPct,
           };
         }),
       );
