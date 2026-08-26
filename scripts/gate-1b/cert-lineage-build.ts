@@ -41,7 +41,24 @@ if (!companyId) {
   process.exit(1);
 }
 
-const DEAL_NAME = "ZZ-VALIDATION — Nexus Certification Lineage";
+/**
+ * The deal to provision, overridable so one governed implementation can build
+ * more than one lineage.
+ *
+ * WHY IT IS A PARAMETER RATHER THAN A SECOND SCRIPT: the safety here is not in
+ * the name, it is in the steps — search before create, first pipeline stage
+ * only, existing company, existing NetSuite customer, existing map. A copy of
+ * this file with a different constant would be a second place those steps live
+ * and the first place one of them gets dropped.
+ *
+ * A run that supplies a name still creates NO NetSuite or accounting identity:
+ * steps 3 and 4 look their records up and reuse them, so a lineage on an
+ * already-mapped company inherits the governed chain rather than asserting a
+ * new one.
+ */
+const nameArg = process.argv.find((a) => a.startsWith("--name="));
+const DEAL_NAME =
+  nameArg?.slice("--name=".length) ?? "ZZ-VALIDATION — Nexus Certification Lineage";
 const NS_CUSTOMER_NAME = "ZZ-VALIDATION Nexus Certification Customer";
 const DPS_SALES_PIPELINE_ID = "108896657";
 
@@ -76,7 +93,12 @@ let dealId: string | null = null;
     method: "POST",
     headers: { authorization: `Bearer ${readToken}`, "content-type": "application/json" },
     body: JSON.stringify({
-      filterGroups: [{ filters: [{ propertyName: "dealname", operator: "CONTAINS_TOKEN", value: "certification" }] }],
+      // EQ on the exact name, not a token match on "certification". The token
+      // search only ever found deals that happened to contain that word, so a
+      // differently-named lineage would not have been found and this script
+      // would have created a duplicate every run — the CRM litter the comment
+      // above exists to prevent.
+      filterGroups: [{ filters: [{ propertyName: "dealname", operator: "EQ", value: DEAL_NAME }] }],
       properties: ["dealname", "dealstage", "pipeline"],
       limit: 50,
     }),
