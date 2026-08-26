@@ -822,6 +822,37 @@ export function DetailGlobalAdjust({
             Surgical (single-tier) lives on the per-tier table below.
           </span>
         </div>
+        {/*
+          PRICING IS LOCKED ONCE THE QUOTE LEAVES DRAFT, AND THE CONTROL SAYS SO
+          HERE.
+
+          `previewGlobalAdj` calls `quoteByIdDraft` and refuses on a non-draft
+          quote — that guard is the authority and is unchanged. What was wrong
+          was the operator's FIRST indication of it: the input and Preview
+          rendered fully enabled, the click produced a refusal, and the refusal
+          rendered as an alert at the top of a long section, roughly a thousand
+          pixels above the button that caused it. From where the operator was
+          standing, Preview did nothing and said nothing.
+
+          The terminal-surface banner at the top of the page is not a substitute:
+          it explains the QUOTE's state, not why this particular lever cannot be
+          used, and it is not in view when the lever is.
+
+          `committable` is `quote.status === "draft"`, threaded from the page.
+          Stage was already gated through `stageable`; the input and Preview were
+          not, which is why they were the two that looked alive.
+        */}
+        {!committable && (
+          <div
+            className="lab"
+            style={{ gridColumn: "1 / -1", color: "var(--ink-3)" }}
+          >
+            Pricing is locked — this quote is no longer a draft.
+            <span className="hint">
+              Revise it into a new version to adjust pricing.
+            </span>
+          </div>
+        )}
         <div className="input-cluster">
           <input
             type="text"
@@ -831,6 +862,15 @@ export function DetailGlobalAdjust({
               setDraft(e.target.value);
               onCancel?.();
             }}
+            // NOT `|| pending` — Pattern 47(e): disabling an input mid-save
+            // drops focus. This is locked by the quote's STATE, which does not
+            // change under the operator's hands.
+            disabled={!committable}
+            title={
+              committable
+                ? undefined
+                : "Pricing is locked — this quote is no longer a draft."
+            }
             aria-label="Global lift percentage"
           />
           <span className="unit">% sell-price lift</span>
@@ -850,7 +890,12 @@ export function DetailGlobalAdjust({
             type="button"
             className="btn ghost sm"
             onClick={handlePreview}
-            disabled={pending}
+            disabled={pending || !committable}
+            title={
+              committable
+                ? undefined
+                : "Pricing is locked — this quote is no longer a draft."
+            }
           >
             Preview changes
           </button>
@@ -859,10 +904,16 @@ export function DetailGlobalAdjust({
             className="btn primary sm"
             onClick={handleStage}
             disabled={pending || !stageable}
+            // Two different reasons this is unavailable, and the tooltip has to
+            // say WHICH. It previously said "enter a different percentage" even
+            // when the quote was locked — telling the operator to do something
+            // that would not have helped, about a control that could never work.
             title={
-              stageable
-                ? undefined
-                : "Enter a percentage different from the one in effect."
+              !committable
+                ? "Pricing is locked — this quote is no longer a draft."
+                : stageable
+                  ? undefined
+                  : "Enter a percentage different from the one in effect."
             }
           >
             Stage this adjustment
