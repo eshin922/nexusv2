@@ -192,6 +192,56 @@ export function AssemblyTreeBody({
     return m;
   }, [view]);
 
+  // ── Move destinations, for the MENU route ────────────────────────────
+  //
+  // The governed writer is `moveProductMembership` either way; this is a
+  // second door onto it, not a second capability. Until now the only door was
+  // a drag, which has no keyboard equivalent — so an operator who does not or
+  // cannot drag was left with Remove-and-re-add, and that composition mints a
+  // new `quote_leaves.id` and cascades the product's costs away. The safe
+  // route being harder to reach than the destructive one is the defect.
+  const moveDestinations = useMemo(
+    () =>
+      orderedAssemblies.map((a) => ({
+        target: a.id,
+        label: a.name,
+        // Append. A menu move states a destination, not a rank, so it lands at
+        // the end rather than guessing an insertion point the operator never
+        // expressed.
+        position: (view.groups.find((g) => g.id === a.id)?.children.length ?? 0),
+      })),
+    [orderedAssemblies, view],
+  );
+
+  const directDestination = useMemo(
+    () => ({ target: "direct", label: "Quote level (no item group)", position: view.direct.length }),
+    [view],
+  );
+
+  /**
+   * Move via the menu. Same action, same refusal handling, same refresh as the
+   * drop path — deliberately NOT an optimistic reshuffle, because a menu move
+   * has no gesture whose result the operator is already watching.
+   */
+  const moveViaMenu = useCallback(
+    (quoteLeafId: string, target: string, position: number) => {
+      const fd = new FormData();
+      fd.set("quoteLeafId", quoteLeafId);
+      fd.set("target", target);
+      fd.set("position", String(position));
+      startMoveTransition(async () => {
+        setError(null);
+        const result = await moveProductMembership(fd);
+        if (!result.ok) {
+          setError(result.error.message);
+          return;
+        }
+        router.refresh();
+      });
+    },
+    [router],
+  );
+
   const siblingsFor = useCallback(
     (zone: DropZone): string[] =>
       zone.kind === "direct" ? directIds : (groupMemberIds.get(zone.assemblyId) ?? []),
@@ -488,6 +538,10 @@ export function AssemblyTreeBody({
                 overProductRow(e, { kind: "direct" }, product.quoteLeafId)
               }
               onRowDrop={commitDrop}
+              moveDestinations={moveDestinations}
+              onMove={(target, position) =>
+                moveViaMenu(product.quoteLeafId, target, position)
+              }
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
             </Fragment>
@@ -531,6 +585,11 @@ export function AssemblyTreeBody({
               memberDropEdge={(quoteLeafId) =>
                 dropEdgeFor({ kind: "group", assemblyId: asy.id }, quoteLeafId)
               }
+              memberMoveDestinations={[
+                ...moveDestinations.filter((d) => d.target !== asy.id),
+                directDestination,
+              ]}
+              onMemberMove={moveViaMenu}
               onMemberDragStart={beginMove}
               onMemberRowDragOver={(e, quoteLeafId) =>
                 overProductRow(e, { kind: "group", assemblyId: asy.id }, quoteLeafId)

@@ -45,6 +45,8 @@ export function AsyRow({
   isDropTarget,
   showTailIndicator,
   memberDropEdge,
+  memberMoveDestinations,
+  onMemberMove,
   onMemberDragStart,
   onMemberRowDragOver,
   onMemberDragOverGroup,
@@ -82,6 +84,13 @@ export function AsyRow({
     sku: string | null,
   ) => void;
   onMemberRowDragOver?: (e: React.DragEvent, quoteLeafId: string) => void;
+  /** Where a member may be moved from here. Excludes this group. */
+  memberMoveDestinations?: ReadonlyArray<{
+    target: string;
+    label: string;
+    position: number;
+  }>;
+  onMemberMove?: (quoteLeafId: string, target: string, position: number) => void;
   onMemberDragOverGroup?: (e: React.DragEvent) => void;
   onMemberDragOverGroupTail?: (e: React.DragEvent) => void;
   onMemberDropOnGroup?: (e: React.DragEvent) => void;
@@ -279,6 +288,8 @@ export function AsyRow({
             key={leaf.junctionId}
             leaf={leaf}
             editable={editable}
+            moveDestinations={memberMoveDestinations}
+            onMove={onMemberMove}
             editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${leaf.leafId}/specs`}
             isDragging={leafDragId === leaf.junctionId}
             onDragStart={(e) => handleLeafDragStart(e, leaf.junctionId)}
@@ -331,10 +342,19 @@ function LeafRow({
   isMoving,
   pending: savingStructure,
   onMoveStart,
+  moveDestinations,
+  onMove,
 }: {
   leaf: AssemblyLeafNode;
   editable: boolean;
   editSpecsHref: string;
+  /** Where this member may be moved, excluding the group it is already in. */
+  moveDestinations?: ReadonlyArray<{
+    target: string;
+    label: string;
+    position: number;
+  }>;
+  onMove?: (quoteLeafId: string, target: string, position: number) => void;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -416,9 +436,12 @@ function LeafRow({
         <CompletenessChip completeness={leaf.specCompleteness} />
         <LeafContextMenu
           junctionId={leaf.junctionId}
+          quoteLeafId={leaf.quoteLeafId}
           leafName={leaf.name}
           editSpecsHref={editSpecsHref}
           disabled={!editable}
+          moveDestinations={moveDestinations}
+          onMove={onMove}
         />
       </div>
     </div>

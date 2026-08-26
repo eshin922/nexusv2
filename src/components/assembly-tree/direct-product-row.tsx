@@ -1,5 +1,6 @@
 "use client";
 
+import { describeAttachmentRemoval } from "@/app/actions/quote-products";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { UnitTargets } from "@/lib/client-target";
 import { ClientTargetCell, type TargetTier } from "./client-target";
@@ -36,6 +37,8 @@ export function DirectProductRow({
   pending: savingStructure,
   onRowDragOver,
   onRowDrop,
+  moveDestinations,
+  onMove,
 }: {
   product: DirectProductNode;
   editable: boolean;
@@ -55,11 +58,23 @@ export function DirectProductRow({
   pending?: boolean;
   onRowDragOver?: (e: React.DragEvent) => void;
   onRowDrop?: (e: React.DragEvent) => void;
+  /** Item Groups this product can be moved INTO. */
+  moveDestinations?: ReadonlyArray<{
+    target: string;
+    label: string;
+    position: number;
+  }>;
+  onMove?: (target: string, position: number) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [movePicker, setMovePicker] = useState(false);
+  const [removalNote, setRemovalNote] = useState<string | null>(null);
+  const [removalUnknown, setRemovalUnknown] = useState(false);
+  // Rendered only when there is somewhere to go AND something to do it with.
+  const canMove = editable && !!onMove && (moveDestinations?.length ?? 0) > 0;
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Click-outside + Escape dismiss, matching the member row's overflow so the
@@ -98,6 +113,24 @@ export function DirectProductRow({
     : "— cost";
 
   function handleRemove() {
+    if (!confirming) {
+      // Ask what this destroys BEFORE arming the confirm — the one moment the
+      // answer can still change what the operator does. Removing an
+      // attachment cascades its packaging lines, per-cell overrides, client
+      // targets, staged lifts and freight membership, and the confirmation
+      // said none of it.
+      setConfirming(true);
+      setRemovalNote(null);
+      setRemovalUnknown(false);
+      const probe = new FormData();
+      probe.set("quoteLeafId", product.quoteLeafId);
+      void describeAttachmentRemoval(probe).then((r) => {
+        // A failed count must NOT present as "nothing at risk".
+        if (!r.ok) setRemovalUnknown(true);
+        else setRemovalNote(r.data.sentence);
+      });
+      return;
+    }
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("quoteLeafId", product.quoteLeafId);
@@ -236,6 +269,44 @@ export function DirectProductRow({
                     hold. "library" satisfies it directly, and is neutral. */}
                 Edit library specs
               </a>
+              {/* The governed move, reachable without a drag.
+                  `moveProductMembership` preserves `quote_leaves.id` and
+                  repoints every dependent economic row; Remove-and-re-add
+                  mints a new id and cascades the costs away. Both routes
+                  existed; only the destructive one was in this menu. */}
+              {canMove ? (
+                <>
+                  <div className="sep" />
+                  <button
+                    type="button"
+                    className="item"
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={movePicker}
+                    onClick={() => setMovePicker((v) => !v)}
+                  >
+                    Move into an item group...
+                  </button>
+                  {movePicker
+                    ? moveDestinations!.map((d) => (
+                        <button
+                          key={d.target}
+                          type="button"
+                          className="item"
+                          role="menuitem"
+                          style={{ paddingLeft: 26 }}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setMovePicker(false);
+                            onMove!(d.target, d.position);
+                          }}
+                        >
+                          {d.label}
+                        </button>
+                      ))
+                    : null}
+                </>
+              ) : null}
               {editable ? (
                 <>
                   <div className="sep" />
@@ -248,6 +319,25 @@ export function DirectProductRow({
                   >
                     {confirming ? "Confirm — remove from quote" : "Remove"}
                   </button>
+                  {/* What the removal costs, said before the second click. */}
+                  {confirming ? (
+                    <div
+                      className="item"
+                      role="note"
+                      style={{
+                        fontFamily: "var(--mono)",
+                        fontSize: 9.5,
+                        lineHeight: 1.5,
+                        color: removalUnknown ? "var(--warn)" : "var(--bad)",
+                        whiteSpace: "normal",
+                        cursor: "default",
+                      }}
+                    >
+                      {removalUnknown
+                        ? "Could not check what else this deletes. Nothing is confirmed about that either way."
+                        : (removalNote ?? "Checking what else this deletes...")}
+                    </div>
+                  ) : null}
                 </>
               ) : null}
             </div>

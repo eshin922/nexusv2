@@ -13,6 +13,11 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
+import {
+  loadAttachmentDependents,
+  describeDependents,
+  type AttachmentDependents,
+} from "@/lib/product-structure/attachment-dependents";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 import {
@@ -137,6 +142,35 @@ export async function attachQuoteProduct(
     revalidateQuoteTree(quote.projectId, quoteId);
 
     return { quoteLeafId: attached.quoteLeafId };
+  });
+}
+
+/**
+ * What removing this attachment would destroy.
+ *
+ * Called when the operator asks to remove, BEFORE they confirm — the one
+ * moment the answer can still change what they do. Reads only.
+ *
+ * On demand rather than per-render: a page carrying twenty attachments would
+ * pay twenty of these to answer a question about the one row somebody
+ * eventually clicks, and the answer is only wanted at the click.
+ *
+ * Failure is NOT silence. A count that could not be read must not present as
+ * "nothing at risk", so the caller receives `null` for the sentence and states
+ * that the check could not run — never an unqualified Confirm.
+ */
+export async function describeAttachmentRemoval(
+  formData: FormData,
+): Promise<
+  ActionResult<{ sentence: string | null; dependents: AttachmentDependents }>
+> {
+  return runAction(async () => {
+    const quoteLeafId = String(formData.get("quoteLeafId") ?? "").trim();
+    if (!quoteLeafId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteLeafId required");
+    await ensureUser();
+    const dependents = await loadAttachmentDependents(quoteLeafId);
+    return { sentence: describeDependents(dependents), dependents };
   });
 }
 
