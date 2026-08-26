@@ -524,6 +524,16 @@ const classifiedIdentityFiles = new Set([
   // governs exactly what it advertises. Elects nothing, resolves nothing
   // through the legacy junction, writes nothing.
   "scripts/gate-1b/card1-grain-certify.ts",
+  // CLASSIFIED — read-only cascade accounting, canonical identity only. Counts
+  // what deleting a `quote_leaves` row would destroy, so the removal
+  // confirmation can name it instead of reassuring about the library.
+  //
+  // Every subquery is keyed on `quote_leaf_id`. `assembly_leaves` is never
+  // queried and nothing is resolved through the legacy junction — deliberately,
+  // because the legacy id is NULL on an attachment authored while Direct, and
+  // counting through it would report zero for exactly the products the Run 1
+  // finding was about. It writes nothing.
+  "src/lib/product-structure/attachment-dependents.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
