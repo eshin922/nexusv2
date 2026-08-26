@@ -4303,21 +4303,48 @@ on action-name namespacing.
                             -- assertCanCreateScenarios if PM workflow
                             -- requires per-role isolation; bank.
                             --
-                            -- Field-bucket integrity per FR-12:
+                            -- Field-bucket integrity per FR-12.
+                            --
+                            -- CORRECTED 2026-08-26 (Run 1 obs. 6). This
+                            -- note said tier qty and the working notes
+                            -- RESET. The code says otherwise and always
+                            -- has -- `cloneQuoteGraph` clones
+                            -- `quote_tiers` INCLUDING qty, and both note
+                            -- fields carry (2026-08-14). The note drifted
+                            -- from the contract it describes; the
+                            -- contract comment on `cloneQuoteGraph` is
+                            -- the authority, and this is a pointer to it.
+                            --
                             -- Cloneable (assemblies, assembly_leaves
                             -- → SAME library leaves, quote_tiers
-                            -- with qty RESET, freight_leg_groups,
-                            -- freight_legs POLICY columns +
-                            -- customs JSONB, quotes.global_price_adj_pct
-                            -- + target_margin_pct) + Inherited
+                            -- INCLUDING qty, DIRECT products,
+                            -- quote-owned specs, per-leaf packaging
+                            -- inputs + overrides + targets,
+                            -- per-assembly production inputs,
+                            -- freight_leg_groups, freight_legs POLICY
+                            -- columns + customs JSONB,
+                            -- quotes.global_price_adj_pct +
+                            -- target_margin_pct, BOTH working note
+                            -- fields, and recovery ELECTIONS
+                            -- (`quote_charge_recovery`, added
+                            -- 2026-08-26 -- placement is economics, not
+                            -- lifecycle: it changes the customer
+                            -- document, freezes as the instruction
+                            -- Accounting bills from, and can move
+                            -- marginVerdict to UNRESOLVED per #439.
+                            -- Provenance re-stamps to the copying
+                            -- operator; the election itself carries))
+                            -- + Inherited
                             -- (project_id, hubspot_deal_id,
                             -- deal_name, client_name,
                             -- sales_rep_user_id, pm_user_id from
                             -- TARGET project) + Reset (id,
                             -- version_number=1, status='draft',
                             -- sent_at, accepted_at, pdf_url,
-                            -- hubspot_quote_id, notes, valid_until,
-                            -- retail_benchmark, all qty values,
+                            -- quote_number, hubspot_quote_id,
+                            -- valid_until, retail_benchmark,
+                            -- NetSuite/provider transaction state,
+                            -- audit history,
                             -- freight leg shipment dates,
                             -- scenario_status='active',
                             -- copied_from_quote_id=source.id).

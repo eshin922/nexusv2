@@ -3426,7 +3426,11 @@ export async function clearCustomerAcceptance(
 //             INCLUDING qty, quote-owned specs, per-leaf packaging inputs +
 //             overrides + targets, per-assembly production inputs, freight
 //             (leg groups, legs, POLICY columns + customs JSONB), pricing
-//             adjustments, and BOTH working note fields
+//             adjustments, BOTH working note fields, and recovery ELECTIONS
+//             (`quote_charge_recovery` — placement is economics; see the
+//             RECOVERY ELECTIONS block below for why, and note that its
+//             provenance is re-stamped to the copying operator while the
+//             election itself carries)
 // Inherited:  project_id (from `targetProjectId` arg — different from
 //             source.projectId on cross-project; same on within-project)
 // Reset:      id, version_number=1, status='draft', sent_at, accepted_at,
@@ -4189,6 +4193,58 @@ export async function cloneQuoteGraph(
         );
       }
     }
+  }
+
+  // ── RECOVERY ELECTIONS ───────────────────────────────────────────────────
+  //
+  // Placement is ECONOMICS, not lifecycle. An election decides whether a
+  // recovered charge is folded into the unit price or billed as its own line,
+  // and three independent facts put it on the commercial side of the contract:
+  //
+  //   1. It changes the customer document. Electing `project_setup` to a
+  //      separate line moved $1,680 out of the unit price in the Run 1 walk;
+  //      same turnkey total, different document, different unit price.
+  //   2. It is frozen at send as an INSTRUCTION Accounting bills from
+  //      (`quote_snapshot_recovery_instructions`). Lifecycle state does not
+  //      get frozen into a billing instruction.
+  //   3. It can move a governance verdict. A quote carrying unbillable
+  //      recovery reports `marginVerdict = UNRESOLVED` (#439), and nothing
+  //      that moves a governance verdict is lifecycle state.
+  //
+  // It was absent from the Cloneable list, from Reset and from Inherited —
+  // present in none of the three, which is what an oversight looks like rather
+  // than a decision. Migration 0100 postdates this contract, so the clone
+  // could not have weighed a table that did not exist.
+  //
+  // Revise is the control: it operates in place on the same `quote_id`, so
+  // elections have always carried there. Only copy lost them, and it lost them
+  // because it mints a new id — tracking the id change, not any decision.
+  const sourceElections = await tx
+    .select({
+      chargeKey: quoteChargeRecovery.chargeKey,
+      mode: quoteChargeRecovery.mode,
+    })
+    .from(quoteChargeRecovery)
+    .where(eq(quoteChargeRecovery.quoteId, args.sourceQuoteId));
+
+  if (sourceElections.length > 0) {
+    await tx.insert(quoteChargeRecovery).values(
+      sourceElections.map((e) => ({
+        quoteId: newQuoteId,
+        chargeKey: e.chargeKey,
+        mode: e.mode,
+        // PROVENANCE IS RE-STAMPED, and the election itself is not.
+        //
+        // `elected_at` defaults to now and `elected_by_user_id` is the copying
+        // operator. Carrying the source's would assert that someone made an
+        // election on a quote that did not exist at the time — a false record,
+        // and one that would misdate any forensic read of when this quote's
+        // commercial shape was decided.
+        //
+        // The DECISION carries. The claim about who made it HERE does not.
+        electedByUserId: args.createdByUserId,
+      })),
+    );
   }
 
   return { newQuoteId };

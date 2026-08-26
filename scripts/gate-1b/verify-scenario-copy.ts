@@ -37,7 +37,13 @@ import { sql, eq, and, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
 import { cloneQuoteGraph } from "@/app/actions/quotes";
-import { quotes, quoteLeaves, quoteTiers, assemblies } from "@/db/schema";
+import {
+  quotes,
+  quoteLeaves,
+  quoteTiers,
+  assemblies,
+  quoteChargeRecovery,
+} from "@/db/schema";
 import type { QuoteCostingResult } from "@/lib/costing";
 
 const SOURCE_ID = "2f29af72-805b-446c-866c-73e9b0991b1a";
@@ -429,6 +435,83 @@ async function main() {
     moved1.length > 0,
     "control: the first mutation did move that scenario's own economics",
     `${moved1.length} path(s)`,
+  );
+
+  // ── Phase 2b · recovery elections ─────────────────────────────────────────
+  //
+  // Placement is economics: it changes the customer document, freezes as the
+  // instruction Accounting bills from, and can move `marginVerdict` to
+  // UNRESOLVED. So an election belongs to the "commercially EQUIVALENT before
+  // any operator edit" contract this whole script asserts, and until
+  // 2026-08-26 the clone dropped it.
+  //
+  // Elected on a scratch copy rather than on SOURCE, which stays read-only —
+  // the whole point of the namespace discipline above. Both quotes are deleted
+  // by cleanup regardless of outcome.
+  console.log("\nPhase 2b · recovery elections");
+  const electionHost = await copyOf(SOURCE_ID, "ZZ-VALIDATION-copy-elect-src");
+  const [electingUser] = await db
+    .select({ createdBy: quotes.createdByUserId })
+    .from(quotes)
+    .where(eq(quotes.id, SOURCE_ID))
+    .limit(1);
+
+  await db.insert(quoteChargeRecovery).values([
+    { quoteId: electionHost, chargeKey: "project_setup" as const, mode: "separate" as const },
+    { quoteId: electionHost, chargeKey: "tooling" as const, mode: "included" as const },
+  ]);
+
+  const electionCopy = await copyOf(electionHost, "ZZ-VALIDATION-copy-elect-dst");
+
+  const readElections = async (quoteId: string) =>
+    (
+      await db
+        .select({
+          chargeKey: quoteChargeRecovery.chargeKey,
+          mode: quoteChargeRecovery.mode,
+          electedBy: quoteChargeRecovery.electedByUserId,
+          electedAt: quoteChargeRecovery.electedAt,
+        })
+        .from(quoteChargeRecovery)
+        .where(eq(quoteChargeRecovery.quoteId, quoteId))
+    ).sort((a, b) => a.chargeKey.localeCompare(b.chargeKey));
+
+  const srcElections = await readElections(electionHost);
+  const dstElections = await readElections(electionCopy);
+
+  claim(
+    dstElections.length === srcElections.length,
+    "the copy carries the same NUMBER of elections",
+    `${srcElections.length} → ${dstElections.length}`,
+  );
+  claim(
+    JSON.stringify(srcElections.map((e) => [e.chargeKey, e.mode])) ===
+      JSON.stringify(dstElections.map((e) => [e.chargeKey, e.mode])),
+    "every (charge, mode) pair is preserved exactly",
+    dstElections.map((e) => `${e.chargeKey}=${e.mode}`).join(", "),
+  );
+  // The DECISION carries; the claim about who made it HERE does not. Carrying
+  // the source's `elected_by` would assert an election on a quote that did not
+  // exist at the time, and would misdate any forensic read of when this
+  // quote's commercial shape was decided.
+  claim(
+    dstElections.length > 0 &&
+      dstElections.every((e) => e.electedBy === electingUser.createdBy),
+    "provenance re-stamps to the copying operator",
+  );
+
+  // The falsification that makes the two claims above mean something: a copy
+  // taken from a source with NO elections must not invent any. Without this, a
+  // clone that blindly inserted a default row for every charge key would pass
+  // everything above.
+  const noElectionCopy = await copyOf(SOURCE_ID, "ZZ-VALIDATION-copy-elect-none");
+  claim(
+    (await readElections(SOURCE_ID)).length === 0,
+    "control: SOURCE carries no elections, so the next claim can fail",
+  );
+  claim(
+    (await readElections(noElectionCopy)).length === 0,
+    "a copy of an unelected source invents no elections",
   );
 
   // ── Phase 3 · rollback ────────────────────────────────────────────────────
