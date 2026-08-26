@@ -88,6 +88,41 @@ sequence of steps; each step is the unit that gets marked new/repeat.
 | W10 | Revise a sent quote into v2 | draft again, number preserved |
 | W11 | Copy a scenario within a project | new draft, economics carried |
 
+### W9 IS TERMINAL — the order above is the reading order, not the walk order
+
+**Walk W10 and W11 BEFORE W9, or on a sibling draft scenario. W9 is the last
+act.**
+
+A completed W9 makes the quote `complete`, and a completed quote cannot be
+revised — that is the governed irreversible commit point and every surface says
+so ("step 5 pushes a NetSuite Sales Order — the only irreversible act"). So
+W10 Revise, listed after W9, **does not exist by the time the numbering reaches
+it**.
+
+Soak run 3 is what exposed this, and it could not have been exposed sooner:
+runs 1 and 2 both had W9 refused, so the quote stayed `accepted` and W10 was
+reachable. The first run to complete a send was the first run to discover the
+sequence contradicts itself.
+
+The numbering is kept as-is because it is how the lifecycle reads and how three
+runs are already recorded. What changes is the walk:
+
+1. W1–W8 in order.
+2. **W10 Revise** — on the sent-and-accepted quote, before it completes.
+3. **W11 Copy** — from that scenario, or from a sibling draft.
+4. **W9 Sales Order** — last, and only then.
+
+### The deal is consumed by a successful W9
+
+One HubSpot deal produces at most one Nexus Sales Order
+(`cert-303-push-blocker-duplicate-deal.md`), so **a completed W9 spends its
+deal permanently**. A run that exercises the send cannot be repeated on the
+same fixture, and the two-consecutive-clean-runs gate therefore needs **two
+unconsumed deals**.
+
+Budget them deliberately. As of run 3 exactly one clean ZZ-VALIDATION lineage
+remains (UAT Case 6); UAT Case 5's deal was spent by run 3's SO2725.
+
 W9's send is the only irreversible step. It runs against the sandbox on a
 fixture, and only when the fixture is expendable.
 
