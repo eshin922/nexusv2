@@ -39,6 +39,7 @@ Columns frozen at this checkpoint (18):
 | `prepared_by_name_snapshot` | PreparedBy person capture |
 | `prepared_by_email_snapshot` | PreparedBy person capture |
 | `prepared_by_phone_snapshot` | PreparedBy person capture |
+| `customer_name_snapshot` | the CUSTOMER's identity (#431 Step 1) — sibling of the three above, which freeze the seller |
 | `pdf_layout_snapshot` | Slice 11 render axis |
 | `detail_level_snapshot` | Slice 11 render axis |
 | `include_spec_addendum_snapshot` | Slice 11 render axis |
@@ -199,7 +200,7 @@ it inherits the full guard obligation.
 
 ## Total
 
-**30 columns across the three checkpoints, plus the
+**31 columns across the three checkpoints, plus the
 `quote_charge_recovery` and `quote_snapshot_recovery_instructions`
 sibling tables at checkpoint 1.**
 
