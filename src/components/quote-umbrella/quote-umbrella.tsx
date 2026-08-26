@@ -34,6 +34,7 @@ import type { SentSnapshotRow } from "@/lib/quote-snapshots";
 import type { VersionRow } from "@/lib/quote-version-chain";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
+import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
@@ -63,6 +64,7 @@ export function QuoteUmbrella({
   hubspotPushedAmount,
   netsuiteStatusOnPush,
   salesOrderPreflight,
+  identityReadiness,
   soPushMirror,
   showStateSwitcher,
   recoveryInstructions,
@@ -161,6 +163,9 @@ export function QuoteUmbrella({
    * ship-to line, latest netsuite_so_pushes row (for failed-state
    * re-renders). */
   salesOrderPreflight: PreflightResult | null;
+  /** Predicts the two identity refusals so step 5 cannot claim readiness it
+   * does not have. Advisory: buildFrozenSalesOrder remains the guard. */
+  identityReadiness: IdentityReadiness | null;
   /** Slice 12 Step 8c-4 — quote row's mirror of the last SO push.
    * Populated on success (freeze-tx) OR failure (STEP 7 catch).
    * Drives the record vs failed variant selection on the Sales
@@ -307,6 +312,7 @@ export function QuoteUmbrella({
           quoteStatus={effectiveQuoteStatus}
           feedCount={reviewFeedCount}
           hasSentHistory={hasSentHistory}
+          lockBlocked={identityReadiness?.status === "blocked"}
           onGo={onGo}
         />
         {showLegend && <Legend />}
@@ -403,6 +409,7 @@ export function QuoteUmbrella({
               hubspotPushedAmount={hubspotPushedAmount}
               netsuiteStatusOnPush={netsuiteStatusOnPush}
               salesOrderPreflight={salesOrderPreflight}
+              identityReadiness={identityReadiness}
               soPushMirror={soPushMirror}
               /* Slice 12 Step 8c-4 — hard-guard the Sales Order dev
                  switcher on VERCEL_ENV !== 'production' (via

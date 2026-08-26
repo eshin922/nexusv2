@@ -51,6 +51,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { CustomerView } from "@/types/quote";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
+import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
 import { markComplete } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
 import { OrderReceipt } from "./order-receipt";
@@ -137,6 +138,7 @@ export type TabSalesOrderProps = {
    * quote status is neither accepted nor complete (tab is
    * un-reachable in that state). */
   salesOrderPreflight: PreflightResult | null;
+  identityReadiness: IdentityReadiness | null;
   /** Slice 12 Step 8c-4 — quote row mirror of the last SO push.
    * pushStatus 'succeeded' → record variant; 'failed' → failed
    * variant. */
@@ -165,6 +167,7 @@ export function TabSalesOrder({
   hubspotPushedAmount,
   netsuiteStatusOnPush,
   salesOrderPreflight,
+  identityReadiness,
   soPushMirror,
   showStateSwitcher,
   onGo,
@@ -367,7 +370,36 @@ export function TabSalesOrder({
   // forced state — because the dev switcher mutated the underlying
   // effectivePreflight + carriedTier pointers upstream. No separate
   // DEV_* fixture constants; no parallel visual override. One source.
-  const soFlags: OrderReceiptFlag[] = [...realFlags, ...divergenceFlags];
+  // Identity refusals, named on the receipt itself. A disabled button with no
+  // stated cause is the failure Pattern 47(f) exists to prevent; each flag
+  // carries the same remediation the send would have printed.
+  const identityFlags: OrderReceiptFlag[] = (identityReadiness?.blockers ?? []).map(
+    (b) =>
+      b.kind === "product_sku_missing"
+        ? {
+            level: "bad" as const,
+            label: "Product frozen without a SKU",
+            detail: b.remediation,
+          }
+        : {
+            level: "bad" as const,
+            label: `No NetSuite item for "${b.sku}"`,
+            detail: `${b.displayName} — ${b.remediation} Nothing will be posted until it resolves.`,
+          },
+  );
+  if (identityReadiness?.status === "unknown") {
+    identityFlags.push({
+      level: "warn",
+      label: "Could not verify NetSuite items",
+      detail: `${identityReadiness.unknownReason ?? "The item lookup did not answer."} Send is still allowed — the push runs its own check and refuses without posting if an item is missing.`,
+    });
+  }
+
+  const soFlags: OrderReceiptFlag[] = [
+    ...realFlags,
+    ...identityFlags,
+    ...divergenceFlags,
+  ];
 
   // ── NetSuite customer panel — same source as the flags above ──
   const netsuiteCustomerForReceipt = effectivePreflight?.netsuiteCustomer
@@ -398,12 +430,21 @@ export function TabSalesOrder({
     oneTime.reduce((a, o) => a + o.amount, 0);
 
   // ── Send-blocking derivation ─────────────────────────────────
-  // Post-8c-4: markComplete is LIVE. The only remaining structural
-  // block is below-floor (admin override is v1.1+ per CA Q4). Every
-  // other blocker (unmatched customer, unresolved SKU, missing
-  // business segment) is surfaced through markComplete's own guards
-  // — the tab reveals them as flags OR the failed-tab error copy
-  // after a Send attempt. Fidelity manifest note #1 above.
+  // Post-8c-4: markComplete is LIVE. Below-floor is the structural
+  // block (admin override is v1.1+ per CA Q4).
+  //
+  // The two IDENTITY refusals — product_sku_missing and
+  // product_item_unresolved — are now predicted before the click rather
+  // than discovered by making it. They used to be "surfaced through
+  // markComplete's own guards … after a Send attempt", which meant this
+  // step could read READY TO SEND when the send could not succeed. Both
+  // were hit in sequence during #428 Part B, each found by pressing the
+  // one button labelled irreversible.
+  //
+  // markComplete's guards are unchanged and remain the authority. This is
+  // visibility: it stops the surface claiming a readiness it cannot have.
+  // Everything else (missing business segment, REG-4) still surfaces as
+  // failed-tab error copy after an attempt.
   const belowFloorDisabled =
     carriedTier?.blendedMarginStatus === "BELOW_FLOOR";
   const unmappedCustomerDisabled = Boolean(
@@ -431,8 +472,24 @@ export function TabSalesOrder({
       "Blocked — this project has no cached HubSpot company association.",
     );
   }
+
+  // Identity refusals, predicted. `unknown` (NetSuite unreachable) does NOT
+  // block: the send guard is still the authority, and a lookup outage must not
+  // read as a verdict about the catalog in either direction.
+  const identityBlocked = identityReadiness?.status === "blocked";
+  for (const b of identityReadiness?.blockers ?? []) {
+    disabledReasons.push(
+      b.kind === "product_sku_missing"
+        ? `Blocked — "${b.displayName}" was frozen without a SKU. ${b.remediation}`
+        : `Blocked — "${b.sku}" (${b.displayName}) does not resolve to a NetSuite item. ${b.remediation}`,
+    );
+  }
+
   const sendDisabled =
-    belowFloorDisabled || unmappedCustomerDisabled || noHubspotCompanyDisabled;
+    belowFloorDisabled ||
+    unmappedCustomerDisabled ||
+    noHubspotCompanyDisabled ||
+    identityBlocked;
   const disabledReason = disabledReasons.join(" ");
 
   // ── Send handler ─────────────────────────────────────────────

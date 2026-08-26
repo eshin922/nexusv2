@@ -17,6 +17,7 @@ import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
 import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
+import { loadIdentityReadiness } from "@/lib/netsuite/identity-readiness";
 import { db } from "@/db";
 import { auditLog, firmSettings } from "@/db/schema";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -239,6 +240,17 @@ export default async function CustomerViewPage({
         ? await loadSalesOrderPreflight(quote.id, project.id)
         : null;
 
+    // Whether the accepted tier's products can resolve to NetSuite items,
+    // asked BEFORE the irreversible Send rather than by pressing it. Same gate
+    // as the preflight above; unlike it, this one does reach NetSuite (one
+    // SuiteQL call per distinct SKU), which the preflight deliberately avoided
+    // and flagged as a follow-up. See loadIdentityReadiness for why the trade
+    // is right on this surface and wrong on an autosaving one.
+    const identityReadiness =
+      quote.status === "accepted"
+        ? await loadIdentityReadiness(quote.id)
+        : null;
+
     // The recovery workspace's supersession prediction. Reads the SAME
     // `quoteRollup` the surface renders from — a second costing read would be
     // a second opinion about the economics, which is the error this seam
@@ -389,6 +401,7 @@ export default async function CustomerViewPage({
             "Pending Fulfillment"
           }
           salesOrderPreflight={salesOrderPreflight}
+          identityReadiness={identityReadiness}
           soPushMirror={soPushMirror}
           showStateSwitcher={showStateSwitcher}
           allowSimulatedComplete={allowSimulatedComplete}
