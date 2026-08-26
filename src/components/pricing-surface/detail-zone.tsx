@@ -933,8 +933,23 @@ export function DetailGlobalAdjust({
                 20% to 30% is a change of +10 points, and the header has to say
                 which of the two it means.
               */}
-              <th>Tier</th><th>Current adjustment</th><th>Current price</th>
-              <th>Change (pts)</th><th>Proposed adjustment</th><th>Proposed price</th>
+              {/*
+                "turnkey / unit", not "price".
+
+                The figure is `totalRevenue / qty` — a real customer-facing
+                number, and the one the customer document prints beside the
+                turnkey total. It is NOT the Unit-price sell this surface leads
+                with, and on Tier 1 of a quote carrying a $140 one-time fee the
+                two read $15.46 and $15.32.
+
+                Both are correct. Calling this one "price" on the one surface
+                that deliberately separates them left an operator with two
+                figures that look like disagreeing answers to the same question.
+                The arithmetic is unchanged; only the column now says which
+                quantity it is.
+              */}
+              <th>Tier</th><th>Current adjustment</th><th>Current turnkey / unit</th>
+              <th>Change (pts)</th><th>Proposed adjustment</th><th>Proposed turnkey / unit</th>
             </tr></thead>
             <tbody>
               {preview.tiers.map((tier) => (
