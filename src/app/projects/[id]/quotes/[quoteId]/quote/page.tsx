@@ -18,6 +18,7 @@ import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
 import { loadIdentityReadiness } from "@/lib/netsuite/identity-readiness";
+import { loadDealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
 import { db } from "@/db";
 import { auditLog, firmSettings } from "@/db/schema";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -251,6 +252,16 @@ export default async function CustomerViewPage({
         ? await loadIdentityReadiness(quote.id)
         : null;
 
+    // Whether this quote's HubSpot deal has ALREADY produced a Sales Order.
+    // Read one step earlier than its sibling above — from `sent`, not from
+    // `accepted` — because the operator records acceptance by telling a
+    // customer yes, and the governed one-deal-one-order rule is knowable well
+    // before that. Run 1 W9 met it only at Send. See loadDealOrderReadiness.
+    const dealOrderReadiness =
+      quote.status === "sent" || quote.status === "accepted"
+        ? await loadDealOrderReadiness(quote.id)
+        : null;
+
     // The recovery workspace's supersession prediction. Reads the SAME
     // `quoteRollup` the surface renders from — a second costing read would be
     // a second opinion about the economics, which is the error this seam
@@ -402,6 +413,7 @@ export default async function CustomerViewPage({
           }
           salesOrderPreflight={salesOrderPreflight}
           identityReadiness={identityReadiness}
+        dealOrderReadiness={dealOrderReadiness}
           soPushMirror={soPushMirror}
           showStateSwitcher={showStateSwitcher}
           allowSimulatedComplete={allowSimulatedComplete}

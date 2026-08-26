@@ -52,6 +52,7 @@ import type { CustomerView } from "@/types/quote";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
 import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
+import type { DealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
 import { markComplete } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
 import { OrderReceipt } from "./order-receipt";
@@ -139,6 +140,7 @@ export type TabSalesOrderProps = {
    * un-reachable in that state). */
   salesOrderPreflight: PreflightResult | null;
   identityReadiness: IdentityReadiness | null;
+  dealOrderReadiness: DealOrderReadiness | null;
   /** Slice 12 Step 8c-4 — quote row mirror of the last SO push.
    * pushStatus 'succeeded' → record variant; 'failed' → failed
    * variant. */
@@ -168,6 +170,7 @@ export function TabSalesOrder({
   netsuiteStatusOnPush,
   salesOrderPreflight,
   identityReadiness,
+  dealOrderReadiness,
   soPushMirror,
   showStateSwitcher,
   onGo,
@@ -395,6 +398,28 @@ export function TabSalesOrder({
     });
   }
 
+  // The governed one-deal-one-order rule, predicted rather than met at Send.
+  // Named on the receipt beside the identity refusals because it fails the
+  // same way — the push refuses, nothing posts — and the operator is owed the
+  // same warning before the click rather than after it.
+  const dealBlocker = dealOrderReadiness?.blocker ?? null;
+  if (dealBlocker) {
+    identityFlags.push({
+      level: "bad",
+      label: dealBlocker.salesOrderTranid
+        ? `This deal already has ${dealBlocker.salesOrderTranid}`
+        : "This deal already has a Sales Order",
+      detail: dealBlocker.remediation,
+    });
+  }
+  if (dealOrderReadiness?.status === "unknown") {
+    identityFlags.push({
+      level: "warn",
+      label: "Could not verify the deal's Sales Orders",
+      detail: `${dealOrderReadiness.unknownReason ?? "The deal lookup did not answer."} Send is still allowed — NetSuite refuses a duplicate itself, without posting.`,
+    });
+  }
+
   const soFlags: OrderReceiptFlag[] = [
     ...realFlags,
     ...identityFlags,
@@ -485,11 +510,19 @@ export function TabSalesOrder({
     );
   }
 
+  // Same discipline as identity: a `blocked` verdict disables, `unknown` does
+  // not. A lookup outage must not read as a verdict in either direction.
+  const dealBlocked = dealOrderReadiness?.status === "blocked";
+  if (dealBlocker) {
+    disabledReasons.push(`Blocked — ${dealBlocker.remediation}`);
+  }
+
   const sendDisabled =
     belowFloorDisabled ||
     unmappedCustomerDisabled ||
     noHubspotCompanyDisabled ||
-    identityBlocked;
+    identityBlocked ||
+    dealBlocked;
   const disabledReason = disabledReasons.join(" ");
 
   // ── Send handler ─────────────────────────────────────────────

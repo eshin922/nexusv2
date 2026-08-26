@@ -31,6 +31,7 @@
 // Step 8a scope: DB write path + HubSpot push for stage AND amount.
 // Zero NetSuite. accepted_tier_id stays NULL until Step 8c.
 
+import type { DealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CustomerView } from "@/types/quote";
@@ -107,6 +108,7 @@ export function TabMarkAccepted({
   prefillSourceAt,
   hubspotAcceptStageLabel,
   hubspotAcceptSyncSuppressed = false,
+  dealOrderReadiness,
   onGo,
 }: {
   view: CustomerView;
@@ -145,6 +147,9 @@ export function TabMarkAccepted({
   hubspotAcceptStageLabel: string;
   /** Certification mode: Accept writes NOTHING to HubSpot. */
   hubspotAcceptSyncSuppressed?: boolean;
+  /** Advisory. Acceptance stays permitted; the Sales Order downstream is what
+   * the one-deal-one-order rule forbids. See loadDealOrderReadiness. */
+  dealOrderReadiness: DealOrderReadiness | null;
   onGo: (id: SubTabId) => void;
 }) {
   const router = useRouter();
@@ -409,6 +414,31 @@ export function TabMarkAccepted({
             you enter them together. This closes the deal in HubSpot. It does not
             commit anything operationally.
           </p>
+
+          {/* The deal has already produced a Sales Order, so the scenario in
+              front of the operator can be accepted but never ordered. Said
+              HERE because acceptance is where a customer is told yes, and
+              that is the last moment the information can still change what
+              somebody does. WARN, not error: nothing on this tab is refused —
+              the refusal is one tab later, and it is governed rather than a
+              fault. Advisory in both directions, so `unknown` says nothing. */}
+          {dealOrderReadiness?.blocker && (
+            <div className="r8-push warn" style={{ marginBottom: 14 }}>
+              <span className="mark">!</span>
+              <div className="txt">
+                <div className="t">
+                  {dealOrderReadiness.blocker.salesOrderTranid
+                    ? `This deal already has ${dealOrderReadiness.blocker.salesOrderTranid}`
+                    : "This deal already has a Sales Order"}
+                </div>
+                <div className="s">{dealOrderReadiness.blocker.remediation}</div>
+                <div className="s" style={{ marginTop: 4, opacity: 0.8 }}>
+                  You can still record the acceptance. The Sales Order step is
+                  what will refuse.
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* R9 §6 LOAD-BEARING item 4 — HubSpot failure surfaced
               OUTSIDE any modal, on this sub-tab, stating that state
