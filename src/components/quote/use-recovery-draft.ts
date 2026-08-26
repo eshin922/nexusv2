@@ -131,13 +131,40 @@ export function useRecoveryDraft(input: {
       const next = base.filter((e) => e.chargeKey !== chargeKey);
       if (mode !== null) next.push({ chargeKey, mode });
 
+      // RECORDED BEFORE THE AWAIT, so a second click composes onto this one.
+      //
+      // It used to be set after the evaluation returned, and a click arriving
+      // while the first was still in flight read `electedNow()` instead — the
+      // rows, which still showed the pre-election state. The second proposal
+      // then silently DROPPED the first.
+      //
+      // Measured on production: electing Artwork & plate and then Other service
+      // 250ms apart left `artwork_plate` unchanged in the database. The
+      // evaluation takes seconds, so the window is not a race an operator has
+      // to be quick to hit — it is most of the interaction.
+      const previous = proposed.current;
+      proposed.current = next;
+      setState({ status: "saving" });
+
       const res = await evaluateChargeRecovery({ quoteId, elections: next });
-      if (!res.ok) return res.error.message;
+      if (!res.ok) {
+        // Refused: this election never happened. Roll back to what was
+        // proposed before it, so a later flush does not persist a set the
+        // engine rejected. A newer proposal has already replaced it — leave
+        // that alone.
+        if (proposed.current === next) {
+          proposed.current = previous;
+          setState(previous === null ? { status: "clean" } : { status: "saving" });
+        }
+        return res.error.message;
+      }
+
+      // A newer proposal landed while this evaluation was in flight; its answer
+      // is the current one and this stale projection must not overwrite it.
+      if (proposed.current !== next) return null;
 
       // The surface catches up NOW, before anything is written.
       onAuthoritative(res.data);
-      proposed.current = next;
-      setState({ status: "saving" });
 
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
