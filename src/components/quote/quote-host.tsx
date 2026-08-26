@@ -23,6 +23,7 @@ import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { BoundaryGuardNotice } from "./boundary-guard-notice";
 import { CustomerViewLive } from "./customer-view-live";
 import type { AuthoritativeProjection } from "./authoritative-projection";
+import { useRecoveryDraft } from "./use-recovery-draft";
 import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
 
 // Slice 11 Step 6.4 — QuoteHost is now an iframe-driven preview
@@ -192,6 +193,18 @@ export function QuoteHost({
   // Card 1 and the document can never be a render apart from each other.
   const shownView = authoritative?.view ?? view;
   const shownRecoveryRows = authoritative?.recoveryRows ?? recoveryRows;
+
+  // ── THE DRAFT · evaluate first, persist after ──────────────────────────
+  //
+  // Owned HERE rather than inside Card 1 because two other things depend on
+  // it: the customer document renders from the same projection, and both
+  // Request approval and Finalize must refuse while an election is not
+  // durable. A draft owned by the control would leave the gates guessing.
+  const draft = useRecoveryDraft({
+    quoteId,
+    rows: shownRecoveryRows,
+    onAuthoritative: setAuthoritative,
+  });
 
 
   // ── THE PREVIEW'S VERSION KEY ───────────────────────────────────────────
@@ -380,7 +393,9 @@ export function QuoteHost({
             quoteId={quoteId}
             quoteStatus={quoteStatus}
             recoveryRows={shownRecoveryRows}
-            onAuthoritative={setAuthoritative}
+            onPropose={draft.propose}
+            draftState={draft.state}
+            flushElections={draft.flush}
             recoveryInstructions={recoveryInstructions}
             rollups={quoteRollup}
             governed={governed}

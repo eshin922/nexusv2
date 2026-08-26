@@ -96,9 +96,9 @@ test("the election writer has exactly ONE caller, and it is the workspace", asyn
 
   const callers: string[] = [];
   for (const f of files) {
-    if (f === "src/app/actions/commercial-recovery.ts") continue;
+    if (f === "src/app/actions/commercial-recovery-persist.ts") continue;
     const src = codeOnly(await read(f));
-    if (/setChargeRecovery/.test(src)) callers.push(f);
+    if (/persistChargeRecoverySet/.test(src)) callers.push(f);
   }
 
   // Card 1, and only Card 1.
@@ -112,10 +112,16 @@ test("the election writer has exactly ONE caller, and it is the workspace", asyn
   //
   // See docs/design-authority/customer-view/BUNDLE.md D1 and D3: the election
   // moves economics, is governed by Pricing, and lives on this surface.
+  // The caller moved from the card to the DRAFT, which is the whole shape of
+  // evaluate-first: the card asks for an evaluation, the draft persists behind
+  // it, and both gates flush through the same owner. The number is still not
+  // the property — the property is that exactly ONE module may write an
+  // election, because a `"use server"` export becomes a POST-able endpoint by
+  // being imported.
   assert.deepEqual(
     callers,
-    ["src/components/quote/card-commercial-recovery.tsx"],
-    "the election writer acquired a caller outside Card 1",
+    ["src/components/quote/use-recovery-draft.ts"],
+    "the election writer acquired a caller outside the recovery draft",
   );
 });
 

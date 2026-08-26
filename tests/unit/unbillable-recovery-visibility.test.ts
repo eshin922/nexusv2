@@ -61,7 +61,10 @@ test("the resolver declares it before the return that reads it", async () => {
 
 test("Finalize is disabled while any unbillable placement exists", async () => {
   const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));
-  assert.match(rail, /disabled=\{!isDraft \|\| hasUnbillable \|\| blocked\}/);
+  assert.match(
+    rail,
+    /disabled=\{!isDraft \|\| draftState\.status === "unsaved" \|\| hasUnbillable \|\| blocked\}/,
+  );
   assert.match(rail, /Resolve recovery placement/);
 });
 

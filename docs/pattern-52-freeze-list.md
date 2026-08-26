@@ -140,7 +140,7 @@ revision can never inherit a later revision's election.
 
 | Table | Frozen at | Writer | Guard |
 |---|---|---|---|
-| `quote_charge_recovery` | draft → sent | `setChargeRecovery` (`src/app/actions/commercial-recovery.ts`) | `quoteByIdDraft` **and** `assertNotFrozen` |
+| `quote_charge_recovery` | draft → sent | `persistChargeRecoverySet` (`src/app/actions/commercial-recovery.ts`) | `quoteByIdDraft` **and** `assertNotFrozen` |
 
 The writer calls **both** guards. `quoteByIdDraft` is the stronger
 condition and is the one that actually governs — an election is a

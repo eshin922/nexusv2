@@ -170,160 +170,19 @@ async function allocationStatesInQuote(quoteId: string): Promise<boolean[]> {
  * legacy resolution.
  */
 /**
- * What the election returns: the persisted fact, and the AUTHORITATIVE state
- * that fact produces.
+ * `setChargeRecovery` was REMOVED here.
  *
- * ── WHY THE ACTION CARRIES THE PROJECTION ────────────────────────────────
+ * It persisted one election and then re-resolved, which made the operator wait
+ * on a database round trip to learn what their own click had done — measured at
+ * 1994-4041ms on production, during which the control looked like it had not
+ * worked.
  *
- * The election wrote in under a second and the operator then waited two to four
- * more, watching a control that had not moved, because the answer only arrived
- * with the next full-page render. Measured on production repeatedly:
- * 1994-4041ms from click to any visible change, with the segment and the
- * document both landing in one frame at the very end.
- *
- * A write that has already happened, whose consequences are already computed,
- * should not be invisible until an unrelated render delivers it.
- *
- * ── NOT AN APPROXIMATION ─────────────────────────────────────────────────
- *
- * `view` and `recoveryRows` here are produced by `resolveCustomerView` — THE
- * resolver, the same function the page render calls, after the write commits.
- * Not a lightweight parallel computation of "what probably changed": the same
- * governed facts, from the same code path, one render earlier.
- *
- * That distinction is the whole reason this is safe. A second, cheaper
- * projection would be a second authority over customer economics, and the
- * first time it disagreed the operator would be looking at a number the
- * document does not have.
- *
- * The full RSC revalidation still runs afterwards for consistency. It is no
- * longer what the operator waits on, and when it lands it must produce the
- * same answer — which it does, because it is the same function over the same
- * committed row.
+ * The order is now inverted. `evaluateChargeRecovery` runs the governed engine
+ * over a PROPOSED election set and writes nothing; `persistChargeRecoverySet`
+ * stores the exact set behind that and reads it back to confirm. Deleted rather
+ * than left in place: a persist-first writer sitting beside an evaluate-first
+ * one is an invitation to wire the wrong one.
  */
-export type SetChargeRecoveryResult = {
-  quoteId: string;
-  chargeKey: RecoveryChargeKey;
-  mode: RecoveryMode | null;
-  /**
-   * The authoritative projection AFTER the write. Null only when the
-   * post-write resolve fails — in which case the surface keeps what it has and
-   * the revalidation still corrects it, so a failed re-read degrades to the
-   * old behaviour rather than to a wrong document.
-   */
-  projection: {
-    view: CustomerView;
-    recoveryRows: RecoveryChargeRow[];
-  } | null;
-};
-
-export async function setChargeRecovery(
-  formData: FormData,
-): Promise<ActionResult<SetChargeRecoveryResult>> {
-  return runAction(async () => {
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
-    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
-
-    const chargeKey = parseChargeKey(formData.get("chargeKey"));
-    const mode = parseMode(formData.get("mode"));
-
-    const user = await ensureUser();
-    const quote = await quoteByIdDraft(quoteId);
-    // Redundant by construction — draft is a subset of not-frozen — and kept
-    // so the Pattern 52 protocol's grep finds this writer. See the header.
-    assertNotFrozen(quote);
-
-    const [prior] = await db
-      .select()
-      .from(quoteChargeRecovery)
-      .where(
-        and(
-          eq(quoteChargeRecovery.quoteId, quoteId),
-          eq(quoteChargeRecovery.chargeKey, chargeKey),
-        ),
-      );
-    const from = prior?.mode ?? null;
-
-    if (mode !== null) {
-      // Static policy AND this quote's allocation state, asked through the one
-      // function resolution asks. A refusal reaching an operator carries the
-      // governed reason verbatim rather than a generic rejection.
-      const directService = await directServiceChargeKeys(quoteId);
-      for (const allocate of await allocationStatesInQuote(quoteId)) {
-        const reason = refusalFor(chargeKey, mode, {
-          perAssemblyAllocate: allocate,
-          hasDirectServiceContribution: directService.has(chargeKey),
-        });
-        if (reason) throw new ActionGuardError(ERR.VALIDATION, reason);
-      }
-    }
-
-    // Nothing changed, so nothing to project: the surface already shows this
-    // answer, and re-resolving to hand back what is already on screen would
-    // spend a round trip to say so.
-    if (from === mode) return { quoteId, chargeKey, mode, projection: null };
-
-    if (mode === null) {
-      // Scoped to THIS charge. A quote-wide delete would clear every other
-      // charge's election as a side effect of clearing one.
-      await db
-        .delete(quoteChargeRecovery)
-        .where(
-          and(
-            eq(quoteChargeRecovery.quoteId, quoteId),
-            eq(quoteChargeRecovery.chargeKey, chargeKey),
-          ),
-        );
-    } else {
-      await db
-        .insert(quoteChargeRecovery)
-        .values({ quoteId, chargeKey, mode, electedByUserId: user.id })
-        .onConflictDoUpdate({
-          target: [quoteChargeRecovery.quoteId, quoteChargeRecovery.chargeKey],
-          set: { mode, electedByUserId: user.id, electedAt: new Date() },
-        });
-    }
-
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote",
-      entityId: quoteId,
-      // Named for the TRANSITION, not the mechanism: what changed is how a
-      // charge is recovered from the customer, and that stays true if the
-      // storage ever moves.
-      action: mode === null ? "charge_recovery_cleared" : "charge_recovery_elected",
-      diffJson: {
-        charge_key: chargeKey,
-        mode: { from, to: mode },
-      },
-    });
-
-    // The authoritative state this election produces, from THE resolver.
-    //
-    // Read AFTER the write commits, so it reflects the row that now exists
-    // rather than the one that did. Costs one resolve — the same resolve the
-    // revalidation below is about to perform anyway, moved to where it can
-    // reach the operator immediately instead of a render later.
-    //
-    // A failure here is not a failure of the election: the write is committed
-    // and the revalidation will still deliver the result. So it degrades to
-    // null and the surface keeps what it has, rather than throwing away a
-    // successful write because a re-read did not come back.
-    let projection: SetChargeRecoveryResult["projection"] = null;
-    try {
-      const resolved = await resolveCustomerView({ quoteId });
-      if (resolved.ok) {
-        projection = { view: resolved.view, recoveryRows: resolved.recoveryRows };
-      }
-    } catch {
-      projection = null;
-    }
-
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return { quoteId, chargeKey, mode, projection };
-  });
-}
 
 /**
  * What would this contract do to the customer's total?
