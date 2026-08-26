@@ -97,18 +97,6 @@ export const SURFACE_META: Record<SurfaceKey, SurfaceMeta> = {
     secondaryActions: ["↓ Download PDF", "Edit notes"],
     backAction: null,
   },
-  mark_accepted: {
-    railVisible: true,
-    // Terminal surface — banner reads "Terminal surface — return
-    // via Home or rail." with no CTA in the muted state. Default
-    // pre-acceptance state still gets a "Confirm acceptance" CTA
-    // — encoded as nextMove since the banner adapts visually
-    // based on `quote.status === 'accepted'`.
-    nextMove: { label: "Confirm acceptance →" },
-    primaryAction: "Confirm acceptance",
-    secondaryActions: ["Request admin override"],
-    backAction: { destination: "cost_build", label: "← Costs" },
-  },
 };
 
 /**

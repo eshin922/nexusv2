@@ -24,7 +24,6 @@ export function revalidateQuoteTree(projectId: string, quoteId: string) {
   revalidatePath(`${base}/pricing`); // Slice 8
   revalidatePath(`${base}/costs`); // Slice RI.4
   revalidatePath(`${base}/quote`); // Slice RI.6 (snapshot reads)
-  revalidatePath(`${base}/mark-accepted`); // Slice RI.6 (sub-state derivation)
   console.log(
     `[revalidate-timing] revalidateQuoteTree 8 paths ${Date.now() - revalidateStart} ms quote=${quoteId}`,
   );

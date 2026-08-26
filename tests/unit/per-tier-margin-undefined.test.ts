@@ -242,6 +242,12 @@ test("acceptance and completion stay blocked for an unpriced tier", () => {
 // ------------------------------------------------------- the display registers
 
 test("UNAVAILABLE never takes the failing register", () => {
+  // The standalone /mark-accepted surface was one of these and has been
+  // REMOVED, along with its component family — an unlinked second Acceptance
+  // page carrying its own pricing and margin logic. Its entry is gone from this
+  // list because the file is, not because the guarantee softened: the live
+  // Acceptance path is the Quote umbrella sub-tab, checked in the sibling test.
+  //
   // Four surfaces derived a colour or class with an else-branch that landed on
   // `bad`. A new member added to a union flows straight into every one of
   // those, and the result is legible, plausible, and says the opposite of the
@@ -259,11 +265,6 @@ test("UNAVAILABLE never takes the failing register", () => {
       "src/components/quote-umbrella/tab-sales-order.tsx",
       /blendedMarginStatus === "UNAVAILABLE"\s*\n?\s*\?\s*"var\(--ink-3\)"/,
       "the sales-order tier list must not colour UNAVAILABLE as bad",
-    ],
-    [
-      "src/app/projects/[id]/quotes/[quoteId]/mark-accepted/page.tsx",
-      /blendedMarginStatus === "UNAVAILABLE"\s*\n?\s*\?\s*"none"/,
-      "tier cards must not class UNAVAILABLE as bad",
     ],
     [
       "src/components/pricing/margin-verdict-pill.tsx",
@@ -513,11 +514,6 @@ test("no surface labels a loss as BELOW FLOOR or as merely unassessed", () => {
       "src/components/pricing/verdict-band.tsx",
       /cost with no revenue — every dollar is a loss/,
       "the Pricing verdict band must state the loss, not the floor",
-    ],
-    [
-      "src/components/mark-accepted/margin-verdict.tsx",
-      /COST, NO REVENUE/,
-      "Mark-Accepted must distinguish the loss from UNAVAILABLE",
     ],
     [
       "src/components/costs/cost-stack-header.tsx",
