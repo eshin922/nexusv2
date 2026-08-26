@@ -95,49 +95,6 @@ export function selectPrimaryCompany(
   return null;
 }
 
-export type CompanyAddressParts = {
-  line1: string | null;
-  line2: string | null;
-  city: string | null;
-  state: string | null;
-  postalCode: string | null;
-  country: string | null;
-};
-
-/**
- * Compose the address for display. Returns null when there is nothing to show,
- * so the block collapses rather than rendering punctuation around emptiness.
- *
- * Source values are passed through verbatim — including ones that look wrong.
- * Correcting a customer's address on the way to their own quotation would put
- * a value in front of them that exists nowhere in the CRM, and the next person
- * to compare the two would have no way to tell which was authored.
- */
-export function composeAddress(parts: CompanyAddressParts): string | null {
-  const clean = (v: string | null) => {
-    const t = (v ?? "").trim();
-    return t === "" ? null : t;
-  };
-  const line1 = clean(parts.line1);
-  const line2 = clean(parts.line2);
-  const city = clean(parts.city);
-  const state = clean(parts.state);
-  const postal = clean(parts.postalCode);
-  const country = clean(parts.country);
-
-  // "Irvine, CA 92618" — comma after the city only, which is the convention a
-  // US reader expects; a bare state or postcode still renders sensibly.
-  const locality = [
-    city,
-    [state, postal].filter(Boolean).join(" ") || null,
-  ].filter(Boolean).join(", ");
-
-  const lines = [line1, line2, locality || null, country].filter(
-    (l): l is string => Boolean(l),
-  );
-  return lines.length > 0 ? lines.join("\n") : null;
-}
-
 /** "Jennifer Sevilla" from its parts, or null when there is no name at all. */
 export function composeContactName(
   firstName: string | null,

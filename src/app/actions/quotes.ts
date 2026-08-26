@@ -79,7 +79,7 @@ import {
 } from "@/lib/hubspot";
 import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
-import { composeAddress } from "@/lib/hubspot-customer-identity";
+import { composeAddress } from "@/lib/customer-address-display";
 import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
 import {
   attachGroupedMembership,

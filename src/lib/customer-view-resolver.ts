@@ -24,7 +24,7 @@
 import "server-only";
 
 import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
-import { composeAddress } from "@/lib/hubspot-customer-identity";
+import { composeAddress } from "@/lib/customer-address-display";
 import { applyTierVisibility } from "@/lib/customer-tier-visibility";
 import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
 import { findUnbillablePlacements } from "@/lib/commercial-recovery/unbillable-placements";
