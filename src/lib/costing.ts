@@ -777,6 +777,28 @@ export type SkuPerTierRollup = {
   sellAfterAdjustmentPerUnit: number;
   liftDeltaPerUnit: number;
   sellAfterLiftPerUnit: number;
+  /**
+   * Governed one-time recovery amortized into this unit's price.
+   *
+   * A RUNG, because it is a contribution to the quoted price and every lever
+   * that changes a quoted price owes the cost stack a row. It sits ABOVE the
+   * lift and below any override: no lever multiplies it (recovery placement is
+   * value-invariant — Edward, 2026-08-26), so it joins as an addend rather
+   * than as a rate.
+   *
+   * Zero when the charge is billed separately, which is the same amount in a
+   * different place — that is what the invariance means.
+   */
+  amortizedRecoveryPerUnit: number;
+  /**
+   * COST of the one-time charges amortized into this unit's price.
+   *
+   * The cost twin of `amortizedRecoveryPerUnit`, and it exists for the same
+   * dimensional reason: a fixed charge's cost is fixed too. Carried explicitly
+   * so a parent rollup can hold it out of the component multiplication rather
+   * than having to infer which part of `contributionCostPerUnit` is fixed.
+   */
+  amortizedCostPerUnit: number;
   overrideDeltaPerUnit: number;
   /**
    * `(sell - cost) / sell` for this cell, or NULL when there is no sell price.
@@ -2197,15 +2219,69 @@ function computeLeafPerTier(args: {
     // number moves.
     // LEGACY placements only.
     //
-    // A legacy-allocated fee keeps its historical path exactly: into
-    // production cost, marked up with everything else, and reached by the
-    // quote's price adjustment. That is what all 89 existing quotes were
-    // priced with and it is preserved unchanged.
+    // ── RECOVERY PLACEMENT IS VALUE-INVARIANT ──────────────────────────
     //
-    // An ELECTED amortization does NOT come through here, because this feeds
-    // the marked-up sell build-up and the governed recovery must not be
-    // repriced merely because it was embedded. It joins cost and sell further
-    // down, each once.
+    // Edward's disposition, 2026-08-26, settling the question this engine had
+    // been deferring to him explicitly (see `THE FINDING` in
+    // commercial-recovery-election-effect.test.ts):
+    //
+    //   Electing a governed one-time recovery charge between included and
+    //   separate may change WHERE the customer sees and pays it, but must not
+    //   change total customer consideration.
+    //
+    // A LEGACY-allocated fee used to enter here — into production cost, marked
+    // up with everything else, and then carried by the quote adjustment and any
+    // surgical lift. An ELECTED one deliberately did not, because "the governed
+    // recovery must not be repriced merely because it was embedded".
+    //
+    // That was one sentence of reasoning applied to one of the two provenances.
+    // The consequence, measured on a live quote by soak run 2: an operator's
+    // FIRST election moved the customer's all-in total by $28.05, because it
+    // moved the charge off a ladder the other placement never rode.
+    //
+    //     in unit price   turnkey 16,734.03
+    //     separate line   turnkey 16,705.98
+    //     1,708.05 / 1,680.00 = 1.0167, exactly that cell's lift
+    //
+    // Both provenances now take the ELECTED route: the fee's cost joins the
+    // contribution basis directly and its governed recovery is added after the
+    // ladder, each exactly once. `unitPriceCost` and `unitPriceRecovery` are
+    // the totals, so no provenance branch survives here — which is the point.
+    // One concept, one path.
+    //
+    // TWO CORRECTIONS FALL OUT OF THIS, and both are in the same direction:
+    //
+    //   * The production SECTION drops the fee from cost AND its recovery from
+    //     sell together, because the section's sell derives from its cost. So
+    //     the row keeps displaying the governed Production rate rather than a
+    //     blended one — attribution, not just reconciliation.
+    //   * `factoryCostPerUnit` is the duty and tariff BASIS, and a one-time
+    //     service fee does not attract duty. The elected path already said so
+    //     in as many words; the legacy path had been inventing a customs charge
+    //     on a setup fee. It no longer does.
+    //
+    // A legacy-allocated fee keeps its path through production cost, and its
+    // DECOMPOSITION is deliberately unchanged: the fee's cost is in the
+    // section, the section's markup turns it into the governed recovery, and
+    // the cost stack reads exactly what it always read.
+    //
+    // Value-invariance is enforced one level up, on the LEVER BASIS, not here.
+    // See "the recovery is held out of the levers" at the adjustment.
+    //
+    // ── WHY NOT DIVERT THE CHARGE OUT OF THIS SECTION ──────────────────
+    //
+    // That was tried, and it re-homed the fee: cost out of production, recovery
+    // added after the ladder, both provenances on one path. Cleaner to state
+    // and worse to live with, because a charge whose recovery cannot be
+    // resolved (BV-013) has no governed amount to add back — so it had to stay
+    // here, and WHERE A FEE SITS then depended on whether its recovery
+    // resolved. A reader could no longer say what production cost contained
+    // without knowing that. `6b · BV-013 · a MISSING Production default
+    // resolves to no rate at all` is what surfaced it, by comparing two runs
+    // that had silently stopped being comparable.
+    //
+    // Holding the recovery out of the levers achieves the same invariant and
+    // touches no decomposition at all.
     allocatedServiceFeesPerUnit =
       denom > 0 ? constructed.unitPriceCostLegacy / denom : 0;
 
@@ -2294,6 +2370,13 @@ function computeLeafPerTier(args: {
 
   // ---------- production + bulk raw nodes (Gate 1B increment 2) ----------
   let productionSectionNode: CostingNode | undefined;
+  // Hoisted so the amortized-recovery node can own it. The one-time fee
+  // breakdown belongs under whichever node actually carries the money, and
+  // since value-invariance that is the amortization rather than production
+  // cost. The graph enforces this rather than trusting it: an `allocation`
+  // node with no operands is a traversal violation, and that is what caught
+  // the first version of this repair.
+  let oneTimeNode: CostingNode | undefined;
   let rawSectionNode: CostingNode | undefined;
   {
     const prodBase = nodeKey(sku.id, tier.id, "prod");
@@ -2328,7 +2411,7 @@ function computeLeafPerTier(args: {
       ],
     };
 
-    const oneTimeNode: CostingNode = {
+    oneTimeNode = {
       key: nodeKey(prodBase, "services", "total"),
       kind: "sum",
       label: "One-time services",
@@ -2357,8 +2440,8 @@ function computeLeafPerTier(args: {
       value: allocatedServiceFeesPerUnit,
       unit: "usd",
       divisor: tierQty,
-      op: money(oneTimeServiceFeeTotal) + " one-time / " + tierQty + " units",
-      operands: [oneTimeNode],
+      op: "$" + oneTimeServiceFeeTotal + " one-time / " + tierQty + " units",
+      operands: [oneTimeNode!],
     };
 
     // THE SHAPE CHANGES, not only the numbers. With allocation off the
@@ -2871,14 +2954,106 @@ function computeLeafPerTier(args: {
   //
   // The per-cell margin above is unchanged for the same reason — the charge is
   // not part of what a unit sells for.
-  // ── AN ELECTED AMORTIZATION, PER UNIT ──────────────────────────────────
+  // ── AN AMORTIZATION, PER UNIT OF THE LINE THAT CARRIES IT ──────────────
   //
   // The basis is the QUOTED tier quantity, never actual output: a sent quote's
   // pricing cannot move with what production later yields.
+  //
+  // TIMES `qtyPerParent`, and that factor is the whole dimensional correction.
+  //
+  // A cell's price is per unit of THAT cell's line, and the customer document
+  // bills that line at `tierQty x qtyPerParent`
+  // (commercial-projection.ts:315). Dividing a fixed charge by the tier
+  // quantity alone therefore spread it over fewer units than it was sold at,
+  // and a component appearing three times per finished good billed the charge
+  // three times — `1,680` recovered as `5,040`.
+  //
+  // MEASURED, not reasoned: recovery-dimension-qty-per-parent.test.ts asserts
+  // the contribution against a fee-free control, and its component control
+  // asserts that ordinary per-component cost still scales. The same test on the
+  // pre-repair release returns the same 5,040, so this is a latent defect of
+  // the shipped engine rather than one this repair introduced. It has never
+  // been reachable: no `assembly_leaves` row in the estate carries a quantity
+  // other than 1 — the coincidence that let it survive (Pattern 56).
+  //
+  // With the divisor right the recovery is a genuine per-component rate, so it
+  // scales like every other rate and needs no exception in the parent fold. The
+  // fold was tried first and was the wrong home; see the note there.
+  const lineUnitsPerTierUnit = Number(sku.qtyPerParent ?? 1) || 1;
+  const amortizationDivisor = tierQty * lineUnitsPerTierUnit;
+  /**
+   * One-time fees -> their governed recovery, as a rung the graph can check.
+   *
+   * The rate is derived from the construction's own two totals rather than
+   * re-resolved from `markupDefaults`: the construction already applied the
+   * governed rate per charge, and a second resolution here would be a second
+   * authority that agrees until one of them is edited. Where the cost is zero
+   * there is no rate to state and the node reports zero, which is what a
+   * fee-less quote should say.
+   */
+  const governedRecoveryNode = (): CostingNode => {
+    const cost = constructed.unitPriceCost;
+    const recovery = constructed.unitPriceRecovery ?? 0;
+    const rate = cost > 0 ? recovery / cost - 1 : 0;
+    return {
+      key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery", "governed"),
+      kind: "markup",
+      label: "Governed recovery",
+      value: recovery,
+      unit: "usd",
+      op: "$" + cost + " one-time fees x (1 + " + rate + " governed rate)",
+      operands: [
+        {
+          key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery", "fees"),
+          kind: "origin",
+          label: "One-time fees recovered here",
+          value: cost,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        },
+        {
+          key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery", "rate"),
+          kind: "origin",
+          label: "Governed recovery rate",
+          value: rate,
+          unit: "pct",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        },
+      ],
+    };
+  };
+
+  // BOTH provenances, not just the elected one. A legacy charge no longer
+  // enters through production cost, so this is the single place a unit-price
+  // charge's cost reaches the total — for every charge, however it was placed.
+  // ELECTED only, as before. A legacy charge's cost is inside the production
+  // section; adding it again here would count it twice (Pattern 59), and the
+  // double count would be invisible because each side looks correct alone.
   const electedAmortizedCostPerUnit =
-    tierQty > 0 ? constructed.unitPriceCostElected / tierQty : 0;
+    amortizationDivisor > 0 ? constructed.unitPriceCostElected / amortizationDivisor : 0;
   const electedAmortizedRecoveryPerUnit =
-    tierQty > 0 ? (constructed.unitPriceRecoveryElected ?? 0) / tierQty : 0;
+    amortizationDivisor > 0
+      ? (constructed.unitPriceRecoveryElected ?? 0) / amortizationDivisor
+      : 0;
+
+  // ── THE RECOVERY IS HELD OUT OF THE LEVERS ─────────────────────────────
+  //
+  // The legacy recovery is already inside `sell-before`, via the production
+  // section's markup on the fee. Value-invariance says no price lever may
+  // multiply it, so it is subtracted from the LEVER BASIS and re-added at the
+  // same value once the levers have acted.
+  //
+  // Only the LEGACY part. The elected part was never in the basis — it joins
+  // after the ladder — and subtracting it would remove an amount that is not
+  // there.
+  //
+  // NOT a decomposition change: the section still contains the fee, the cost
+  // stack still reads what it always read, and the two re-added operands are
+  // both positive. What changes is one thing only — what the levers multiply.
+  const leverExemptRecoveryPerUnit =
+    amortizationDivisor > 0
+      ? (constructed.unitPriceRecoveryLegacy ?? 0) / amortizationDivisor
+      : 0;
 
   // COST enters here and NOT in `factoryCostPerUnit`.
   //
@@ -2912,6 +3087,45 @@ function computeLeafPerTier(args: {
   };
   const sellBeforeAdjustment = sellBeforeNode.value;
 
+  // ── WHAT THE LEVERS ACT ON ─────────────────────────────────────────────
+  //
+  // The product, and not the governed recovery sitting inside it.
+  //
+  // A one-time charge recovers a governed amount that placement does not
+  // change (Edward, 2026-08-26). A charge inside the unit price used to ride
+  // the adjustment and the lift because it had entered as cost and been marked
+  // up with everything else, so moving it to its own line dropped the levers'
+  // share of it and moved the customer's all-in total — $28.05 on the quote
+  // soak run 2 walked.
+  //
+  // The basis is split rather than the decomposition changed: the production
+  // section still contains the fee, every cost row reads what it always read,
+  // and both operands re-joining below are positive.
+  const leverBasisNode: CostingNode =
+    leverExemptRecoveryPerUnit === 0
+      ? sellBeforeNode
+      : {
+          key: nodeKey(sku.id, tier.id, "sell-before", "liftable"),
+          kind: "sum",
+          label: "Priceable sell before adjustment",
+          value: sellBeforeAdjustment - leverExemptRecoveryPerUnit,
+          unit: "usd",
+          op: "sell before adjustment - governed one-time recovery",
+          operands: [
+            sellBeforeNode,
+            {
+              key: nodeKey(sku.id, tier.id, "sell-before", "recovery-exempt"),
+              kind: "origin",
+              label: "Governed one-time recovery, not priceable",
+              value: -leverExemptRecoveryPerUnit,
+              unit: "usd",
+              origin: { grade: "thin", actor: null, when: null, doc: null },
+              note: "A one-time charge recovers a governed amount. Price adjustments and lifts do not reach it, so it is held out here and re-added at full value once they have acted.",
+              noteLevel: "info",
+            },
+          ],
+        };
+
   // ── OD-023's freight/product split in the sell ladder is WITHDRAWN ───────
   //
   // It held freight out of the two per-cell levers so that moving a shipment's
@@ -2944,11 +3158,11 @@ function computeLeafPerTier(args: {
     key: nodeKey(sku.id, tier.id, "sell"),
     kind: "adjustment",
     label: "Computed sell",
-    value: sellBeforeNode.value * (1 + effectiveAdj),
+    value: leverBasisNode.value * (1 + effectiveAdj),
     unit: "usd",
-    op: "$" + sellBeforeNode.value + " x (1 + " + effectiveAdj + " adjustment)",
+    op: "$" + leverBasisNode.value + " x (1 + " + effectiveAdj + " adjustment)",
     operands: [
-      sellBeforeNode,
+      leverBasisNode,
       adjustmentCandidates
         ? {
             key: nodeKey(sku.id, tier.id, "adjustment"),
@@ -3111,14 +3325,19 @@ function computeLeafPerTier(args: {
   //
   // Legacy placements never reach here. Their fee is already inside
   // `adjustmentNode` via production cost, priced exactly as it always was.
+  // Both re-join here: the elected amortization, which was never in the basis,
+  // and the governed recovery held out of the levers above. One value each,
+  // added once, at full governed amount.
+  const afterLadderRecoveryPerUnit =
+    electedAmortizedRecoveryPerUnit + leverExemptRecoveryPerUnit;
   const amortizedChain: CostingNode =
-    electedAmortizedRecoveryPerUnit === 0
+    afterLadderRecoveryPerUnit === 0
       ? computedChain
       : {
           key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery"),
           kind: "sum",
           label: "Sell including amortized charge recovery",
-          value: computedChain.value + electedAmortizedRecoveryPerUnit,
+          value: computedChain.value + afterLadderRecoveryPerUnit,
           unit: "usd",
           op: "adjusted sell + amortized charge recovery per unit",
           operands: [
@@ -3127,16 +3346,38 @@ function computeLeafPerTier(args: {
               key: nodeKey(sku.id, tier.id, "sell", "amortized-recovery", "charge"),
               kind: "allocation",
               label: "Amortized charge recovery per unit",
-              value: electedAmortizedRecoveryPerUnit,
+              value: afterLadderRecoveryPerUnit,
               unit: "usd",
               divisor: tierQty,
               op:
                 "$" +
-                (constructed.unitPriceRecoveryElected ?? 0) +
+                (constructed.unitPriceRecovery ?? 0) +
                 " governed recovery / " +
                 tierQty +
                 " quoted units",
-              operands: [],
+              // THE FEE BREAKDOWN, UNDER THE NODE THAT CARRIES IT.
+              //
+              // Production cost no longer sums these, so this is where they
+              // stay traversable from. The graph then required two things in
+              // sequence, and each caught a version of this repair that was
+              // wrong in a different way:
+              //
+              //   1. an `allocation` must HAVE operands — the first attempt
+              //      left the node dangling;
+              //   2. its operands must BE the numerator it divides — the
+              //      second attached the fee COST under a node valued at the
+              //      RECOVERY, so `2000 / 1000` did not equal `2.64`.
+              //
+              // The markup rung between them is what makes the claim true
+              // rather than merely reconciled: fees, then the governed rate
+              // that turns them into recovery, then the division. That is also
+              // the attribution rule — each figure traces to the authority
+              // that priced it, and the rate shown is that authority's rate.
+              // Its OWN fee node, keyed under this path. `oneTimeNode` belongs
+              // to production cost, where the legacy fee actually sits, and a
+              // node cannot have two parents -- the graph resolves a duplicated
+              // key to nothing and says so (`duplicate key on a non-terminal`).
+              operands: [governedRecoveryNode()],
             },
           ],
         };
@@ -3221,14 +3462,14 @@ function computeLeafPerTier(args: {
     // matter about how much of the operator's price is recovery.
     if (cellOverride !== null) return null;
     const all = constructed.unitPriceRecovery;
-    const elected = constructed.unitPriceRecoveryElected;
     // Unknown recovery makes the total unknown rather than smaller.
     if (all === null) return null;
-    const electedPart = elected ?? 0;
-    const legacyPart = all - electedPart;
-    // The legacy half rode the ladder; the elected half was added after it.
-    const carried = legacyPart * (1 + effectiveAdj) * (1 + (cellLift ?? 0));
-    return carried + electedPart;
+    // Value-invariance: every unit-price charge is now added AFTER the ladder,
+    // whatever its provenance, so the amount embedded IS the governed recovery.
+    // This used to multiply the legacy half by `(1 + adj)(1 + lift)` — a
+    // faithful statement of what the ladder then did, and the very asymmetry
+    // that made an operator's first election move the customer's total.
+    return all;
   })();
 
   return {
@@ -3262,7 +3503,21 @@ function computeLeafPerTier(args: {
     // P3-017 — see the type for why the deltas are products of the levers'
     // own rates rather than differences between the levels beside them.
     sellBeforeAdjustmentPerUnit: sellBeforeAdjustment,
-    adjDeltaPerUnit: sellBeforeAdjustment * effectiveAdj,
+    // THE LEVER'S OWN RATE ON THE LEVER'S OWN BASIS.
+    //
+    // `basis x rate`, where the basis excludes the governed recovery the
+    // adjustment may not reach. This states what the adjustment CONTRIBUTED;
+    // `adjustmentNode.value - sellBeforeAdjustment` would state the contribution
+    // NET of holding the recovery out, and an operator reading a row labelled
+    // "price adjustment" would see a number that is not the adjustment.
+    //
+    // The ladder identity still closes, and closes more simply: the exempt
+    // recovery never left `sellBefore`, so nothing has to re-add it.
+    //
+    //   sellBefore + basis x rate  ==  basis x (1 + rate) + recovery
+    //
+    // because `sellBefore == basis + recovery`. Both sides are the quoted sell.
+    adjDeltaPerUnit: leverBasisNode.value * effectiveAdj,
     sellAfterAdjustmentPerUnit: adjustmentNode.value,
     // A rejected lift contributes zero, and the flagged-out node carries the
     // reason. Absent and refused are different states everywhere else in this
@@ -3272,11 +3527,21 @@ function computeLeafPerTier(args: {
     // PATTERN 58 · the lift contribution is over the PRODUCT. The rungs above
     // are unchanged — `sell-before` and the adjustment still carry the whole
     // build-up, freight included — so the tier ladder identity
-    // `sellBefore + adjDelta + liftDelta + overrideDelta === quotedSell`
-    // continues to hold, with the override rung absorbing the freight the
-    // operator's price does not cover.
+    // `sellBefore + adjDelta + liftDelta + amortizedRecovery + overrideDelta
+    // === quotedSell` continues to hold, with the override rung absorbing the
+    // freight the operator's price does not cover.
+    //
+    // The recovery rung joined when placement became value-invariant. It is an
+    // ADDEND between the lift and the override: no lever reaches it, and the
+    // override still supersedes everything beneath it because an operator's
+    // all-in price includes the charge.
     liftDeltaPerUnit: cellLift !== null ? adjustmentNode.value * cellLift : 0,
     sellAfterLiftPerUnit: computedChain.value,
+    // ELECTED ONLY. The exempt part is already inside `sellBeforeAdjustment`
+    // and was merely not multiplied; adding it as a rung too would count it
+    // twice in the Price Build ladder.
+    amortizedRecoveryPerUnit: electedAmortizedRecoveryPerUnit,
+    amortizedCostPerUnit: electedAmortizedCostPerUnit,
     overrideDeltaPerUnit:
       // Measured against the ALL-IN computed price, so the delta says how far
       // the operator moved from what the quote would otherwise have charged —
@@ -3315,6 +3580,8 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     sellAfterAdjustmentPerUnit: 0,
     liftDeltaPerUnit: 0,
     sellAfterLiftPerUnit: 0,
+    amortizedRecoveryPerUnit: 0,
+    amortizedCostPerUnit: 0,
     overrideDeltaPerUnit: 0,
     tierId: tier.id,
     packagingCostPerUnit: 0,
@@ -3454,6 +3721,8 @@ function rollUpAssemblyPerTier(
   // Every live attachment carries quantity 1 (measured: 150/150), so `qty === 1`
   // is the whole production population. Returning `value` untouched makes the
   // fold provably an identity there rather than approximately one.
+  let amortizedRecovery = 0;
+  let amortizedCost = 0;
   const foldMixed = (value: number, freightPortion: number, qty: number) => {
     if (qty === 1) return value;
     if (freightPortion === 0) return value * qty;
@@ -3469,6 +3738,23 @@ function rollUpAssemblyPerTier(
     // Cost side: the freight inside `contribution` is the pre-markup landed
     // total. Sell side: the freight inside `sellBeforeAdjustment` is the
     // marked-up landed total — it IS the freight section of that sum.
+    // ── WHY THE RECOVERY IS *NOT* IN THE FIXED PORTION ──────────────────
+    //
+    // `foldMixed`'s second argument is the part of a composite that must not
+    // multiply by component quantity, and a fixed governed recovery looks like
+    // an obvious second inhabitant beside freight. It was tried here, and the
+    // measurement said no: the parent rollup was already right and the total
+    // was still `1,680 x 3`.
+    //
+    // The multiplication was never in this fold. A charge is amortized over the
+    // tier quantity while its LINE bills at `tierQty x qtyPerParent`
+    // (commercial-projection.ts:315), so the per-unit amount was being spread
+    // over a smaller quantity than it was sold at. Correcting the DIVISOR makes
+    // the recovery a genuine per-component rate, after which it scales like
+    // every other rate and needs no exception anywhere — including here.
+    //
+    // Kept as a comment because the wrong answer is the intuitive one, and the
+    // next reader will have the same intuition.
     const fCost = r.totalLandedFreightBeforeMarkup;
     const fSellBefore = r.totalLandedFreightWithMarkup;
 
@@ -3512,6 +3798,9 @@ function rollUpAssemblyPerTier(
     adjDelta += foldMixed(r.adjDeltaPerUnit, fAfterAdj - fSellBefore, q);
     sellAfterAdj += foldMixed(r.sellAfterAdjustmentPerUnit, fAfterAdj, q);
     liftDelta += foldMixed(r.liftDeltaPerUnit, fAfterLift - fAfterAdj, q);
+    // Scales like any other per-component rate, because that is what it now is.
+    amortizedRecovery += foldMixed(r.amortizedRecoveryPerUnit, 0, q);
+    amortizedCost += foldMixed(r.amortizedCostPerUnit, 0, q);
     sellAfterLift += foldMixed(r.sellAfterLiftPerUnit, fAfterLift, q);
     overrideDelta += foldMixed(
       r.overrideDeltaPerUnit,
@@ -3560,6 +3849,8 @@ function rollUpAssemblyPerTier(
     sellAfterAdjustmentPerUnit: sellAfterAdj,
     liftDeltaPerUnit: liftDelta,
     sellAfterLiftPerUnit: sellAfterLift,
+    amortizedRecoveryPerUnit: amortizedRecovery,
+    amortizedCostPerUnit: amortizedCost,
     overrideDeltaPerUnit: overrideDelta,
     tierId: tier.id,
     packagingCostPerUnit: packaging,
@@ -5214,11 +5505,16 @@ export function computeQuoteCosting(input: QuoteCostingInput,
             : "Product sell per unit · ") + unit.skuLabel,
         value: upt.requiredSellPerUnit,
         unit: "usd",
-        op: "Sell before adjustment + price adjustment + surgical lift + override",
+        op: "Sell before adjustment + price adjustment + surgical lift + amortized recovery + override",
         operands: [
           sellBeforeNode,
           rung("adj-delta", "Price adjustment contribution", upt.adjDeltaPerUnit),
           rung("lift-delta", "Surgical lift contribution", upt.liftDeltaPerUnit),
+          // Present as its own rung rather than folded into any neighbour: the
+          // recovery is a governed amount no lever moves, and the two rungs
+          // beside it are precisely levers. Folding it into either would
+          // attribute a fixed charge to a pricing decision.
+          rung("recovery", "Amortized charge recovery", upt.amortizedRecoveryPerUnit),
           rung("override-delta", "Override contribution", upt.overrideDeltaPerUnit),
         ],
       });

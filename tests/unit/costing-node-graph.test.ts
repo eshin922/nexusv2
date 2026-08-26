@@ -921,10 +921,35 @@ test("override · preserves the superseded chain, demoted rather than deleted", 
   );
   const superseded = cellRoot(r).superseded!;
   assert.ok(superseded, "the computation the override replaced must survive");
-  assert.equal(superseded.kind, "adjustment");
+
+  // ── THE CHAIN'S TOP IS THE ALL-IN PRICE, NOT THE ADJUSTMENT ───────────
+  //
+  // This asserted `kind === "adjustment"` and `value === computedSellPerUnit`,
+  // and the two agreed because a legacy recovery rode the ladder — so the
+  // adjustment node WAS the whole computed price.
+  //
+  // Value-invariance holds the governed recovery out of the levers and adds it
+  // back above them, so the top of the computed chain is now the sum that
+  // includes it. That is the right node for `superseded` to be: an override is
+  // the ALL-IN customer price, so what it replaced must be the all-in computed
+  // price. Comparing against `computedSellPerUnit` — which is the ladder result
+  // BEFORE the recovery rejoins — would assert the override replaced something
+  // smaller than it did.
+  // Compared against the SAME QUOTE WITHOUT THE OVERRIDE, whose quoted price
+  // is by definition the all-in computed price. Reading it off rollup fields
+  // instead would mean re-deriving the chain here from parts, and the part that
+  // matters — the governed recovery held out of the levers — is not published
+  // as its own scalar. Asking the engine what it would have quoted is both
+  // simpler and a stronger claim.
+  const unoverridden = computeQuoteCosting(priced({}));
+  assert.equal(superseded.kind, "sum");
+  assert.equal(
+    superseded.value,
+    unoverridden.skuRollups[0].perTier[0].requiredSellPerUnit,
+  );
+
   // Visible because a PM needs to know what they overrode; demoted because it
   // is not the reason the number is what it is. It is NOT an operand.
-  assert.equal(superseded.value, r.skuRollups[0].perTier[0].computedSellPerUnit);
   assert.notEqual(superseded.value, cellRoot(r).value);
 });
 
@@ -1257,7 +1282,12 @@ test("ownership · computed sell reads the adjustment node", () => {
 
 test("ownership · the active root decides the quoted price, computed or overridden", () => {
   const plain = computeQuoteCosting(ownershipCase());
-  assert.equal(cellRoot(plain).kind, "adjustment");
+  // `sum` rather than `adjustment` once a governed recovery rejoins above the
+  // levers. The CLAIM this test makes is unchanged and is the line below: the
+  // active root IS the quoted price, whatever kind of node happens to sit at
+  // the top of the chain. The kind is asserted only so a silent re-rooting
+  // cannot pass unnoticed.
+  assert.equal(cellRoot(plain).kind, "sum");
   assert.equal(plain.skuRollups[0].perTier[0].requiredSellPerUnit, cellRoot(plain).value);
 
   const overridden = computeQuoteCosting(
@@ -2024,9 +2054,17 @@ test("a live adjustment appears as its own contribution", () => {
   assert.ok(base);
   // From the lever's OWN rate, not by subtracting two levels — a difference of
   // levels telescopes and could never fail.
+  //
+  // AGAINST THE PRICEABLE PORTION, not the whole base. A governed one-time
+  // recovery sits inside the base and no lever reaches it (Edward, 2026-08-26
+  // — recovery placement is value-invariant), so the adjustment's own rate
+  // acts on `base - recovery`. This read `base.value * 0.2` while the recovery
+  // was still being adjusted along with everything else.
+  const recovery = n!.operands?.find((o) => /embedded-recovery$/.test(o.key));
+  const priceable = base.value - (recovery?.value ?? 0);
   assert.ok(
-    Math.abs(adj.value - base.value * 0.2) < 1e-9,
-    `adjustment ${adj.value} should be ${base.value} x 0.2`,
+    Math.abs(adj.value - priceable * 0.2) < 1e-9,
+    `adjustment ${adj.value} should be ${priceable} x 0.2`,
   );
 });
 

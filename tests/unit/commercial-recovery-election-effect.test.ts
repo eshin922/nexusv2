@@ -134,24 +134,43 @@ function totalAt(gpa: number, allocate: boolean, elections: ChargeElection[] = [
 // constant. One measurement cannot distinguish the two.
 // ═══════════════════════════════════════════════════════════════════════
 
-test("a LEGACY allocated fee is marked up by the quote-level adjustment", () => {
-  const recovery = SETUP * RATE; // 1400, the governed recoverable amount
+test("INVERSE REGRESSION · a LEGACY allocated fee is NOT marked up by the adjustment", () => {
+  // ── WHAT THIS TEST USED TO SAY ─────────────────────────────────────────
+  //
+  // "a LEGACY allocated fee is marked up by the quote-level adjustment", and
+  // it asserted the asymmetry was exactly `recovery x gpa` at three different
+  // adjustments — a careful measurement of its SHAPE, because one reading at
+  // one gpa cannot tell a scaled charge from a shifted one.
+  //
+  // The measurement was right. The behaviour it measured is what Edward
+  // reversed on 2026-08-26: recovery placement is value-invariant, so a
+  // one-time charge recovers the same amount wherever it sits.
+  //
+  // Inverted rather than deleted. The old assertion is the defect's own
+  // signature, and the file it lives in is where the engine wrote down that
+  // this was a business question rather than an implementation detail.
+  const recovery = SETUP * RATE;
 
   for (const gpa of [0, 0.2, 0.5]) {
     const allocated = totalAt(gpa, true); // fee inside the unit rate
     const ownLine = totalAt(gpa, false); // fee on its own line
-    assert.equal(
-      round(allocated - ownLine),
-      round(recovery * gpa),
-      `legacy asymmetry at gpa ${gpa} is not recovery x gpa`,
+    // `Math.abs`, not `assert.equal(round(x), 0)`: a tiny negative residue
+    // rounds to -0, and strict equality distinguishes -0 from 0 while a
+    // customer total does not.
+    assert.ok(
+      Math.abs(allocated - ownLine) < 0.005,
+      `placement moved the total at gpa ${gpa} by ${allocated - ownLine}`,
     );
   }
 
-  // Non-vacuous in both directions: zero at gpa 0 is the coincidence the old
-  // fixture mistook for neutrality, and the spread at 0.50 is what a per-unit
-  // basis frozen from the governed rate would have misstated.
-  assert.equal(round(totalAt(0, true) - totalAt(0, false)), 0);
-  assert.equal(round(totalAt(0.5, true) - totalAt(0.5, false)), 700);
+  // NON-VACUITY, and it needs restating for the inverted claim. The old test
+  // proved its instrument could see a movement by seeing one at gpa 0.5; this
+  // one asserts there is none, so it has to show the instrument still reacts
+  // to something real. The adjustment must still move the PRODUCT.
+  assert.notEqual(round(totalAt(0.5, true)), round(totalAt(0, true)));
+  // And the charge is genuinely in the fixture, at the amount claimed.
+  assert.equal(round(totalAt(0, true) - totalAt(0, true, [])), 0);
+  assert.ok(recovery > 0);
 });
 
 test("an ELECTED placement is neutral at every adjustment", () => {
@@ -191,10 +210,23 @@ test("THE FINDING · the LEGACY boolean is not revenue-neutral either", () => {
   // priced them. That is a business question about whether a price adjustment
   // should apply to one-time charges, and it is Edward's, not an
   // implementation detail. Until it is settled, relocation is refused.
+  // ── RESOLVED 2026-08-26, AND THE ASSERTION IS NOW ITS INVERSE ──────────
+  //
+  // The paragraph above ends "Until it is settled, relocation is refused." It
+  // is settled: Edward's disposition is that recovery placement is
+  // value-invariant, so the two placements DO recover the same amount and the
+  // model's central premise stands rather than contradicting the estate.
+  //
+  // The finding this test recorded was real, and soak run 2 measured its cost
+  // on a live quote — $28.05 moved by an operator's first election. What is
+  // preserved here is the watch: the two placements must now coincide, and if
+  // they ever diverge again this is where it shows.
   const off = total(false);
   const on = total(true);
-  assert.notEqual(off, on, "the two placements coincide — is the fixture's adjustment zero?");
-  assert.equal(Math.round((on - off) * 100) / 100, SETUP * RATE * GPA);
+  assert.ok(
+    Math.abs(on - off) < 0.005,
+    `the two placements have diverged again, by ${on - off}`,
+  );
 
   // The separate line is NOT adjustment-bearing.
   assert.equal(project(false).tiers[0].otcSubtotal, SETUP * RATE);
@@ -250,15 +282,23 @@ test("SURFACED · an election is NOT a no-op even when it agrees with the boolea
   // the governed contract, which is a real commercial act — but it looks like
   // confirming the current state, and that gap is the thing to be careful about
   // when the surface offers it.
+  // ── RESOLVED · IT IS NOW A NO-OP, AND THAT IS THE POINT ────────────────
+  //
+  // Everything the comment above describes was true and was the hazard: an
+  // election that looked like confirming the current state quietly moved the
+  // customer's total, because it moved the charge out of the adjustment's
+  // reach and the legacy path had never been out of it.
+  //
+  // Value-invariance removes the gap at the source — legacy and elected now
+  // price identically — so confirming the current state IS confirming the
+  // current state. The assertion inverts; the vigilance it represents does
+  // not.
   const legacy = total(true);
   const electedSame = total(true, [{ chargeKey: "project_setup", mode: "included" }]);
-  assert.notEqual(
-    legacy,
-    electedSame,
-    "if these are equal the elected path is no longer priced neutrally",
+  assert.ok(
+    Math.abs(legacy - electedSame) < 0.005,
+    `electing the state a quote is already in moved the total by ${legacy - electedSame}`,
   );
-  // And by exactly the adjustment the legacy path applied to the fee.
-  assert.equal(Math.round((legacy - electedSame) * 100) / 100, SETUP * RATE * GPA);
 });
 
 test("the elected amortization is NEUTRAL: placement no longer moves the total", () => {
@@ -504,12 +544,16 @@ function embedded(allocate: boolean, elections: ChargeElection[] = []) {
   return leaf?.perTier[0]?.embeddedRecoveryTotal ?? null;
 }
 
-test("a LEGACY unit-price charge embeds the ladder-inclusive amount", () => {
-  // Allocated into cost, so it is marked up AND carried by the adjustment.
-  // 1000 x 1.4 x 1.2 = 1680, not 1400. The 280 difference is the whole reason
-  // this cannot be `recoverableSell`.
-  assert.equal(embedded(true), SETUP * RATE * (1 + GPA));
-  assert.notEqual(embedded(true), SETUP * RATE);
+test("INVERSE REGRESSION · a LEGACY unit-price charge embeds the GOVERNED amount", () => {
+  // Was: "embeds the ladder-inclusive amount", asserting `1000 x 1.4 x 1.2 =
+  // 1680, not 1400`, and calling the 280 "the whole reason this cannot be
+  // `recoverableSell`".
+  //
+  // It can be now, and it is. Both provenances add the governed recovery after
+  // the ladder, so what a unit-price charge embeds IS `recoverableSell` —
+  // which is what makes the amount freezable and what makes placement
+  // value-invariant. Same figure the customer document prints.
+  assert.equal(embedded(true), SETUP * RATE);
 });
 
 test("an ELECTED unit-price charge embeds exactly the governed recovery", () => {
@@ -520,12 +564,18 @@ test("an ELECTED unit-price charge embeds exactly the governed recovery", () => 
   );
 });
 
-test("the two differ by exactly the adjustment", () => {
-  // The same identity the placement-neutrality test pins one level up, now
-  // asserted on the figure the customer document prints.
+test("INVERSE REGRESSION · the two provenances no longer differ at all", () => {
+  // Was: "the two differ by exactly the adjustment". They differed because one
+  // rode the ladder and one did not, and that difference is exactly what an
+  // operator's first election used to release onto the customer's total.
+  //
+  // One concept, one path — so the figure the customer document prints is the
+  // same whichever way the charge got there.
   const legacy = embedded(true) ?? 0;
   const elected = embedded(false, [{ chargeKey: "project_setup", mode: "included" }]) ?? 0;
-  assert.equal(Math.round((legacy - elected) * 100) / 100, SETUP * RATE * GPA);
+  assert.equal(Math.round((legacy - elected) * 100) / 100, 0);
+  // Non-vacuous: both are the real governed amount, not both zero.
+  assert.equal(legacy, SETUP * RATE);
 });
 
 test("a separately-billed charge embeds nothing in the unit price", () => {

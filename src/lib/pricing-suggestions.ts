@@ -205,12 +205,44 @@ export function liftToClear(
   sellUnit: number | null,
   costUnit: number | null,
   threshold: number,
+  /**
+   * Governed recovery embedded in `sellUnit`, per unit. The lift does not
+   * reach it.
+   *
+   * ── WHY THE SOLVER HAS TO KNOW ─────────────────────────────────────────
+   *
+   * Recovery placement is value-invariant (Edward, 2026-08-26), so a
+   * unit-price charge is added AFTER the ladder and no lever multiplies it.
+   * The cell therefore prices as
+   *
+   *     sell = (S - R) x (1 + L) + R
+   *
+   * and a solve of `required / S - 1` — which assumes the lift multiplies the
+   * WHOLE sell — lands short by exactly `R x L`.
+   *
+   * OD-023 is the precedent, and it is why this parameter exists rather than
+   * being left as a follow-up: holding freight out of the lever basis without
+   * teaching the recommendation about it left "Lift to floor" leaving cells
+   * below the floor, and the measured shortfall was exactly `freight x lift`.
+   * A lever that acts on a different quantity than the one the recommendation
+   * solved against cannot keep the promise the button makes.
+   *
+   * Defaults to 0, which reproduces the previous formula exactly — every
+   * caller that carries no recovery is unaffected, bit for bit.
+   */
+  recoveryUnit: number = 0,
 ): number | null {
   if (sellUnit === null || costUnit === null) return null;
   if (sellUnit <= 0) return null;
   if (threshold <= 0 || threshold >= 1) return null;
   const requiredSell = costUnit / (1 - threshold);
-  const raw = requiredSell / sellUnit - 1;
+  // The portion a lift can actually move. A cell whose price is entirely
+  // recovery has no liftable basis, and offering a percentage against zero
+  // would produce Infinity — a number that would render, store and clear
+  // nothing.
+  const liftable = sellUnit - recoveryUnit;
+  if (liftable <= 0) return null;
+  const raw = (requiredSell - recoveryUnit) / liftable - 1;
   // A cell already clear of the threshold needs no lift. Returning the
   // negative number the algebra produces would be arithmetically honest and
   // operationally wrong — it reads as an instruction to cut the price.
