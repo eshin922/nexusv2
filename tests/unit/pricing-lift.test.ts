@@ -53,9 +53,17 @@ test("pricing Preview and Apply are separate server actions", async () => {
     // this panel computed. The property under test — that the panel exposes a
     // preview, a staging act and a commit as three distinct labelled things —
     // is unchanged.
+    // "Current price" / "Proposed price" became "Current turnkey / unit" /
+    // "Proposed turnkey / unit" for the same reason "Delta" became
+    // "Change (pts)" above: the column carried a figure whose identity it did
+    // not state. It is `totalRevenue / qty` — correct, customer-facing, and the
+    // number the customer document prints beside the turnkey total — but this
+    // surface leads with Unit-price sell, and the two differ by the separately
+    // billed charge. The arithmetic is untouched; the header now says which
+    // quantity it is. The property under test is unchanged.
     "Preview changes", "Stage this adjustment",
-    "Current adjustment", "Current price", "Change \\(pts\\)",
-    "Proposed adjustment", "Proposed price", "Apply", "Undo",
+    "Current adjustment", "Current turnkey / unit", "Change \\(pts\\)",
+    "Proposed adjustment", "Proposed turnkey / unit", "Apply", "Undo",
   ]) {
     assert.match(uiSource, new RegExp(label));
   }
