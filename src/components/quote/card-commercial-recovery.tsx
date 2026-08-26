@@ -62,6 +62,7 @@ import type { AuthoritativeProjection } from "./authoritative-projection";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { RecoveryMode } from "@/lib/commercial-recovery/registry";
 import type { QuotePerTierRollup } from "@/lib/costing";
+import type { RecoveryProposalFailure } from "./use-recovery-draft";
 
 /** The authority's words for the three treatments. */
 const MODE_LABEL: Record<RecoveryMode, string> = {
@@ -115,7 +116,10 @@ export function CardCommercialRecovery({
    * which made the operator wait on a database round trip to find out what
    * their own click had done.
    */
-  onPropose: (chargeKey: string, mode: string | null) => Promise<string | null>;
+  onPropose: (
+    chargeKey: string,
+    mode: string | null,
+  ) => Promise<RecoveryProposalFailure | null>;
   /** Every governed tier — the gate evaluates all of them, not only those shown. */
   rollups: readonly QuotePerTierRollup[];
   shownTierIds: readonly string[];
@@ -174,9 +178,15 @@ export function CardCommercialRecovery({
       // EVALUATED, not written. The result is the governed projection for this
       // election, and the host shows it on both surfaces at once; the write
       // follows behind it. A refusal is the boundary's own words, verbatim.
-      const refusal = await onPropose(chargeKey, mode);
-      if (refusal) {
-        setError(refusal);
+      // `onPropose` no longer rejects: an engine that never answered comes
+      // back as an `unreachable` failure instead. It used to escape here, and
+      // the escape left `pending` set — so the row sat on "saving…"
+      // indefinitely with nothing on screen saying why.
+      const failure = await onPropose(chargeKey, mode);
+      if (failure) {
+        // Both kinds render the same way. They are distinguished so the
+        // ROLLBACK can differ, which it does, inside the hook.
+        setError(failure.message);
         setPending(null);
         return;
       }

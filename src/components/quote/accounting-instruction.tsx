@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 
 import { updateAccountingInstruction } from "@/app/actions/accounting-instruction";
+import { runGoverned } from "@/lib/governed-action";
 
 /**
  * Card 3's authored instruction to Accounting.
@@ -44,6 +45,7 @@ export function AccountingInstruction({
   const [draft, setDraft] = useState(value ?? "");
   const [dirty, setDirty] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   // Follow the server when it changes underneath — a revision, another tab —
   // but never while the operator has unsaved work in the box.
@@ -60,8 +62,17 @@ export function AccountingInstruction({
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("accountingInstruction", draft);
+    setError(null);
     startTransition(async () => {
-      await updateAccountingInstruction(fd);
+      const r = await runGoverned(() => updateAccountingInstruction(fd));
+      if (r.kind !== "ok") {
+        // The draft stays DIRTY. Clearing it here was the defect: `setDirty`
+        // ran unconditionally, so a refused or unreachable save retired the
+        // "unsaved" hint and the box then looked exactly like a saved one,
+        // while the operator's text was still only in the browser.
+        setError(r.message);
+        return;
+      }
       setDirty(false);
     });
   };
@@ -89,6 +100,16 @@ export function AccountingInstruction({
         <span className="cv-note-dirty">unsaved — click away to save</span>
       )}
       {pending && <span className="cv-note-dirty">saving…</span>}
+      {error && (
+        <span
+          role="alert"
+          className="cv-note-dirty"
+          data-testid="cv-instruction-error"
+          style={{ color: "var(--bad)" }}
+        >
+          {error}
+        </span>
+      )}
       {!editable && (
         <span className="cv-note-dirty">
           Frozen with this version. Revise the quote to change it.

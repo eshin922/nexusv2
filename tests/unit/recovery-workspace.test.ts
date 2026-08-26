@@ -396,10 +396,17 @@ test("the saving state ends when the engine answers, not when the write returns"
     !flat.includes("writeDone.current = true; setPending(null)"),
     "a successful write must not end the wait",
   );
-  // A refusal DOES clear it, or the row would sit saving forever.
+  // A refusal DOES clear it, or the row would sit saving forever. So does an
+  // engine that never answered — which used to REJECT past this branch and
+  // leave the row on "saving…" indefinitely with nothing on screen saying why.
+  // Both arrive as a resolved failure now, so one branch ends both waits.
   assert.ok(
-    flat.includes("setError(refusal); setPending(null);"),
+    flat.includes("setError(failure.message); setPending(null);"),
     "a refusal must end the wait",
+  );
+  assert.ok(
+    flat.includes("const failure = await onPropose(chargeKey, mode);"),
+    "and the unreachable case must arrive as a value, not a rejection",
   );
   // And any fresh answer clears it, so it cannot hang.
   assert.match(card, /if \(writeDone\.current\) setPending\(null\)/);

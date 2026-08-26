@@ -67,7 +67,12 @@ test("state 2 · a successful save clears the flag and moves no money", async ()
 test("state 3 · a failed save keeps the result and says it is not stored", async () => {
   const src = codeOnly(await read(DRAFT));
   const save = src.slice(src.indexOf("const save ="), src.indexOf("const propose ="));
-  assert.match(save, /setState\(\{ status: "unsaved", message: res\.error\.message \}\)/);
+  assert.match(save, /setState\(\{ status: "unsaved", message: res\.message \}\)/);
+  // `unsaved` for a REFUSAL and for a server that never answered, both. The
+  // elections are not known to be durable either way, and `unsaved` is the
+  // state the finalize gate reads. Only the sentence differs.
+  assert.match(save, /runGoverned\(/);
+  assert.match(save, /if \(res\.kind !== "ok"\)/);
   // The evaluated projection is NOT withdrawn. It answered a real question, and
   // discarding it would punish the operator for an infrastructure failure.
   assert.doesNotMatch(save, /setAuthoritative\(null\)/);
@@ -110,12 +115,19 @@ test("the gates flush a FACT, not a delay", async () => {
 test("Finalize flushes first and refuses if the set is not durable", async () => {
   const src = codeOnly(await read(FINALIZE));
   const click = src.slice(src.indexOf("startTransition(async () => {"));
-  const flushAt = click.indexOf("flushElections()");
-  const sendAt = click.indexOf("await sendQuote(fd)");
+  const flushAt = click.indexOf("runGovernedRaw(flushElections)");
+  const sendAt = click.indexOf("runGoverned(() => sendQuote(fd))");
   assert.ok(flushAt > 0 && sendAt > 0);
   assert.ok(flushAt < sendAt, "the flush must precede the send");
-  assert.match(click, /if \(!durable\)/);
+  assert.match(click, /if \(!flushed\.value\)/);
   assert.match(click, /Nothing was sent/);
+
+  // A flush that never REACHED the server refuses the send too, and says so in
+  // its own words. "Nothing was sent" is true of a flush that reported
+  // not-durable; it is a claim nobody can make about one that never answered,
+  // so the two failures are not given the same sentence.
+  const unreachableAt = click.indexOf('flushed.kind === "unreachable"');
+  assert.ok(unreachableAt > 0 && unreachableAt < sendAt, "and it refuses BEFORE sending");
 });
 
 test("the surface refuses while an election is unsaved", async () => {
@@ -195,7 +207,7 @@ test("the proposal is recorded BEFORE the evaluation is awaited", async () => {
   const src = codeOnly(await read(DRAFT));
   const propose = src.slice(src.indexOf("const propose ="), src.indexOf("const flush ="));
   const recordedAt = propose.indexOf("proposed.current = next");
-  const awaitedAt = propose.indexOf("await evaluateChargeRecovery");
+  const awaitedAt = propose.indexOf("evaluateChargeRecovery(");
   assert.ok(recordedAt > 0 && awaitedAt > 0);
   assert.ok(
     recordedAt < awaitedAt,
@@ -206,6 +218,21 @@ test("the proposal is recorded BEFORE the evaluation is awaited", async () => {
 test("a refused election rolls back, and does not clobber a newer one", async () => {
   const src = codeOnly(await read(DRAFT));
   assert.match(src, /if \(proposed\.current === next\) \{[\s\S]{0,200}proposed\.current = previous/);
+});
+
+test("an election the engine never evaluated rolls back too", async () => {
+  // `proposed.current` is written BEFORE the await so a second click composes
+  // onto the first. The rollback used to hang off the REFUSAL branch alone, so
+  // a rejection skipped it and left a set recorded that the engine had never
+  // seen — which the debounced save would then have persisted as though it had
+  // been approved. An unevaluated election reaching the database is a
+  // commercial-state mutation on failure, not a display defect.
+  const src = codeOnly(await read(DRAFT));
+  const propose = src.slice(src.indexOf("const propose ="), src.indexOf("const flush ="));
+  assert.match(propose, /runGoverned\(/, "the evaluation cannot reject past the rollback");
+  const guard = propose.indexOf('res.kind !== "ok"');
+  const rollback = propose.indexOf("proposed.current = previous");
+  assert.ok(guard > 0 && rollback > guard, "one branch covers refused AND unreachable");
 });
 
 test("a stale evaluation cannot overwrite a newer answer", async () => {
