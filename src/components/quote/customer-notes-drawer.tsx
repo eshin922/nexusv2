@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateQuoteNotes } from "@/app/actions/quotes";
+import { runGoverned } from "@/lib/governed-action";
 
 // Slice RI.9 §6 step 7 — Pushback 2 disposition.
 //
@@ -83,9 +84,12 @@ export function CustomerNotesDrawer({
     }
     setError(null);
     startTransition(async () => {
-      const r = await updateQuoteNotes(fd);
-      if (!r.ok) {
-        setError(r.error.message);
+      const r = await runGoverned(() => updateQuoteNotes(fd));
+      if (r.kind !== "ok") {
+        // `lastSavedValue` is deliberately NOT advanced. A save that may not
+        // have landed must leave the drawer believing the text is unsaved, so
+        // the next blur retries it rather than short-circuiting on equality.
+        setError(r.message);
         return;
       }
       lastSavedValue.current = next;
@@ -214,7 +218,11 @@ export function CustomerNotesDrawer({
             {pending
               ? "Saving…"
               : error
-                ? <span style={{ color: "var(--bad)" }}>{error}</span>
+                ? (
+                    <span role="alert" data-testid="cv-notes-error" style={{ color: "var(--bad)" }}>
+                      {error}
+                    </span>
+                  )
                 : savedAt
                   ? "Saved · changes flow into next preview"
                   : "Tab out or ⌘ Enter to save · Esc to close"}

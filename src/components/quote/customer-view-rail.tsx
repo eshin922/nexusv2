@@ -42,6 +42,7 @@ import {
 } from "@/lib/commercial-recovery/unbillable-placements";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { CustomerViewDetailLevel, CustomerViewPdfLayout } from "@/types/quote";
+import type { RecoveryProposalFailure } from "./use-recovery-draft";
 
 export type GovernedSummary = {
   goodsSell: number | null;
@@ -114,7 +115,10 @@ export function CustomerViewRail({
   unbillableRecovery: UnbillablePlacement[];
   /** Internal, never printed. See the resolver's note on why it is not on the view. */
   accountingInstruction: string | null;
-  onPropose: (chargeKey: string, mode: string | null) => Promise<string | null>;
+  onPropose: (
+    chargeKey: string,
+    mode: string | null,
+  ) => Promise<RecoveryProposalFailure | null>;
   /** Whether the elections on screen are stored. See `use-recovery-draft`. */
   draftState: RecoveryDraftState;
   flushElections: () => Promise<boolean>;
