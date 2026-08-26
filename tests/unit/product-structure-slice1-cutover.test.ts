@@ -524,6 +524,30 @@ const classifiedIdentityFiles = new Set([
   // governs exactly what it advertises. Elects nothing, resolves nothing
   // through the legacy junction, writes nothing.
   "scripts/gate-1b/card1-grain-certify.ts",
+  // CLASSIFIED — read-only certification capture. Projects a quote's commercial
+  // state (tier economics, operator read model, customer document, line
+  // identity) to JSON for before/after comparison. It reads `quoteLeafId` only
+  // to LABEL a projected line; it resolves nothing through the legacy junction,
+  // joins no commercial value through the identity, and writes nothing but its
+  // own output file.
+  "scripts/gate-1b/capture-commercial-state.ts",
+  // CLASSIFIED — creates fixture-local library leaves for the #428 Part B
+  // certification, because the shared products carry no SKU and three other
+  // quotes read them. It writes `leaves` rows and reads `leaf_id` nowhere: the
+  // clone is addressed by its own new id, and the SOURCE rows are read-only,
+  // proven byte-identical by a sha256 comparison before and after.
+  "scripts/gate-1b/clone-fixture-local-leaves.ts",
+  // CLASSIFIED — the only file here that MOVES the identity. It repoints one
+  // fixture quote's `quote_leaves.leaf_id` (canonical) and the matching
+  // `assembly_leaves.leaf_id` (legacy membership copy) onto those clones.
+  //
+  // Both must move together: `commercial-settings.ts` compares them and
+  // refuses the quote when they disagree. Moving only the canonical half took
+  // the quote page to a persistent 500 until the legacy half followed, which is
+  // the guard working. The script now asserts the guard's own predicate itself,
+  // and proves the economics, elections, customer document and shared library
+  // rows are unchanged. Scoped to a single ZZ-VALIDATION quote id.
+  "scripts/gate-1b/repoint-fixture-to-local-leaves.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

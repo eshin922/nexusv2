@@ -1,0 +1,452 @@
+{
+  "capturedAtIso": "2026-08-26T03:22:46.328Z",
+  "quote": {
+    "id": "52bd0077-20af-4345-8856-45003bfca8b3",
+    "status": "sent",
+    "version_number": 1,
+    "quote_number": "DPS-1061",
+    "sent_at": "2026-08-26 02:27:05.095+00",
+    "pdf_url": "https://zqyfxvphqyurbzbshzwy.supabase.co/storage/v1/object/sign/quote-pdfs/52bd0077-20af-4345-8856-45003bfca8b3/b0f5ca5b-52ad-4a57-b5a6-48c3f79e86b2.pdf?token=eyJraWQiOiI3NTFhOWNjNi1jZThiLTQyYTYtODNjMi00M2FhYjRjZTI0MGEiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJxdW90ZS1wZGZzLzUyYmQwMDc3LTIwYWYtNDM0NS04ODU2LTQ1MDAzYmZjYThiMy9iMGY1Y2E1Yi01MmFkLTRhNTctYjVhNi00OGMzZjc5ZTg2YjIucGRmIiwic2NvcGUiOiJkb3dubG9hZCIsImlhdCI6MTc4NzcxMTIyOSwiZXhwIjoxNzkwMzAzMjI5fQ.005SfJfGivr30J3uSxlhB73t-fMLQzTdw4dPU3uMHQM",
+    "global_price_adj_pct": "0.2000",
+    "target_margin_pct": null,
+    "scenario_label": "ZZ-VALIDATION-tier-propagation"
+  },
+  "elections": [
+    {
+      "charge_key": "project_setup",
+      "mode": "separate"
+    },
+    {
+      "charge_key": "rd_formulation",
+      "mode": "included"
+    },
+    {
+      "charge_key": "other_service",
+      "mode": "included"
+    },
+    {
+      "charge_key": "tooling_artwork_legacy",
+      "mode": "included"
+    }
+  ],
+  "tiers": [
+    {
+      "tierId": "02278df4-f99d-40db-b451-8f3de0a4a873",
+      "label": "Tier 1",
+      "qty": 1000,
+      "governed": {
+        "totalRevenue": 15455.12,
+        "totalCost": 9860.000000000002,
+        "blendedMarginPct": 0.3620237177064946,
+        "blendedMarginStatus": "GOOD"
+      },
+      "operatorReadModel": {
+        "unitPriceSell": 15.31512,
+        "operands": [
+          {
+            "key": "quote/02278df4-f99d-40db-b451-8f3de0a4a873/per-unit/unit-price-sell/base",
+            "label": "Combined contribution per unit · Tier 1",
+            "value": 9.262599999999999
+          },
+          {
+            "key": "quote/02278df4-f99d-40db-b451-8f3de0a4a873/per-unit/adj-delta",
+            "label": "Price adjustment contribution, per unit",
+            "value": 1.8525200000000002
+          },
+          {
+            "key": "quote/02278df4-f99d-40db-b451-8f3de0a4a873/per-unit/embedded-recovery",
+            "label": "One-time charges recovered in the unit price",
+            "value": 4.2
+          }
+        ],
+        "separateChargesTotal": 140,
+        "separateCharges": [
+          {
+            "label": "Project setup · ZZ-VAL-ASY",
+            "value": 140
+          }
+        ],
+        "unbillableTotal": null,
+        "unbillable": []
+      },
+      "customerDocument": {
+        "unitSubtotal": 15315.119999999999,
+        "otcSubtotal": 140,
+        "tierCommercialTotal": 15455.119999999999
+      }
+    },
+    {
+      "tierId": "70822854-c25b-4cf8-ac78-a94500f83523",
+      "label": "Tier 2",
+      "qty": 5000,
+      "governed": {
+        "totalRevenue": 33992.799999999996,
+        "totalCost": 20879,
+        "blendedMarginPct": 0.3857816949471652,
+        "blendedMarginStatus": "GOOD"
+      },
+      "operatorReadModel": {
+        "unitPriceSell": 6.65856,
+        "operands": [
+          {
+            "key": "quote/70822854-c25b-4cf8-ac78-a94500f83523/per-unit/unit-price-sell/base",
+            "label": "Combined contribution per unit · Tier 2",
+            "value": 4.8488
+          },
+          {
+            "key": "quote/70822854-c25b-4cf8-ac78-a94500f83523/per-unit/adj-delta",
+            "label": "Price adjustment contribution, per unit",
+            "value": 0.96976
+          },
+          {
+            "key": "quote/70822854-c25b-4cf8-ac78-a94500f83523/per-unit/embedded-recovery",
+            "label": "One-time charges recovered in the unit price",
+            "value": 0.84
+          }
+        ],
+        "separateChargesTotal": 700,
+        "separateCharges": [
+          {
+            "label": "Project setup · ZZ-VAL-ASY",
+            "value": 700
+          }
+        ],
+        "unbillableTotal": null,
+        "unbillable": []
+      },
+      "customerDocument": {
+        "unitSubtotal": 33292.799999999996,
+        "otcSubtotal": 700,
+        "tierCommercialTotal": 33992.799999999996
+      }
+    },
+    {
+      "tierId": "5f07752c-e89b-401f-86bc-a5999d14e8db",
+      "label": "Tier 3",
+      "qty": 10000,
+      "governed": {
+        "totalRevenue": 80156.84,
+        "totalCost": 48590,
+        "blendedMarginPct": 0.3938134287728907,
+        "blendedMarginStatus": "GOOD"
+      },
+      "operatorReadModel": {
+        "unitPriceSell": 7.875684,
+        "operands": [
+          {
+            "key": "quote/5f07752c-e89b-401f-86bc-a5999d14e8db/per-unit/unit-price-sell/base",
+            "label": "Combined contribution per unit · Tier 3",
+            "value": 6.21307
+          },
+          {
+            "key": "quote/5f07752c-e89b-401f-86bc-a5999d14e8db/per-unit/adj-delta",
+            "label": "Price adjustment contribution, per unit",
+            "value": 1.2426139999999999
+          },
+          {
+            "key": "quote/5f07752c-e89b-401f-86bc-a5999d14e8db/per-unit/embedded-recovery",
+            "label": "One-time charges recovered in the unit price",
+            "value": 0.42
+          }
+        ],
+        "separateChargesTotal": 1400,
+        "separateCharges": [
+          {
+            "label": "Project setup · ZZ-VAL-ASY",
+            "value": 1400
+          }
+        ],
+        "unbillableTotal": null,
+        "unbillable": []
+      },
+      "customerDocument": {
+        "unitSubtotal": 78756.84,
+        "otcSubtotal": 1400,
+        "tierCommercialTotal": 80156.84
+      }
+    },
+    {
+      "tierId": "e6300cd8-1dd5-4b85-9200-0a25b60dd607",
+      "label": "Tier 4",
+      "qty": 20000,
+      "governed": {
+        "totalRevenue": 103786.64,
+        "totalCost": 65029.99999999999,
+        "blendedMarginPct": 0.37342609800259463,
+        "blendedMarginStatus": "GOOD"
+      },
+      "operatorReadModel": {
+        "unitPriceSell": 5.119331999999999,
+        "operands": [
+          {
+            "key": "quote/e6300cd8-1dd5-4b85-9200-0a25b60dd607/per-unit/unit-price-sell/base",
+            "label": "Combined contribution per unit · Tier 4",
+            "value": 4.09111
+          },
+          {
+            "key": "quote/e6300cd8-1dd5-4b85-9200-0a25b60dd607/per-unit/adj-delta",
+            "label": "Price adjustment contribution, per unit",
+            "value": 0.818222
+          },
+          {
+            "key": "quote/e6300cd8-1dd5-4b85-9200-0a25b60dd607/per-unit/embedded-recovery",
+            "label": "One-time charges recovered in the unit price",
+            "value": 0.21
+          }
+        ],
+        "separateChargesTotal": 1400,
+        "separateCharges": [
+          {
+            "label": "Project setup · ZZ-VAL-ASY",
+            "value": 1400
+          }
+        ],
+        "unbillableTotal": null,
+        "unbillable": []
+      },
+      "customerDocument": {
+        "unitSubtotal": 102386.63999999998,
+        "otcSubtotal": 1400,
+        "tierCommercialTotal": 103786.63999999998
+      }
+    }
+  ],
+  "lines": [
+    {
+      "key": "unit:ebcd742e-40cd-4323-96a7-9d2b1d1cfa14",
+      "kind": "item_group_member",
+      "displayName": "50ml Plastic Stick (50% PCR)",
+      "displaySku": null,
+      "quoteLeafId": "ebcd742e-40cd-4323-96a7-9d2b1d1cfa14",
+      "owningAssemblyId": "40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "bv011Destination": null,
+      "serviceIdentity": null,
+      "cells": [
+        {
+          "state": "priced",
+          "unitRate": 11.20056,
+          "quantity": 1000,
+          "lineAmount": 11200.56
+        },
+        {
+          "state": "priced",
+          "unitRate": 3.8257919999999994,
+          "quantity": 5000,
+          "lineAmount": 19128.959999999995
+        },
+        {
+          "state": "priced",
+          "unitRate": 5.356841999999999,
+          "quantity": 10000,
+          "lineAmount": 53568.41999999999
+        },
+        {
+          "state": "priced",
+          "unitRate": 3.051666,
+          "quantity": 20000,
+          "lineAmount": 61033.32
+        }
+      ]
+    },
+    {
+      "key": "unit:a644385d-c9db-49a2-beec-9f32bc5a5d4a",
+      "kind": "item_group_member",
+      "displayName": "75ml Aluminum Wax Stick",
+      "displaySku": null,
+      "quoteLeafId": "a644385d-c9db-49a2-beec-9f32bc5a5d4a",
+      "owningAssemblyId": "40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "bv011Destination": null,
+      "serviceIdentity": null,
+      "cells": [
+        {
+          "state": "priced",
+          "unitRate": 4.11456,
+          "quantity": 1000,
+          "lineAmount": 4114.56
+        },
+        {
+          "state": "priced",
+          "unitRate": 2.832768,
+          "quantity": 5000,
+          "lineAmount": 14163.84
+        },
+        {
+          "state": "priced",
+          "unitRate": 2.518842,
+          "quantity": 10000,
+          "lineAmount": 25188.42
+        },
+        {
+          "state": "priced",
+          "unitRate": 2.0676659999999996,
+          "quantity": 20000,
+          "lineAmount": 41353.31999999999
+        }
+      ]
+    },
+    {
+      "key": "otc:40ae472a-6a51-42d1-98c8-5613b4b276f3:setupFeeTotal",
+      "kind": "otc",
+      "displayName": "Project setup",
+      "displaySku": "ZZ-VAL-ASY",
+      "quoteLeafId": null,
+      "owningAssemblyId": "40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "bv011Destination": "otc_setup",
+      "serviceIdentity": null,
+      "cells": [
+        {
+          "state": "priced",
+          "unitRate": 140,
+          "quantity": 1,
+          "lineAmount": 140
+        },
+        {
+          "state": "priced",
+          "unitRate": 700,
+          "quantity": 1,
+          "lineAmount": 700
+        },
+        {
+          "state": "priced",
+          "unitRate": 1400,
+          "quantity": 1,
+          "lineAmount": 1400
+        },
+        {
+          "state": "priced",
+          "unitRate": 1400,
+          "quantity": 1,
+          "lineAmount": 1400
+        }
+      ]
+    }
+  ],
+  "skuRollups": [
+    {
+      "skuId": "40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "skuLabel": "ZZ-VAL-ASY",
+      "productName": "ZZ-VALIDATION assembly (tier propagation test)",
+      "skuRole": "assembly",
+      "parentSkuId": null,
+      "qtyPerParent": null,
+      "perTier": [
+        {
+          "tierId": "02278df4-f99d-40db-b451-8f3de0a4a873",
+          "computedSellPerUnit": 11.115120000000001,
+          "requiredSellPerUnit": 15.31512,
+          "contributionCostPerUnit": 9.760000000000002,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        },
+        {
+          "tierId": "70822854-c25b-4cf8-ac78-a94500f83523",
+          "computedSellPerUnit": 5.81856,
+          "requiredSellPerUnit": 6.65856,
+          "contributionCostPerUnit": 4.0758,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        },
+        {
+          "tierId": "5f07752c-e89b-401f-86bc-a5999d14e8db",
+          "computedSellPerUnit": 7.455684,
+          "requiredSellPerUnit": 7.875684,
+          "contributionCostPerUnit": 4.759,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        },
+        {
+          "tierId": "e6300cd8-1dd5-4b85-9200-0a25b60dd607",
+          "computedSellPerUnit": 4.909331999999999,
+          "requiredSellPerUnit": 5.119332,
+          "contributionCostPerUnit": 3.2015,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        }
+      ]
+    },
+    {
+      "skuId": "ebcd742e-40cd-4323-96a7-9d2b1d1cfa14",
+      "skuLabel": "",
+      "productName": "50ml Plastic Stick (50% PCR)",
+      "skuRole": "leaf",
+      "parentSkuId": "40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "qtyPerParent": 1,
+      "perTier": [
+        {
+          "tierId": "02278df4-f99d-40db-b451-8f3de0a4a873",
+          "computedSellPerUnit": 7.00056,
+          "requiredSellPerUnit": 11.20056,
+          "contributionCostPerUnit": 7.23,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        },
+        {
+          "tierId": "70822854-c25b-4cf8-ac78-a94500f83523",
+          "computedSellPerUnit": 2.9857919999999996,
+          "requiredSellPerUnit": 3.8257919999999994,
+          "contributionCostPerUnit": 2.3888,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        },
+        {
+          "tierId": "5f07752c-e89b-401f-86bc-a5999d14e8db",
+          "computedSellPerUnit": 4.9368419999999995,
+          "requiredSellPerUnit": 5.356841999999999,
+          "contributionCostPerUnit": 3.2295,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        },
+        {
+          "tierId": "e6300cd8-1dd5-4b85-9200-0a25b60dd607",
+          "computedSellPerUnit": 2.841666,
+          "requiredSellPerUnit": 3.051666,
+          "contributionCostPerUnit": 1.90075,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 4200
+        }
+      ]
+    },
+    {
+      "skuId": "a644385d-c9db-49a2-beec-9f32bc5a5d4a",
+      "skuLabel": "",
+      "productName": "75ml Aluminum Wax Stick",
+      "skuRole": "leaf",
+      "parentSkuId": "40ae472a-6a51-42d1-98c8-5613b4b276f3",
+      "qtyPerParent": 1,
+      "perTier": [
+        {
+          "tierId": "02278df4-f99d-40db-b451-8f3de0a4a873",
+          "computedSellPerUnit": 4.11456,
+          "requiredSellPerUnit": 4.11456,
+          "contributionCostPerUnit": 2.5300000000000002,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 0
+        },
+        {
+          "tierId": "70822854-c25b-4cf8-ac78-a94500f83523",
+          "computedSellPerUnit": 2.832768,
+          "requiredSellPerUnit": 2.832768,
+          "contributionCostPerUnit": 1.687,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 0
+        },
+        {
+          "tierId": "5f07752c-e89b-401f-86bc-a5999d14e8db",
+          "computedSellPerUnit": 2.518842,
+          "requiredSellPerUnit": 2.518842,
+          "contributionCostPerUnit": 1.5295,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 0
+        },
+        {
+          "tierId": "e6300cd8-1dd5-4b85-9200-0a25b60dd607",
+          "computedSellPerUnit": 2.0676659999999996,
+          "requiredSellPerUnit": 2.0676659999999996,
+          "contributionCostPerUnit": 1.3007499999999999,
+          "sellSource": "computed",
+          "embeddedRecoveryTotal": 0
+        }
+      ]
+    }
+  ]
+}
