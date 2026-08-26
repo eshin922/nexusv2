@@ -33,6 +33,7 @@ import {
   belowFloorAuthorizations,
   auditLog,
   firmSettings,
+  hubspotDealsCache,
   freightCustomerArrangesMeta,
   freightCustomsBreaks,
   freightCustomsEntries,
@@ -78,6 +79,7 @@ import {
 } from "@/lib/hubspot";
 import type { HubSpotStage as DealStageInfo } from "@/lib/integrations/hubspot-provider";
 import { isHubspotLinkedDealId } from "@/lib/hubspot-linkage";
+import { composeAddress } from "@/lib/hubspot-customer-identity";
 import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
 import {
   attachGroupedMembership,
@@ -1692,6 +1694,46 @@ export async function sendQuote(
     const sentAt = new Date();
     const daysValid = firm.daysValidDefault ?? null;
 
+    // #431 Step 3 — resolve the customer's identity ONCE, here, and freeze that
+    // one result into both stores below.
+    //
+    // Read from the deal cache rather than HubSpot directly: the cache is what
+    // the draft rendered from, so freezing it means the customer document does
+    // not change between the operator's last look and the send. A live re-read
+    // could differ from what they just approved.
+    //
+    // Contact and role come from the governed selection rule and may be null:
+    // blank is a correct outcome when no contact is explicitly primary and
+    // there is more than one. It renders as absent.
+    const [customerIdentityRow] = project.hubspotDealId
+      ? await db
+          .select({
+            contactName: hubspotDealsCache.customerContactName,
+            contactTitle: hubspotDealsCache.customerContactTitle,
+            line1: hubspotDealsCache.companyAddressLine1,
+            line2: hubspotDealsCache.companyAddressLine2,
+            city: hubspotDealsCache.companyCity,
+            state: hubspotDealsCache.companyState,
+            postalCode: hubspotDealsCache.companyPostalCode,
+            country: hubspotDealsCache.companyCountry,
+          })
+          .from(hubspotDealsCache)
+          .where(eq(hubspotDealsCache.dealId, project.hubspotDealId))
+          .limit(1)
+      : [];
+    const frozenCustomerContact = customerIdentityRow?.contactName ?? null;
+    const frozenCustomerRole = customerIdentityRow?.contactTitle ?? null;
+    const frozenCustomerAddress = customerIdentityRow
+      ? composeAddress({
+          line1: customerIdentityRow.line1,
+          line2: customerIdentityRow.line2,
+          city: customerIdentityRow.city,
+          state: customerIdentityRow.state,
+          postalCode: customerIdentityRow.postalCode,
+          country: customerIdentityRow.country,
+        })
+      : null;
+
     // Slice 11 Step 6 FU — timezone-safe valid_until derivation.
     // Was: `CURRENT_DATE + N days` (Postgres, session-tz-dependent
     // — Supabase server tz = UTC, so 30 days from UTC date not
@@ -1911,6 +1953,9 @@ export async function sendQuote(
         // sent quote re-read projects.client_name live and could re-render
         // addressed to a different customer after a HubSpot rename.
         customerName: project.clientName ?? null,
+        customerContact: frozenCustomerContact,
+        customerRole: frozenCustomerRole,
+        customerAddress: frozenCustomerAddress,
         pdfLayout: pdfLayoutSnapshot,
         detailLevel: detailLevelSnapshot,
         includeSpecAddendum: includeSpecAddendumSnapshot,
@@ -2107,6 +2152,9 @@ export async function sendQuote(
           // versioned record above would close the defect on paper and leave
           // it open in the document; see 0103 for the time that happened.
           customerNameSnapshot: project.clientName ?? null,
+          customerContactSnapshot: frozenCustomerContact,
+          customerRoleSnapshot: frozenCustomerRole,
+          customerAddressSnapshot: frozenCustomerAddress,
           // Slice 11 Step 4: customer-PDF render axes snapshots
           pdfLayoutSnapshot,
           detailLevelSnapshot,

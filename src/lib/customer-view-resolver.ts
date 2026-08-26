@@ -24,6 +24,7 @@
 import "server-only";
 
 import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
+import { composeAddress } from "@/lib/hubspot-customer-identity";
 import { applyTierVisibility } from "@/lib/customer-tier-visibility";
 import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
 import { findUnbillablePlacements } from "@/lib/commercial-recovery/unbillable-placements";
@@ -33,6 +34,7 @@ import { db } from "@/db";
 import {
   belowFloorAuthorizations,
   firmSettings,
+  hubspotDealsCache,
   presentationProfile,
   presentationProfileTier,
   projects,
@@ -555,6 +557,46 @@ export async function resolveCustomerView(args: {
   // price it has no separate customer-facing line, avoiding double signaling.
   const freightLines: [] = [];
 
+  // #431 Step 2 — the customer's CURRENTLY sourced identity, for drafts.
+  //
+  // Declared here, before the object that reads it: this file has shipped a
+  // temporal-dead-zone bug twice, and the class is invisible to tsc and to the
+  // unit suite.
+  //
+  // Skipped entirely on sent quotes — they read frozen, so the query would be
+  // work whose result is discarded.
+  let sourcedIdentity: { contact: string | null; role: string | null; address: string | null } | null = null;
+  if (!isSent && project.hubspotDealId) {
+    const [cached] = await db
+      .select({
+        contactName: hubspotDealsCache.customerContactName,
+        contactTitle: hubspotDealsCache.customerContactTitle,
+        line1: hubspotDealsCache.companyAddressLine1,
+        line2: hubspotDealsCache.companyAddressLine2,
+        city: hubspotDealsCache.companyCity,
+        state: hubspotDealsCache.companyState,
+        postalCode: hubspotDealsCache.companyPostalCode,
+        country: hubspotDealsCache.companyCountry,
+      })
+      .from(hubspotDealsCache)
+      .where(eq(hubspotDealsCache.dealId, project.hubspotDealId))
+      .limit(1);
+    if (cached) {
+      sourcedIdentity = {
+        contact: cached.contactName,
+        role: cached.contactTitle,
+        address: composeAddress({
+          line1: cached.line1,
+          line2: cached.line2,
+          city: cached.city,
+          state: cached.state,
+          postalCode: cached.postalCode,
+          country: cached.country,
+        }),
+      };
+    }
+  }
+
   const view: CustomerView = {
     vendor,
     customer: {
@@ -575,10 +617,25 @@ export async function resolveCustomerView(args: {
         (isSent ? quote.customerNameSnapshot : null) ??
         project.clientName ??
         "{customer-pending}",
-      contact: null,
-      role: null,
+      // #431 Step 2/3 — same frozen-first rule as the name above. On a draft
+      // these come from the deal cache, sourced from HubSpot; at Finalize they
+      // are frozen; a sent quote reads what was frozen.
+      //
+      // Every one of them may legitimately be null and renders as absent:
+      //   - contact  — blank unless the governed selection rule picked someone
+      //                (explicit primary, or exactly one association). Several
+      //                contacts with no primary stays blank ON PURPOSE.
+      //   - role     — HubSpot's jobtitle, which is frequently empty.
+      //   - address  — the PRIMARY company's governed address.
+      contact: (isSent ? quote.customerContactSnapshot : sourcedIdentity?.contact) ?? null,
+      role: (isSent ? quote.customerRoleSnapshot : sourcedIdentity?.role) ?? null,
+      // The customer's own email is deliberately NOT rendered. PREPARED BY
+      // carries the seller's address so the customer can reply; showing the
+      // customer their own address back adds nothing and puts a personal
+      // address into a document that gets forwarded. It is cached for operator
+      // surfaces, not printed here.
       email: null,
-      address: null,
+      address: (isSent ? quote.customerAddressSnapshot : sourcedIdentity?.address) ?? null,
     },
     quote: {
       quoteNumber,
