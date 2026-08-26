@@ -105,6 +105,13 @@ export function subTabStatus(
 export function subTabSubLabel(
   tab: SubTabDef,
   status: SubTabStatus,
+  /**
+   * The lock tab must not claim a readiness the send cannot honour. Set when a
+   * known identity refusal (product_sku_missing / product_item_unresolved) is
+   * predicted, so the strip reads "blocked" instead of "ready to send".
+   * Advisory — the send guard still decides.
+   */
+  lockBlocked = false,
 ): string {
   // Slice 12 Step 9 CD audit Item 3 — lock-kind tab's post-commit
   // sub-label reads "order placed" instead of the generic "locked".
@@ -134,11 +141,14 @@ export function subTabSubLabel(
   // · irreversible" head + "keep it reversible" cancel copy — the
   // strip pill doesn't need to duplicate it.
   if (status === "done") {
-    return tab.kind === "lock" ? "ready to send" : "done · revisitable";
+    if (tab.kind === "lock") return lockBlocked ? "blocked" : "ready to send";
+    return "done · revisitable";
   }
   if (status === "current") {
     return tab.kind === "lock"
-      ? "ready to send"
+      ? lockBlocked
+        ? "blocked"
+        : "ready to send"
       : tab.kind === "log"
         ? "logging"
         : "in progress";

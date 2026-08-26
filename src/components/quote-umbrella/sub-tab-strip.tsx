@@ -33,6 +33,7 @@ export function SubTabStrip({
   quoteStatus,
   feedCount,
   hasSentHistory,
+  lockBlocked = false,
   onGo,
 }: {
   activeId: SubTabId;
@@ -45,6 +46,9 @@ export function SubTabStrip({
    * draft has neither and Client Review stays 'upcoming'. Derived
    * at the umbrella level from `quoteStatus + latestSupersededSnapshot`. */
   hasSentHistory: boolean;
+  /** A predicted identity refusal on the Sales Order step. Renders the lock
+   * tab as "blocked" so the strip cannot advertise a send that would refuse. */
+  lockBlocked?: boolean;
   onGo: (id: SubTabId) => void;
 }) {
   const children: React.ReactNode[] = [];
@@ -109,7 +113,7 @@ export function SubTabStrip({
               <span className="feedcount">{feedCount}</span>
             )}
           </span>
-          <span className="sub">{subTabSubLabel(tab, status)}</span>
+          <span className="sub">{subTabSubLabel(tab, status, lockBlocked)}</span>
         </span>
       </button>,
     );
