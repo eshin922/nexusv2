@@ -107,6 +107,17 @@ export interface QuoteCellInput {
    */
   sell_node_key?: string | null;
   cost_unit?: number | null;
+  /**
+   * Governed recovery embedded in `sell_unit`, per unit.
+   *
+   * A unit-price charge is added AFTER the pricing ladder, so no lever
+   * multiplies it (Edward, 2026-08-26 — recovery placement is value-invariant).
+   * The lift solver needs it, because `required / sell - 1` assumes the lift
+   * moves the whole cell and lands short by `recovery x lift` when it does not.
+   *
+   * Absent or null means "none", which is the pre-repair behaviour exactly.
+   */
+  recovery_unit?: number | null;
   cost_stack?: CostStackBuckets | null;
   override_applied?: boolean;
   /** A surgical lift staged or applied on this cell. */
@@ -331,6 +342,8 @@ export interface Cell {
   /** See `QuoteCellInput.sell_node_key`. Null when nothing answers for it. */
   sell_node_key: string | null;
   cost_unit: number | null;
+  /** Governed recovery embedded in `sell_unit`, per unit. Mirrors the input. */
+  recovery_unit: number | null;
   cost_stack: CostStackBuckets | null;
   client_target_unit: number | null;
   client_target_delta: number | null;
@@ -572,9 +585,13 @@ export function classify(
       // enough.
       const overrideApplied = cellRaw.override_applied === true;
       const liftApplied = cellRaw.lift_applied_pct ?? null;
+      // The recovery inside this cell is not liftable, so the solve is against
+      // the product portion. Passing it is what keeps the button's promise the
+      // same as the button's act — the OD-023 failure was exactly this gap.
+      const recoveryUnit = cellRaw.recovery_unit ?? 0;
       const liftOffer =
         status === "below_floor"
-          ? liftToClear(sellUnit, costUnit, policy.floor_margin_pct)
+          ? liftToClear(sellUnit, costUnit, policy.floor_margin_pct, recoveryUnit)
           : null;
       const clientTarget = cellRaw.client_target_unit ?? null;
       const clientTargetDelta =
@@ -590,6 +607,7 @@ export function classify(
         sell_unit: sellUnit,
         sell_node_key: cellRaw.sell_node_key ?? null,
         cost_unit: cellRaw.cost_unit ?? null,
+        recovery_unit: cellRaw.recovery_unit ?? null,
         cost_stack: cellRaw.cost_stack ?? null,
         client_target_unit: clientTarget,
         client_target_delta: clientTargetDelta,

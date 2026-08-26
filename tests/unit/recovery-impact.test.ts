@@ -18,6 +18,8 @@ function input(opts: {
   allocate?: boolean;
   elections?: ChargeElection[];
   override?: number;
+  /** Fee amount, so a control can vary the one thing that must move. */
+  setup?: number;
 }): QuoteCostingInput {
   return {
     quote: {
@@ -43,7 +45,7 @@ function input(opts: {
       {
         quoteSkuId: "leaf", tierId: TIER,
         allocateServiceFeesToCost: opts.allocate ?? true,
-        setupFeeTotal: SETUP,
+        setupFeeTotal: opts.setup ?? SETUP,
         toolingArtworkTotal: null, toolingTotal: null, artworkTotal: null,
         rdTotal: null, testingMicrosTotal: null, otherServiceTotal: null,
         fillingBlendingCost: null, cmAssemblyTotal: null, bulkRawCost: null,
@@ -92,15 +94,45 @@ test("the measured before and after are the engine's own totals", () => {
   );
 });
 
-test("electing on a legacy-allocated quote MOVES the total, by the ladder", () => {
+test("INVERSE REGRESSION · electing on a legacy-allocated quote moves NOTHING", () => {
+  // ── THIS TEST USED TO ASSERT THE OPPOSITE, AND WAS RIGHT TO ─────────────
+  //
+  // It read "electing on a legacy-allocated quote MOVES the total, by the
+  // ladder", and asserted the movement was exactly `recovery x 0.20` — the
+  // quote adjustment reaching a legacy charge that an elected one escaped. That
+  // was a faithful description of the engine, and the engine's own comments
+  // named the asymmetry and deferred the question to Edward explicitly.
+  //
+  // He settled it on 2026-08-26: recovery placement is value-invariant, and a
+  // price lever must not reach the recovery amount merely because it is
+  // embedded. So the assertion is inverted rather than deleted — the movement
+  // it measured is precisely what must no longer happen, and a deleted test
+  // would leave nothing watching the boundary it was standing on.
+  //
+  // Soak run 2 is what made this concrete: an operator's FIRST election moved a
+  // live customer total by $28.05.
   const m = measureRecoveryImpact(input({ allocate: true }), "project_setup", "included")!;
-  assert.notEqual(m.customerTotalAfter, m.customerTotalBefore);
-  // The legacy charge was marked up by the 20% adjustment; the elected one is
-  // not. So the movement is exactly the adjustment on the recovery.
-  assert.equal(r2(m.customerTotalBefore - m.customerTotalAfter), r2(SETUP * RATE * 0.2));
+  assert.equal(
+    r2(m.customerTotalAfter),
+    r2(m.customerTotalBefore),
+    "electing a legacy charge moved the customer total",
+  );
+
+  // The governed amount is unchanged by any of this — it was never the thing
+  // in dispute. What changed is that nothing multiplies it any more.
   assert.equal(m.governedRecovery, SETUP * RATE);
   assert.equal(m.perUnit, (SETUP * RATE) / 1000);
   assert.equal(m.tierQuantity, 1000);
+
+  // NON-VACUITY. The old test proved its instrument could see a movement by
+  // seeing one. This one asserts equality, so it needs the opposite proof: the
+  // same measurement on the same path DOES move when something real changes.
+  const dearer = measureRecoveryImpact(
+    input({ allocate: true, setup: SETUP * 2 }),
+    "project_setup",
+    "included",
+  )!;
+  assert.notEqual(cents(dearer.customerTotalBefore), cents(m.customerTotalBefore));
 });
 
 test("relocating between two ELECTED contracts moves nothing", () => {
@@ -133,13 +165,22 @@ test("relocating between two ELECTED contracts moves nothing", () => {
   assert.equal(m.governedRecovery, other.governedRecovery);
   assert.equal(m.governedRecovery, SETUP * RATE);
 
-  // Non-vacuous: the same measurement DOES move on the legacy comparison, so
-  // cent-rounding is not simply hiding everything.
-  const legacy = measureRecoveryImpact(input({ allocate: true }), "project_setup", "included")!;
-  assert.notEqual(
-    cents(legacy.customerTotalAfter),
-    cents(legacy.customerTotalBefore),
-  );
+  // NON-VACUITY, REWRITTEN. This used to point at the legacy comparison and
+  // assert that IT moved — a fair guard while legacy recovery rode the pricing
+  // ladder and elected recovery did not. Value-invariance removed that
+  // difference deliberately (Edward, 2026-08-26), so the old guard now asserts
+  // the very defect the repair fixed.
+  //
+  // The guard still has to exist, or cent-rounding could be hiding everything
+  // and nothing here would say so. Rearmed against a movement that IS real: a
+  // larger fee recovers more, whatever its placement.
+  const dearer = measureRecoveryImpact(
+    input({ allocate: true, elections: [{ chargeKey: "project_setup", mode: "included" }], setup: SETUP * 2 }),
+    "project_setup",
+    "separate",
+  )!;
+  assert.notEqual(cents(dearer.customerTotalBefore), cents(m.customerTotalBefore));
+  assert.equal(dearer.governedRecovery, SETUP * 2 * RATE);
 });
 
 test("clearing back to legacy restores the legacy total exactly", () => {

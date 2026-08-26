@@ -278,6 +278,17 @@ export type ConstructedCommercialState = {
   unitPriceCostElected: number;
   /** Elected unit-price recovery — placed WITHOUT the price adjustment. */
   unitPriceRecoveryElected: number | null;
+  /**
+   * LEGACY unit-price recovery — the part that is inside the production
+   * section already, having entered as cost and been marked up with it.
+   *
+   * The engine needs the two apart for the same reason the COST split above
+   * exists, and now for a second one: value-invariance holds the recovery out
+   * of the pricing levers, and only the part that is IN the ladder basis can
+   * be taken out of it. Subtracting the elected part too would remove an
+   * amount that was never there.
+   */
+  unitPriceRecoveryLegacy: number | null;
 };
 
 export const PLACEMENT_BY_MODE = {
@@ -387,6 +398,7 @@ function totalsOf(charges: PlacedCharge[]): ConstructedCommercialState {
     unitPriceCostLegacy: costInBySource("unit_price", "legacy"),
     unitPriceCostElected: costInBySource("unit_price", "election"),
     unitPriceRecoveryElected: recoveryInBySource("unit_price", "election"),
+    unitPriceRecoveryLegacy: recoveryInBySource("unit_price", "legacy"),
   };
 }
 

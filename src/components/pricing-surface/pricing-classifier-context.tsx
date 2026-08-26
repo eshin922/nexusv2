@@ -436,6 +436,10 @@ function buildClassifierInputs({
   // across renders so React keys stay valid.
   const numericToUuid = new Map<number, string>();
   const uuidToNumeric = new Map<string, number>();
+  // Quoted tier quantity, for turning the engine's embedded-recovery TOTAL
+  // into the per-unit figure the lift solver works in. Built from the same
+  // rollup the tier rows read, so there is one answer to "how many units".
+  const tierQtyById = new Map<string, number>();
   /**
    * The engine's margin vocabulary, in the classifier's.
    *
@@ -471,6 +475,7 @@ function buildClassifierInputs({
     numericToUuid.set(numeric, t.id);
     uuidToNumeric.set(t.id, numeric);
     const rollup = quoteRollup.find((q) => q.tierId === t.id);
+    tierQtyById.set(t.id, rollup?.qty ?? 0);
     // BV-010 — the blended margin and its verdict are the ENGINE's, forwarded
     // rather than re-derived. Same move as `isMissing`, `competitive_status`
     // and the quote-level blend before it: the classifier used to compute a
@@ -509,6 +514,7 @@ function buildClassifierInputs({
         sell_node_key: string | null;
         client_target_unit: number | null;
         cost_unit: number | null;
+        recovery_unit: number | null;
         lift_applied_pct: number | null;
         override_applied: boolean;
         no_margin_reason: "unpriced" | "cost_without_revenue" | null;
@@ -558,6 +564,16 @@ function buildClassifierInputs({
           // target — it does not stand in for the row's.
           client_target_unit: cellTargetLookup(sr.skuId, pt.tierId),
           cost_unit: isMissing ? null : pt.contributionCostPerUnit,
+          // PER UNIT, from the engine's own `embeddedRecoveryTotal` rather
+          // than re-derived. NULL there is a real answer — an override
+          // discards the rungs beneath it, and an unknown recovery makes the
+          // total unknown — and both resolve to "no liftable-basis correction"
+          // here, which is the pre-repair solve. An overridden cell blocks
+          // lifts anyway.
+          recovery_unit:
+            isMissing || pt.embeddedRecoveryTotal == null || !(tierQtyById.get(pt.tierId)! > 0)
+              ? null
+              : pt.embeddedRecoveryTotal / tierQtyById.get(pt.tierId)!,
           override_applied: pt.sellSource === "cell_override",
           // The APPLIED lift, read from the graph.
           //
