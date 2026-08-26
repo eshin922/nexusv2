@@ -176,3 +176,46 @@ test("both paths diff against the SAME stored set", async () => {
   assert.match(ctx, /stored: Map<string, string>/);
   assert.match(ctx, /\.from\(quoteChargeRecovery\)/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// A SECOND ELECTION COMPOSES ONTO THE FIRST
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Found on the production walk. `proposed.current` was recorded only AFTER the
+// evaluation returned, so a click arriving while the first was still in flight
+// read the ROWS instead — which still showed the pre-election state — and its
+// proposal silently dropped the earlier election.
+//
+// Measured: electing Artwork & plate and then Other service 250ms apart left
+// `artwork_plate` unchanged in the database. The evaluation takes seconds, so
+// that window is not a race an operator has to be quick to hit; it is most of
+// the interaction.
+
+test("the proposal is recorded BEFORE the evaluation is awaited", async () => {
+  const src = codeOnly(await read(DRAFT));
+  const propose = src.slice(src.indexOf("const propose ="), src.indexOf("const flush ="));
+  const recordedAt = propose.indexOf("proposed.current = next");
+  const awaitedAt = propose.indexOf("await evaluateChargeRecovery");
+  assert.ok(recordedAt > 0 && awaitedAt > 0);
+  assert.ok(
+    recordedAt < awaitedAt,
+    "a second click must compose onto the first, not onto the stored rows",
+  );
+});
+
+test("a refused election rolls back, and does not clobber a newer one", async () => {
+  const src = codeOnly(await read(DRAFT));
+  assert.match(src, /if \(proposed\.current === next\) \{[\s\S]{0,200}proposed\.current = previous/);
+});
+
+test("a stale evaluation cannot overwrite a newer answer", async () => {
+  // Two evaluations in flight return in an order nobody controls. The older
+  // one's projection must not land on top of the newer one's.
+  const src = codeOnly(await read(DRAFT));
+  assert.match(src, /if \(proposed\.current !== next\) return null;/);
+  const propose = src.slice(src.indexOf("const propose ="), src.indexOf("const flush ="));
+  assert.ok(
+    propose.indexOf("proposed.current !== next") < propose.indexOf("onAuthoritative(res.data)"),
+    "the staleness check must precede the render",
+  );
+});
