@@ -441,6 +441,14 @@
   letter-spacing: 0.03em; margin-top: 3px; line-height: 1.5;
 }
 .r8-push.error .s { color: oklch(from var(--bad) calc(l - 0.06) c h); }
+/* A `warn` peer of `ok` / `error`, for a condition that is REAL and does not
+   stop the act in front of the operator. `deal_already_ordered` at Acceptance
+   is the case it exists for: the acceptance is legitimate and permitted; it is
+   the Sales Order downstream that the governed one-deal-one-order rule
+   forbids. Painting that as `error` here would refuse an act nothing refuses. */
+.r8-push.warn  { background: var(--warn-soft); border-color: oklch(from var(--warn) l c h / 0.45); }
+.r8-push.warn  .mark { background: var(--warn); color: var(--paper); }
+.r8-push.warn  .s { color: oklch(from var(--warn) calc(l - 0.10) c h); }
 .r8-push .acts { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
 
 /* Rollback affordance (Mark Accepted is reversible) */

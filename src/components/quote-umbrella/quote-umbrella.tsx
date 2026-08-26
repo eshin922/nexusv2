@@ -35,6 +35,7 @@ import type { VersionRow } from "@/lib/quote-version-chain";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
 import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
+import type { DealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
@@ -65,6 +66,7 @@ export function QuoteUmbrella({
   netsuiteStatusOnPush,
   salesOrderPreflight,
   identityReadiness,
+  dealOrderReadiness,
   soPushMirror,
   showStateSwitcher,
   recoveryInstructions,
@@ -166,6 +168,7 @@ export function QuoteUmbrella({
   /** Predicts the two identity refusals so step 5 cannot claim readiness it
    * does not have. Advisory: buildFrozenSalesOrder remains the guard. */
   identityReadiness: IdentityReadiness | null;
+  dealOrderReadiness: DealOrderReadiness | null;
   /** Slice 12 Step 8c-4 — quote row's mirror of the last SO push.
    * Populated on success (freeze-tx) OR failure (STEP 7 catch).
    * Drives the record vs failed variant selection on the Sales
@@ -391,6 +394,7 @@ export function QuoteUmbrella({
               prefillSourceAt={acceptancePrefill?.createdAt ?? null}
               hubspotAcceptStageLabel={hubspotAcceptStageLabel}
               hubspotAcceptSyncSuppressed={hubspotAcceptSyncSuppressed}
+              dealOrderReadiness={dealOrderReadiness}
               onGo={onGo}
             />
           )}
@@ -410,6 +414,7 @@ export function QuoteUmbrella({
               netsuiteStatusOnPush={netsuiteStatusOnPush}
               salesOrderPreflight={salesOrderPreflight}
               identityReadiness={identityReadiness}
+              dealOrderReadiness={dealOrderReadiness}
               soPushMirror={soPushMirror}
               /* Slice 12 Step 8c-4 — hard-guard the Sales Order dev
                  switcher on VERCEL_ENV !== 'production' (via
