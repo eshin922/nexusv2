@@ -442,7 +442,7 @@ function TierColumn({
               // this shows on the three tiers that have quantity but no
               // revenue.
               status={
-                marginStatus === "UNAVAILABLE"
+                marginStatus === "UNAVAILABLE" || marginStatus === "UNRESOLVED"
                   ? "incomplete"
                   : marginStatus === "COST_WITHOUT_REVENUE"
                     ? "cost_no_revenue"

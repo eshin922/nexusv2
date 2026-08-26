@@ -249,7 +249,10 @@ test("UNAVAILABLE never takes the failing register", () => {
   const checks: Array<[string, RegExp, string]> = [
     [
       "src/components/costs/cost-stack-header.tsx",
-      /marginStatus === "UNAVAILABLE"\s*\n?\s*\?\s*"incomplete"/,
+      // Tolerates the condition being WIDENED to route other non-band members
+      // to the same register — UNRESOLVED joined it — while still requiring
+      // that UNAVAILABLE itself reaches "incomplete" rather than the bad branch.
+      /marginStatus === "UNAVAILABLE"[^?]*\?\s*"incomplete"/,
       "the Costs header must route UNAVAILABLE to the incomplete register",
     ],
     [

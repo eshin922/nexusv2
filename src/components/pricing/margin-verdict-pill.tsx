@@ -45,6 +45,10 @@ const STATUS_TONE: Record<QuoteMarginStatus, string> = {
   // `bad` tone, because a cost with no revenue against it is bad news. The
   // LABEL is what must not lie — see below.
   COST_WITHOUT_REVENUE: "bad",
+  // `warn`, not `bad`. The quote is not failing a margin test -- it is not
+  // in a state where the test means anything. Red would assert a verdict that
+  // was never reached; neutral would understate a quote that cannot be sent.
+  UNRESOLVED: "warn",
 };
 const STATUS_LABEL: Record<QuoteMarginStatus, string> = {
   GOOD: "GOOD",
@@ -55,6 +59,10 @@ const STATUS_LABEL: Record<QuoteMarginStatus, string> = {
   // against the floor; here no margin exists to compare. This says what is
   // actually true, which is arguably worse news and certainly clearer.
   COST_WITHOUT_REVENUE: "COST, NO REVENUE",
+  // Never a band. A band would say the margin was measured against the floor
+  // and placed; here it was measured over revenue the customer is not billed,
+  // so the number exists and describes a quote that cannot be sent.
+  UNRESOLVED: "UNRESOLVED",
 };
 
 export function MarginVerdictPill({

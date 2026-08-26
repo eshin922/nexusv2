@@ -918,13 +918,27 @@ export type MarginBand = "GOOD" | "BELOW_TARGET" | "BELOW_FLOOR";
  * the floor and lost, and no such comparison happened. Neither existing member
  * can carry it, which is why it is its own.
  *
- * Consumers tallying by band must exclude BOTH, and must not treat them as
- * interchangeable when deciding whether to permit an action.
+ * - **`UNRESOLVED`** — the percentage IS defined and the arithmetic is sound,
+ *   but the BASIS is not: the quote carries recovery placed where the customer
+ *   document cannot bill it, so `totalRevenue` includes money nobody will pay
+ *   and any band taken over it describes a quote that does not exist in
+ *   sendable form.
+ *
+ *   Distinct from the two above on purpose. They say *no ratio can be
+ *   computed*; this says *a ratio was computed over the wrong revenue*.
+ *   Folding it into either would assert something false about the arithmetic.
+ *   It is a VERDICT state, never a governed band: see `marginVerdict` on the
+ *   summary, and note that `blendedMarginStatus` deliberately keeps reporting
+ *   the band so every gate behaves exactly as before.
+ *
+ * Consumers tallying by band must exclude ALL non-band members, and must not
+ * treat them as interchangeable when deciding whether to permit an action.
  */
 export type QuoteMarginStatus =
   | MarginBand
   | "UNAVAILABLE"
-  | "COST_WITHOUT_REVENUE";
+  | "COST_WITHOUT_REVENUE"
+  | "UNRESOLVED";
 
 /**
  * The verdict for a zero-revenue position. Never called with revenue > 0.
@@ -962,6 +976,16 @@ export type QuotePerTierRollup = {
   blendedMarginPct: number | null;
   /** `UNAVAILABLE` when the margin is null. `computeStatus` is not called. */
   blendedMarginStatus: QuoteMarginStatus;
+  /**
+   * What the OPERATOR is shown for this tier. See the quote-level
+   * `marginVerdict` for why this is a second field and not a second
+   * authority: the band above is what GATES read and is unchanged.
+   *
+   * Quote-scoped, not tier-scoped, on purpose. One unbillable placement makes
+   * the whole quote unsendable, so a sibling tier that happens to carry none
+   * must not read GOOD beside it.
+   */
+  marginVerdict: QuoteMarginStatus;
   suggestedGlobalAdjPct: number | null;
 };
 
@@ -1004,6 +1028,34 @@ export type QuoteSummary = {
    * asserted in `tests/unit/quote-margin-undefined.test.ts`.
    */
   blendedMarginStatus: QuoteMarginStatus;
+  /**
+   * What the OPERATOR is told — as opposed to which band the arithmetic lands
+   * in, which is `blendedMarginStatus` above.
+   *
+   * Equal to `blendedMarginStatus` in every case but one: when the quote
+   * carries recovery placed where the customer document cannot bill it, this
+   * reads `UNRESOLVED` while the band above keeps reporting what it always
+   * reported.
+   *
+   * TWO FIELDS ON PURPOSE, and not two authorities on one fact — they answer
+   * different questions:
+   *
+   *   blendedMarginStatus   which band does the arithmetic land in
+   *                         READ BY GATES. Unchanged by this, so the send gate,
+   *                         the below-floor authorization path and the
+   *                         acceptance guard behave exactly as before. Flipping
+   *                         it would have made a BELOW_FLOOR quote carrying an
+   *                         unbillable placement stop reading as below floor —
+   *                         weakening the very guard that catches it.
+   *
+   *   marginVerdict         what an operator should be shown
+   *                         READ BY THE PRICING VERDICT. A band here would
+   *                         invite action on a quote that cannot be sent.
+   *
+   * That they differ ONLY in the unbillable case is asserted, not assumed:
+   * `tests/unit/margin-verdict-unresolved.test.ts`.
+   */
+  marginVerdict: QuoteMarginStatus;
   effectiveTargetMarginPct: number; // quote override or firm default
   // System-suggested GPA. null in degenerate cases (already at goal,
   // overridden tiers exceed goal, all tiers overridden, out of
@@ -3939,6 +3991,17 @@ export function computeQuoteCosting(input: QuoteCostingInput,
 
   // Quote-level rollup: sum across top-level (parent IS NULL) SKUs only.
   const topLevel = childrenByParent.get(null) ?? [];
+
+  /**
+   * Does this quote carry recovery the customer document cannot bill?
+   *
+   * Set from the SAME per-charge test the graph uses to split billable from
+   * unbillable operands, so the verdict and the "Not billable" band cannot
+   * disagree about which charges qualify. A second detection pass would be a
+   * second authority on it.
+   */
+  let carriesUnbillableRecovery = false;
+
   const quoteRollup: QuotePerTierRollup[] = tiers.map((tier) => {
     // OWNERSHIP 6 of 6 — per-product contributions are collected as node
     // operands and the totals are read from the resulting sum nodes.
@@ -4017,6 +4080,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         if (ch.placement !== "separate_line") continue;
         const amount = ch.separateInvoiceAmount ?? 0;
         if (amount === 0) continue;
+        if (isUnbillablePlacement(ch)) carriesUnbillableRecovery = true;
         const target = isUnbillablePlacement(ch)
           ? unbillableChargeOperands
           : separateChargeOperands;
@@ -4540,9 +4604,24 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       costBreakdown: breakdown,
       blendedMarginPct: marginPct,
       blendedMarginStatus: status,
+      // Placeholder. Overwritten below once the whole map has run and the
+      // unbillable flag is final -- assigning the real value here would read
+      // a flag that later tiers have not yet had the chance to set.
+      marginVerdict: status,
       suggestedGlobalAdjPct: suggested,
     };
   });
+
+  // One unbillable placement makes the WHOLE quote unsendable, so every tier
+  // says so. A sibling tier reading GOOD beside an unresolved one would invite
+  // exactly the action the verdict exists to prevent.
+  //
+  // The band (`blendedMarginStatus`) is deliberately untouched: gates read it,
+  // and a BELOW_FLOOR tier must keep reading BELOW_FLOOR to the send gate even
+  // while the operator is shown UNRESOLVED.
+  if (carriesUnbillableRecovery) {
+    for (const r of quoteRollup) r.marginVerdict = "UNRESOLVED";
+  }
 
   // Slice 9.3 — quote-wide blended verdict + system-suggested GPA.
   // Sums across all top-level SKUs/tiers, then partitions cells into
@@ -5237,6 +5316,8 @@ export function computeQuoteCosting(input: QuoteCostingInput,
     blendedCost,
     blendedMarginPct,
     blendedMarginStatus: blendedStatus,
+    // The band stays the band; only what the OPERATOR is shown changes.
+    marginVerdict: carriesUnbillableRecovery ? "UNRESOLVED" : blendedStatus,
     effectiveTargetMarginPct: effectiveTarget,
     suggestedAdj: quoteSuggestedAdj,
     suggestionGoal,

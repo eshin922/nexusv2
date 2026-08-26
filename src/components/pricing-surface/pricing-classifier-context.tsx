@@ -456,6 +456,10 @@ function buildClassifierInputs({
         return "below_floor";
       // Neither no-margin state is a band. Both resolve to `unknown`, and the
       // distinction between them is carried in `blended_no_margin_reason`.
+      // Not a band either, and for a third reason: the ratio exists but was
+      // taken over revenue the document cannot bill. `unknown` is right here --
+      // classifying it into any band would let the surface act on it.
+      case "UNRESOLVED":
       case "UNAVAILABLE":
       case "COST_WITHOUT_REVENUE":
       case undefined:
@@ -480,7 +484,11 @@ function buildClassifierInputs({
       id: numeric,
       qty: rollup?.qty ?? 0,
       blended_margin_pct: rollup?.blendedMarginPct ?? null,
-      blended_status: toCellStatus(rollup?.blendedMarginStatus),
+      // The OPERATOR-facing verdict, not the governed band. They differ only
+      // when the quote carries recovery the document cannot bill, and there a
+      // band would invite action on a quote that cannot be sent. Gates keep
+      // reading `blendedMarginStatus`, which is unchanged.
+      blended_status: toCellStatus(rollup?.marginVerdict),
       blended_no_margin_reason:
         rollup?.blendedMarginStatus === "COST_WITHOUT_REVENUE"
           ? "cost_without_revenue"
