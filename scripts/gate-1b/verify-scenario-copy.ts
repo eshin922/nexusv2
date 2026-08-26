@@ -43,6 +43,7 @@ import {
   quoteTiers,
   assemblies,
   quoteChargeRecovery,
+  quoteLeafLifts,
 } from "@/db/schema";
 import type { QuoteCostingResult } from "@/lib/costing";
 
@@ -512,6 +513,117 @@ async function main() {
   claim(
     (await readElections(noElectionCopy)).length === 0,
     "a copy of an unelected source invents no elections",
+  );
+
+  // ── Phase 2c · applied surgical lifts ─────────────────────────────────────
+  //
+  // A lift is a price the operator decided, so it is commercial state and the
+  // contract at the top of this file governs it: cost / sell / revenue /
+  // margin must match immediately after the copy.
+  //
+  // THE FIXTURE IS BUILT TO BE FLOOR-COMPLIANT ONLY BECAUSE OF ITS LIFTS,
+  // which is the shape soak run 3 met on a live quote — source at 25.001% and
+  // sendable, copy at 23.639% and below the floor. A fixture that cleared the
+  // floor anyway would assert the copy is equivalent while being unable to
+  // notice the one consequence that matters.
+  console.log("\nPhase 2c · applied surgical lifts");
+  const liftHost = await copyOf(SOURCE_ID, "ZZ-VALIDATION-copy-lift-src");
+
+  const liftableCells = await db
+    .select({ quoteLeafId: quoteLeaves.id, tierId: quoteTiers.id })
+    .from(quoteLeaves)
+    .innerJoin(quoteTiers, eq(quoteTiers.quoteId, quoteLeaves.quoteId))
+    .where(eq(quoteLeaves.quoteId, liftHost));
+
+  // A lift big enough that its absence is unmistakable in the economics.
+  const LIFT = "0.1500";
+  await db.insert(quoteLeafLifts).values(
+    liftableCells.map((c) => ({
+      quoteLeafId: c.quoteLeafId,
+      tierId: c.tierId,
+      liftPct: LIFT,
+    })),
+  );
+
+  const liftedBefore = await economics(liftHost);
+  const liftCopy = await copyOf(liftHost, "ZZ-VALIDATION-copy-lift-dst");
+
+  const readLifts = async (quoteId: string) =>
+    (
+      await db
+        .select({ liftPct: quoteLeafLifts.liftPct })
+        .from(quoteLeafLifts)
+        .innerJoin(quoteLeaves, eq(quoteLeaves.id, quoteLeafLifts.quoteLeafId))
+        .where(eq(quoteLeaves.quoteId, quoteId))
+    ).map((r) => r.liftPct).sort();
+
+  const srcLifts = await readLifts(liftHost);
+  const dstLifts = await readLifts(liftCopy);
+
+  claim(srcLifts.length > 0, "control: the source carries lifts at all", `${srcLifts.length}`);
+  claim(
+    dstLifts.length === srcLifts.length,
+    "the copy carries the same NUMBER of applied lifts",
+    `${srcLifts.length} → ${dstLifts.length}`,
+  );
+  claim(
+    JSON.stringify(srcLifts) === JSON.stringify(dstLifts),
+    "every lift percentage is preserved exactly",
+    dstLifts.join(", "),
+  );
+
+  // The claim that matters, and the one the run-3 finding was: not that some
+  // rows exist, but that the MONEY is unchanged.
+  //
+  // AT THE TIER, which is the contract's own unit — "cost / sell / revenue /
+  // margin must match at every tier". Deliberately not the whole numeric
+  // multiset: a copy redistributes per-leaf PRODUCTION attribution between
+  // sibling leaves of one assembly, because production is per-assembly and the
+  // engine attaches it to the lowest-positioned child (the documented
+  // anchor-leaf coercion). The tier total is identical either way, and a
+  // probe with no lifts at all reproduces the redistribution — so it is
+  // pre-existing and independent of lifts. Logged as its own finding rather
+  // than folded in here, where it would make this claim fail for a reason it
+  // is not about.
+  const liftedAfter = await economics(liftCopy);
+  // WITHOUT `tierId`. A copy mints new tier rows, so the ids MUST differ —
+  // comparing them would assert the copy is not a copy. The claim is about the
+  // money on each tier, in order, which is what remains.
+  //
+  // Compared through `isNoise`, the same 1e-9 RELATIVE tolerance the rest of
+  // this file uses and for the reason its header already gives: the two sides
+  // accumulate the same addends in a different row order, and IEEE-754
+  // addition is not associative. 88781.92339999999 against 88781.9234 is a
+  // property of summation order, not of the contract.
+  const tierMoney = (c: Costing) =>
+    tierEconomics(c).map(({ tierId: _drop, ...rest }) => rest);
+  const sameTiers = (a: ReturnType<typeof tierMoney>, b: ReturnType<typeof tierMoney>) =>
+    a.length === b.length &&
+    a.every((t, i) =>
+      t.label === b[i].label &&
+      isNoise(t.revenue, b[i].revenue) &&
+      isNoise(t.cost, b[i].cost) &&
+      isNoise(t.margin ?? 0, b[i].margin ?? 0) &&
+      isNoise(t.resummedRevenue, b[i].resummedRevenue) &&
+      isNoise(t.resummedCost, b[i].resummedCost));
+  const beforeTiers = tierMoney(liftedBefore.costing);
+  const afterTiers = tierMoney(liftedAfter.costing);
+  claim(
+    sameTiers(beforeTiers, afterTiers),
+    "a lifted quote copies with its tier economics intact",
+    sameTiers(beforeTiers, afterTiers)
+      ? "revenue, cost and margin identical at every tier"
+      : `${JSON.stringify(beforeTiers)} vs ${JSON.stringify(afterTiers)}`,
+  );
+
+  // NON-VACUITY. The comparison above must be able to see a difference — the
+  // same instrument, on a copy taken BEFORE the lifts existed, must move.
+  const unliftedCopy = await copyOf(SOURCE_ID, "ZZ-VALIDATION-copy-lift-none");
+  const unliftedTiers = tierMoney((await economics(unliftedCopy)).costing);
+  claim(
+    !sameTiers(beforeTiers, unliftedTiers),
+    "control: an UNLIFTED copy of the same source DOES move the tier economics",
+    sameTiers(beforeTiers, unliftedTiers) ? "identical — the fixture cannot express the failure" : "tier revenue/margin differ",
   );
 
   // ── Phase 3 · rollback ────────────────────────────────────────────────────
