@@ -28,7 +28,7 @@ const PDF = "src/components/pdf/customer-pdf-grand-total-row.tsx";
 test("both renderers show the same two components", async () => {
   const html = codeOnly(await read(HTML));
   const pdf = codeOnly(await read(PDF));
-  for (const label of ["Unit-price subtotal", "Separate charges"]) {
+  for (const label of ["Unit-price subtotal", "One-time fees"]) {
     assert.ok(html.includes(label), `the live document must show "${label}"`);
     assert.ok(pdf.includes(label), `the PDF must show "${label}"`);
   }

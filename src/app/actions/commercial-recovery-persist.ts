@@ -78,12 +78,6 @@ export async function persistChargeRecoverySet(input: {
       return { chargeKey: key, mode: e.mode as RecoveryMode };
     });
 
-    // The evaluator refused these too. Applied AGAIN here because the surface
-    // is not the boundary: a set arriving from a replayed action id or a stale
-    // tab has been through no evaluation at all.
-    const ctx = await loadElectionContext(quoteId);
-    for (const e of requested) assertElectionAllowed(e.chargeKey, e.mode, ctx);
-
     const prior = await db
       .select({
         chargeKey: quoteChargeRecovery.chargeKey,
@@ -93,8 +87,19 @@ export async function persistChargeRecoverySet(input: {
       .where(eq(quoteChargeRecovery.quoteId, quoteId));
     const priorByKey = new Map(prior.map((p) => [p.chargeKey, p.mode]));
 
+    // Applied here as well as in the evaluator, because the surface is not the
+    // boundary: a set arriving from a replayed action id or a stale tab has
+    // been through no evaluation at all.
+    //
+    // Only for charges that CHANGE, matching the evaluator exactly. Testing an
+    // unchanged stored election would refuse a save because of a state the
+    // operator is not touching — and would make a quote carrying one refused
+    // election permanently unsaveable.
+    const ctx = await loadElectionContext(quoteId);
+
     for (const { chargeKey, mode } of requested) {
       if (priorByKey.get(chargeKey) === mode) continue;
+      assertElectionAllowed(chargeKey, mode, ctx);
       await db
         .insert(quoteChargeRecovery)
         .values({ quoteId, chargeKey, mode, electedByUserId: user.id })
