@@ -35,6 +35,7 @@ import {
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { FrozenRecoveryInstruction } from "@/lib/commercial-recovery/frozen-instruction";
 import { chargePolicy } from "@/lib/commercial-recovery/registry";
+import type { RecoveryDraftState } from "./use-recovery-draft";
 import {
   summariseUnbillablePlacements,
   type UnbillablePlacement,
@@ -79,7 +80,9 @@ export function CustomerViewRail({
   belowFloor,
   unbillableRecovery,
   accountingInstruction,
-  onAuthoritative,
+  onPropose,
+  draftState,
+  flushElections,
 }: {
   quoteId: string;
   quoteStatus: string;
@@ -111,7 +114,10 @@ export function CustomerViewRail({
   unbillableRecovery: UnbillablePlacement[];
   /** Internal, never printed. See the resolver's note on why it is not on the view. */
   accountingInstruction: string | null;
-  onAuthoritative?: (p: AuthoritativeProjection) => void;
+  onPropose: (chargeKey: string, mode: string | null) => Promise<string | null>;
+  /** Whether the elections on screen are stored. See `use-recovery-draft`. */
+  draftState: RecoveryDraftState;
+  flushElections: () => Promise<boolean>;
 }) {
   const isDraft = quoteStatus === "draft";
 
@@ -283,7 +289,7 @@ export function CustomerViewRail({
 
         {/* ── Card 1 · commercial recovery ───────────────────────────── */}
         <CardCommercialRecovery
-          onAuthoritative={onAuthoritative}
+          onPropose={onPropose}
           quoteId={quoteId}
           rows={recoveryRows}
           rollups={rollups}
@@ -382,6 +388,21 @@ export function CustomerViewRail({
           {/* Led with, when present. An unbillable placement is a defect in what
               the quote CHARGES, not a policy step an operator can approve, and
               it must not sit below two ticks reading as ready. */}
+          {/* Evaluated and not yet stored. `saving` is transient and says so
+              quietly; `unsaved` is a failed write and must read as a problem,
+              because everything downstream of an election runs against what is
+              STORED. Collapsing the two would make half a second look like a
+              write that will never land. */}
+          {draftState.status !== "clean" && (
+            <div className="cv-check">
+              <span className="cv-mark" data-ok={draftState.status === "unsaved" ? "no" : "yes"}>
+                {draftState.status === "unsaved" ? "!" : "…"}
+              </span>
+              {draftState.status === "unsaved"
+                ? draftState.message + " Nothing can be sent until it saves."
+                : "Saving your recovery elections…"}
+            </div>
+          )}
           {unbillable.map((line) => (
             <div className="cv-check" key={line}>
               <span className="cv-mark" data-ok="no">!</span>
@@ -426,6 +447,7 @@ export function CustomerViewRail({
             It is now called that. */}
         <FinalizeQuoteButton
           quoteId={quoteId}
+          flushElections={flushElections}
           // Refused when the quote is already frozen, when a below-floor tier
           // is unauthorized, or when the deal has no HubSpot link. The floor
           // condition PREDICTS `sendQuote`'s own refusal from the same shared
@@ -437,13 +459,19 @@ export function CustomerViewRail({
           // clicking - and on the one quote carrying this state, clicking
           // reached an unrelated Costs refusal first and taught them nothing
           // about it.
-          disabled={!isDraft || hasUnbillable || blocked}
+          disabled={!isDraft || draftState.status === "unsaved" || hasUnbillable || blocked}
           dataState={
-            !isDraft ? "frozen" : hasUnbillable ? "blocked" : blocked ? "blocked" : "ready"
+            !isDraft
+              ? "frozen"
+              : draftState.status === "unsaved" || hasUnbillable || blocked
+                ? "blocked"
+                : "ready"
           }
           title={
             !isDraft
               ? "This quote is already frozen. Revise it to start a new version."
+              : draftState.status === "unsaved"
+              ? "Your recovery elections have not been saved. See the check above."
               : hasUnbillable
                 ? "Recovery is placed where this quote cannot bill it. See the check above."
                 : blocked
@@ -453,6 +481,8 @@ export function CustomerViewRail({
           label={
             !isDraft
               ? "Frozen - start v2"
+              : draftState.status === "unsaved"
+              ? "Elections not saved"
               : hasUnbillable
                 ? "Resolve recovery placement"
                 : blocked

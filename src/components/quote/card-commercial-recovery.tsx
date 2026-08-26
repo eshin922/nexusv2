@@ -58,7 +58,6 @@
  */
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { setChargeRecovery } from "@/app/actions/commercial-recovery";
 import type { AuthoritativeProjection } from "./authoritative-projection";
 import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
 import type { RecoveryMode } from "@/lib/commercial-recovery/registry";
@@ -91,7 +90,7 @@ function marginState(
 export function CardCommercialRecovery({
   quoteId,
   rows,
-  onAuthoritative,
+  onPropose,
   rollups,
   shownTierIds,
   floorMarginPct,
@@ -107,7 +106,16 @@ export function CardCommercialRecovery({
    * resolver after committing, so this is the same governed state the next
    * page render will produce, arriving one render earlier.
    */
-  onAuthoritative?: (p: AuthoritativeProjection) => void;
+  /**
+   * Apply an election and return the ENGINE's refusal, if it refused.
+   *
+   * The card no longer writes. It asks for an evaluation, the host shows the
+   * governed result, and persistence happens behind that — see
+   * `use-recovery-draft`. What used to happen here was persist-then-evaluate,
+   * which made the operator wait on a database round trip to find out what
+   * their own click had done.
+   */
+  onPropose: (chargeKey: string, mode: string | null) => Promise<string | null>;
   /** Every governed tier — the gate evaluates all of them, not only those shown. */
   rollups: readonly QuotePerTierRollup[];
   shownTierIds: readonly string[];
@@ -162,30 +170,16 @@ export function CardCommercialRecovery({
     setError(null);
     writeDone.current = false;
     setPending({ chargeKey, mode });
-    const fd = new FormData();
-    fd.set("quoteId", quoteId);
-    fd.set("chargeKey", chargeKey);
-    // Empty clears. `parseMode` reads "" as null by contract.
-    fd.set("mode", mode ?? "");
     startTransition(async () => {
-      const res = await setChargeRecovery(fd);
-      // The governed reason, verbatim. The surface refuses too, but the surface
-      // is not the boundary -- this is what the boundary said.
-      if (!res.ok) {
-        setError(res.error.message);
+      // EVALUATED, not written. The result is the governed projection for this
+      // election, and the host shows it on both surfaces at once; the write
+      // follows behind it. A refusal is the boundary's own words, verbatim.
+      const refusal = await onPropose(chargeKey, mode);
+      if (refusal) {
+        setError(refusal);
         setPending(null);
         return;
       }
-      // The surface catches up NOW, from the state the write produced.
-      //
-      // This is what the operator was waiting on. The election committed in
-      // under a second and the answer used to arrive only with the next
-      // full-page render - measured at 1994-4041ms on production, with the
-      // segment and the document both landing in one frame at the very end.
-      // For those seconds the control looked like it had not worked.
-      if (res.data.projection) onAuthoritative?.(res.data.projection);
-      // Still set, because the revalidation may still be in flight and the
-      // pending guard below ends on whichever answer arrives first.
       writeDone.current = true;
     });
   }

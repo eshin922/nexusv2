@@ -398,7 +398,7 @@ test("the saving state ends when the engine answers, not when the write returns"
   );
   // A refusal DOES clear it, or the row would sit saving forever.
   assert.ok(
-    flat.includes("setError(res.error.message); setPending(null);"),
+    flat.includes("setError(refusal); setPending(null);"),
     "a refusal must end the wait",
   );
   // And any fresh answer clears it, so it cannot hang.
@@ -423,7 +423,11 @@ test("an elected charge can relinquish its election", async () => {
 
   // It calls the SAME writer, with the empty mode the action reads as a clear.
   assert.ok(flat.includes("onClick={() => write(row.chargeKey, null)}"));
-  assert.ok(flat.includes('fd.set("mode", mode ?? "")'));
+  // `null` travels as an argument now rather than as an empty FormData field:
+  // the card proposes, it does not write. Relinquishing is still a distinct act
+  // with its own control — clicking the selected treatment deliberately does
+  // not mean it.
+  assert.ok(flat.includes("onPropose(chargeKey, mode)"));
 
   // Electing and relinquishing stay distinct acts: clicking the selected
   // treatment must not be overloaded to mean clear.
@@ -592,7 +596,10 @@ test("the rail carries Card 0 → 1 → 2 → 3 and a pinned finalize footer", a
 test("Commercial recovery is ON this surface, and it is card 1", async () => {
   const card = codeOnly(await read(CARD1));
   // The election writer lives here now — the inverse of what R5 asserted.
-  assert.match(card, /setChargeRecovery/);
+  // The card asks for an EVALUATION; the write happens behind the answer, in
+  // the draft. It used to call the writer directly and wait on the database.
+  assert.match(card, /onPropose\(/);
+  assert.doesNotMatch(card, /setChargeRecovery/);
 
   // And picking ELECTS. The reference is immediate:
   //   pick: permitted && !s.frozen ? () => this.setRecovery(c.id, o.id) : ...

@@ -143,8 +143,8 @@ test("Finalize is refused on a frozen quote and on an unauthorized floor", async
   const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));
   assert.match(
     rail,
-    /disabled=\{!isDraft \|\| hasUnbillable \|\| blocked\}/,
-    "every refusal, each from a shared verdict",
+    /disabled=\{!isDraft \|\| draftState\.status === "unsaved" \|\| hasUnbillable \|\| blocked\}/,
+    "every refusal, each from a shared verdict — including an election that is not yet stored",
   );
   // `hasUnbillable` joined the two originals when the surface was made to
   // report recovery placed where the quote cannot bill it. It is the same

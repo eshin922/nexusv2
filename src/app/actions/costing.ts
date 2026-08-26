@@ -792,8 +792,33 @@ async function loadChargeElections(
  * strictly more than this, and folding them together would be a refactor of
  * two hot paths to serve one preview.
  */
+/**
+ * A recovery election set to evaluate INSTEAD of the persisted one.
+ *
+ * ── WHY THIS SEAM EXISTS ────────────────────────────────────────────────
+ *
+ * `QuoteCostingInput.chargeElections` has always been an INPUT: the engine
+ * takes elections as data, it does not fetch them. `measureRecoveryImpact` has
+ * relied on exactly that for as long as it has existed — it substitutes a
+ * candidate election onto the input and runs the real engine.
+ *
+ * What did not exist was a way for a READ to do the same. So the write path had
+ * to persist before anything could be evaluated, and the operator waited on a
+ * database round trip and a full page render to learn what their own click had
+ * done.
+ *
+ * This is that same substitution, exposed to the read path. It changes no
+ * arithmetic and adds no second engine: `undefined` loads the persisted set
+ * exactly as before.
+ */
+export type ProposedElections = readonly {
+  chargeKey: RecoveryChargeKey;
+  mode: RecoveryMode;
+}[];
+
 export async function loadQuoteCostingInput(
   quoteId: string,
+  proposedElections?: ProposedElections,
 ): Promise<ActionResult<QuoteCostingInput>> {
   return runAction(async () => {
     const quoteRows = await db
@@ -839,7 +864,13 @@ export async function loadQuoteCostingInput(
     const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
 
     const input = buildQuoteCostingInputFromNewModel({
-      chargeElections: await loadChargeElections(quoteId),
+      // The PROPOSAL when one is given, otherwise what is stored. An
+      // exploratory election is evaluated before it is persisted; a page load
+      // passes nothing and reads the durable set.
+      chargeElections:
+        proposedElections !== undefined
+          ? [...proposedElections]
+          : await loadChargeElections(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1436,6 +1467,9 @@ export async function applyClientTargetSolveTierAdj(
     const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
 
     const input = buildQuoteCostingInputFromNewModel({
+      // The PERSISTED set, deliberately. This solves a tier adjustment against
+      // the elections actually in force, not against a candidate an operator is
+      // still exploring — the answer it returns gets written.
       chargeElections: await loadChargeElections(quoteId),
       quote: {
         id: quote.id,
@@ -1694,6 +1728,7 @@ export async function applyClientTargetSolveTierAdj(
 export async function getCostingBundle(
   quoteId: string,
   commercialOverride?: CommercialSettingsResolution,
+  proposedElections?: ProposedElections,
 ): Promise<ActionResult<HydrateSnapshot>> {
   return runAction(async () => {
     const bundleT0 = Date.now();
@@ -1772,7 +1807,13 @@ export async function getCostingBundle(
     );
 
     const input = buildQuoteCostingInputFromNewModel({
-      chargeElections: await loadChargeElections(quoteId),
+      // The PROPOSAL when one is given, otherwise what is stored. An
+      // exploratory election is evaluated before it is persisted; a page load
+      // passes nothing and reads the durable set.
+      chargeElections:
+        proposedElections !== undefined
+          ? [...proposedElections]
+          : await loadChargeElections(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),

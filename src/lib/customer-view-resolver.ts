@@ -40,7 +40,7 @@ import {
   quoteTiers,
   users,
 } from "@/db/schema";
-import { getCostingBundle } from "@/app/actions/costing";
+import { type ProposedElections, getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
 import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
 import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
@@ -191,8 +191,18 @@ export async function resolveCustomerView(args: {
   quoteId: string;
   searchParams?: CustomerViewSearchParams;
   commercialSettingsOverride?: CommercialSettingsResolution;
+  /**
+   * A candidate recovery election set to evaluate INSTEAD of the persisted one.
+   *
+   * The whole projection is then built from it — the customer document, the
+   * recovery rows, the rollups — so an operator exploring an election sees the
+   * governed consequence of THAT election before anything is written.
+   *
+   * Absent on every ordinary render, which reads what is stored.
+   */
+  proposedElections?: ProposedElections;
 }): Promise<ResolveCustomerViewResult> {
-  const { quoteId, searchParams = {}, commercialSettingsOverride } = args;
+  const { quoteId, searchParams = {}, commercialSettingsOverride, proposedElections } = args;
   const { layout, detail, addendum } = searchParams;
 
   // Quote + project join. Consumer validates projectId separately
@@ -286,7 +296,11 @@ export async function resolveCustomerView(args: {
   const profile = profileRows[0];
   const hiddenTierIds = new Set(hiddenTierRows.map((r) => r.tierId));
 
-  const bundle = await getCostingBundle(quoteId, commercialSettingsOverride);
+  const bundle = await getCostingBundle(
+    quoteId,
+    commercialSettingsOverride,
+    proposedElections,
+  );
   if (!bundle.ok) {
     return { ok: false, kind: "bundle_error", message: bundle.error.message };
   }

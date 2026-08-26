@@ -5,7 +5,16 @@ import test from "node:test";
 import { codeOnly } from "../support/code-only.ts";
 
 const read = (p: string) => readFile(new URL(`../../${p}`, import.meta.url), "utf8");
-const ACTION = "src/app/actions/commercial-recovery.ts";
+// The writer moved when the election became evaluate-first: `setChargeRecovery`
+// persisted one charge and then re-resolved, making the operator wait on a
+// database round trip to see their own click. `persistChargeRecoverySet` stores
+// an exact set BEHIND an evaluation that already happened.
+//
+// Every invariant below is unchanged — draft-lock, scoped clearing, the policy
+// refusal, transition-named audit. They are properties of writing an election,
+// not of that particular function, which is why they are re-pointed rather than
+// retired.
+const ACTION = "src/app/actions/commercial-recovery-persist.ts";
 const FREEZE_LIST = "docs/pattern-52-freeze-list.md";
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -27,7 +36,7 @@ test("the election writer is draft-locked and finds the §0.5 grep", async () =>
 test("the freeze list names this table and its writer", async () => {
   const doc = await read(FREEZE_LIST);
   assert.match(doc, /quote_charge_recovery/);
-  assert.match(doc, /setChargeRecovery/);
+  assert.match(doc, /persistChargeRecoverySet/);
   // A freeze-list entry that does not say which guard holds it is a note, not
   // an enforcement record.
   assert.match(doc, /quoteByIdDraft/);
@@ -61,41 +70,52 @@ test("the writer never writes allocate_service_fees_to_cost", async () => {
   );
 });
 
-test("clearing is scoped to one charge, not the whole quote", async () => {
-  const src = codeOnly(await read(ACTION));
+test("clearing is scoped to the charges being cleared, not the whole quote", async () => {
   // A quote-wide delete would clear every other charge's election as a side
-  // effect of clearing one — silent, and invisible until a total moved.
-  const del = src.slice(src.indexOf(".delete(quoteChargeRecovery)"));
+  // effect of clearing one. The set-writer removes exactly the stored rows the
+  // proposal no longer names.
+  const src = codeOnly(await read(ACTION));
+  const del = src.slice(src.indexOf("db.delete("));
   assert.ok(del.length > 0, "no delete path — clearing an election is a real operation");
   assert.match(
     del.slice(0, 400),
-    /eq\(quoteChargeRecovery\.chargeKey, chargeKey\)/,
-    "the clear path is not scoped to the charge being cleared",
+    /inArray\(\s*quoteChargeRecovery\.chargeKey/,
+    "the clear path is not scoped to the charges being cleared",
   );
+  assert.match(del.slice(0, 400), /eq\(quoteChargeRecovery\.quoteId, quoteId\)/);
 });
 
-test("refusal at the action boundary asks the same function resolution asks", async () => {
-  const src = codeOnly(await read(ACTION));
-  // Not a re-implementation, and not a trust of the surface: the surface
-  // refuses too, but the surface is not the boundary.
-  assert.match(src, /refusalFor\(chargeKey, mode, \{/);
-  assert.doesNotMatch(
-    src,
-    /available\.includes\(/,
-    "the action re-derives availability instead of asking the policy layer",
-  );
+test("both election paths ask the SAME policy, from one module", async () => {
+  // The refusal used to live inside the writer. With evaluate-first there are
+  // two paths — the evaluator the operator's click reaches, and the writer the
+  // save reaches — and two copies of the policy would be two authorities. The
+  // first divergence would evaluate an election cleanly and then refuse it at
+  // save time, or worse, the reverse.
+  //
+  // It cannot be shared by exporting from either action file: a `"use server"`
+  // module may only export async server actions, so exporting a loader would
+  // publish it as an endpoint.
+  const writer = codeOnly(await read(ACTION));
+  const evaluator = codeOnly(await read("src/app/actions/commercial-recovery-evaluate.ts"));
+  for (const src of [writer, evaluator]) {
+    assert.match(src, /assertElectionAllowed\(/);
+    assert.match(src, /loadElectionContext\(quoteId\)/);
+    assert.doesNotMatch(src, /refusalFor\(/, "policy must not be restated in an action");
+  }
 });
 
-test("a mode refused for ANY assembly is refused for the quote", async () => {
-  const src = codeOnly(await read(ACTION));
-  // The election is stored per QUOTE; the state it can conflict with is per
-  // ASSEMBLY, and three real quotes carry both values at once. Accepting a
-  // mode that is incoherent for one assembly would mis-price that assembly
-  // while the election looked settled.
-  assert.match(src, /for \(const allocate of await allocationStatesInQuote\(quoteId\)\)/);
-  // No production rows at all must judge against the projection's `?? true`
-  // default rather than reading as unconstrained.
-  assert.match(src, /seen\.size === 0 \? \[true\]/);
+test("a mode refused for ANY owner state is refused for the quote", async () => {
+  // Offering a mode one owner cannot carry would be offering a mis-price, so
+  // the refusal is evaluated across every distinct allocation state and the
+  // Direct Service contribution.
+  const policy = codeOnly(await read("src/lib/commercial-recovery/election-context.ts"));
+  assert.match(policy, /for \(const perAssemblyAllocate of ctx\.allocationStates\)/);
+  assert.match(policy, /hasDirectServiceContribution: ctx\.directServiceKeys\.has\(chargeKey\)/);
+  // An empty quote still has a state to test against; an empty list would skip
+  // the loop and accept everything.
+  assert.match(policy, /allocationStates\.length \? allocationStates : \[false\]/);
+  // A $0 column is not a contribution.
+  assert.match(policy, /Math\.abs\(Number\(raw\)\) > 0/);
 });
 
 test("the audit action names the transition, not the mechanism", async () => {
@@ -105,7 +125,11 @@ test("the audit action names the transition, not the mechanism", async () => {
   // Storage detail in the diff, not in the name — the name has to stay true
   // if the storage moves.
   assert.doesNotMatch(src, /action:.*quote_charge_recovery_row/);
-  assert.match(src, /mode: \{ from, to: mode \}/);
+  // from -> to on every row, so the timeline reads as transitions rather than
+  // as end states. The set-writer names the prior explicitly because it holds
+  // several charges at once and cannot rely on one `from` in scope.
+  assert.match(src, /mode: \{ from: priorByKey\.get\(chargeKey\) \?\? null, to: mode \}/);
+  assert.match(src, /mode: \{ from: o\.mode, to: null \}/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════

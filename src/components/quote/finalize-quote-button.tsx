@@ -42,12 +42,24 @@ import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
 export function FinalizeQuoteButton({
   quoteId,
   disabled,
+  flushElections,
   label,
   dataState,
   title,
 }: {
   quoteId: string;
   disabled: boolean;
+  /**
+   * Persist the current recovery elections and CONFIRM they landed.
+   *
+   * Called before the send, every time. Finalize freezes an artifact from the
+   * stored state, so it must not run against a projection the operator can see
+   * but the database does not hold — and "wait for the debounce" would wait on
+   * a clock rather than on storage, where a failed write still lets the clock
+   * elapse. Returns false when the set is not durable, and the send does not
+   * happen.
+   */
+  flushElections?: () => Promise<boolean>;
   label: string;
   dataState: string;
   title?: string;
@@ -95,6 +107,20 @@ export function FinalizeQuoteButton({
           fd.set("detailLevel", detailLevel);
           fd.set("includeSpecAddendum", includeSpecAddendum ? "1" : "0");
           startTransition(async () => {
+            // FLUSH FIRST. The elections on screen may be newer than the ones
+            // stored; freezing an artifact from the stored state while the
+            // operator is looking at a different one is the failure this
+            // prevents.
+            if (flushElections) {
+              const durable = await flushElections();
+              if (!durable) {
+                setError(
+                  "Your recovery elections have not been saved. Nothing was sent — " +
+                    "check your connection and try again.",
+                );
+                return;
+              }
+            }
             const r = await sendQuote(fd);
             // The refusal is SHOWN, not swallowed. A below-floor quote fails
             // here with the authorization core's own sentence, which names the

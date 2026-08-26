@@ -497,6 +497,17 @@ const classifiedIdentityFiles = new Set([
   // id sets only, resolves nothing through the legacy junction for any
   // commercial purpose, and writes nothing.
   "scripts/organizer/freight-discriminator-evidence.ts",
+  // CLASSIFIED — election policy, canonical identity only. Loads a quote's
+  // distinct `allocate_service_fees_to_cost` states and the charges carrying a
+  // non-zero Direct Service contribution, so an election can be refused
+  // identically by the evaluator and the writer.
+  //
+  // It reads `assembly_production_inputs` through the table's own XOR — a row
+  // is keyed by `assembly_id` OR by `quote_leaf_id`, and the Direct Service
+  // half is exactly the `quote_leaf_id` side. `assembly_leaves` is never
+  // queried, nothing is resolved through the legacy junction, and it writes
+  // nothing.
+  "src/lib/commercial-recovery/election-context.ts",
   // CLASSIFIED — read-only Card 1 grain classification. Reads
   // `assembly_production_inputs` and reports, per recovery charge, how much of
   // what Card 1 advertises is an Item-Group-authored one-time fee versus a
