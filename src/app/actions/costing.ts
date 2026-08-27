@@ -775,18 +775,53 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
  *
  * Zero rows is the ordinary case and resolves to legacy placement.
  */
-async function loadChargeElections(
-  quoteId: string,
-): Promise<{ chargeKey: RecoveryChargeKey; mode: RecoveryMode }[]> {
-  return (
-    await db
-      .select({
-        chargeKey: quoteChargeRecovery.chargeKey,
-        mode: quoteChargeRecovery.mode,
-      })
-      .from(quoteChargeRecovery)
-      .where(eq(quoteChargeRecovery.quoteId, quoteId))
-  ).map((r) => ({ chargeKey: r.chargeKey, mode: r.mode }));
+async function loadChargeElections(quoteId: string): Promise<
+  {
+    chargeKey: RecoveryChargeKey;
+    chargeInstanceId?: string;
+    mode: RecoveryMode;
+  }[]
+> {
+  const rows = await db
+    .select({
+      chargeKey: quoteChargeRecovery.chargeKey,
+      chargeInstanceId: quoteChargeRecovery.chargeInstanceId,
+      mode: quoteChargeRecovery.mode,
+      ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
+    })
+    .from(quoteChargeRecovery)
+    .innerJoin(
+      quoteChargeInstances,
+      eq(quoteChargeInstances.id, quoteChargeRecovery.chargeInstanceId),
+    )
+    .where(eq(quoteChargeRecovery.quoteId, quoteId));
+
+  return rows.map((r) => ({
+    chargeKey: r.chargeKey,
+    // ── THE INSTANCE ID IS SUPPLIED ONLY WHERE IT IS CAUSAL ───────────────
+    //
+    // EVERY election carries a `charge_instance_id` — phase 1 backfilled one
+    // for the legacy population and made it the primary key. But a legacy
+    // election's instance is a synthesised `'@quote'` row standing in for a
+    // production COLUMN, and the engine's economics for that column carry no
+    // instance at all.
+    //
+    // So supplying it unconditionally would put every legacy election into the
+    // instance-grained map, where nothing would ever match it — and each legacy
+    // charge would silently fall back to its pre-recovery default, discarding
+    // an election the operator had made. Same total on most quotes, different
+    // customer document on any quote that elected `separate`, and nothing
+    // reporting the change.
+    //
+    // `owner_quote_leaf_id IS NOT NULL` is what distinguishes them, and it is
+    // the same causal test the costing loader uses. A legacy election keeps
+    // `undefined` and keeps matching by type, which for a column IS its
+    // identity.
+    ...(r.ownerQuoteLeafId !== null && r.chargeInstanceId
+      ? { chargeInstanceId: r.chargeInstanceId }
+      : {}),
+    mode: r.mode,
+  }));
 }
 
 /**

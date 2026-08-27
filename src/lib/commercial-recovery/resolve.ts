@@ -74,21 +74,59 @@ import {
 
 /** One stored election. Absence of a row for a charge is meaningful. */
 export type ChargeElection = {
+  /**
+   * The charge TYPE, which carries policy: which modes are permitted, which
+   * NetSuite destination the amount reaches, what the customer document calls
+   * it.
+   *
+   * It is NO LONGER the commercial-instance identity. Two Print plates charges
+   * on one quote share this value and are different commercial facts.
+   */
   chargeKey: RecoveryChargeKey;
+  /**
+   * WHICH CHARGE this election is about — the commercial identity.
+   *
+   * Undefined for a LEGACY election, whose charge is a production column with
+   * no instance behind it. Those still resolve by type, because for them the
+   * type IS the identity: a quote has one `setupFeeTotal`, and there is nothing
+   * for an instance to distinguish.
+   *
+   * Present for every component-owned charge, where the type distinguishes
+   * nothing — the whole point of OD-032 is that one carton can cause two sets
+   * of print plates, and one may be absorbed as a concession while the other is
+   * billed.
+   */
+  chargeInstanceId?: string;
   mode: RecoveryMode;
 };
 
 export type ResolvedCharge = {
   key: RecoveryChargeKey;
-  mode: RecoveryMode;
+  /**
+   * NULL when `source` is `unplaced` — there is no mode, because nobody has
+   * chosen one. A mode here would be a decision the record could not attribute
+   * to anyone.
+   */
+  mode: RecoveryMode | null;
   /**
    * Where the mode came from.
+   *
+   * `unplaced` means the charge has an instance, nobody has elected it, and
+   * there is no pre-recovery behaviour to fall back on — the charge did not
+   * exist before recovery did. It is a REAL commercial state, not a gap:
+   * DPS has incurred the cost and has not yet decided who pays it.
+   *
+   * It is deliberately NOT collapsed into `absorbed`, even though the
+   * arithmetic is currently the same. Absorbed is a decision to eat a cost;
+   * unplaced is the absence of one. Conflating them would let a quote send
+   * with charges nobody had decided, recorded as though someone had chosen to
+   * absorb them — a margin event attributed to an operator who never made it.
    *
    * `legacy` means no election row existed and the pre-recovery behaviour was
    * reproduced — which a surface may want to say out loud rather than
    * presenting an inherited value as a choice someone made.
    */
-  source: "election" | "legacy";
+  source: "election" | "legacy" | "unplaced";
 };
 
 /**
@@ -105,6 +143,15 @@ export function resolveCharge(
   key: RecoveryChargeKey,
   election: ChargeElection | null | undefined,
   perAssemblyAllocate: boolean | null | undefined,
+  /**
+   * Whether this charge has a commercial instance — OD-032.
+   *
+   * Defaulted false so every existing caller keeps its exact behaviour. Only a
+   * charge with an instance can be UNPLACED, because only such a charge has no
+   * pre-recovery treatment to fall back on: it did not exist before recovery
+   * did, so there is nothing for its absence to mean except "undecided".
+   */
+  hasInstance = false,
 ): ResolvedCharge {
   if (election) {
     // An election on a mode this charge cannot carry — statically, or in THIS
@@ -116,6 +163,13 @@ export function resolveCharge(
     });
     if (reason) throw new RecoveryPolicyError(key, election.mode, reason);
     return { key, mode: election.mode, source: "election" };
+  }
+
+  // No election, and a charge that exists only because someone authored it.
+  // There is no legacy default to inherit — inventing one would decide a
+  // commercial question on the operator's behalf and record it as theirs.
+  if (hasInstance) {
+    return { key, mode: null, source: "unplaced" };
   }
 
   const policy = chargePolicy(key);

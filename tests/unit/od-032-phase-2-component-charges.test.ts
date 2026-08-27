@@ -227,11 +227,26 @@ function sameMoney(a: number, b: number, why: string) {
   );
 }
 
+/** Elect the named instances. Anything not named stays UNPLACED, by design. */
+const electing = (
+  mode: ChargeElection["mode"],
+  ...ids: string[]
+): ChargeElection[] =>
+  ids.map((chargeInstanceId) => ({
+    chargeKey: "print_plates" as const,
+    chargeInstanceId,
+    mode,
+  }));
+
+// ELECTED BY INSTANCE, not by type. Under OD-032 recovery grain a type-only
+// election no longer reaches a component charge — that collapse is the thing
+// the grain change removes. `charge()` defaults to `ci-1`, so this places the
+// default charge and deliberately leaves any sibling unplaced.
 const INCLUDED: ChargeElection[] = [
-  { chargeKey: "print_plates", mode: "included" },
+  { chargeKey: "print_plates", chargeInstanceId: "ci-1", mode: "included" },
 ];
 const SEPARATE: ChargeElection[] = [
-  { chargeKey: "print_plates", mode: "separate" },
+  { chargeKey: "print_plates", chargeInstanceId: "ci-1", mode: "separate" },
 ];
 
 // ══════════════════════════════════════════════════════════════════════
@@ -312,12 +327,15 @@ test("F7 · per-tier economics are independent, not shared", () => {
     }),
   ];
 
+  // This charge's instance is "ci", not the default — so it needs its own
+  // election. INCLUDED names "ci-1" and would leave this one unplaced.
+  const elections = electing("included", "ci");
   const t1 =
-    turnkey({ componentCharges: charges, elections: INCLUDED, tiers }, TIER) -
-    turnkey({ componentCharges: [], elections: INCLUDED, tiers }, TIER);
+    turnkey({ componentCharges: charges, elections, tiers }, TIER) -
+    turnkey({ componentCharges: [], elections, tiers }, TIER);
   const t2 =
-    turnkey({ componentCharges: charges, elections: INCLUDED, tiers }, TIER_B) -
-    turnkey({ componentCharges: [], elections: INCLUDED, tiers }, TIER_B);
+    turnkey({ componentCharges: charges, elections, tiers }, TIER_B) -
+    turnkey({ componentCharges: [], elections, tiers }, TIER_B);
 
   sameMoney(t1, PLATES, "tier 1 did not receive its own entered amount");
   sameMoney(t2, 900, "tier 2 did not receive its own entered amount");
@@ -481,9 +499,10 @@ test("F1 · two components on one quote each own the same charge type", () => {
       recoverableSell: 600,
     }),
   ];
+  const elections = electing("included", "ci-a", "ci-b");
   const contributed =
-    turnkey({ componentCharges: both, elections: INCLUDED, secondLeaf: true }) -
-    turnkey({ componentCharges: [], elections: INCLUDED, secondLeaf: true });
+    turnkey({ componentCharges: both, elections, secondLeaf: true }) -
+    turnkey({ componentCharges: [], elections, secondLeaf: true });
 
   // BOTH, summed. The pre-phase model could hold one `print_plates` per quote;
   // an implementation still keyed that way contributes one of these, and the
@@ -532,9 +551,10 @@ test("F2 · one component owns two instances of the same type", () => {
     charge({ chargeInstanceId: "ci-a" }),
     charge({ chargeInstanceId: "ci-b", cost: 325, recoverableSell: 325 }),
   ];
+  const elections = electing("included", "ci-a", "ci-b");
   const contributed =
-    turnkey({ componentCharges: two, elections: INCLUDED }) -
-    turnkey({ componentCharges: [], elections: INCLUDED });
+    turnkey({ componentCharges: two, elections }) -
+    turnkey({ componentCharges: [], elections });
 
   sameMoney(
     contributed,
