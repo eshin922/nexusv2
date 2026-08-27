@@ -38,6 +38,7 @@ export function LeafContextMenu({
   disabled,
   moveDestinations,
   onMove,
+  onAddCharges,
 }: {
   junctionId: string;
   /** OD-017 canonical identity — what the governed move and the dependent
@@ -54,6 +55,17 @@ export function LeafContextMenu({
     position: number;
   }>;
   onMove?: (quoteLeafId: string, target: string, position: number) => void;
+  /**
+   * Open the one-time charges sheet for this component — OD-032 phase 4.
+   *
+   * The entry point lives HERE because this is where the operator is looking at
+   * the carton. The charges themselves are cost facts and their home is Costs;
+   * Setup gets the door, not the room.
+   *
+   * Optional, so a tree rendered without the sheet simply does not offer it
+   * rather than offering a control that does nothing.
+   */
+  onAddCharges?: () => void;
 }) {
   const [movePicker, setMovePicker] = useState(false);
   const [removalNote, setRemovalNote] = useState<string | null>(null);
@@ -162,6 +174,29 @@ export function LeafContextMenu({
                 what produced the service mismatch one level up. */}
             Edit library specs
           </Link>
+          {/* OD-032 phase 4. Named for the commercial fact it records rather
+              than the table it writes: an operator adds a charge the carton
+              caused, and does not think of it as an instance. */}
+          {onAddCharges && (
+            <button
+              type="button"
+              className="item"
+              role="menuitem"
+              disabled={disabled}
+              title={
+                disabled
+                  ? "This quote is no longer a draft; charges are frozen."
+                  : undefined
+              }
+              data-testid="leaf-add-charges"
+              onClick={() => {
+                setOpen(false);
+                onAddCharges();
+              }}
+            >
+              Add one-time charges
+            </button>
+          )}
           {/* B-4B removed four disabled items, correctly: none was a
               capability, and "Move to another item group had no writer
               anywhere in the action layer" was TRUE WHEN WRITTEN.

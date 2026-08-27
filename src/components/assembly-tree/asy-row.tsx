@@ -48,6 +48,7 @@ export function AsyRow({
   memberDropEdge,
   memberMoveDestinations,
   onMemberMove,
+  onAddCharges,
   onMemberDragStart,
   onMemberRowDragOver,
   onMemberDragOverGroup,
@@ -92,6 +93,8 @@ export function AsyRow({
     position: number;
   }>;
   onMemberMove?: (quoteLeafId: string, target: string, position: number) => void;
+  /** OD-032 phase 4 — open the one-time charges sheet for a component. */
+  onAddCharges?: (leaf: AssemblyLeafNode) => void;
   onMemberDragOverGroup?: (e: React.DragEvent) => void;
   onMemberDragOverGroupTail?: (e: React.DragEvent) => void;
   onMemberDropOnGroup?: (e: React.DragEvent) => void;
@@ -291,6 +294,7 @@ export function AsyRow({
             editable={editable}
             moveDestinations={memberMoveDestinations}
             onMove={onMemberMove}
+            onAddCharges={onAddCharges}
             editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${leaf.leafId}/specs`}
             isDragging={leafDragId === leaf.junctionId}
             onDragStart={(e) => handleLeafDragStart(e, leaf.junctionId)}
@@ -345,8 +349,11 @@ function LeafRow({
   onMoveStart,
   moveDestinations,
   onMove,
+  onAddCharges,
 }: {
   leaf: AssemblyLeafNode;
+  /** OD-032 phase 4 — open the charges sheet for this component. */
+  onAddCharges?: (leaf: AssemblyLeafNode) => void;
   editable: boolean;
   editSpecsHref: string;
   /** Where this member may be moved, excluding the group it is already in. */
@@ -442,6 +449,7 @@ function LeafRow({
           disabled={!editable}
           moveDestinations={moveDestinations}
           onMove={onMove}
+          onAddCharges={onAddCharges ? () => onAddCharges(leaf) : undefined}
         />
       </div>
     </div>

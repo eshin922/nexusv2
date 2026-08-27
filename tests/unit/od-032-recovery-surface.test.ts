@@ -376,7 +376,11 @@ test("the writes and their audit rows share ONE transaction", () => {
   // bare call that is not there — an instrument that cannot express the thing
   // it is asked about.
   const auditCalls = (tx.match(/writeAuditEntry\(/g) ?? []).length;
-  const withTx = (tx.match(/\n\s*tx,\n\s*\);/g) ?? []).length;
+  // Matched on the ARGUMENT, not on how the call happens to wrap. The previous
+  // pattern pinned an exact newline-and-indent shape and reported zero the
+  // first time the formatter moved a line — an instrument measuring layout
+  // while claiming to measure an argument.
+  const withTx = (tx.match(/\btx,\s*\n\s*\)/g) ?? []).length;
   assert.equal(auditCalls, 2, "both audit paths must be inside the transaction");
   assert.equal(
     withTx,
