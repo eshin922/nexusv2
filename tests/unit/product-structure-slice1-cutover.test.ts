@@ -559,6 +559,29 @@ const classifiedIdentityFiles = new Set([
   // an identity derived from the anchor-coerced `owner_ref` would move when the
   // anchor moved (OD-028). `assembly_leaves` is never queried.
   "src/lib/commercial-recovery/charge-instance.ts",
+  // CLASSIFIED - canonical identity, read-only, and never resolved.
+  //
+  // The recovery workspace projection. It reads a placed charge's `ownerRef` —
+  // a `quote_leaves` id for a component charge — solely to look up a NAME for
+  // collision-only labelling, and it queries no table to do so: the map is
+  // supplied by the caller.
+  //
+  // `assembly_leaves` is never touched, nothing resolves through the legacy
+  // junction, and a legacy row is given NO owner label at all, which is what
+  // keeps the OD-028 anchor off the surface. It writes nothing.
+  "src/lib/commercial-recovery/workspace-view.ts",
+  // CLASSIFIED - canonical identity only, and it never resolves one.
+  //
+  // The recovery election writer. It reads `quote_charge_instances.
+  // owner_quote_leaf_id` for ONE purpose: to tell a component-owned election
+  // (elected per instance) from a legacy one (elected per type), which is the
+  // same causal test the costing and election loaders use.
+  //
+  // It writes `quote_charge_recovery` keyed on `charge_instance_id`. It never
+  // queries `assembly_leaves`, never resolves through the legacy junction, and
+  // never derives an owner — a component proposal ARRIVES with its instance and
+  // is refused a synthesised one.
+  "src/app/actions/commercial-recovery-persist.ts",
   // CLASSIFIED - canonical identity only, and every write is rolled back.
   //
   // The OD-032 copy-integrity proof. Reads `quote_leaves.id` to pick two

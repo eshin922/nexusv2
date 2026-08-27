@@ -3,7 +3,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { db } from "@/db";
-import { quoteChargeRecovery } from "@/db/schema";
+import { quoteChargeInstances, quoteChargeRecovery } from "@/db/schema";
 import {
   ActionGuardError,
   ERR,
@@ -18,6 +18,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   assertElectionAllowed,
   loadElectionContext,
+  storedKeyFor,
 } from "@/lib/commercial-recovery/election-context";
 import {
   chargePolicy,
@@ -26,7 +27,12 @@ import {
 } from "@/lib/commercial-recovery/registry";
 import { ensureChargeInstance } from "@/lib/commercial-recovery/charge-instance";
 
-export type PersistedElection = { chargeKey: RecoveryChargeKey; mode: RecoveryMode };
+export type PersistedElection = {
+  chargeKey: RecoveryChargeKey;
+  /** Present for a component charge; absent for a legacy production column. */
+  chargeInstanceId?: string;
+  mode: RecoveryMode;
+};
 
 export type PersistChargeRecoverySetResult = {
   quoteId: string;
@@ -61,12 +67,24 @@ export type PersistChargeRecoverySetResult = {
  */
 export async function persistChargeRecoverySet(input: {
   quoteId: string;
-  elections: { chargeKey: string; mode: string }[];
+  /**
+   * The proposal, as a SET.
+   *
+   * `chargeInstanceId` names a component-owned charge. Its absence names a
+   * legacy production column, for which the type IS the identity.
+   *
+   * A GROUP ACTION — "Set all Print plates → One-time fee" — arrives here as N
+   * entries, one per instance, and is written as N governed rows with N audit
+   * entries. There is no type-level stored election, and that is deliberate:
+   * a group is ergonomics, never a grain.
+   */
+  elections: { chargeKey: string; chargeInstanceId?: string; mode: string }[];
 }): Promise<ActionResult<PersistChargeRecoverySetResult>> {
   return runAction(async () => {
     const user = await ensureUser();
     const quoteId = input.quoteId.trim();
-    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (!quoteId)
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
 
     const quote = await quoteByIdDraft(quoteId);
     // Redundant by construction — draft is a subset of not-frozen — and kept so
@@ -76,17 +94,68 @@ export async function persistChargeRecoverySet(input: {
     const requested: PersistedElection[] = input.elections.map((e) => {
       const key = e.chargeKey as RecoveryChargeKey;
       chargePolicy(key); // throws on an unknown key
-      return { chargeKey: key, mode: e.mode as RecoveryMode };
+      return {
+        chargeKey: key,
+        chargeInstanceId: e.chargeInstanceId,
+        mode: e.mode as RecoveryMode,
+      };
     });
+
+    // Two proposals for one instance is a surface defect, and silently keeping
+    // the last would persist a decision the operator did not see themselves
+    // make. Refused rather than resolved.
+    const proposedInstances = requested
+      .map((r) => r.chargeInstanceId)
+      .filter((id): id is string => id !== undefined);
+    if (new Set(proposedInstances).size !== proposedInstances.length) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "The same charge was proposed twice in one set.",
+      );
+    }
 
     const prior = await db
       .select({
         chargeKey: quoteChargeRecovery.chargeKey,
+        chargeInstanceId: quoteChargeRecovery.chargeInstanceId,
         mode: quoteChargeRecovery.mode,
+        ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       })
       .from(quoteChargeRecovery)
+      .innerJoin(
+        quoteChargeInstances,
+        eq(quoteChargeInstances.id, quoteChargeRecovery.chargeInstanceId),
+      )
       .where(eq(quoteChargeRecovery.quoteId, quoteId));
-    const priorByKey = new Map(prior.map((p) => [p.chargeKey, p.mode]));
+
+    // ── PRIOR STATE AT THE GRAIN IT IS ELECTED AT ─────────────────────────
+    //
+    // A COMPONENT election is keyed by instance; a LEGACY one by type, because
+    // for a production column the type is the identity. Reading both by type
+    // would make two component siblings look like one another's prior state,
+    // and the second write of a group action would then be skipped as
+    // "unchanged" while its row still said otherwise.
+    //
+    // `owner_quote_leaf_id` is the causal test, the same one the costing and
+    // election loaders use.
+    const priorByGrain = new Map<string, RecoveryMode>();
+    for (const p of prior) {
+      priorByGrain.set(
+        storedKeyFor({
+          chargeKey: p.chargeKey,
+          chargeInstanceId:
+            p.ownerQuoteLeafId !== null && p.chargeInstanceId
+              ? p.chargeInstanceId
+              : undefined,
+        }),
+        p.mode,
+      );
+    }
+    // THE SAME key former the evaluator uses. Two implementations would be two
+    // answers to "did this change", and the first divergence would evaluate an
+    // election cleanly and refuse it at save.
+    const priorOf = (e: PersistedElection) =>
+      priorByGrain.get(storedKeyFor(e)) ?? null;
 
     // Applied here as well as in the evaluator, because the surface is not the
     // boundary: a set arriving from a replayed action id or a stale tab has
@@ -98,67 +167,144 @@ export async function persistChargeRecoverySet(input: {
     // election permanently unsaveable.
     const ctx = await loadElectionContext(quoteId);
 
-    for (const { chargeKey, mode } of requested) {
-      if (priorByKey.get(chargeKey) === mode) continue;
+    // ── EVERY REFUSAL FIRST, BEFORE ANY WRITE ──────────────────────────────
+    //
+    // A group action is N charges in one gesture. Refusing the third one
+    // MID-LOOP left the first two written, so an operator who set all three
+    // plate sets to a mode one of them could not carry would find two changed,
+    // one not, and an error explaining none of it.
+    //
+    // The set is the unit of truth, so it is also the unit of refusal: nothing
+    // is written unless the whole proposal is allowed.
+    const changing = requested.filter((r) => priorOf(r) !== r.mode);
+    for (const { chargeKey, mode } of changing) {
       assertElectionAllowed(chargeKey, mode, ctx);
-      // OD-032 phase 1 — every write carries an instance id. Resolved before
-      // the upsert rather than inside it, because the instance is the durable
-      // identity and an upsert that created one only on the insert branch
-      // would leave re-elections keyed to nothing.
-      const chargeInstanceId = await ensureChargeInstance(db, { quoteId, chargeKey });
-      await db
-        .insert(quoteChargeRecovery)
-        .values({ quoteId, chargeKey, chargeInstanceId, mode, electedByUserId: user.id })
-        .onConflictDoUpdate({
-          // The PRIMARY KEY since phase 1b, and the reason phase 2 can drop the
-          // temporary `(quote_id, charge_key)` unique at all: this writer no
-          // longer names it, so removing it takes nothing this depends on.
-          //
-          // It is also the correct target on its own terms. `(quote, charge_key)`
-          // could only ever address one charge of a type per quote — which is
-          // exactly the limit phase 2 removes, and would have re-elected the
-          // wrong carton's plates the moment a second one existed.
-          target: [quoteChargeRecovery.chargeInstanceId],
-          set: { mode, chargeInstanceId, electedByUserId: user.id, electedAt: new Date() },
-        });
-      await writeAuditEntry({
-        userId: user.id,
-        entityType: "quote",
-        entityId: quoteId,
-        action: "charge_recovery_elected",
-        diffJson: {
-          charge_key: chargeKey,
-          mode: { from: priorByKey.get(chargeKey) ?? null, to: mode },
-        },
-      });
     }
 
-    // Anything stored that the proposal does not name is CLEARED. The set is
-    // the unit of truth here: a charge the operator reverted to inherited
-    // treatment leaves the proposal, and leaving its row behind would persist
-    // an election they had abandoned.
-    const requestedKeys = new Set(requested.map((r) => r.chargeKey));
-    const orphans = prior.filter((p) => !requestedKeys.has(p.chargeKey as RecoveryChargeKey));
-    if (orphans.length > 0) {
-      await db.delete(quoteChargeRecovery).where(
-        and(
-          eq(quoteChargeRecovery.quoteId, quoteId),
-          inArray(
-            quoteChargeRecovery.chargeKey,
-            orphans.map((o) => o.chargeKey),
-          ),
-        ),
-      );
-      for (const o of orphans) {
-        await writeAuditEntry({
-          userId: user.id,
-          entityType: "quote",
-          entityId: quoteId,
-          action: "charge_recovery_cleared",
-          diffJson: { charge_key: o.chargeKey, mode: { from: o.mode, to: null } },
-        });
+    // ── ONE TRANSACTION FOR THE WHOLE SET ──────────────────────────────────
+    //
+    // The refusals above already guarantee nothing is written when the
+    // proposal is not allowed. This guarantees the same for everything that
+    // can still fail after the first statement lands — a constraint, a lost
+    // connection, an instance that cannot be resolved.
+    //
+    // A group action is one operator gesture. Two of three plate sets moved is
+    // not a partial success; it is a state nobody chose, and the operator has
+    // no way to tell which two.
+    //
+    // The audit rows ride the same transaction, so the record cannot survive a
+    // write that was rolled back.
+    await db.transaction(async (tx) => {
+      for (const proposal of changing) {
+        const { chargeKey, mode } = proposal;
+        const before = priorOf(proposal);
+        // OD-032 phase 1 — every write carries an instance id. Resolved before
+        // the upsert rather than inside it, because the instance is the durable
+        // identity and an upsert that created one only on the insert branch
+        // would leave re-elections keyed to nothing.
+        //
+        // A component proposal already names its instance and must NOT synthesise
+        // one: `ensureChargeInstance` with no owner would mint a `'@quote'` row,
+        // and the election would then key to a charge nobody caused.
+        const chargeInstanceId =
+          proposal.chargeInstanceId ??
+          (await ensureChargeInstance(tx, { quoteId, chargeKey }));
+        await tx
+          .insert(quoteChargeRecovery)
+          .values({
+            quoteId,
+            chargeKey,
+            chargeInstanceId,
+            mode,
+            electedByUserId: user.id,
+          })
+          .onConflictDoUpdate({
+            // The PRIMARY KEY since phase 1b, and the reason phase 2 can drop the
+            // temporary `(quote_id, charge_key)` unique at all: this writer no
+            // longer names it, so removing it takes nothing this depends on.
+            //
+            // It is also the correct target on its own terms. `(quote, charge_key)`
+            // could only ever address one charge of a type per quote — which is
+            // exactly the limit phase 2 removes, and would have re-elected the
+            // wrong carton's plates the moment a second one existed.
+            target: [quoteChargeRecovery.chargeInstanceId],
+            set: {
+              mode,
+              chargeInstanceId,
+              electedByUserId: user.id,
+              electedAt: new Date(),
+            },
+          });
+        await writeAuditEntry(
+          {
+            userId: user.id,
+            entityType: "quote",
+            entityId: quoteId,
+            action: "charge_recovery_elected",
+            diffJson: {
+              charge_key: chargeKey,
+              // The instance, so a group action's N rows are separable in the
+              // audit rather than N indistinguishable entries for one type.
+              charge_instance_id: chargeInstanceId,
+              mode: { from: before, to: mode },
+            },
+          },
+          tx,
+        );
       }
-    }
+
+      // Anything stored that the proposal does not name is CLEARED. The set is
+      // the unit of truth here: a charge the operator reverted to inherited
+      // treatment leaves the proposal, and leaving its row behind would persist
+      // an election they had abandoned.
+      // Cleared at the grain it was elected at, for the same reason prior state is
+      // read that way: a proposal that names one sibling and not the other is
+      // clearing exactly one election, and matching by type would clear both.
+      const requestedKeys = new Set(
+        // `=== undefined`, not a falsy test. A proposal either names an instance
+        // or it does not, and that is the exact question — a falsy test on
+        // something called `chargeInstanceId` reads as a branch on the nullable
+        // COLUMN, which is the shape the phase 1 guard forbids.
+        requested
+          .filter((r) => r.chargeInstanceId === undefined)
+          .map((r) => r.chargeKey),
+      );
+      const requestedInstances = new Set(proposedInstances);
+      const orphans = prior.filter((p) =>
+        p.ownerQuoteLeafId !== null && p.chargeInstanceId
+          ? !requestedInstances.has(p.chargeInstanceId)
+          : !requestedKeys.has(p.chargeKey as RecoveryChargeKey),
+      );
+      if (orphans.length > 0) {
+        await tx.delete(quoteChargeRecovery).where(
+          and(
+            eq(quoteChargeRecovery.quoteId, quoteId),
+            // BY INSTANCE, which is the primary key — so clearing one component
+            // charge cannot take its same-type sibling with it.
+            inArray(
+              quoteChargeRecovery.chargeInstanceId,
+              orphans.map((o) => o.chargeInstanceId),
+            ),
+          ),
+        );
+        for (const o of orphans) {
+          await writeAuditEntry(
+            {
+              userId: user.id,
+              entityType: "quote",
+              entityId: quoteId,
+              action: "charge_recovery_cleared",
+              diffJson: {
+                charge_key: o.chargeKey,
+                charge_instance_id: o.chargeInstanceId,
+                mode: { from: o.mode, to: null },
+              },
+            },
+            tx,
+          );
+        }
+      }
+    });
 
     // READ BACK. The gate's question is "is this set stored", and only the
     // database can answer it — returning the input would be the action

@@ -72,6 +72,39 @@ export type ChargeModeOption = {
 
 export type RecoveryChargeRow = {
   chargeKey: RecoveryChargeKey;
+  /**
+   * WHICH CHARGE this row is — OD-032 recovery grain.
+   *
+   * Present on a component-owned row, where one row is one charge. Absent on a
+   * legacy row, which stands for a production COLUMN and therefore for the one
+   * charge of that type the quote can hold.
+   *
+   * A row without this places by type; a row with it places by instance. That
+   * is the whole grain distinction, carried as data rather than inferred.
+   */
+  chargeInstanceId?: string;
+  /**
+   * The component that CAUSED this charge, named for the operator — and shown
+   * ONLY when the type alone would be ambiguous.
+   *
+   * Two Print plates rows need telling apart; one does not, and labelling it
+   * would put lineage on a surface where nature is what reads. The same
+   * collision-only rule the customer document uses, so internal and external
+   * copy agree.
+   *
+   * Null when the type is unambiguous, when no name is available, or on a
+   * legacy row — whose owner is the engagement and whose anchor must never be
+   * surfaced as a cause (OD-028).
+   */
+  ownerLabel?: string | null;
+  /**
+   * Nobody has decided who bears this charge yet.
+   *
+   * Distinct from every mode: absorbed is a decision to eat a cost, unplaced is
+   * the absence of one. The surface must show it as outstanding rather than as
+   * a treatment, and send is refused while any remains.
+   */
+  unplaced: boolean;
   label: string;
   grain: ChargeGrain;
   /** Whether this quote carries the charge at all. */
@@ -161,21 +194,64 @@ export function buildRecoveryWorkspace(input: {
    * keep the same behaviour while looking fixed.
    */
   isLeaf: (skuId: string) => boolean;
+  /**
+   * `quote_leaves.id` → the component's name, for collision-only labelling.
+   *
+   * Optional, and its absence is handled honestly: a row that would need a
+   * label and has no name shows NONE rather than an id. An operator cannot act
+   * on a uuid, and printing one would be worse than the ambiguity it was meant
+   * to resolve.
+   */
+  ownerNames?: ReadonlyMap<string, string>;
 }): RecoveryChargeRow[] {
-  const electionByCharge = new Map<RecoveryChargeKey, RecoveryMode>();
-  for (const e of input.elections) electionByCharge.set(e.chargeKey, e.mode);
+  // ── TWO GRAINS, SPLIT ONCE, HERE ────────────────────────────────────────
+  //
+  // A LEGACY election names a type, because for a production column the type is
+  // the identity. A COMPONENT election names an instance, because the type
+  // distinguishes nothing — one carton can cause two sets of print plates.
+  //
+  // Kept apart for the same reason the engine keeps them apart: a component row
+  // must never resolve through a type-grained election, and one map keyed
+  // loosely is how that fallback returns.
+  const electionByType = new Map<RecoveryChargeKey, RecoveryMode>();
+  const electionByInstance = new Map<string, RecoveryMode>();
+  for (const e of input.elections) {
+    if (e.chargeInstanceId) electionByInstance.set(e.chargeInstanceId, e.mode);
+    else electionByType.set(e.chargeKey, e.mode);
+  }
 
   // Every placed instance, from the ONE constructed state, counted ONCE.
   const placedByCharge = new Map<RecoveryChargeKey, PlacedCharge[]>();
+  const componentCharges: PlacedCharge[] = [];
   for (const { charge } of ownedPlacedCharges(input.costing, input.isLeaf)) {
+    if (charge.chargeInstanceId) {
+      // Component-owned. It gets its own row below and must NOT be aggregated
+      // into the type row, or two charges would share one control again.
+      componentCharges.push(charge);
+      continue;
+    }
     const list = placedByCharge.get(charge.chargeKey) ?? [];
     list.push(charge);
     placedByCharge.set(charge.chargeKey, list);
   }
 
+  // ── COLLISION-ONLY OWNER NAMING ─────────────────────────────────────────
+  //
+  // A name appears only where the TYPE alone is ambiguous, which is the rule
+  // the customer document already follows. One Print plates row reads "Print
+  // plates"; two read "Print plates · Kids' Cough carton".
+  //
+  // Counted per (type, tier), because two rows for one type on one tier are
+  // what an operator actually sees side by side.
+  const perTypeTier = new Map<string, number>();
+  for (const c of componentCharges) {
+    const k = `${c.chargeKey}`;
+    perTypeTier.set(k, (perTypeTier.get(k) ?? 0) + 1);
+  }
+
   const states = input.allocationStates.length ? input.allocationStates : [true];
 
-  return RECOVERY_CHARGES.map((policy) => {
+  const legacyRows: RecoveryChargeRow[] = RECOVERY_CHARGES.map((policy) => {
     const placed = placedByCharge.get(policy.key) ?? [];
     // Placement — and therefore the segment shown as in force — is scoped to
     // the ACTIONABLE charges. A Direct Service placed differently from the fee
@@ -215,7 +291,7 @@ export function buildRecoveryWorkspace(input: {
       }
     }
 
-    const elected = electionByCharge.get(policy.key) ?? null;
+    const elected = electionByType.get(policy.key) ?? null;
 
     const options: ChargeModeOption[] = RECOVERY_MODES.map((mode) => {
       // Refused if ANY owner state refuses it. The election is per quote, so
@@ -238,6 +314,9 @@ export function buildRecoveryWorkspace(input: {
 
     return {
       chargeKey: policy.key,
+      // No instance and no owner label: a legacy row stands for a production
+      // column owned by the engagement, and its anchor is never a cause.
+      unplaced: false,
       label: policy.label,
       grain: chargePolicy(policy.key).grain,
       // Actionable presence. A charge whose only contribution is a Direct
@@ -250,12 +329,75 @@ export function buildRecoveryWorkspace(input: {
       source: elected === null ? "legacy" : "election",
       // Derived from the construction, never from the election: one authority
       // for what is in force, whatever put it there.
+      // `?? null` is not defensive padding: MODE_BY_PLACEMENT has no entry for
+      // `unplaced`, because no MODE produces it. A legacy row can never BE
+      // unplaced — a production column always had a treatment to inherit — but
+      // the map's type is honest about the gap rather than asserting a mode
+      // that does not exist, so the read states what it does with it.
       effectiveMode:
-        placements.length === 1 ? MODE_BY_PLACEMENT[placements[0]] : null,
+        placements.length === 1
+          ? (MODE_BY_PLACEMENT[placements[0]] ?? null)
+          : null,
       totalCost,
       totalRecovery,
       serviceContext: svcPresent ? { cost: svcCost, recovery: svcRecovery } : null,
       options,
     };
   });
+
+  // ── ONE ROW PER COMPONENT CHARGE ────────────────────────────────────────
+  //
+  // Not per type. Two charges of one type are two commercial facts and get two
+  // controls, which is the capability this grain exists to give back.
+  const componentRows: RecoveryChargeRow[] = componentCharges.map((c) => {
+    const policy = chargePolicy(c.chargeKey);
+    const unplaced = c.placement === "unplaced";
+    const ambiguous = (perTypeTier.get(c.chargeKey) ?? 0) > 1;
+    const ownerName =
+      c.ownerRef !== undefined ? (input.ownerNames?.get(c.ownerRef) ?? null) : null;
+
+    const options: ChargeModeOption[] = RECOVERY_MODES.map((mode) => {
+      let reason: string | null = null;
+      for (const perAssemblyAllocate of states) {
+        reason = refusalFor(c.chargeKey, mode, {
+          perAssemblyAllocate,
+          // A component charge is its own fee. It carries no Direct Service
+          // half, so nothing refuses on account of one.
+          hasDirectServiceContribution: false,
+        });
+        if (reason) break;
+      }
+      return { mode, available: reason === null, reason };
+    });
+
+    const elected = electionByInstance.get(c.chargeInstanceId!) ?? null;
+
+    return {
+      chargeKey: c.chargeKey,
+      chargeInstanceId: c.chargeInstanceId,
+      // Shown only on collision, and NEVER an id when the name is missing.
+      ownerLabel: ambiguous ? ownerName : null,
+      unplaced,
+      label: policy.label,
+      grain: policy.grain,
+      present: true,
+      // One charge, one placement. `mixed` is a property of an aggregate and
+      // cannot arise here — which is itself part of the point.
+      placements: [c.placement],
+      mixed: false,
+      electedMode: elected,
+      source: elected === null ? "legacy" : "election",
+      // Null while unplaced: there is no treatment in force, and a mode here
+      // would show the operator a decision nobody made.
+      effectiveMode: unplaced ? null : (MODE_BY_PLACEMENT[c.placement] ?? null),
+      totalCost: c.cost,
+      totalRecovery: c.recoverableSell,
+      // A component charge is never a Direct Service, so there is no second
+      // half to hold apart.
+      serviceContext: null,
+      options,
+    };
+  });
+
+  return [...legacyRows, ...componentRows];
 }

@@ -157,7 +157,12 @@ test("every election writer supplies an instance id", () => {
     "src/app/actions/commercial-recovery-persist.ts",
     "utf8",
   );
-  assert.match(persist, /ensureChargeInstance\(db, \{ quoteId, chargeKey \}\)/);
+  // Through the TRANSACTION handle: the instance and the election it keys must
+  // appear together or not at all. And only when the proposal does not already
+  // name one — synthesising over a component proposal would mint a '@quote'
+  // row and key the election to a charge nobody caused.
+  assert.match(persist, /ensureChargeInstance\(tx, \{ quoteId, chargeKey \}\)/);
+  assert.match(persist, /proposal\.chargeInstanceId \?\?/);
   assert.match(persist, /chargeInstanceId,/);
 
   const quotes = readFileSync("src/app/actions/quotes.ts", "utf8");

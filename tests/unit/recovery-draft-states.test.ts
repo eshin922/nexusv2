@@ -143,7 +143,16 @@ test("an unchanged charge is not rewritten, so a flush of a clean set is free", 
   // otherwise every Finalize would write audit rows for elections nobody
   // changed.
   const src = codeOnly(await read(PERSIST));
-  assert.match(src, /if \(priorByKey\.get\(chargeKey\) === mode\) continue/);
+  // Prior state is now read through `priorOf`, which picks the grain: by
+  // instance for a component charge, by type for a legacy column. The claim is
+  // unchanged — an unchanged charge is not rewritten — and it is now true per
+  // charge rather than per type, which is what makes a group action's second
+  // write reach the database instead of being skipped as "unchanged".
+  // The skip moved UP: the set is filtered to what actually changes before
+  // anything is refused or written, so an unchanged charge is neither
+  // rewritten nor re-tested against policy.
+  assert.match(src, /const changing = requested\.filter\(\(r\) => priorOf\(r\) !== r\.mode\)/);
+  assert.match(src, /const before = priorOf\(proposal\)/);
 });
 
 test("a charge dropped from the proposal is cleared, not left behind", async () => {
@@ -171,14 +180,32 @@ test("a charge dropped from the proposal is cleared, not left behind", async () 
 // send gate, which is where a state belongs.
 
 test("only elections that CHANGE are tested against policy", async () => {
+  // Both sides ask the question through the SAME key former, which is what
+  // makes them the same question. Under OD-032 recovery grain a component
+  // charge is keyed by instance and a legacy column by type, and two
+  // implementations of that choice would be two answers — the divergence this
+  // test exists to prevent.
   const evaluate = codeOnly(await read("src/app/actions/commercial-recovery-evaluate.ts"));
-  assert.match(evaluate, /if \(ctx\.stored\.get\(e\.chargeKey\) === e\.mode\) continue;/);
+  assert.match(evaluate, /if \(ctx\.stored\.get\(storedKeyFor\(e\)\) === e\.mode\) continue;/);
 
   const persist = codeOnly(await read(PERSIST));
-  // Same skip, so a save cannot refuse what an evaluation allowed.
-  assert.match(persist, /if \(priorByKey\.get\(chargeKey\) === mode\) continue;/);
-  const loop = persist.slice(persist.indexOf("for (const { chargeKey, mode } of requested)"));
-  assert.match(loop.slice(0, 400), /assertElectionAllowed\(chargeKey, mode, ctx\)/);
+  assert.match(persist, /priorByGrain\.get\(storedKeyFor\(e\)\)/);
+  // Filtered ONCE, before both the refusal pass and the write loop, so the two
+  // cannot disagree about what changed.
+  assert.match(persist, /const changing = requested\.filter/);
+  const refusals = persist.slice(
+    persist.indexOf("for (const { chargeKey, mode } of changing)"),
+  );
+  assert.match(refusals.slice(0, 300), /assertElectionAllowed\(chargeKey, mode, ctx\)/);
+
+  // And it is ONE function, in one module, imported by both.
+  const ctxSrc = codeOnly(
+    await read("src/lib/commercial-recovery/election-context.ts"),
+  );
+  assert.match(ctxSrc, /export function storedKeyFor/);
+  for (const f of [evaluate, persist]) {
+    assert.match(f, /storedKeyFor,/, "both sides must import the shared former");
+  }
 });
 
 test("both paths diff against the SAME stored set", async () => {

@@ -117,7 +117,12 @@ export function CardCommercialRecovery({
    * their own click had done.
    */
   onPropose: (
-    chargeKey: string,
+    /**
+     * One pick, or N for a GROUP ACTION. Always a set, so a group is one
+     * evaluation and one save rather than N round trips — and never a
+     * type-level election, which is the grain this control exists to keep.
+     */
+    picks: { chargeKey: string; chargeInstanceId?: string }[],
     mode: string | null,
   ) => Promise<RecoveryProposalFailure | null>;
   /** Every governed tier — the gate evaluates all of them, not only those shown. */
@@ -143,7 +148,14 @@ export function CardCommercialRecovery({
    * clears it.
    */
   const [pending, setPending] = useState<{
-    chargeKey: string;
+    /**
+     * The ROWS in flight, by row key — one for a single pick, N for a group.
+     *
+     * Keyed by row rather than by charge type, or electing one carton's plates
+     * would show every same-type row as saving and disable controls the
+     * operator never touched.
+     */
+    keys: Set<string>;
     /** `null` is a RELINQUISHMENT -- see `restore` below. */
     mode: RecoveryMode | null;
   } | null>(null);
@@ -151,7 +163,30 @@ export function CardCommercialRecovery({
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  /**
+   * WHICH ROW this is.
+   *
+   * A component charge is its instance; a legacy row is its type, for which the
+   * type is the identity. One definition, because a second would let the React
+   * key, the busy state and the test id disagree about what a row is.
+   */
+  const rowKey = (r: RecoveryChargeRow) => r.chargeInstanceId ?? r.chargeKey;
+
   const present = rows.filter((r) => r.present);
+
+  /**
+   * Types carried by more than one component row — the group action's subjects,
+   * and the same set that earns a collision owner label.
+   *
+   * A type with one row gets no group control: "set all" over a set of one is
+   * the row's own buttons wearing a different hat.
+   */
+  const groupable = new Map<string, RecoveryChargeRow[]>();
+  for (const r of present) {
+    if (!r.chargeInstanceId) continue;
+    groupable.set(r.chargeKey, [...(groupable.get(r.chargeKey) ?? []), r]);
+  }
+  for (const [k, list] of groupable) if (list.length < 2) groupable.delete(k);
   // Rows carrying ONLY a Direct Service contribution. They are not recovery
   // charges — a Direct Service is already its own priced customer line, with
   // no fee for an election to place — so they get no control. They are still
@@ -170,10 +205,10 @@ export function CardCommercialRecovery({
    * commercial statements, and overloading one gesture to mean both would make
    * the second unreachable except by accident.
    */
-  function write(chargeKey: string, mode: RecoveryMode | null) {
+  function write(subjects: RecoveryChargeRow[], mode: RecoveryMode | null) {
     setError(null);
     writeDone.current = false;
-    setPending({ chargeKey, mode });
+    setPending({ keys: new Set(subjects.map(rowKey)), mode });
     startTransition(async () => {
       // EVALUATED, not written. The result is the governed projection for this
       // election, and the host shows it on both surfaces at once; the write
@@ -182,7 +217,13 @@ export function CardCommercialRecovery({
       // back as an `unreachable` failure instead. It used to escape here, and
       // the escape left `pending` set — so the row sat on "saving…"
       // indefinitely with nothing on screen saying why.
-      const failure = await onPropose(chargeKey, mode);
+      const failure = await onPropose(
+        subjects.map((r) => ({
+          chargeKey: r.chargeKey,
+          ...(r.chargeInstanceId ? { chargeInstanceId: r.chargeInstanceId } : {}),
+        })),
+        mode,
+      );
       if (failure) {
         // Both kinds render the same way. They are distinguished so the
         // ROLLBACK can differ, which it does, inside the hook.
@@ -197,15 +238,24 @@ export function CardCommercialRecovery({
   // The engine's answer ends the wait.
   useEffect(() => {
     if (!pending) return;
-    const row = rows.find((r) => r.chargeKey === pending.chargeKey);
+    // EVERY subject, not the first. A group action is answered when the last
+    // of its rows has moved; ending the wait on one would clear "saving" while
+    // the rest were still in flight.
+    const subjects = rows.filter((r) => pending.keys.has(rowKey(r)));
+    const answered = (r: RecoveryChargeRow | undefined) =>
+      pending.mode === null
+        ? r?.source === "legacy"
+        : r?.effectiveMode === pending.mode;
+    if (subjects.length > 0 && subjects.every(answered)) {
+      setPending(null);
+      return;
+    }
+    const row = subjects[0];
     // A relinquishment is answered by PROVENANCE, not by the selected mode.
     // The inherited placement may well equal the elected one, in which case the
     // dark button does not move and only "elected → inherited" changes. Waiting
     // on the mode there would wait for a change that correctly never comes.
-    if (pending.mode === null ? row?.source === "legacy" : row?.effectiveMode === pending.mode) {
-      setPending(null);
-      return;
-    }
+
     // Fresh rows that say something ELSE are still an answer -- a charge can
     // come back mixed, or unchanged. Holding out for the picked mode would
     // leave "saving…" on screen forever.
@@ -259,12 +309,34 @@ export function CardCommercialRecovery({
         </p>
       ) : (
         present.map((row) => {
-          const busy = pending?.chargeKey === row.chargeKey;
+          const key = rowKey(row);
+          const busy = pending?.keys.has(key) ?? false;
           const allowed = row.options.filter((o) => o.available).map((o) => MODE_LABEL[o.mode].toLowerCase());
+          // The group control rides the FIRST row of its type, so one appears
+          // per type rather than one per row — and it names what it will do.
+          const group = groupable.get(row.chargeKey);
+          const leadsGroup = group !== undefined && rowKey(group[0]) === key;
           return (
-            <div key={row.chargeKey} className="cv-charge" data-testid={`charge-${row.chargeKey}`}>
+            <div
+              key={key}
+              className="cv-charge"
+              data-testid={`charge-${key}`}
+              data-unplaced={row.unplaced ? "yes" : undefined}
+            >
               <div className="cv-charge-head">
-                <span className="cv-charge-label">{row.label}</span>
+                <span className="cv-charge-label">
+                  {row.label}
+                  {/* COLLISION ONLY. One Print plates row reads "Print plates";
+                      two read "Print plates · Kids' Cough carton". The same
+                      rule the customer document follows, so what an operator
+                      reads here and what a customer reads there agree.
+
+                      A legacy row never gets one: its owner is the engagement,
+                      and its anchor must never be surfaced as a cause. */}
+                  {row.ownerLabel ? (
+                    <span className="cv-charge-owner"> · {row.ownerLabel}</span>
+                  ) : null}
+                </span>
                 <span className="cv-charge-amt">
                   {/* The ACTIONABLE amount — what this control can move.
                       It used to be the sum of the one-time fee and any Direct
@@ -291,13 +363,18 @@ export function CardCommercialRecovery({
                 policy: {allowed.length ? allowed.join(" / ") : "none available"} · cost governed
                 {/* Provenance is a caption, never the selected state. A quote
                     that inherited its treatment still HAS that treatment. */}
-                {row.mixed
-                  ? " · placed more than one way"
-                  : row.effectiveMode === null
-                    ? ""
-                    : row.source === "legacy"
-                      ? " · inherited"
-                      : " · elected"}
+                {/* UNPLACED IS SAID, not left blank. A blank reads as "no
+                    election yet" on a charge that already has a treatment; this
+                    charge has none, and the quote cannot send until it does. */}
+                {row.unplaced
+                  ? " · not yet decided — required before sending"
+                  : row.mixed
+                    ? " · placed more than one way"
+                    : row.effectiveMode === null
+                      ? ""
+                      : row.source === "legacy"
+                        ? " · inherited"
+                        : " · elected"}
               </div>
               {row.serviceContext !== null && (
                 <div className="cv-charge-service">
@@ -335,9 +412,9 @@ export function CardCommercialRecovery({
                             ? "Saving this change…"
                             : (opt.reason ?? undefined)
                       }
-                      data-testid={`recovery-${row.chargeKey}-${opt.mode}`}
+                      data-testid={`recovery-${key}-${opt.mode}`}
                       data-available={opt.available ? "yes" : "no"}
-                      onClick={() => write(row.chargeKey, opt.mode)}
+                      onClick={() => write([row], opt.mode)}
                     >
                       {MODE_LABEL[opt.mode]}
                     </button>
@@ -356,7 +433,9 @@ export function CardCommercialRecovery({
                   there that the reference had no need to express. Restrained on
                   purpose -- a text button under the segments, not a fourth
                   segment competing with the treatments. */}
-              {row.source === "election" && editable && (
+              {/* An UNPLACED charge has no election to give up, so the control
+                  would be an action with nothing to act on. */}
+              {row.source === "election" && !row.unplaced && editable && (
                 <button
                   type="button"
                   className="cv-restore"
@@ -367,11 +446,49 @@ export function CardCommercialRecovery({
                       ? "Saving this change…"
                       : "Give up this election and return the charge to the treatment it inherits."
                   }
-                  data-testid={`recovery-${row.chargeKey}-restore`}
-                  onClick={() => write(row.chargeKey, null)}
+                  data-testid={`recovery-${key}-restore`}
+                  onClick={() => write([row], null)}
                 >
                   Restore inherited treatment
                 </button>
+              )}
+
+              {/* ── THE GROUP ACTION ──────────────────────────────────────
+                  Grain per instance, ergonomics per group.
+
+                  Without it a uniform quote costs one click per charge, and the
+                  operator's shortcut becomes absorbing things to make the rail
+                  quiet — a margin event chosen for interface reasons.
+
+                  It is N GOVERNED WRITES, one per instance, composed into one
+                  proposal. It stores nothing at type level, which is why using
+                  it cannot reintroduce the grain it replaces. */}
+              {leadsGroup && editable && (
+                <div className="cv-charge-group">
+                  <span className="cv-charge-group-label">
+                    All {group!.length} {row.label.toLowerCase()} charges:
+                  </span>
+                  {row.options
+                    .filter((o) => o.available)
+                    .map((opt) => (
+                      <button
+                        key={opt.mode}
+                        type="button"
+                        className="cv-charge-group-btn"
+                        disabled={busy}
+                        aria-busy={busy || undefined}
+                        title={
+                          busy
+                            ? "Saving this change…"
+                            : `Set all ${group!.length} ${row.label.toLowerCase()} charges to ${MODE_LABEL[opt.mode].toLowerCase()}. Each is written individually and can be changed on its own afterwards.`
+                        }
+                        data-testid={`recovery-group-${row.chargeKey}-${opt.mode}`}
+                        onClick={() => write(group!, opt.mode)}
+                      >
+                        {MODE_LABEL[opt.mode]}
+                      </button>
+                    ))}
+                </div>
               )}
             </div>
           );

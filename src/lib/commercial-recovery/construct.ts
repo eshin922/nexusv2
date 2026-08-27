@@ -362,7 +362,12 @@ export const PLACEMENT_BY_MODE = {
  */
 export const MODE_BY_PLACEMENT = Object.fromEntries(
   Object.entries(PLACEMENT_BY_MODE).map(([mode, placement]) => [placement, mode]),
-) as Record<ChargePlacement, RecoveryMode>;
+) as Record<ChargePlacement, RecoveryMode | undefined>;
+
+// `unplaced` is deliberately absent from the map above, which is built by
+// inverting PLACEMENT_BY_MODE and therefore only covers placements a MODE
+// produces. Reading it returns `undefined` — correct, since an unplaced charge
+// has no mode — and the type now says so rather than lying about it.
 
 /**
  * ── WHY PLACEMENT AND COMPOSITION ARE SEPARATE FUNCTIONS ─────────────────

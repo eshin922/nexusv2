@@ -831,6 +831,27 @@ export async function resolveCustomerView(args: {
       costing: bundle.data.costing,
       isLeaf: ownsItsCharges,
       elections: bundle.data.chargeElections ?? [],
+      // Component names, for collision-only labelling. Keyed by the CANONICAL
+      // quote-leaf id, which is the causal owner a component charge carries —
+      // never the anchor, which no row is given a label from.
+      ownerNames: new Map(
+        ((bundle.data.skus ?? []) as {
+          canonicalQuoteLeafId?: string | null;
+          productName?: string | null;
+          skuLabel?: string | null;
+        }[])
+          .filter((k) => k.canonicalQuoteLeafId)
+          .map(
+            (k) =>
+              [
+                k.canonicalQuoteLeafId as string,
+                k.productName || k.skuLabel || "",
+              ] as const,
+          )
+          // An empty name is worse than none: it would render a label that says
+          // nothing where the absence of one at least reads as unambiguous.
+          .filter(([, name]) => name.length > 0),
+      ),
       allocationStates: [
         ...new Set(
           ((bundle.data.production ?? []) as {

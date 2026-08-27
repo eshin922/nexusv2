@@ -82,7 +82,9 @@ test("the client renders the response and computes nothing from it", async () =>
 
   assert.match(host, /const shownView = authoritative\?\.view \?\? view/);
   assert.match(host, /const shownRecoveryRows = authoritative\?\.recoveryRows \?\? recoveryRows/);
-  assert.match(card, /await onPropose\(chargeKey, mode\)/);
+  // The call takes a SET since OD-032 recovery grain — one pick, or N for a
+  // group action. The claim is unchanged: the card ASKS and renders the answer.
+  assert.match(card, /await onPropose\(\s*\n?\s*subjects\.map/);
 
   // NOT optimistic: nothing is applied before the server answers, and the
   // client derives no commercial consequence of its own.
