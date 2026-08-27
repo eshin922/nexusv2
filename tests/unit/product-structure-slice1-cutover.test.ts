@@ -534,6 +534,20 @@ const classifiedIdentityFiles = new Set([
   // counting through it would report zero for exactly the products the Run 1
   // finding was about. It writes nothing.
   "src/lib/product-structure/attachment-dependents.ts",
+  // CLASSIFIED - canonical identity only, and every write is rolled back.
+  //
+  // The OD-032 phase 2 contraction proof. Reads `quote_leaves.id` to pick two
+  // components, then owns a charge from each via `owner_quote_leaf_id`, which
+  // is a real FK to that canonical id. `assembly_leaves` is never queried and
+  // nothing resolves through the legacy junction - a component charge is
+  // authored against the leaf the operator pointed at, so there is no anchor
+  // to coerce.
+  //
+  // It writes, deliberately: a structural claim is proven by a transaction
+  // that performs it, never by reading the action layer. Every statement runs
+  // inside a transaction that always rolls back, and the final check asserts
+  // nothing persisted.
+  "scripts/gate-1b/od-032-phase-2-contraction-proof.mjs",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

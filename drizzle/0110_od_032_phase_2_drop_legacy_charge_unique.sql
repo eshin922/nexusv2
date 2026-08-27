@@ -1,12 +1,28 @@
 -- OD-032 phase 2 · drop the temporary (quote_id, charge_key) uniqueness
 --
--- ── DRAFT · DELIBERATELY ABSENT FROM _journal.json ───────────────────────
+-- ── HELD AS A DRAFT UNTIL THE WRITER SHIPPED · JOURNALED 2026-08-27 ──────
 --
--- This file is a recorded DRAFT and is NOT journaled, so `db:migrate` will not
--- apply it. That is the mechanism, not an oversight: it drops the unique index
--- the DEPLOYED writer's ON CONFLICT names, so applying it while that writer is
--- still live breaks every election. It is journaled — in its own change — once
--- phase 2's code is deployed and the new writer conflicts on the primary key.
+-- This file was deliberately absent from _journal.json until phase 2's code
+-- was deployed, because it drops the unique index the DEPLOYED writer's ON
+-- CONFLICT named — applying it while that writer was live would have broken
+-- every election. Expand-then-contract, same as 0107/0108.
+--
+-- Journaled once the following were established against DEPLOYED code, not
+-- branch code:
+--
+--   * Production served commit 224130a, the merge that shipped the new writer.
+--   * Every writer of `quote_charge_recovery` was enumerated across the whole
+--     repository — src/, scripts/ and tests/ — because a previous sweep of
+--     src/ alone missed a third writer in scripts/. Three exist:
+--       - commercial-recovery-persist.ts  ON CONFLICT (charge_instance_id) ✔
+--       - quotes.ts copy path             plain INSERT into a fresh quote ✔
+--       - verify-scenario-copy.ts         plain INSERT (a script) ✔
+--     None names (quote_id, charge_key).
+--   * No FOREIGN KEY references this table, so no FK depends on the unique
+--     being dropped. No triggers exist on it or on any table referencing it —
+--     the check OD-017 skipped, which cost that slice a false claim.
+--   * Zero duplicate charge instances, so the finer constraint holds on live
+--     data before the coarser one is removed.
 --
 -- APPLIED AFTER PHASE 2's CODE DEPLOYS. Same expand-then-contract discipline
 -- as 0107/0108, for the same reason: the constraint being dropped is the
