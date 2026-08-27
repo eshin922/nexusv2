@@ -15,6 +15,8 @@ first draft:
 | 3 | Run setup is **not** a blocker | **removed from V1**; §3, §12, §13 revised |
 | 4 | Generated charge-instance id is the identity | §2.1 **corrected** — the first draft was wrong |
 | 5 | Bundle committed under `docs/design-prototypes/od-032/` | all references updated |
+| **0(b)** | **One identity regime — elections key to `charge_instance_id`** | §2.1 **decided**; §13 phase 1 revised |
+| **0(a)** | **`costs-page-layout` §1/§9 amended before UI work** | approved; phase 0 |
 
 The invariant this plan preserves throughout:
 
@@ -187,11 +189,57 @@ whose charges have no instance row. Component-owned charges elect against
 - **(b) elections keyed on `charge_instance_id` for every population**, with
   legacy charges given synthesised instance rows at migration time.
 
-**(b) is recommended.** It ends the two-grain split rather than encoding it, and
-the synthesis is mechanical: one instance row per existing
-`(quote, charge_key)` election with `owner_ref = '@quote'`. It is more migration
-work in phase 1 and less permanent complexity everywhere after. **This choice
-should be confirmed before phase 1 rather than discovered during it.**
+**DECIDED — option (b), Edward 2026-08-27.** One identity regime:
+
+> Recovery elections key to `charge_instance_id` for both existing and new
+> charges. **Do not introduce a permanent nullable discriminator that preserves
+> two identity models.**
+
+### The legacy synthesis, and the one thing it must not touch
+
+```
+for each existing (quote_id, charge_key) commercial fact
+    → one stable synthesised charge instance
+        charge_instance_id   generated
+        owner_ref            '@quote'          ALWAYS, never today's owner_ref
+        charge_type          the existing charge_key
+    → the existing election migrates onto that instance
+```
+
+**The synthesised identity is derived from `(quote_id, charge_key)` and nothing
+else.** It does *not* read today's coerced `owner_ref`, and its causal ownership
+is fixed at `'@quote'`. That is the disposition's load-bearing clause and the
+reason it is worth stating twice:
+
+> **OD-028 anchor movement must therefore have no ability to change election
+> identity.**
+
+Because synthesis never consults the anchor, an anchor that moves between a
+quote and its copy moves nothing that an election is keyed to. OD-028 stays
+exactly where it is — a display and coaching concern — and OD-032 cannot pull it
+forward by accident. This is asserted in §12, not merely intended.
+
+### The one nullable that is unavoidable, and why it is not the prohibited one
+
+`quote_snapshot_recovery_instructions` rows written **before** this migration
+have no instance to reference, and they are frozen — they may not be backfilled,
+because they are the record of what Accounting was told. So a
+`charge_instance_id` on the snapshot table is necessarily nullable **for
+historical rows only**.
+
+That is not the thing the disposition prohibits. The prohibition is on a
+nullable discriminator that *preserves two identity models going forward* — a
+column the live system keeps consulting to decide which regime a row belongs to.
+This one is the opposite: it is nullable only where history cannot be rewritten,
+every row written after phase 1 carries an instance, and nothing reads the null
+to choose behaviour. Recommend a comment on the column saying exactly that, so a
+future reader does not "tidy" it into a discriminator.
+
+**Freeze keying is unchanged.** Snapshot rows keep
+`(snapshot, charge_key, owner_ref, tier_id)` as their uniqueness, with the
+instance id carried alongside as the durable link. Changing the freeze key is
+not required by anything here and would rewrite the shape of an already-certified
+artifact.
 
 ## 2.2 ⚠ The conflict — OD-032 makes OD-028 commercially load-bearing
 
@@ -561,6 +609,44 @@ Ordered so the cheapest disproof comes first.
 16. NetSuite line maps on type; owner appears in memo only; `Other` raises the
     existing unmatched flag.
 
+**Phase 1 behaviour-neutrality — a population-wide before/after harness**
+
+The disposition sets the bar: *"Before and after migration, prove every existing
+quote resolves the same recovery placement, economics and frozen behaviour."*
+That is a population proof, not a sample, and the project already has the shape
+for it — `scripts/gate-1b/verify-costing-preserved.ts` (the S-7 preserved
+harness) captures a resolved projection across every live quote and compares two
+captures byte-for-byte.
+
+A sibling harness for phase 1 captures, per quote and per tier:
+
+```
+resolved recovery placement per charge      mode + source (election|legacy)
+constructed economics                       cost, recoverableSell, placement
+tier commercial totals                      unit subtotal, otc subtotal, total
+blended margin                              per governed tier
+frozen behaviour                            instruction rows for sent quotes
+```
+
+**Both sides must be captured with the same harness**, per the standing rule —
+a stale baseline mixes pre-existing drift with the change under test and makes
+neither legible. And per Pattern 60, the capture must distinguish *resolved*,
+*authoritatively absent* and *could not resolve*: a quote that fails to resolve
+on both sides is not evidence of neutrality, it is evidence of nothing.
+
+Two specific assertions the generic diff would miss:
+
+- **`source` must not flip.** A legacy charge resolving as `election` after
+  migration would be re-priced — legacy sits in the unit rate and the quote
+  adjustment reaches it; elected is revenue-neutral. Identical placement with a
+  changed `source` is a silent repricing that a placement-only comparison
+  reports as unchanged.
+- **Election identity must be anchor-independent.** Synthesise instances for a
+  quote, permute the physical row order that decides its OD-028 anchor,
+  re-synthesise, and assert the instance ids and their elections are unchanged.
+  That is the falsification of the disposition's load-bearing clause, and it
+  fails loudly if synthesis ever starts reading `owner_ref`.
+
 **Certification walk** — one quote, two cartons, same type on both, different
 recovery decisions, through freeze and a real sandbox Sales Order, with
 before/after database capture at each boundary. That is the shape that has
@@ -576,8 +662,9 @@ setup left the critical path with them.
 
 | phase | contents | gate |
 |---|---|---|
-| **0** | **(a)** amend `costs-page-layout` §1/§9 · **(b)** confirm the election-key choice, §2.1 (a) vs **(b)** | both before phase 1 |
-| **1** | Election → instance grain. Synthesise instance rows for existing elections; expand→backfill→validate→contract. **Zero behaviour change.** | full suite green, and Production visibly identical |
+| **0(a)** | amend `costs-page-layout` §1/§9 — owned rows group beneath their owner; the section stays **one tier-aligned Costs region** | **before the UI phases**, not before phase 1 |
+| **0(b)** | ~~decide the election key~~ — **decided**, §2.1 | done |
+| **1** | Election → one instance regime. Synthesise a stable instance per existing `(quote_id, charge_key)`, migrate elections onto it, expand→backfill→validate→contract. **Behaviour-neutral.** | population before/after harness green **and** the anchor-permutation falsification |
 | **2** | M2/M3 storage + registry + costing input. No UI. | falsifications 0–8 |
 | **3** | Costs owner-grouped rendering, Project heading | fidelity manifest vs bundle |
 | **4** | The two-phase sheet | fidelity manifest; the new-component risk sits here |
@@ -585,13 +672,16 @@ setup left the critical path with them.
 | **6** | Customer document + NetSuite | falsifications 14–16 + certification walk |
 | **later** | Run setup, once Accounting supplies a destination | one enum value + one map entry |
 
-**Phase 0(b) is the one open engineering decision left.** §2.1 recommends
-option (b) — elections keyed on `charge_instance_id` for every population, with
-synthesised instance rows for the legacy set — because it ends the two-grain
-split instead of encoding it as a nullable discriminator. It costs more
-migration in phase 1 and less permanent complexity afterwards. Confirming it
-before phase 1 rather than discovering it during phase 1 is the difference
-between one migration and two.
+**Phase 0(a) gates the UI phases, not phase 1.** The amendment is about how
+Costs renders owned rows; phase 1 renders nothing. Sequencing it before phase 3
+rather than before phase 1 lets the invisible migration proceed while the
+document is amended, and keeps the two independently reviewable — which is the
+standing instruction for these phases.
+
+**Phase 1 does not advance to the visual phases until it is falsified cleanly.**
+Its success criterion is that nothing moved, which is the rare case where a
+phase can be verified against Production directly: same placements, same
+economics, same frozen behaviour, across the whole live population.
 
 **Mode-narrowing is deferred to phase 5**, where Recovery is actually touched.
 It is a change to a banked class rule (*all one-time fees permit all three
