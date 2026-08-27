@@ -1,0 +1,366 @@
+<title>OD-032 Journey Round</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* House style inherited from `Nexus OD-032 Round Trip` — sibling document,
+     same bundle, so not the place for a new visual identity. */
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: oklch(0.965 0.008 85); color: oklch(0.20 0.02 255);
+    font-family: 'Instrument Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: oklch(0.92 0.04 255); }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 40px 90px; }
+  .eyebrow { font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:.09em; text-transform:uppercase; color:oklch(0.68 0.012 255); }
+  h1 { font-family:'Newsreader',serif; font-size:40px; font-weight:400; margin:12px 0 0; letter-spacing:-.01em; text-wrap:balance; }
+  h2 { font-family:'Newsreader',serif; font-size:27px; font-weight:400; margin:9px 0 0; text-wrap:balance; }
+  h3 { font-family:'Newsreader',serif; font-size:18px; font-weight:400; margin:0; }
+  .lede { font-size:15.5px; color:oklch(0.36 0.02 255); margin-top:10px; max-width:770px; line-height:1.55; text-wrap:pretty; }
+  .body { font-size:13px; color:oklch(0.36 0.02 255); line-height:1.6; text-wrap:pretty; }
+  .muted { color:oklch(0.52 0.015 255); }
+  section { margin-top:52px; }
+  .card { background:oklch(0.985 0.006 85); border:1px solid oklch(0.88 0.012 85); border-radius:10px; padding:14px 16px; }
+  .cards { display:flex; gap:10px; margin-top:22px; align-items:stretch; flex-wrap:wrap; }
+  .cards > * { flex:1 1 270px; }
+  .scroll { overflow-x:auto; }
+  .tag { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.06em; text-transform:uppercase; padding:4px 8px; border-radius:5px; background:oklch(0.945 0.010 85); border:1px solid oklch(0.88 0.012 85); color:oklch(0.52 0.015 255); white-space:nowrap; }
+  .tag.own { background:oklch(0.92 0.04 255); border-color:oklch(0.42 0.14 255); color:oklch(0.28 0.12 255); font-weight:500; }
+  .tag.new { background:oklch(0.93 0.06 145); border-color:oklch(0.60 0.13 150); color:oklch(0.36 0.10 150); font-weight:500; }
+  .tag.open { background:oklch(0.94 0.05 75); border-color:oklch(0.72 0.12 65); color:oklch(0.42 0.12 55); font-weight:500; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid oklch(0.92 0.010 85); vertical-align:top; }
+  th { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.09em; text-transform:uppercase; color:oklch(0.68 0.012 255); border-bottom:1px solid oklch(0.20 0.02 255); }
+  .panel { background:oklch(0.985 0.006 85); border:1px solid oklch(0.88 0.012 85); border-radius:10px; overflow:hidden; margin-top:18px; }
+  .callout { border-left:2px solid oklch(0.42 0.14 255); padding-left:14px; margin-top:14px; }
+  .callout.open { border-left-color:oklch(0.72 0.12 65); }
+  code { font-family:'JetBrains Mono',monospace; font-size:11.5px; }
+  .step { display:flex; gap:0; margin-top:20px; align-items:stretch; flex-wrap:wrap; }
+  .step > div { flex:1 1 300px; background:oklch(0.985 0.006 85); border:1px solid oklch(0.88 0.012 85); padding:14px 16px; }
+  .step > div:first-child { border-radius:10px 0 0 10px; }
+  .step > div:last-child { border-radius:0 10px 10px 0; }
+  .row { display:grid; grid-template-columns:1fr 110px 96px 150px 24px; gap:14px; align-items:baseline; padding:8px 11px; background:oklch(0.995 0.003 85); border:1px solid oklch(0.92 0.010 85); border-radius:6px; }
+  .sub { font-family:'JetBrains Mono',monospace; font-size:9.5px; color:oklch(0.68 0.012 255); margin-top:2px; }
+  .num { font-family:'JetBrains Mono',monospace; font-size:11.5px; text-align:right; font-variant-numeric:tabular-nums; }
+  .colh { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:oklch(0.68 0.012 255); text-align:right; }
+  hr.rule { height:1px; background:oklch(0.88 0.012 85); margin:28px 0; border:0; }
+</style>
+
+<div class="wrap">
+
+<header style="padding-top:46px">
+  <div class="eyebrow">OD-032 · journey round · Setup → Costs → Commercial Recovery</div>
+  <h1>One charge, three surfaces, and the one place it is still undecided</h1>
+  <p class="lede">
+    Run against the measured implementation constraints rather than against an ideal. Two of
+    the three surfaces are already drawn or already correct. The third is the open question,
+    and it is surfaced here as alternatives rather than resolved in engineering.
+  </p>
+</header>
+
+<div class="cards">
+  <div class="card">
+    <div class="eyebrow">Setup</div>
+    <h3 style="margin-top:6px">Drawn already</h3>
+    <p class="body muted" style="font-size:12px;margin:5px 0 0">The two-phase sheet is the one thing the Design Authority draws in full. Preserved exactly; nothing re-invented here.</p>
+  </div>
+  <div class="card">
+    <div class="eyebrow">Costs</div>
+    <h3 style="margin-top:6px">Two alternatives</h3>
+    <p class="body muted" style="font-size:12px;margin:5px 0 0">Not one recommendation dressed as a choice. Both are drawn, both are honest, and they differ in what they cost the certified page.</p>
+  </div>
+  <div class="card">
+    <div class="eyebrow">Recovery</div>
+    <h3 style="margin-top:6px">Grain, not layout</h3>
+    <p class="body muted" style="font-size:12px;margin:5px 0 0">The surface exists and reads correctly. What changes is what a row addresses: a type today, an instance after.</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section>
+  <div class="eyebrow">01 · the journey, as one motion</div>
+  <h2>The operator has one thought. It crosses three surfaces.</h2>
+  <p class="body" style="max-width:830px;margin-top:10px">
+    <em>“This carton causes plates, dies and samples.”</em> That sentence is authored in Setup,
+    read as cost in Costs, and priced in Commercial Recovery. The design's job across the
+    journey is that it stays one sentence — the same charge, recognisable at each stop, never
+    re-explained.
+  </p>
+
+  <div class="step">
+    <div>
+      <div class="eyebrow">1 · Setup</div>
+      <h3 style="margin-top:6px;font-size:16px">Author</h3>
+      <p class="body" style="font-size:12.5px;margin-top:6px">
+        The component row's <code>···</code> → <strong style="font-weight:500">Add one-time
+        charges</strong>. Select types together, price them together, then they become
+        ordinary rows.
+      </p>
+      <div style="margin-top:8px"><span class="tag new">new UI</span> <span class="tag">drawn in full</span></div>
+    </div>
+    <div>
+      <div class="eyebrow">2 · Costs</div>
+      <h3 style="margin-top:6px;font-size:16px">Read as cost</h3>
+      <p class="body" style="font-size:12.5px;margin-top:6px">
+        Charges are cost facts, so Costs is their home. They contribute to the same tier
+        totals and are edited in place — no return to the sheet.
+      </p>
+      <div style="margin-top:8px"><span class="tag open">alternatives · §03</span></div>
+    </div>
+    <div>
+      <div class="eyebrow">3 · Recovery</div>
+      <h3 style="margin-top:6px;font-size:16px">Decide who pays</h3>
+      <p class="body" style="font-size:12.5px;margin-top:6px">
+        Each charge arrives <code>unplaced</code> and the send checklist holds until every one
+        has a placement. Per instance, with a group action for ergonomics.
+      </p>
+      <div style="margin-top:8px"><span class="tag">grain change</span> <span class="tag own">22 refs measured</span></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <p class="body" style="margin:0">
+      <strong style="font-weight:500">The two decisions stay apart at every stop.</strong>
+      Setup asks what was caused and what it cost. Recovery asks who pays. The sheet never
+      asks for placement, and the rail never asks for cost — fusing them is the one thing the
+      model exists to prevent.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section>
+  <div class="eyebrow">02 · Setup — preserved, not redesigned</div>
+  <h2>The only surface the Design Authority draws in full</h2>
+  <p class="body" style="max-width:830px;margin-top:10px">
+    Phases 1 and 2 of the round trip's §03 are canonical and this round changes nothing about
+    them: multi-select checklist, up to three suggestion chips from product type,
+    <strong style="font-weight:500">never pre-checked</strong>; then one staging table pricing
+    every selected row together, cost per tier, fixed <code>one-time</code> basis, placement
+    not asked.
+  </p>
+  <p class="body" style="max-width:830px;margin-top:10px">
+    The measured constraint that matters: the assembly tree has
+    <strong style="font-weight:500">no row-level <code>···</code> menu today</strong>, so the
+    entry affordance is new. Everything behind it is drawn.
+  </p>
+  <div class="cards">
+    <div class="card">
+      <div class="eyebrow">Preserved verbatim</div>
+      <p class="body" style="font-size:12.5px;margin:7px 0 0">
+        Suggestion is a prompt, selection is an act. Same type twice is legal — a warning with
+        a required distinct label, never a block. Deleting the component names its charges and
+        their total first.
+      </p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">The sharpest risk, carried in copy</div>
+      <p class="body" style="font-size:12.5px;margin:7px 0 0">
+        Template memory will be read as price memory. The sheet says
+        <em>the library remembers types; amounts are entered per quote, every time</em> — and
+        no prior amount is ever shown as a prefill, <strong style="font-weight:500">not even
+        greyed. A greyed prefill is a prefill.</strong>
+      </p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Constraint this round adds</div>
+      <p class="body" style="font-size:12.5px;margin:7px 0 0">
+        The V1 sheet offers <strong style="font-weight:500">component types only</strong>. No
+        quote-owned type is selectable, which is what keeps the missing Project region
+        unreachable rather than unhandled.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section>
+  <div class="eyebrow">03 · Costs — the open question</div>
+  <h2>Two alternatives, both honest, differing in what they cost</h2>
+  <p class="body" style="max-width:830px;margin-top:10px">
+    Costs is unresolved, so this surfaces alternatives rather than inventing a final layout.
+    Both place charges correctly by causal owner and neither moves an existing row between
+    regions — they differ in <em>how much of the certified page changes appearance</em>.
+  </p>
+
+  <!-- ALT 1 -->
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;background:oklch(0.975 0.010 85);border-bottom:1px solid oklch(0.20 0.02 255)">
+      <span class="tag own">Alternative 1</span>
+      <h3>Charges sit with their owner — nothing else changes</h3>
+      <span style="flex:1"></span>
+      <span class="tag">smallest footprint</span>
+    </div>
+    <div style="padding:14px 16px">
+      <p class="body" style="margin:0 0 12px">
+        Component charges nest under the component row in Packaging. Production gains one
+        attribution line naming the Item Group as the cause. Freight is untouched.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:6px;max-width:760px">
+        <div class="row">
+          <span>Print plates<div class="sub">print plates · one-time · unplaced</div></span>
+          <span class="num">$1,450</span><span class="colh">cost · tier 1</span>
+          <span class="colh" style="color:oklch(0.52 0.015 255)">recovery set in pricing</span>
+          <span class="num muted">···</span>
+        </div>
+        <div class="row">
+          <span>Tooling &amp; dies<div class="sub">tooling &amp; dies · one-time · unplaced</div></span>
+          <span class="num">$1,180</span><span class="colh">cost · tier 1</span>
+          <span class="colh" style="color:oklch(0.52 0.015 255)">recovery set in pricing</span>
+          <span class="num muted">···</span>
+        </div>
+      </div>
+      <table style="margin-top:14px">
+        <tbody>
+          <tr><td style="width:150px"><strong style="font-weight:500">Buys</strong></td><td>Correct ownership with essentially no disruption. Nothing an operator has been trained on changes shape.</td></tr>
+          <tr><td><strong style="font-weight:500">Costs</strong></td><td>One-time charges read as two families in two places. An operator wanting “everything one-time on this quote” has no single view.</td></tr>
+          <tr><td style="border-bottom:0"><strong style="font-weight:500">Leaves open</strong></td><td style="border-bottom:0">Whether one-time charges are a family that belongs together — the post-V1 redesign's question.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ALT 2 -->
+  <div class="panel">
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;background:oklch(0.975 0.010 85);border-bottom:1px solid oklch(0.20 0.02 255)">
+      <span class="tag open">Alternative 2</span>
+      <h3>Same placement, plus a read-only roll-up</h3>
+      <span style="flex:1"></span>
+      <span class="tag">one added element</span>
+    </div>
+    <div style="padding:14px 16px">
+      <p class="body" style="margin:0 0 12px">
+        Alternative 1 exactly, plus a <strong style="font-weight:500">read-only</strong>
+        one-time summary at the foot of Costs, grouped by owner. It answers “what one-time
+        money is on this quote” without moving anything: every figure is a link back to the
+        row that owns it, and nothing is editable here.
+      </p>
+      <div class="scroll">
+        <div style="border:1px solid oklch(0.88 0.012 85);border-radius:8px;overflow:hidden;min-width:620px">
+          <div style="padding:9px 14px;background:oklch(0.968 0.012 85);border-bottom:1px solid oklch(0.92 0.010 85);display:flex;gap:10px;align-items:center">
+            <span class="eyebrow">One-time charges · all owners</span>
+            <span style="flex:1"></span>
+            <span class="tag">read-only · edit at source</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 120px 120px;gap:14px;padding:8px 14px;border-bottom:1px solid oklch(0.92 0.010 85)">
+            <span class="colh" style="text-align:left">Owner</span><span class="colh">Charges</span><span class="colh">Tier 1</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 120px 120px;gap:14px;padding:9px 14px;border-bottom:1px solid oklch(0.955 0.008 85)">
+            <span>Fixture ASY B <span class="muted" style="font-size:11.5px">· Item Group</span></span><span class="num">2</span><span class="num">4,600.00</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 120px 120px;gap:14px;padding:9px 14px">
+            <span>Genexa — Box — Kids’ Cough <span class="muted" style="font-size:11.5px">· component</span></span><span class="num">3</span><span class="num">3,180.00</span>
+          </div>
+        </div>
+      </div>
+      <table style="margin-top:14px">
+        <tbody>
+          <tr><td style="width:150px"><strong style="font-weight:500">Buys</strong></td><td>The single view Alternative 1 lacks, and a place where all three owner types appear side by side — so the owner model is legible as one idea.</td></tr>
+          <tr><td><strong style="font-weight:500">Costs</strong></td><td>A new element on a certified page during training. Read-only keeps the risk low, but it is still one more thing on screen.</td></tr>
+          <tr><td style="border-bottom:0"><strong style="font-weight:500">Risk to name</strong></td><td style="border-bottom:0">A summary that looks editable will be edited. If it cannot be made unmistakably read-only, Alternative 1 is safer.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="callout open">
+    <p class="body" style="margin:0">
+      <strong style="font-weight:500">Neither alternative builds the standalone region, moves
+      duty and customs, or restructures Freight.</strong> That is the post-V1 redesign, and
+      both alternatives are designed to be replaced by it without anything needing to be
+      unwound first.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section>
+  <div class="eyebrow">04 · Commercial Recovery</div>
+  <h2>The layout is right. The grain is what changes.</h2>
+  <p class="body" style="max-width:830px;margin-top:10px">
+    Measured: the recovery surface addresses charges by type in
+    <strong style="font-weight:500">22 references across three files</strong>, and no component
+    references an instance. So the change is not visual — a row still reads as a charge with a
+    placement — it is <em>what a row is</em>.
+  </p>
+
+  <div class="scroll">
+    <div class="panel" style="min-width:640px;margin-top:16px">
+      <div style="padding:10px 14px;background:oklch(0.975 0.010 85);border-bottom:1px solid oklch(0.20 0.02 255);display:flex;gap:10px;align-items:center">
+        <span class="eyebrow">Commercial Recovery · one-time charges</span>
+        <span style="flex:1"></span>
+        <span class="tag new">Set all Print plates →</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 130px 130px 130px;gap:14px;padding:8px 14px;border-bottom:1px solid oklch(0.92 0.010 85)">
+        <span class="colh" style="text-align:left">Charge</span><span class="colh">Included</span><span class="colh">Separate</span><span class="colh">Absorbed</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 130px 130px 130px;gap:14px;padding:10px 14px;border-bottom:1px solid oklch(0.955 0.008 85);align-items:baseline">
+        <span>Print plates <span class="muted" style="font-size:11.5px">· Kids’ Cough carton</span><div class="sub">$1,450 · unplaced</div></span>
+        <span class="colh">○</span><span class="colh">○</span><span class="colh">○</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 130px 130px 130px;gap:14px;padding:10px 14px;align-items:baseline">
+        <span>Print plates <span class="muted" style="font-size:11.5px">· Dropper sleeve</span><div class="sub">$620 · absorbed</div></span>
+        <span class="colh">○</span><span class="colh">○</span><span class="colh" style="color:oklch(0.28 0.12 255)">●</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="eyebrow">Why per instance is not negotiable</div>
+      <p class="body" style="font-size:12.5px;margin:7px 0 0">
+        Print plates on one carton must be able to differ from print plates on another — two
+        causes, and one may be absorbed as a concession. Rolling recovery up by type makes
+        that concession <em>unrepresentable</em>, which is a commercial capability lost to a
+        data-modelling convenience.
+      </p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Why the group action is not a nicety</div>
+      <p class="body" style="font-size:12.5px;margin:7px 0 0">
+        Without it a uniform quote costs one click per charge, and the operator's shortcut
+        becomes absorbing things to make the rail quiet — <strong style="font-weight:500">a
+        margin event chosen for interface reasons.</strong> Grain per instance, ergonomics per
+        group.
+      </p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Disambiguation, only where needed</div>
+      <p class="body" style="font-size:12.5px;margin:7px 0 0">
+        The owner name appears beside the type <em>only when two charges of one type are
+        present</em>. One Print plates row reads “Print plates”. This mirrors the customer
+        document's collision rule, so internal and external copy agree.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section>
+  <div class="eyebrow">05 · what this round did not decide</div>
+  <h2>Left open on purpose</h2>
+  <div class="panel scroll">
+    <table>
+      <thead><tr><th style="width:250px">Open</th><th>Why it is not settled here</th></tr></thead>
+      <tbody>
+        <tr><td><strong style="font-weight:500">Which Costs alternative</strong></td><td>Both are drawn and costed. Choosing between them is a judgement about how much a certified page may change during training — not an engineering call.</td></tr>
+        <tr><td><strong style="font-weight:500">The standalone one-time region</strong></td><td>Belongs to the post-V1 Costs redesign, which reconsiders the page as one system. Designing it now would be the accidental permanent architecture this round exists to avoid.</td></tr>
+        <tr><td><strong style="font-weight:500">Duty and customs placement</strong></td><td>Same redesign. They are freight economics, not charges under this model, and moving them is a Freight change.</td></tr>
+        <tr><td><strong style="font-weight:500">Absorption governance</strong></td><td>Today only the <em>result</em> is governed. Owner attribution makes five absorptions in one quote easy where it used to be occasional. Result-governance is still the recommendation, but the exposure is larger than the policy was written against.</td></tr>
+        <tr><td style="border-bottom:0"><strong style="font-weight:500">Project setup's true owner</strong></td><td style="border-bottom:0">Existing rows are Item-Group-owned by storage and BV-012; a newly authored one would be quote-owned. V1 accepts the split by age; the redesign should decide whether the vocabulary entry is what is wrong.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="rule">
+<p class="body muted" style="font-size:11.5px">
+  Sibling to <em>Nexus OD-032 Round Trip</em> and <em>Nexus OD-032 Costs Placement</em>; house
+  style inherited rather than restated. Setup content preserved verbatim from the round trip's
+  §03. Implementation constraints measured against the repository on 2026-08-27 and recorded in
+  <code>docs/validation/od-032-capability-scope.md</code>.
+</p>
+
+</div>
