@@ -101,7 +101,13 @@ function freeze(args: Parameters<typeof input>[0]) {
   return projectFrozenInstructions(costing, (skuId) => skuId === "leaf");
 }
 
-const INCLUDED: ChargeElection[] = [{ chargeKey: "print_plates", mode: "included" }];
+// Per instance. Both charges are elected, because this suite is about whether
+// the FROZEN RECORD can tell them apart — leaving one unplaced would test the
+// unplaced refusal instead, which is its own case.
+const INCLUDED: ChargeElection[] = [
+  { chargeKey: "print_plates", chargeInstanceId: INST_A, mode: "included" },
+  { chargeKey: "print_plates", chargeInstanceId: INST_B, mode: "included" },
+];
 const SETUP_INCLUDED: ChargeElection[] = [{ chargeKey: "project_setup", mode: "included" }];
 
 // ══════════════════════════════════════════════════════════════════════

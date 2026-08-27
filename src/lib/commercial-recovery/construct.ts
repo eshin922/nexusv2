@@ -48,7 +48,28 @@ import type { ChargeElection } from "./resolve";
 import { resolveCharge } from "./resolve";
 
 /** Where a recovery lands. One charge, exactly one of these. */
-export type ChargePlacement = "unit_price" | "separate_line" | "absorbed";
+/**
+ * Where a charge sits commercially.
+ *
+ * `unplaced` is OD-032's fourth state and is NOT a treatment — it is the
+ * absence of one. A charge exists, DPS has paid for it, and nobody has yet
+ * decided who bears it.
+ *
+ * It is deliberately not collapsed into `absorbed`, whose arithmetic it
+ * currently shares: absorbed is a decision to eat a cost, unplaced is the lack
+ * of one. Collapsing them would let a quote send carrying charges nobody
+ * decided, recorded as though an operator had chosen to absorb them.
+ *
+ * NOTHING FREEZES UNPLACED. Send is blocked while any charge is unplaced, so
+ * the value cannot reach `quote_snapshot_recovery_instructions` and the
+ * `recovery_treatment` database enum needs no new member. That invariant is
+ * asserted rather than assumed.
+ */
+export type ChargePlacement =
+  | "unit_price"
+  | "separate_line"
+  | "absorbed"
+  | "unplaced";
 
 /**
  * The subset of the cost layer's record this layer reads.
@@ -124,8 +145,14 @@ export type PlacedCharge = {
    * only one either silently reprices 89 existing quotes or leaves relocation
    * as a pricing lever. Absence of a row stays the load-bearing state; this is
    * what lets it stay load-bearing at the pricing layer too.
+   *
+   *   unplaced  is revenue-ABSENT — OD-032's third case. The charge recovers
+   *             nothing yet because nobody has decided what it recovers, which
+   *             is different from deciding it recovers nothing. It reaches only
+   *             a charge that has an instance; a legacy column always had a
+   *             pre-recovery treatment to inherit.
    */
-  source: "election" | "legacy";
+  source: "election" | "legacy" | "unplaced";
   /** Copied through. Invariant under every election. */
   cost: number;
   /** Copied through, never recomputed. */
@@ -480,7 +507,7 @@ export function composeFromPlacements(
   economics: readonly ChargeEconomicsInput[],
   placementOf: (charge: ChargeEconomicsInput) => {
     placement: ChargePlacement;
-    source: "election" | "legacy";
+    source: "election" | "legacy" | "unplaced";
   },
   /**
    * The tier's quoted quantity — the amortization basis for a charge placed
@@ -507,7 +534,21 @@ export function composeFromPlacements(
         recoverableSell: e.recoverableSell,
         // Absorbed contributes zero even when the amount is unknown: what is
         // given up need not be known to know the customer pays nothing for it.
-        revenueContribution: placement === "absorbed" ? 0 : e.recoverableSell,
+        //
+        // UNPLACED contributes NULL, not zero, and the difference is the whole
+        // state. Zero would assert that the customer pays nothing for this
+        // charge — a commercial claim nobody has made. Null says no governed
+        // recovery has been decided, which is the BV-013 shape: no governed
+        // figure means no price, never a price computed at cost.
+        //
+        // The cost above is untouched either way. Cost truth is invariant under
+        // placement, and being undecided is not a placement.
+        revenueContribution:
+          placement === "unplaced"
+            ? null
+            : placement === "absorbed"
+              ? 0
+              : e.recoverableSell,
         // $0 for an amortized charge, and for an absorbed one. Only a charge
         // billed on its own line carries an invoice amount, and it is the
         // governed recovery unchanged — embedding a charge does not reprice it,
@@ -562,17 +603,49 @@ export function constructCommercial(
   perAssemblyAllocate?: boolean | null,
   tierQuantity = 0,
 ): ConstructedCommercialState {
-  const byCharge = new Map<RecoveryChargeKey, ChargeElection>();
-  for (const e of elections) byCharge.set(e.chargeKey, e);
+  // ── TWO GRAINS, AND WHICH ONE A CHARGE USES IS A PROPERTY OF THE CHARGE ──
+  //
+  // A LEGACY charge is a production column. Its type IS its identity — a quote
+  // has one `setupFeeTotal`, and an election naming the type names the only
+  // charge it could mean. Matching by type is correct there and stays.
+  //
+  // A COMPONENT charge has an instance, and its type distinguishes NOTHING:
+  // one carton can cause two sets of print plates, and OD-032 exists so that
+  // one may be absorbed as a concession while the other is billed. Matching by
+  // type there would place both from one election, which is the capability
+  // this phase restores rather than a detail of how it is stored.
+  //
+  // The two maps are separate rather than one keyed loosely, so a component
+  // charge can NEVER fall back to a type-grained election. That fallback is
+  // exactly the collapse being removed, and it would reappear silently the
+  // first time an instance id went missing.
+  const byInstance = new Map<string, ChargeElection>();
+  const byType = new Map<RecoveryChargeKey, ChargeElection>();
+  for (const e of elections) {
+    if (e.chargeInstanceId) byInstance.set(e.chargeInstanceId, e);
+    else byType.set(e.chargeKey, e);
+  }
 
   return composeFromPlacements(economics, (e) => {
+    const election = e.chargeInstanceId
+      ? (byInstance.get(e.chargeInstanceId) ?? null)
+      : (byType.get(e.chargeKey) ?? null);
     const resolved = resolveCharge(
       e.chargeKey,
-      byCharge.get(e.chargeKey) ?? null,
+      election,
       perAssemblyAllocate,
+      // Only a charge with an instance can be UNPLACED. A legacy column has
+      // always resolved to something in the absence of an election, and that
+      // is the behaviour this phase must not move.
+      e.chargeInstanceId !== undefined,
     );
     // Provenance travels with the placement, because the two are priced
     // differently and the engine has to be able to tell them apart.
-    return { placement: PLACEMENT_BY_MODE[resolved.mode], source: resolved.source };
+    return {
+      // A null mode is the unplaced state, which has no treatment to map to.
+      placement:
+        resolved.mode === null ? "unplaced" : PLACEMENT_BY_MODE[resolved.mode],
+      source: resolved.source,
+    };
   }, tierQuantity);
 }

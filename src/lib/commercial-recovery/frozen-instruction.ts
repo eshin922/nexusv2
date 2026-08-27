@@ -44,7 +44,20 @@ export type FrozenRecoveryInstruction = {
    * between authoring and freeze.
    */
   chargeInstanceId: string | null;
-  treatment: ChargePlacement;
+  /**
+   * The treatment Accounting acts on.
+   *
+   * DELIBERATELY NARROWER than `ChargePlacement`: `unplaced` is excluded,
+   * because an undecided charge has no instruction to give. Send is blocked
+   * while any charge is unplaced, so one cannot reach here — and the
+   * `recovery_treatment` database enum has no such member, so TypeScript
+   * refuses the write rather than the constraint discovering it at runtime.
+   */
+  treatment: Exclude<ChargePlacement, "unplaced">;
+  /**
+   * NARROWER than `PlacedCharge.source`, for the same reason `treatment` is:
+   * an unplaced charge never freezes, so `unplaced` cannot appear here.
+   */
   treatmentSource: "election" | "legacy";
   /** What DPS pays. */
   cost: number;
@@ -87,20 +100,36 @@ export function projectFrozenInstructions(
   // `ownedPlacedCharges` skips parent rollups, whose construction is a merge of
   // children already recorded. Recording both would double every amortized
   // charge in the instruction an accountant reads.
-  return ownedPlacedCharges(costing, isLeaf).map(({ ownerRef, tierId, charge: c }) => ({
+  return ownedPlacedCharges(costing, isLeaf).map(({ ownerRef, tierId, charge: c }) => {
+    if (c.placement === "unplaced") {
+      // REFUSED, LOUDLY. Reaching here means send-readiness let an undecided
+      // charge through, and the alternatives are both worse than a throw:
+      // freezing it as `absorbed` would record a margin decision nobody made,
+      // and dropping it would remove a real cost from the record Accounting
+      // bills from. Neither is recoverable after the fact.
+      throw new Error(
+        `Cannot freeze an unplaced charge (${c.chargeKey}` +
+          `${c.chargeInstanceId ? ` / ${c.chargeInstanceId}` : ""}). ` +
+          "Send readiness must refuse a quote carrying one.",
+      );
+    }
+    return {
     chargeKey: c.chargeKey,
     ownerRef,
     tierId,
     // Read from the field, never parsed from `sourceColumn`.
     chargeInstanceId: c.chargeInstanceId ?? null,
     treatment: c.placement,
-    treatmentSource: c.source,
+    // Narrowed by the refusal above: the unplaced branch has already thrown,
+    // so `source` here can only be one an accountant can act on.
+    treatmentSource: c.source as "election" | "legacy",
     cost: c.cost,
     governedRecovery: c.recoverableSell,
     separateInvoiceAmount: c.separateInvoiceAmount,
     amortizedPerUnit: c.amortization?.perUnit ?? null,
     tierQuantity: c.amortization?.tierQuantity ?? null,
-  }));
+    };
+  });
 }
 
 /**
