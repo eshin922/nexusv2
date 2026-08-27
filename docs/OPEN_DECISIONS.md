@@ -1347,11 +1347,37 @@ Kept SEPARATE from OD-026. Not merged without evidence.
 
 ---
 
-### OD-028 · Duplicate member positions let physical row order choose the visible freight owner
+### OD-028 · Duplicate member positions let physical row order choose the anchor leaf
 
 **Owner:** Nexus engineering + Edward · **Status:** OPEN, logged not repaired ·
-**Severity:** presentation. **Explicitly NOT a commercial-integrity defect** —
-see the arithmetic note below before treating it as one.
+**Severity:** see below — it differs by consumer. **Not a commercial-integrity
+defect in either consumer** (traced, not assumed); see the arithmetic note
+before treating it as one.
+
+**WIDENED 2026-08-26.** Filed about the *freight* anchor. A second consumer was
+then found — the *production* anchor, via a copy that redistributed per-leaf
+factory cost between siblings — with the same root cause and a higher
+consequence. Both are recorded here rather than as two entries, because two
+entries for one root cause is how the two get repaired differently.
+
+**The second consumer, in brief.** Per-assembly production is coerced onto the
+lowest-position child, so the tie decides which leaf carries the whole
+assembly's production cost. Tier and assembly totals are invariant (additive
+parent rollup), and nothing that gates, freezes, bills or prints reads the
+per-leaf figure — the below-floor gate and its state fingerprint both read
+tier-level rollups. But the **Pricing coaching layer reads per-cell margin**, so
+a copy changes which SKU is named as the problem and which cells read
+below-target; and a lift is written per-leaf, so acting on distorted guidance
+persists a different per-product unit price on a customer document whose total
+is unchanged. That is narrower than a commercial-integrity break and wider than
+presentation.
+
+Full trace and disposition:
+[`docs/validation/copy-production-attribution-redistribution.md`](validation/copy-production-attribution-redistribution.md).
+The two candidate repairs are a governed tiebreak in the costing loader
+(stopgap — makes the anchor stable but stably arbitrary) or removing the
+coercion via the banked per-assembly production fan-out (the fix). **Both
+post-gate.**
 
 > `quote_leaves.position` is not unique within an assembly, and the freight
 > anchor is "the lowest-position leaf". When members tie, the tie is broken by

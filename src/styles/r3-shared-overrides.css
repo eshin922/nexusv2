@@ -1,0 +1,28 @@
+/* R3 shared — nexus-side overrides.
+ *
+ * Sister file to src/styles/r3-shared.css (canonical verbatim, per Pattern 30).
+ * The canonical file stays pristine so a future CD refresh drops in cleanly;
+ * nexus-side deltas live here.
+ *
+ * WHY THIS WINS. r3-shared.css is wrapped entirely under `.r3-shared`, so its
+ * `.modal.lg` resolves to `.r3-shared .modal.lg` — three classes. The rule
+ * below carries four, so it wins on SPECIFICITY and not on order. globals.css
+ * imports this file after r3-shared.css as well, which is belt and braces: the
+ * pre-existing r-a1v2-overrides.css imports BEFORE r3-shared and would lose a
+ * same-specificity contest, and this file is positioned so a future rule that
+ * happens to tie does not.
+ */
+
+/* The Send-order confirmation dialog.
+ *
+ * Soak run 1: the modal was "substantially wider than its content and leaves a
+ * large unused white column on the right." Two rules were fighting — the shared
+ * `.modal.lg` at 720px, and a `maxWidth: 560` inline on the content div inside
+ * it. The inline cap is gone, so the content now takes the dialog's width, and
+ * the dialog gets the width the content actually wants.
+ *
+ * 780px is inside the ~760-820 band Edward specified. `width: 100%` and the
+ * scrim's 40px padding are inherited from `.modal`, so narrow viewports are
+ * unaffected. Copy, state, confirmation and send behaviour are untouched.
+ */
+.r3-shared .modal.lg.send-order { max-width: 780px; }

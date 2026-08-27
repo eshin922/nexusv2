@@ -252,7 +252,34 @@ export default async function ProjectDetailPage({
               )}
             </span>
             {project.lastHubspotRefreshAt && (
-              <span>synced {fmtRelative(project.lastHubspotRefreshAt)}</span>
+              /* WHAT THIS MEASURES, said plainly.
+               *
+               * Soak run 1 read `synced 4mo ago` on a deal whose CACHE row had
+               * been refreshed that same day, and logged it as wrong. It was
+               * not wrong — it was ambiguous, which is worse, because the
+               * operator resolved the ambiguity against the only other
+               * timestamp they knew about.
+               *
+               * Two different things are refreshed independently.
+               * `hubspot_deals_cache.last_synced_at` is the /import deal list,
+               * refreshed on its own schedule. THIS is
+               * `projects.last_hubspot_refresh_at` — when this project's own
+               * snapshot of the deal name, client, stage and owner was last
+               * pulled. Only the import and re-sync actions in
+               * `src/app/actions/projects.ts` write it, and V1 exposes no
+               * control on this page that does (asserted by
+               * `project-v1-action-surface.test.ts`), so four months is a real
+               * fact about those fields and not a prompt to press something.
+               *
+               * Past a month the relative form is also the least useful it ever
+               * is, and the consequence of ignoring it the highest, so the date
+               * itself is shown instead of "4mo ago". */
+              <span title={`Deal name, client, stage and owner were last pulled from HubSpot on ${fmtDated(project.lastHubspotRefreshAt)}. The /import deal cache refreshes separately.`}>
+                deal context refreshed{" "}
+                {ageInDays(project.lastHubspotRefreshAt) >= 30
+                  ? fmtDated(project.lastHubspotRefreshAt)
+                  : fmtRelative(project.lastHubspotRefreshAt)}
+              </span>
             )}
           </div>
         </div>
@@ -692,6 +719,25 @@ function fmtRelative(d: Date | string): string {
   if (weeks < 4) return `${weeks}w ago`;
   const months = Math.round(days / 30);
   return `${months}mo ago`;
+}
+
+/**
+ * Date with the year, for an age old enough that the year is in question.
+ * `fmtAbsolute` omits it deliberately for near dates and is left alone.
+ */
+function fmtDated(d: Date | string): string {
+  const date = typeof d === "string" ? new Date(d) : d;
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Whole days since `d`. Used to decide when a relative age stops informing. */
+function ageInDays(d: Date | string): number {
+  const t = typeof d === "string" ? new Date(d).getTime() : d.getTime();
+  return Math.floor((Date.now() - t) / 86_400_000);
 }
 
 function fmtAbsolute(d: Date | string): string {

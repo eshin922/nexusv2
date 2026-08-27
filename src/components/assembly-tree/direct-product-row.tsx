@@ -8,6 +8,7 @@ import type { DirectProductNode } from "@/lib/assembly-tree";
 import { CompletenessChip } from "./completeness-chip";
 import { detachQuoteProduct } from "@/app/actions/quote-products";
 import { DragGrip } from "./drag-grip";
+import { leafCostDisplay, leafCostTitle } from "@/lib/leaf-cost-display";
 
 // A Direct Product — a product attached straight to the quote, with no Item
 // Group. Renders as a FIRST-CLASS quote row, peer to an Item Group row, because
@@ -108,9 +109,8 @@ export function DirectProductRow({
   // Library context rather than torn out of the query on the way past.
   const qtyNum = Number(product.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
-  const costDisplay = product.unitCost
-    ? `$${Number(product.unitCost).toFixed(2)} cost`
-    : "— cost";
+  const costDisplay = leafCostDisplay(product.unitCost);
+  const costTitle = leafCostTitle(product.unitCost);
 
   function handleRemove() {
     if (!confirming) {
@@ -177,7 +177,7 @@ export function DirectProductRow({
           <div className="name">{product.name}</div>
           <div className="meta">
             <span>
-              qty {qtyDisplay} · {costDisplay}
+              qty {qtyDisplay} · <span title={costTitle}>{costDisplay}</span>
             </span>
             {/* B-10 · the untyped case is already carried by the
                 NO TYPE SET readiness chip on this row. Saying it twice put the

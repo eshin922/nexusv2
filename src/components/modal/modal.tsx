@@ -40,11 +40,19 @@ export function Modal({
   open,
   onClose,
   size = "md",
+  className,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   size?: "md" | "lg";
+  /**
+   * Optional modifier on the dialog itself, for a modal whose content has a
+   * width the two shared sizes do not fit. Kept as a class rather than a
+   * numeric prop so the value lives in CSS with the sizes it sits beside,
+   * instead of as a magic number in a component.
+   */
+  className?: string;
   children: ReactNode;
 }) {
   // SSR-safe portal mount: `document` isn't available during server
@@ -71,7 +79,7 @@ export function Modal({
     <div className="r3-shared">
       <div className="modal-scrim" onClick={onClose}>
         <div
-          className={`modal${size === "lg" ? " lg" : ""}`}
+          className={`modal${size === "lg" ? " lg" : ""}${className ? ` ${className}` : ""}`}
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"

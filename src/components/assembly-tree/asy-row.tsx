@@ -16,6 +16,7 @@ import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
 import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
 import { DragGrip } from "./drag-grip";
+import { leafCostDisplay, leafCostTitle } from "@/lib/leaf-cost-display";
 
 // Phase A.1 v2 impl-2 Step 4-9 — AsyRow client component
 //
@@ -376,9 +377,8 @@ function LeafRow({
   // Library context rather than torn out of the query on the way past.
   const qtyNum = Number(leaf.quantity);
   const qtyDisplay = qtyNum < 1 ? qtyNum.toFixed(4) : String(qtyNum);
-  const costDisplay = leaf.unitCost
-    ? `$${Number(leaf.unitCost).toFixed(2)} cost`
-    : "— cost";
+  const costDisplay = leafCostDisplay(leaf.unitCost);
+  const costTitle = leafCostTitle(leaf.unitCost);
 
   return (
     <div
@@ -401,7 +401,7 @@ function LeafRow({
       <div className="leaf-name-cell">
         <div className="name">{leaf.name}</div>
         <div className="meta">
-          qty {qtyDisplay} · {costDisplay}
+          qty {qtyDisplay} · <span title={costTitle}>{costDisplay}</span>
         </div>
       </div>
       {/* §1 presentation closeout · the redundant UNTYPED state is gone.
