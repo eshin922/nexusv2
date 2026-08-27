@@ -404,9 +404,17 @@ test("the saving state ends when the engine answers, not when the write returns"
     flat.includes("setError(failure.message); setPending(null);"),
     "a refusal must end the wait",
   );
+  // Awaited and INSPECTED, never caught: `runGoverned` turns an unreachable
+  // engine into a resolved failure, and a try/catch here would be the shape
+  // that used to leave the row saving forever. The argument list changed with
+  // the grain; the claim did not.
   assert.ok(
-    flat.includes("const failure = await onPropose(chargeKey, mode);"),
+    flat.includes("const failure = await onPropose("),
     "and the unreachable case must arrive as a value, not a rejection",
+  );
+  assert.ok(
+    !/try\s*\{[\s\S]{0,400}?onPropose\(/.test(card),
+    "onPropose must not be wrapped in a catch — the failure IS the value",
   );
   // And any fresh answer clears it, so it cannot hang.
   assert.match(card, /if \(writeDone\.current\) setPending\(null\)/);
@@ -425,22 +433,30 @@ test("an elected charge can relinquish its election", async () => {
   const flat = card.replace(/\s+/g, " ");
 
   // Offered only where there is something to give up.
-  assert.ok(flat.includes("row.source === \"election\" && editable && ("));
-  assert.match(card, /data-testid=\{`recovery-\$\{row\.chargeKey\}-restore`\}/);
+  // `!row.unplaced` joined the condition: an undecided charge has no election
+  // to give up, so the control would be an action with nothing to act on.
+  assert.ok(
+    flat.includes("row.source === \"election\" && !row.unplaced && editable && ("),
+  );
+  // Keyed by ROW, not by charge type — a component charge is its instance, so
+  // two same-type rows have two distinct restore controls.
+  assert.match(card, /data-testid=\{`recovery-\$\{key\}-restore`\}/);
 
   // It calls the SAME writer, with the empty mode the action reads as a clear.
-  assert.ok(flat.includes("onClick={() => write(row.chargeKey, null)}"));
+  assert.ok(flat.includes("onClick={() => write([row], null)}"));
   // `null` travels as an argument now rather than as an empty FormData field:
   // the card proposes, it does not write. Relinquishing is still a distinct act
   // with its own control — clicking the selected treatment deliberately does
   // not mean it.
-  assert.ok(flat.includes("onPropose(chargeKey, mode)"));
+  assert.ok(flat.includes("await onPropose("));
 
   // Electing and relinquishing stay distinct acts: clicking the selected
   // treatment must not be overloaded to mean clear.
-  assert.ok(flat.includes("onClick={() => write(row.chargeKey, opt.mode)}"));
+  // A one-row set. The write takes a set since OD-032 recovery grain, because
+  // a group action is N of these composed into one proposal.
+  assert.ok(flat.includes("onClick={() => write([row], opt.mode)}"));
   assert.ok(
-    !flat.includes("active ? write(row.chargeKey, null)"),
+    !flat.includes("active ? write([row], null)"),
     "clicking the selected treatment must not mean clear",
   );
 
@@ -458,11 +474,18 @@ test("a relinquishment is answered by provenance, not by the selected mode", asy
     "utf8",
   );
   const flat = card.replace(/\s+/g, " ");
+  // Applied to EVERY subject of the pick, so a group action ends its wait when
+  // the last of its rows has moved rather than the first. The rule itself is
+  // unchanged: provenance answers a clear, mode answers an election.
   assert.ok(
     flat.includes(
-      'pending.mode === null ? row?.source === "legacy" : row?.effectiveMode === pending.mode',
+      'pending.mode === null ? r?.source === "legacy" : r?.effectiveMode === pending.mode',
     ),
     "the wait must end on provenance for a clear and on mode for an election",
+  );
+  assert.ok(
+    flat.includes("subjects.length > 0 && subjects.every(answered)"),
+    "a group action must wait for all of its rows, not just the first",
   );
 });
 

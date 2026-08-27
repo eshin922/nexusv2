@@ -1825,6 +1825,31 @@ export async function sendQuote(
       );
     }
 
+    // ── OD-032 · SEND REFUSES AN UNDECIDED CHARGE ──────────────────────────
+    //
+    // A component charge with no election is UNPLACED: DPS has incurred the
+    // cost and nobody has decided who bears it. Sending in that state would
+    // put a quote in front of a customer whose recovery nobody had chosen.
+    //
+    // Refused HERE, before the freeze, because the freeze projection also
+    // refuses and doing it only there would surface as an unexplained throw
+    // deep inside a transaction. This one names the charges.
+    //
+    // Legacy charges cannot reach this: a production column always resolves to
+    // a treatment in the absence of an election, so it is never unplaced.
+    const unplaced = resolved.recoveryRows.filter((r) => r.unplaced);
+    if (unplaced.length > 0) {
+      const named = unplaced
+        .map((r) => (r.ownerLabel ? `${r.label} · ${r.ownerLabel}` : r.label))
+        .join(", ");
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `Recovery is undecided for ${unplaced.length} one-time ` +
+          `charge${unplaced.length === 1 ? "" : "s"}: ${named}. ` +
+          "Choose how each is recovered in Commercial Recovery before sending.",
+      );
+    }
+
     const todayIso = sentAt.toISOString().slice(0, 10);
 
     // ── OD-023 · one representation, persisted AND rendered ──────────────────

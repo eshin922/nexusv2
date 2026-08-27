@@ -75,12 +75,23 @@ test("clearing is scoped to the charges being cleared, not the whole quote", asy
   // effect of clearing one. The set-writer removes exactly the stored rows the
   // proposal no longer names.
   const src = codeOnly(await read(ACTION));
-  const del = src.slice(src.indexOf("db.delete("));
+  // `tx.delete` since the set became atomic — the whole write, including this
+  // clear, rides one transaction so a group action cannot half-apply.
+  const del = src.slice(src.indexOf("tx.delete("));
   assert.ok(del.length > 0, "no delete path — clearing an election is a real operation");
+  // Scoped by INSTANCE since OD-032 recovery grain — the primary key, and a
+  // strictly finer scope than the charge key it replaced.
   assert.match(
-    del.slice(0, 400),
-    /inArray\(\s*quoteChargeRecovery\.chargeKey/,
+    del.slice(0, 600),
+    /inArray\(\s*\n?\s*quoteChargeRecovery\.chargeInstanceId/,
     "the clear path is not scoped to the charges being cleared",
+  );
+  // And NOT by type, which would take a same-type sibling with it — the
+  // collapse this grain exists to remove, reappearing at the delete.
+  assert.doesNotMatch(
+    del.slice(0, 600),
+    /inArray\(\s*\n?\s*quoteChargeRecovery\.chargeKey/,
+    "clearing by charge key would clear a sibling that was not named",
   );
   assert.match(del.slice(0, 400), /eq\(quoteChargeRecovery\.quoteId, quoteId\)/);
 });
@@ -128,7 +139,10 @@ test("the audit action names the transition, not the mechanism", async () => {
   // from -> to on every row, so the timeline reads as transitions rather than
   // as end states. The set-writer names the prior explicitly because it holds
   // several charges at once and cannot rely on one `from` in scope.
-  assert.match(src, /mode: \{ from: priorByKey\.get\(chargeKey\) \?\? null, to: mode \}/);
+  // `before` is prior state read at the grain the charge is elected at —
+  // by instance for a component charge, by type for a legacy column.
+  assert.match(src, /mode: \{ from: before, to: mode \}/);
+  assert.match(src, /const priorOf = /);
   assert.match(src, /mode: \{ from: o\.mode, to: null \}/);
 });
 

@@ -13,7 +13,32 @@ import { runGoverned } from "@/lib/governed-action";
  *  and immediately reaches for Finalize rarely waits on the flush. */
 const SAVE_DEBOUNCE_MS = 600;
 
-export type RecoveryElection = { chargeKey: string; mode: string };
+export type RecoveryElection = {
+  chargeKey: string;
+  /**
+   * Present for a component-owned charge; absent for a legacy production
+   * column, whose type IS its identity.
+   *
+   * A GROUP ACTION sends N of these, one per instance. There is no type-level
+   * election to send — a group is ergonomics, not a grain.
+   */
+  chargeInstanceId?: string;
+  mode: string;
+};
+
+/**
+ * The ONE place a draft election is identified.
+ *
+ * The set is diffed, filtered and de-duplicated by this key, and a second
+ * implementation of it would let two of those disagree — the same reason the
+ * action layer routes both its evaluator and its writer through one former.
+ */
+export function electionKey(e: {
+  chargeKey: string;
+  chargeInstanceId?: string;
+}): string {
+  return e.chargeInstanceId ?? e.chargeKey;
+}
 
 /**
  * Why a proposal did not take.
@@ -104,7 +129,13 @@ export function useRecoveryDraft(input: {
     (): RecoveryElection[] =>
       rows
         .filter((r) => r.electedMode !== null)
-        .map((r) => ({ chargeKey: r.chargeKey, mode: r.electedMode as string })),
+        .map((r) => ({
+          chargeKey: r.chargeKey,
+          // Carried, so a component charge's election stays addressed to the
+          // charge rather than to every charge of its type.
+          ...(r.chargeInstanceId ? { chargeInstanceId: r.chargeInstanceId } : {}),
+          mode: r.electedMode as string,
+        })),
     [rows],
   );
 
@@ -148,12 +179,30 @@ export function useRecoveryDraft(input: {
    */
   const propose = useCallback(
     async (
-      chargeKey: string,
+      /**
+       * One or more picks, applied as a SET.
+       *
+       * A single click sends one. A GROUP ACTION sends one per instance — N
+       * governed writes composed into the same proposal, so the operator's one
+       * gesture is still one evaluation and one save. `null` relinquishes.
+       */
+      picks: { chargeKey: string; chargeInstanceId?: string }[],
       mode: string | null,
     ): Promise<RecoveryProposalFailure | null> => {
       const base = proposed.current ?? electedNow();
-      const next = base.filter((e) => e.chargeKey !== chargeKey);
-      if (mode !== null) next.push({ chargeKey, mode });
+      const touched = new Set(picks.map(electionKey));
+      const next = base.filter((e) => !touched.has(electionKey(e)));
+      if (mode !== null) {
+        for (const pick of picks) {
+          next.push({
+            chargeKey: pick.chargeKey,
+            ...(pick.chargeInstanceId
+              ? { chargeInstanceId: pick.chargeInstanceId }
+              : {}),
+            mode,
+          });
+        }
+      }
 
       // RECORDED BEFORE THE AWAIT, so a second click composes onto this one.
       //

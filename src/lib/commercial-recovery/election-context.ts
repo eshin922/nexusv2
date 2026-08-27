@@ -1,7 +1,13 @@
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db } from "@/db";
-import { assemblies, assemblyProductionInputs, quoteChargeRecovery, quoteLeaves } from "@/db/schema";
+import {
+  assemblies,
+  assemblyProductionInputs,
+  quoteChargeInstances,
+  quoteChargeRecovery,
+  quoteLeaves,
+} from "@/db/schema";
 import { ActionGuardError, ERR } from "@/lib/action-result";
 import { OTC_COLUMN_TO_CHARGE, type RecoveryChargeKey, type RecoveryMode } from "./registry";
 import { refusalFor } from "./resolve";
@@ -32,6 +38,18 @@ export type ElectionContext = {
    * Loaded here rather than in either action because both must diff against
    * the same source — and neither can import the other's loader, since a
    * `"use server"` module may only export async server actions.
+   */
+  /**
+   * Prior state, KEYED AT THE GRAIN THE CHARGE IS ELECTED AT.
+   *
+   * A component charge is keyed by `charge_instance_id`; a legacy production
+   * column by `charge_key`, for which the type is the identity.
+   *
+   * The two cannot share a key space by accident: an instance id is a uuid and
+   * a charge key is a short enum name, so a collision is not reachable. Use
+   * `storedKeyFor` rather than indexing directly, so the evaluator and the
+   * writer cannot drift on how the key is formed — the divergence this map
+   * exists to prevent is precisely "evaluated cleanly, refused at save".
    */
   stored: Map<string, string>;
 };
@@ -85,15 +103,58 @@ export async function loadElectionContext(quoteId: string): Promise<ElectionCont
   }
 
   const storedRows = await db
-    .select({ chargeKey: quoteChargeRecovery.chargeKey, mode: quoteChargeRecovery.mode })
+    .select({
+      chargeKey: quoteChargeRecovery.chargeKey,
+      chargeInstanceId: quoteChargeRecovery.chargeInstanceId,
+      mode: quoteChargeRecovery.mode,
+      ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
+    })
     .from(quoteChargeRecovery)
+    .innerJoin(
+      quoteChargeInstances,
+      eq(quoteChargeInstances.id, quoteChargeRecovery.chargeInstanceId),
+    )
     .where(eq(quoteChargeRecovery.quoteId, quoteId));
 
   return {
     allocationStates: allocationStates.length ? allocationStates : [false],
     directServiceKeys,
-    stored: new Map(storedRows.map((r) => [r.chargeKey, r.mode] as const)),
+    stored: new Map(
+      storedRows.map(
+        (r) =>
+          [
+            // `owner_quote_leaf_id IS NOT NULL` is the causal test — the same
+            // one the costing loader, the election loader and the writer use.
+            // A legacy election's instance is a synthesised `'@quote'` row
+            // standing in for a column, and keying by it would make prior state
+            // unfindable for every legacy charge.
+            storedKeyFor({
+              chargeKey: r.chargeKey,
+              chargeInstanceId:
+                r.ownerQuoteLeafId !== null && r.chargeInstanceId
+                  ? r.chargeInstanceId
+                  : undefined,
+            }),
+            r.mode,
+          ] as const,
+      ),
+    ),
   };
+}
+
+/**
+ * The one place a `stored` key is formed.
+ *
+ * Both the evaluator and the writer call this, so "did this change?" has ONE
+ * answer. Two implementations would be two answers, and the first divergence
+ * would evaluate an election cleanly and refuse it at save time — which is the
+ * failure this whole context exists to prevent.
+ */
+export function storedKeyFor(e: {
+  chargeKey: string;
+  chargeInstanceId?: string;
+}): string {
+  return e.chargeInstanceId ?? e.chargeKey;
 }
 
 /**

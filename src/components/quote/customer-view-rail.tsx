@@ -116,7 +116,8 @@ export function CustomerViewRail({
   /** Internal, never printed. See the resolver's note on why it is not on the view. */
   accountingInstruction: string | null;
   onPropose: (
-    chargeKey: string,
+    /** One pick, or N for a group action. Passed through untouched. */
+    picks: { chargeKey: string; chargeInstanceId?: string }[],
     mode: string | null,
   ) => Promise<RecoveryProposalFailure | null>;
   /** Whether the elections on screen are stored. See `use-recovery-draft`. */

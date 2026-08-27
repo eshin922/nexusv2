@@ -13,6 +13,7 @@ import type { ProposedElections } from "@/app/actions/costing";
 import {
   assertElectionAllowed,
   loadElectionContext,
+  storedKeyFor,
 } from "@/lib/commercial-recovery/election-context";
 import type { AuthoritativeProjection } from "@/components/quote/authoritative-projection";
 
@@ -88,7 +89,9 @@ export async function evaluateChargeRecovery(input: {
     // pre-flight and refused by the send gate, which is where a STATE belongs.
     const ctx = await loadElectionContext(quoteId);
     for (const e of elections) {
-      if (ctx.stored.get(e.chargeKey) === e.mode) continue;
+      // Through the shared key former, so the skip here and the skip in the
+      // writer are the same question asked the same way.
+      if (ctx.stored.get(storedKeyFor(e)) === e.mode) continue;
       assertElectionAllowed(e.chargeKey, e.mode, ctx);
     }
 
