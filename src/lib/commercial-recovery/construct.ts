@@ -71,7 +71,13 @@ export type ChargeEconomicsInput = {
    * layer, which is the one place that has to tell an actionable fee from a
    * Direct Service line that is already its own priced customer line.
    */
-  ownerKind?: "assembly" | "direct_service";
+  ownerKind?: "assembly" | "direct_service" | "component";
+  /**
+   * WHO CAUSED IT — OD-032 phase 2. Carried through untouched, exactly like
+   * `ownerKind`: this layer decides WHERE an already-priced recovery lives,
+   * and has no standing to decide who caused it.
+   */
+  ownerRef?: string;
 };
 
 export type PlacedCharge = {
@@ -85,7 +91,9 @@ export type PlacedCharge = {
    * authored -- which is how Card 1 came to advertise $12,510 of recovery for
    * a control able to move $5,600, and $9,800 for one able to move nothing.
    */
-  ownerKind: "assembly" | "direct_service";
+  ownerKind: "assembly" | "direct_service" | "component";
+  /** Causal owner, carried from the economics. See `ChargeEconomicsInput`. */
+  ownerRef?: string;
   /**
    * Whether an operator elected this placement or it fell through to the
    * legacy per-assembly boolean.
@@ -231,7 +239,18 @@ export function ownedPlacedCharges(
     if (!isLeaf(rollup.skuId)) continue;
     for (const pt of rollup.perTier ?? []) {
       for (const charge of pt.constructed?.charges ?? []) {
-        out.push({ ownerRef: rollup.skuId, tierId: pt.tierId, charge });
+        // THE CAUSAL OWNER WINS WHERE THERE IS ONE — OD-032 phase 2.
+        //
+        // `rollup.skuId` is the math-leaf the charge was COERCED onto by the
+        // anchor rule, and the frozen instruction's own comment calls that
+        // "traceability, not a join key". A component-owned charge was
+        // authored against a specific carton, so it carries its cause and
+        // needs no coercion.
+        //
+        // Legacy charges keep the anchor, deliberately: it is what they have,
+        // and phase 2 surfaces it nowhere. A coerced anchor never becomes
+        // causal by being written down — which is the rule this line keeps.
+        out.push({ ownerRef: charge.ownerRef ?? rollup.skuId, tierId: pt.tierId, charge });
       }
     }
   }
@@ -471,6 +490,7 @@ export function composeFromPlacements(
         placement,
         source,
         ownerKind: e.ownerKind ?? "assembly",
+        ownerRef: e.ownerRef,
         // Copied. Not recomputed, not re-rated, not rounded.
         cost: e.cost,
         recoverableSell: e.recoverableSell,

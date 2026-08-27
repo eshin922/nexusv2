@@ -79,6 +79,7 @@ import {
 } from "./client-target";
 import type { ChargeElection } from "./commercial-recovery/resolve";
 import type {
+  ComponentChargeInput,
   CostingCellOverride,
   CostingCellTarget,
   CostingLift,
@@ -240,6 +241,17 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
    * Required means every call site has to answer the question.
    */
   chargeElections: readonly ChargeElection[];
+  /**
+   * Component-owned charge economics, per (instance, tier) — OD-032 phase 2.
+   *
+   * REQUIRED for the same reason `chargeElections` above is required, and the
+   * defect that comment describes is the one this is guarding against: a value
+   * that reaches the bundle, reaches the snapshot, and is dropped here reads as
+   * "there were none" at every layer that could have noticed.
+   *
+   * Empty is the ordinary case and means no component caused a one-time charge.
+   */
+  componentCharges: readonly ComponentChargeInput[];
   quote: {
     id: string;
     globalPriceAdjPct: number;
@@ -507,6 +519,7 @@ export function buildQuoteCostingInputFromNewModel(
     firmSettings: args.firmSettings,
     markupDefaults: args.markupDefaults,
     chargeElections: args.chargeElections,
+    componentCharges: args.componentCharges,
     skus,
     tiers: args.tiers,
     packaging,

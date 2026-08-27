@@ -4264,6 +4264,13 @@ export const recoveryCharge = pgEnum("recovery_charge", [
   "testing_micros",
   "other_service",
   "tooling_artwork_legacy",
+  // OD-032 phase 2 — component-owned types. `tooling`, `artwork_plate` and
+  // `other_service` above are reused for the component vocabulary; these two
+  // are the ones that had no value. `artwork_plate` is deliberately NOT
+  // renamed: it appears in frozen instructions, which are the record of what
+  // Accounting was told.
+  "print_plates",
+  "samples_proofs",
 ]);
 
 /**
@@ -4308,6 +4315,23 @@ export const quoteChargeInstances = pgTable(
      * state the design rejects, and the one that makes freight attribution
      * guesswork today. */
     ownerRef: text("owner_ref").notNull(),
+    /**
+     * The causal owner as a REAL reference, when the owner is a component.
+     *
+     * `owner_ref` is text because ownership is polymorphic, and text cannot
+     * carry a foreign key — so a component charge whose leaf was deleted would
+     * be an orphan pointing at a uuid resolving to nothing. That is
+     * attribution to a cause that no longer exists, which is the failure the
+     * design rejects outright.
+     *
+     * A database CHECK ties this to `owner_ref` so the two cannot disagree:
+     * `'@quote'` has no leaf, and a component owner's text IS its leaf id.
+     * Deleting a component cascades to the charges it caused.
+     */
+    ownerQuoteLeafId: uuid("owner_quote_leaf_id").references(
+      () => quoteLeaves.id,
+      { onDelete: "cascade" },
+    ),
     /** Required when `charge_key = 'other'`; an optional override otherwise. */
     label: text("label"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -4322,6 +4346,45 @@ export const quoteChargeInstances = pgTable(
       t.label,
     ),
   ],
+);
+
+/**
+ * Per-tier economics for one charge instance — OD-032 phase 2.
+ *
+ * Both amounts are OPERATOR-ENTERED and nothing is derived. Per
+ * `costs-page-layout` §1: "one-time costs are entered per tier, explicitly, by
+ * the operator... Division is the operator's statement, not a calculation."
+ *
+ * THERE IS NO `basis` COLUMN. Every component-owned charge is `one_time` —
+ * "no exceptions, and the sheet never asks" — and a column that can hold only
+ * one value can one day hold another.
+ */
+export const quoteChargeInstanceTiers = pgTable(
+  "quote_charge_instance_tiers",
+  {
+    chargeInstanceId: uuid("charge_instance_id")
+      .notNull()
+      .references(() => quoteChargeInstances.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id")
+      .notNull()
+      .references(() => quoteTiers.id, { onDelete: "cascade" }),
+    /** What DPS pays. Cost truth: invariant under every recovery election. */
+    costAmount: numeric("cost_amount", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    /**
+     * What DPS intends to recover. NULL is not zero — zero says the charge
+     * recovers nothing, NULL says nothing governs what it recovers (BV-013).
+     */
+    recoveryAsk: numeric("recovery_ask", { precision: 12, scale: 2 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.chargeInstanceId, t.tierId] })],
 );
 
 export const quoteChargeRecovery = pgTable(

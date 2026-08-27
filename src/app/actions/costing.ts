@@ -1,6 +1,15 @@
 "use server";
 
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -32,6 +41,8 @@ import {
   quoteTiers,
   quoteWarnings,
   quoteOtherServiceItems,
+  quoteChargeInstanceTiers,
+  quoteChargeInstances,
   quoteChargeRecovery,
 } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
@@ -55,6 +66,7 @@ import {
   computeQuoteCosting,
   naiveTierAdjForCostExceedsTarget,
   suggestTierAdjForClientTarget,
+  type ComponentChargeInput,
   type QuoteCostingInput,
   type QuoteCostingResult,
 } from "@/lib/costing";
@@ -778,6 +790,63 @@ async function loadChargeElections(
 }
 
 /**
+ * Component-owned charge economics for a quote — OD-032 phase 2.
+ *
+ * ── THE FILTER IS THE POINT ─────────────────────────────────────────────
+ *
+ * `owner_quote_leaf_id IS NOT NULL` is what makes this CAUSAL rather than
+ * coerced. A legacy charge is `'@quote'` and has no leaf, so it cannot appear
+ * here and cannot be reinterpreted as component-owned by accident — the phase
+ * constraint that "no legacy coerced owner_ref may become causal" is enforced
+ * by the query rather than asserted by a comment.
+ *
+ * The owner read is `owner_quote_leaf_id`, never `owner_ref`, even though the
+ * database CHECK makes them equal. Reading the typed FK means the value is the
+ * one the cascade protects, and there is no text parse to get wrong.
+ *
+ * Zero rows is the ordinary case for every quote that exists today: nothing can
+ * author one of these until the phase-4 sheet ships.
+ */
+async function loadComponentCharges(
+  quoteId: string,
+): Promise<ComponentChargeInput[]> {
+  const rows = await db
+    .select({
+      chargeInstanceId: quoteChargeInstanceTiers.chargeInstanceId,
+      tierId: quoteChargeInstanceTiers.tierId,
+      chargeKey: quoteChargeInstances.chargeKey,
+      ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
+      costAmount: quoteChargeInstanceTiers.costAmount,
+      recoveryAsk: quoteChargeInstanceTiers.recoveryAsk,
+    })
+    .from(quoteChargeInstanceTiers)
+    .innerJoin(
+      quoteChargeInstances,
+      eq(quoteChargeInstances.id, quoteChargeInstanceTiers.chargeInstanceId),
+    )
+    .where(
+      and(
+        eq(quoteChargeInstances.quoteId, quoteId),
+        isNotNull(quoteChargeInstances.ownerQuoteLeafId),
+      ),
+    );
+
+  return rows.map((r) => ({
+    chargeInstanceId: r.chargeInstanceId,
+    tierId: r.tierId,
+    chargeKey: r.chargeKey,
+    // Non-null by the WHERE above; the narrowing is for the compiler, which
+    // cannot see a predicate expressed in SQL.
+    ownerRef: r.ownerQuoteLeafId as string,
+    cost: num(r.costAmount),
+    // NULL survives as NULL. Coercing it to 0 here would convert "nothing
+    // governs what this recovers" into "this recovers nothing", which is a
+    // different commercial claim (BV-013).
+    recoverableSell: numOrNull(r.recoveryAsk),
+  }));
+}
+
+/**
  * The costing input for a quote, before the engine runs on it.
  *
  * Extracted from `getQuoteCosting` so a COUNTERFACTUAL is possible: the
@@ -871,6 +940,7 @@ export async function loadQuoteCostingInput(
         proposedElections !== undefined
           ? [...proposedElections]
           : await loadChargeElections(quoteId),
+      componentCharges: await loadComponentCharges(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1471,6 +1541,7 @@ export async function applyClientTargetSolveTierAdj(
       // the elections actually in force, not against a candidate an operator is
       // still exploring — the answer it returns gets written.
       chargeElections: await loadChargeElections(quoteId),
+      componentCharges: await loadComponentCharges(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),
@@ -1814,6 +1885,7 @@ export async function getCostingBundle(
         proposedElections !== undefined
           ? [...proposedElections]
           : await loadChargeElections(quoteId),
+      componentCharges: await loadComponentCharges(quoteId),
       quote: {
         id: quote.id,
         globalPriceAdjPct: num(quote.globalPriceAdjPct),

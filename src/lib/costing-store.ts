@@ -570,6 +570,17 @@ export function costingInputFromSnapshot(
   s: HydrateSnapshot,
 ): Required<QuoteCostingInput> {
   return {
+    // TODO(od-032-phase-3): carry component-owned charges on HydrateSnapshot.
+    //
+    // Empty is CORRECT today and will stop being correct the moment the phase-4
+    // sheet can author one: no UI exists to create a component charge, so no
+    // quote has any, and an empty array is the whole truth rather than a
+    // convenient default.
+    //
+    // Written as a marked TODO rather than a bare `[]` because a bare `[]` here
+    // would read as a decision — Pattern 54 — and the phase that must change it
+    // is the phase that makes it wrong.
+    componentCharges: [],
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,
@@ -598,6 +609,17 @@ export function buildCostingInput(
   s: Parameters<typeof recompute>[0],
 ): Required<QuoteCostingInput> {
   return {
+    // TODO(od-032-phase-3): carry component-owned charges on HydrateSnapshot.
+    //
+    // Empty is CORRECT today and will stop being correct the moment the phase-4
+    // sheet can author one: no UI exists to create a component charge, so no
+    // quote has any, and an empty array is the whole truth rather than a
+    // convenient default.
+    //
+    // Written as a marked TODO rather than a bare `[]` because a bare `[]` here
+    // would read as a decision — Pattern 54 — and the phase that must change it
+    // is the phase that makes it wrong.
+    componentCharges: [],
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,

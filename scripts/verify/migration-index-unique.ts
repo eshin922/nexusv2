@@ -17,6 +17,10 @@ import { readdirSync, readFileSync } from "node:fs";
 const DRAFT_EXEMPT = new Set([
   "0049_product_structure_slice1_backfill",
   "0050_product_structure_slice1_contract",
+  // OD-032 phase 2 contraction. Unjournaled DELIBERATELY: it drops the unique
+  // index the DEPLOYED writer's ON CONFLICT names, so applying it before that
+  // writer ships breaks every election. Journaled once phase 2's code is live.
+  "0110_od_032_phase_2_drop_legacy_charge_unique",
 ]);
 
 const files = readdirSync("drizzle")

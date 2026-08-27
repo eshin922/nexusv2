@@ -46,7 +46,10 @@ export type RecoveryChargeKey =
   | "rd_formulation"
   | "testing_micros"
   | "other_service"
-  | "tooling_artwork_legacy";
+  | "tooling_artwork_legacy"
+  // OD-032 phase 2 — component-owned. See COMPONENT_CHARGE_KEYS below.
+  | "print_plates"
+  | "samples_proofs";
 
 /**
  * `landed` charges are quote-level: one freight bill, one customs assessment.
@@ -187,7 +190,83 @@ const CHARGE_SPECS: readonly ChargePolicySpec[] = [
     grain: "one_time",
     source: ["assembly_production_inputs.tooling_artwork_total"],
   },
+
+  // ── OD-032 phase 2 · component-owned types ────────────────────────────
+  //
+  // These source from `quote_charge_instance_tiers` rather than from a
+  // production column, which is the whole point: a column can only ever hold
+  // one charge per quote, and the design needs two cartons to each cause
+  // print plates.
+  //
+  // They inherit the one-time class rule below — all three modes — because
+  // the disposition narrowed nothing for V1. The round trip proposed
+  // narrowing Print plates to unit/fee and Artwork to unit/absorbed; that is
+  // a change to a banked class rule and was deferred to phase 5, where
+  // Recovery is actually touched and the question can be answered with the
+  // surface in front of you.
+  {
+    key: "print_plates",
+    label: "Print plates",
+    grain: "one_time",
+    source: ["quote_charge_instance_tiers.cost_amount"],
+  },
+  {
+    key: "samples_proofs",
+    label: "Samples & proofs",
+    grain: "one_time",
+    source: ["quote_charge_instance_tiers.cost_amount"],
+  },
 ];
+
+/**
+ * The V1 component-owned vocabulary — what the later sheet may offer against a
+ * packaging component.
+ *
+ * `tooling` and `artwork_plate` appear here AND remain quote-owned production
+ * columns. That is not a contradiction: the type is the same commercial fact
+ * either way, and the owner is what differs. A tooling charge caused by a
+ * carton is component-owned; one the Item Group authored stays where it is.
+ *
+ * `artwork_plate` is deliberately NOT renamed. It appears in frozen
+ * instructions, which are the record of what Accounting was told. Once
+ * `print_plates` exists as its own type, `artwork_plate` on a NEW
+ * component-owned charge means only the adaptation-labour half, because the
+ * plate-making half has somewhere else to go. Existing rows keep the span they
+ * were written with.
+ *
+ * `project_setup` is ABSENT, and its absence is the rule: engagement-level
+ * setup is a different commercial fact and stays quote-owned. `run_setup` is
+ * absent too — deferred until Accounting supplies a governed destination, and
+ * reachable through `other_service` in the meantime.
+ */
+export const COMPONENT_CHARGE_KEYS = [
+  "print_plates",
+  "tooling",
+  "artwork_plate",
+  "samples_proofs",
+  "other_service",
+] as const satisfies readonly RecoveryChargeKey[];
+
+export type ComponentChargeKey = (typeof COMPONENT_CHARGE_KEYS)[number];
+
+/** Labels as the component vocabulary names them, per the round trip's §02. */
+export const COMPONENT_CHARGE_LABELS: Record<ComponentChargeKey, string> = {
+  print_plates: "Print plates",
+  tooling: "Tooling & dies",
+  artwork_plate: "Artwork & prepress",
+  samples_proofs: "Samples & proofs",
+  other_service: "Other",
+};
+
+/** A type an operator may hang off a packaging component. */
+export function isComponentChargeKey(key: string): key is ComponentChargeKey {
+  return (COMPONENT_CHARGE_KEYS as readonly string[]).includes(key);
+}
+
+/** `other` requires an operator label; every other type may omit one. */
+export function labelRequiredFor(key: string): boolean {
+  return key === "other_service";
+}
 
 export const RECOVERY_CHARGES: readonly ChargePolicy[] = CHARGE_SPECS.map(
   (spec): ChargePolicy =>

@@ -110,9 +110,15 @@ export async function persistChargeRecoverySet(input: {
         .insert(quoteChargeRecovery)
         .values({ quoteId, chargeKey, chargeInstanceId, mode, electedByUserId: user.id })
         .onConflictDoUpdate({
-          // Still the pre-1b key. Phase 1b moves the PK to charge_instance_id;
-          // until it does, this target is the unique index that exists.
-          target: [quoteChargeRecovery.quoteId, quoteChargeRecovery.chargeKey],
+          // The PRIMARY KEY since phase 1b, and the reason phase 2 can drop the
+          // temporary `(quote_id, charge_key)` unique at all: this writer no
+          // longer names it, so removing it takes nothing this depends on.
+          //
+          // It is also the correct target on its own terms. `(quote, charge_key)`
+          // could only ever address one charge of a type per quote — which is
+          // exactly the limit phase 2 removes, and would have re-elected the
+          // wrong carton's plates the moment a second one existed.
+          target: [quoteChargeRecovery.chargeInstanceId],
           set: { mode, chargeInstanceId, electedByUserId: user.id, electedAt: new Date() },
         });
       await writeAuditEntry({
