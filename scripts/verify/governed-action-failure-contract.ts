@@ -75,7 +75,16 @@ const HANDLED_ELSEWHERE: { call: RegExp; caughtIn: string }[] = [
  * itself to what already passes is an instrument that cannot express the
  * failure it exists to find.
  */
-const ENFORCED = ["src/components/quote/", "src/lib/"];
+const ENFORCED = [
+  "src/components/quote/",
+  "src/lib/",
+  // Phase 0, added with the Tier-1 repair. These two files carry `markComplete`
+  // — the irreversible NetSuite push — and the SECOND call site of `sendQuote`,
+  // the action soak run 5 caught. Enforced the moment they were repaired so the
+  // gain is locked rather than re-litigated.
+  "src/components/quote-umbrella/tab-sales-order.tsx",
+  "src/components/quote-umbrella/send-quote-flow.tsx",
+];
 
 type Violation = { file: string; line: number; fragment: string };
 

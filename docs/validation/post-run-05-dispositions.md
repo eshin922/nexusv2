@@ -80,7 +80,7 @@ accounting identity. Two more lineages is a provisioning step, not a compromise.
 
 | queued | resets the counter? |
 |---|---|
-| ~55 unenforced governed-action sites (§3) | **yes** — client code |
+| 59 unenforced governed-action sites (§3) | **yes** — client code |
 | Send-order modal width | yes |
 | Presentation/provenance observations (`synced 4mo ago`, two empty-cost registers, `Sync status pending · Slice 11`) | yes |
 | Production-attribution redistribution | yes, if dispositioned |
@@ -269,10 +269,25 @@ disposition, and this is evidence.
 
 ---
 
-# 3 · The ~55 unenforced governed-action sites
+# 3 · The unenforced governed-action sites
 
-The verifier reports **55 sites across 30 files** outside the enforced region,
-by name, on every run. They are pre-existing; `#459` created none of them.
+**CORRECTED 2026-08-26.** This section first said "~55 sites across 30 files".
+That figure was never measured — it was inferred from a `tail`-truncated run
+whose summary line had scrolled off, and then written down as though counted.
+The measured figures are:
+
+```
+main, before Phase 0     61 sites across 40 files
+after Phase 0            59 sites across 38 files
+```
+
+Same class of error as the four this soak has already recorded: a reading taken
+from an instrument whose output was not actually read. The tier counts below are
+now derived from the verifier's per-file listing and reconcile to 59 and 38
+exactly.
+
+The verifier reports the remaining sites by name, on every run. They are
+pre-existing; `#459` created none of them.
 
 ## The finding that changes the priority
 
@@ -298,37 +313,44 @@ scoped to where the soak happened to land rather than to where the defect is.
 
 ## Risk classes
 
-**Tier 1 — irreversible, lifecycle, or accounting-visible.** ~9 sites, 6 files.
+**Tier 1 — irreversible, lifecycle, or accounting-visible.**
 
 ```
-quote-umbrella/tab-sales-order.tsx     markComplete        IRREVERSIBLE
-quote-umbrella/send-quote-flow.tsx     sendQuote           freeze + snapshot + PDF
-quote-umbrella/tab-mark-accepted.tsx   markAccepted / unmarkAccepted
-quote-umbrella/revise-button.tsx       reviseQuote         unwinds acceptance, writes HubSpot
-pricing/customer-accept-toggle.tsx     recordCustomerAcceptance / clearCustomerAcceptance
-quote-umbrella/add-entry.tsx           client-review log
+DONE in Phase 0 (#461)
+  quote-umbrella/tab-sales-order.tsx    1   markComplete       IRREVERSIBLE
+  quote-umbrella/send-quote-flow.tsx    1   sendQuote          freeze + snapshot + PDF
+
+REMAINING                                   6 sites, 4 files
+  quote-umbrella/tab-mark-accepted.tsx  2   markAccepted / unmarkAccepted
+  pricing/customer-accept-toggle.tsx    2   recordCustomerAcceptance / clear
+  quote-umbrella/revise-button.tsx      1   reviseQuote — unwinds acceptance, writes HubSpot
+  quote-umbrella/add-entry.tsx          1   client-review log
 ```
 
-**Tier 2 — commercial economics.** ~25 sites. Moves money on the document:
-`global-price-adj-input` (2), `quote-target-margin-popover`, the five Costs
-drilldowns, `other-service-item-picker` (2, and it chooses a NetSuite item),
-`mode-selector`, `tier-row` (2), `add-tier-button`, both tier-preset pickers,
-`add-product-modal`, `create-item-group-modal`, `direct-product-row`, the two
-context menus, `spec-panel`.
+**Tier 2 — commercial economics. 22 sites, 18 files.** Moves money on the
+document: `global-price-adj-input` (2), `quote-target-margin-popover` (1); the
+Costs drilldowns — `packaging` (2), `other-service-item-picker` (2, and it
+chooses a NetSuite item), `production` (1), `freight` (1), `bulk-raw` (1),
+`mode-selector` (1); tiers — `tier-row` (2), `add-tier-button` (1), both preset
+pickers (2); structure — `add-product-modal` (1), `create-item-group-modal` (1),
+`direct-product-row` (1), the two context menus (2), `spec-panel` (1).
 
-**Tier 3 — structure and organisation.** ~16 sites. `canonical-modal` (6),
-`library-browse-modal` (7), `scenario-actions` (2), `attachment-list-modal` (3),
-notes editors. Wrong or lost state is visible and recoverable.
+**Tier 3 — structure and organisation. 20 sites, 7 files.**
+`library-browse-modal` (7), `canonical-modal` (6), `attachment-list-modal` (3),
+`scenario-actions-menu` + `editable-scenario-label` (2), `notes-editor` +
+`asy-notes-drawer` (2). Wrong or lost state is visible and recoverable.
 
-**Tier 4 — administrative and read-only.** ~7 sites. The five admin forms,
-`import/refresh-header`, `warnings/*` (2). Low volume, admin-gated, or a
-re-runnable read.
+**Tier 4 — administrative and read-only. 11 sites, 9 files.** Six admin forms
+(7 sites), `import/refresh-header` (1), `warnings/*` (3). Low volume,
+admin-gated, or a re-runnable read.
 
 ## Phased recommendation
 
-**Phase 0 — now, as repair completion, not sweep.** Tier 1's six files. Justified
-by `markComplete` and by the unrepaired `sendQuote`, not by tidiness. Extend
-`ENFORCED` to `src/components/quote-umbrella/` and `src/components/pricing/`.
+**Phase 0 — now, as repair completion, not sweep.** Shipped in `#461`, scoped to
+the two files Edward named: `markComplete` and the unrepaired `sendQuote` call
+site. `ENFORCED` was extended to those two paths specifically rather than to
+their directories, so the remaining Tier 1 files stay reported rather than
+silently admitted.
 
 **Phase 1 — audit before migrating.** For Tier 2, the question is not only
 whether failure is visible but whether **client state mutates on failure** —
