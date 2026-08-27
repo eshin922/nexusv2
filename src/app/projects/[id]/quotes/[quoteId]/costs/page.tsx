@@ -39,6 +39,7 @@ import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip"
 import { ClientTargetContext } from "@/components/costs/client-target-context";
 import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown";
 import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
+import { readComponentChargesForCosts } from "@/lib/component-charges/read";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
@@ -467,6 +468,11 @@ export default async function CostBuildPage({
     });
   }
 
+  // OD-032 Shape A. Read by CAUSAL owner (`owner_quote_leaf_id`), never by
+  // `owner_ref` — a legacy charge is engagement-owned and must not appear
+  // under a component.
+  const componentCharges = await readComponentChargesForCosts(quoteId);
+
   const pkgRows: SyntheticPackagingRow[] = newPkgInputRows.map((r) => ({
     packaging_inputs: {
       id: r.assembly_leaf_inputs.id,
@@ -778,6 +784,9 @@ export default async function CostBuildPage({
               inputRows={pkgRows}
               categories={categories}
               editable={editable}
+              // OD-032 Shape A — a charge renders where its owner already
+              // lives, and the component is already in this drilldown.
+              componentCharges={componentCharges}
             />
           </SectionWithDrilldown>
 

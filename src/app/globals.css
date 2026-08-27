@@ -7,6 +7,9 @@
 /* OD-032 phase 4 — the add-charges sheet. Prefix-clean (`od032-`), so it
    loads globally without cross-polluting. */
 @import "../styles/od032-charge-sheet.css";
+/* OD-032 Shape A — component charges in Packaging, Item Group
+   attribution in Production. Additive only; no region moves. */
+@import "../styles/od032-costs-charges.css";
 @import "../styles/r1-setup.css";
 @import "../styles/r7b-setup.css";
 @import "../styles/r-a1v2-setup.css";

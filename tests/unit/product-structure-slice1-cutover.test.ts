@@ -595,6 +595,17 @@ const classifiedIdentityFiles = new Set([
   // `assembly_leaves` is never queried; nothing resolves through the legacy
   // junction; no anchor is consulted.
   "src/lib/component-charges/create.ts",
+  // CLASSIFIED - canonical identity only, read-only.
+  //
+  // OD-032 Shape A's reader. It selects component charges by
+  // `owner_quote_leaf_id` — a real FK to the canonical id — so the Packaging
+  // drilldown can nest each under the component that caused it.
+  //
+  // `owner_ref` is never read: it is text, it is '@quote' for a legacy charge,
+  // and filtering on the typed column is both the correct question and the one
+  // that cannot accidentally include a coerced anchor. `assembly_leaves` is
+  // never queried. It writes nothing.
+  "src/lib/component-charges/read.ts",
   // CLASSIFIED - the server-action door, and nothing else.
   //
   // It names `quoteLeafId` in its input type and passes it through untouched.

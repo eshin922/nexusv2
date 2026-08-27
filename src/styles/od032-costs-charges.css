@@ -1,0 +1,94 @@
+/*
+ * OD-032 Shape A — component charges in their causal Packaging context, and
+ * the Item Group attribution line in Production.
+ *
+ * Deliberately small. Shape A is a PLACEMENT, not the Costs redesign that was
+ * deferred: two additive elements, no region moved, no tier column touched.
+ *
+ * Prefix-clean (`od032-`), so it loads globally without cross-polluting.
+ */
+
+/* ── the nested charge block ──────────────────────────────────────────── */
+
+.od032-costs-charges {
+  /* Full width, BELOW the tier grid. A one-time charge is a total and the grid
+     is per-unit rates, so it must not sit in a tier column — and this way the
+     columns above keep their x-positions exactly. */
+  grid-column: 1 / -1;
+  margin: 6px 0 2px 18px;
+  padding: 8px 10px 9px;
+  background: oklch(0.975 0.010 85);
+  border: 1px solid oklch(0.92 0.010 85);
+  border-radius: 6px;
+}
+
+.od032-costs-charges-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.68 0.012 255);
+  margin-bottom: 6px;
+}
+
+.od032-costs-charge {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-top: 1px solid oklch(0.94 0.008 85);
+}
+.od032-costs-charge:first-of-type {
+  border-top: 0;
+}
+
+.od032-costs-charge-name {
+  font-size: 12.5px;
+  color: oklch(0.20 0.02 255);
+}
+.od032-costs-charge-label {
+  color: oklch(0.52 0.015 255);
+}
+
+.od032-costs-charge-amounts {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+}
+.od032-costs-charge-amt {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 72px;
+}
+
+.od032-costs-charge-note {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.68 0.012 255);
+  white-space: nowrap;
+}
+
+/* ── the Production attribution line ──────────────────────────────────── */
+
+.od032-prod-attribution {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: oklch(0.968 0.012 85);
+  border-bottom: 1px solid oklch(0.92 0.010 85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.68 0.012 255);
+}
+.od032-prod-attribution .why {
+  margin-left: auto;
+  letter-spacing: 0.06em;
+  color: oklch(0.52 0.015 255);
+}

@@ -18,6 +18,8 @@ import {
   resolvePackagingRowIdentity,
   type PackagingRowIdentity,
 } from "@/lib/costs/packaging-row-identity";
+import type { ComponentChargeForCosts } from "@/lib/component-charges/read";
+import { COMPONENT_CHARGE_LABELS } from "@/lib/commercial-recovery/registry";
 import {
   selectActiveTierId,
   selectGraph,
@@ -170,8 +172,16 @@ export function PackagingDrilldown({
   inputRows,
   categories,
   editable,
+  componentCharges,
 }: {
   skus: QuoteSku[];
+  /**
+   * Component-owned one-time charges — OD-032 Shape A.
+   *
+   * Optional, so a drilldown rendered without them shows none rather than
+   * claiming a component has none.
+   */
+  componentCharges?: readonly ComponentChargeForCosts[];
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   inputRows: PackagingInputRow[];
   categories: Array<{ category: string; defaultMarkupPct: string }>;
@@ -279,6 +289,19 @@ export function PackagingDrilldown({
   }
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
+
+  // Cost-input id → the sku, so a packaging line can reach its CANONICAL leaf
+  // id. The line carries the assembly_leaf id; the charge carries the
+  // quote_leaves id. They are different identities for the same component.
+  const skuByCostId = new Map(skus.map((s) => [s.id, s]));
+
+  const chargesByLeaf = new Map<string, ComponentChargeForCosts[]>();
+  for (const c of componentCharges ?? []) {
+    chargesByLeaf.set(c.quoteLeafId, [
+      ...(chargesByLeaf.get(c.quoteLeafId) ?? []),
+      c,
+    ]);
+  }
   // Setup owns packaging structure; Costs prices it. There is no author-here
   // path, so the only empty state that can legitimately persist is "Setup has
   // no components yet" — and the remedy is Setup, not this surface.
@@ -416,6 +439,14 @@ export function PackagingDrilldown({
             categories={categories}
             reads={reads}
             disabled={!editable}
+            // Matched on the CAUSAL owner. `line.quoteSkuId` is the
+            // assembly_leaf id; the charge is owned by the canonical
+            // `quote_leaves` id, so the two are joined through the sku map
+            // rather than compared directly — the same mismatch that would
+            // have made component charges contribute nothing to costing.
+            charges={chargesByLeaf.get(
+              skuByCostId.get(line.quoteSkuId)?.quoteLeafId ?? "",
+            )}
           />
         ))}
 
@@ -465,8 +496,17 @@ function PackagingRow({
   categories,
   reads,
   disabled,
+  charges,
 }: {
   line: LineForUI;
+  /**
+   * One-time charges this component caused — OD-032 Shape A.
+   *
+   * Rendered beneath the row rather than in the tier grid, because a one-time
+   * charge is a TOTAL and the grid is per-unit rates. Laying it across the tier
+   * columns would invite reading it as a rate that scales.
+   */
+  charges?: readonly ComponentChargeForCosts[];
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   /** Resolved visible identity of the governed component this row costs. */
   identity: PackagingRowIdentity;
@@ -1101,6 +1141,69 @@ function PackagingRow({
         />
       ))}
 
+      {/* ── ONE-TIME CHARGES THIS COMPONENT CAUSED — OD-032 Shape A ────────
+          Nested under the row rather than given a region of their own: a
+          charge renders where its owner already lives, and this component is
+          already here.
+
+          BELOW the tier grid, not inside it. A one-time charge is a TOTAL and
+          the grid is per-unit rates — laying it across the tier columns would
+          invite reading it as a rate that scales, which is the arithmetic the
+          engine's falsifications exist to prevent.
+
+          Rendered as a full-width row so the tier columns above keep their
+          x-positions exactly. */}
+      {charges && charges.length > 0 && (
+        <div className="od032-costs-charges" data-testid="component-charges">
+          <div className="od032-costs-charges-label">
+            One-time charges caused by this component
+          </div>
+          {charges.map((c) => (
+            <div
+              key={c.chargeInstanceId}
+              className="od032-costs-charge"
+              data-testid={`component-charge-${c.chargeInstanceId}`}
+            >
+              <span className="od032-costs-charge-name">
+                {COMPONENT_CHARGE_LABELS[
+                  c.chargeKey as keyof typeof COMPONENT_CHARGE_LABELS
+                ] ?? c.chargeKey}
+                {c.label ? (
+                  <span className="od032-costs-charge-label"> · {c.label}</span>
+                ) : null}
+              </span>
+              <span className="od032-costs-charge-amounts">
+                {c.amounts.map((a) => (
+                  <span key={a.tierId} className="od032-costs-charge-amt">
+                    {Number(a.cost).toLocaleString("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                ))}
+              </span>
+              {/* ── WHERE THE DECISION IS MADE, NAMED CORRECTLY ──────────
+                  This row's job is to send the operator somewhere, so the
+                  destination has to be the one that exists.
+
+                  The Design Authority says "recovery set in pricing". That was
+                  written before Commercial Recovery became its own governed
+                  surface, and shipping it now would teach the old mental model
+                  at exactly the moment the architecture stopped matching it —
+                  recovery is not a pricing decision, which is the whole reason
+                  the two were separated.
+
+                  Named as the surface names itself: `cv-card-title` reads
+                  "Commercial recovery". Divergence asserted in the Shape A
+                  suite so it reads as a decision rather than as drift. */}
+              <span className="od032-costs-charge-note">
+                one-time · set in Commercial recovery
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

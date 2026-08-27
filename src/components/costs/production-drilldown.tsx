@@ -559,6 +559,20 @@ function ProductionTable({
       className="r6-dt prod"
       style={{ ["--cols" as string]: tiers.length } as React.CSSProperties}
     >
+      {/* ── OD-032 Shape A · ATTRIBUTION, STATED ───────────────────────────
+          These fees were ALREADY grouped by Item Group — #282 re-keyed this
+          display to `assembly.id` precisely because production belongs to the
+          finished good rather than to one component inside it (BV-012 §1.a).
+
+          What was missing was the reason. Without this line the grouping is
+          real but unexplained, and an operator has no way to read WHY these
+          fees sit under this Item Group rather than under a carton.
+
+          One line. No row moves, no column moves, no economics change. */}
+      <div className="od032-prod-attribution">
+        <span>One-time charges · caused by this Item Group</span>
+        <span className="why">BV-012 · finished-good economics</span>
+      </div>
       <div className="r6-dt-head">
         <span>Line</span>
         <span>Category</span>
