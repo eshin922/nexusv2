@@ -552,6 +552,16 @@ export type QuoteCostingInput = {
   tiers: CostingTier[];
   packaging: CostingPackagingInput[];
   production: CostingProductionInput[];
+  /**
+   * Component-owned one-time charges — OD-032 phase 2. One entry per
+   * (charge instance, tier), already parsed and already attributed to the
+   * `quote_leaves` id that CAUSED it.
+   *
+   * Optional so every existing caller and fixture stays valid unchanged: a
+   * quote with none behaves exactly as it did, which is what "additive" has to
+   * mean at the input boundary as well as in the schema.
+   */
+  componentCharges?: readonly ComponentChargeInput[];
   // Slice R6.2 — multi-leg journey freight model. Three sparse arrays
   // describing the quote's journey(s); see CostingFreightLeg /
   // CostingFreightLegTier types. Empty = no freight entered yet.
@@ -1151,7 +1161,22 @@ export type ChargeEconomics = {
    * customer economics and the BV-011 destination all ignore it and are
    * unchanged by its presence.
    */
-  ownerKind: "assembly" | "direct_service";
+  ownerKind: "assembly" | "direct_service" | "component";
+  /**
+   * WHO CAUSED IT — OD-032 phase 2. `'@quote'` for a charge the engagement
+   * caused; a `quote_leaves` id for one a packaging component caused.
+   *
+   * This is CAUSAL and is never the anchor-coerced `owner_ref` that
+   * `quote_snapshot_recovery_instructions` carries. A component charge is
+   * authored against a specific carton, so it needs no coercion; a legacy
+   * charge is `'@quote'`, which is what it already meant. OD-028 anchor
+   * movement therefore reaches neither.
+   *
+   * Optional so every existing producer stays valid unchanged: a charge with
+   * no stated owner is engagement-owned, which is the only thing charges were
+   * before this phase.
+   */
+  ownerRef?: string;
   /** What DPS pays. COST TRUTH: invariant under every recovery election. */
   cost: number;
   /**
@@ -1226,6 +1251,82 @@ export function chargeEconomicsFor(
       recoverableSell: ratePct === null ? null : cost * (1 + ratePct),
       rateCategory: ratePct === null ? null : PRODUCTION_MARKUP_CATEGORY,
       ratePct,
+    });
+  }
+  return out;
+}
+
+/**
+ * Per-tier economics for one component-owned charge, as the engine sees them.
+ *
+ * Deliberately NOT the DB row shape: the adapter parses numerics and resolves
+ * the tier, so the math layer consumes data rather than a table. Same
+ * discipline as `QuoteCostingInput` generally — "the math layer consumes
+ * `QuoteCostingInput` as DATA, not table references."
+ */
+export type ComponentChargeInput = {
+  chargeInstanceId: string;
+  /** The tier these economics belong to. One entry per (instance, tier). */
+  tierId: string;
+  chargeKey: RecoveryChargeKey;
+  /** The `quote_leaves` id that caused it. Causal, never an anchor. */
+  ownerRef: string;
+  /** What DPS pays, for THIS tier. Operator-entered; nothing is derived. */
+  cost: number;
+  /**
+   * What DPS intends to recover, for this tier. NULL is not zero — zero says
+   * the charge recovers nothing; NULL says nothing governs what it recovers
+   * (BV-013), and the constructor already treats an unknown total as unknown.
+   */
+  recoverableSell: number | null;
+};
+
+/**
+ * Component-owned charges, as `ChargeEconomics`.
+ *
+ * ── THE AMOUNT IS A TOTAL, AND NOTHING SCALES IT ────────────────────────
+ *
+ * Every value on a leaf rollup is per-unit and is multiplied by `q` on the way
+ * up, because a component used q times per parent contributes q times its unit
+ * cost. A one-time charge is not that, and the assembly rollup already says so
+ * where `chargeEconomics` bubbles: "CONCATENATED, NOT SCALED... multiplying it
+ * by a bill-of-materials quantity would invent money."
+ *
+ * So this returns the operator's figure unchanged. There is no per-unit
+ * division here and no quantity multiplication anywhere above, which together
+ * are why a $1,450 plate set contributes $1,450 and not $1,450 x qty — the
+ * OD-025 shape, avoided by construction rather than by arithmetic that happens
+ * to cancel.
+ *
+ * ── NO LEVER REACHES IT ─────────────────────────────────────────────────
+ *
+ * `recoverableSell` is the governed recovery the operator asked for. It is
+ * consumed verbatim by the constructor, which imports no markup and contains
+ * no `1 + rate` — and the SKU lift / GPA / tier levers act on the priceable
+ * sell base, which excludes elected recovery. A charge recovers what it was
+ * priced at, wherever it is placed.
+ */
+export function componentChargeEconomics(
+  charges: readonly ComponentChargeInput[],
+): ChargeEconomics[] {
+  const out: ChargeEconomics[] = [];
+  for (const c of charges) {
+    // A zero-cost charge is not a charge, the same rule the production columns
+    // use. An instance with no economics entered yet is not yet a cost fact.
+    if (c.cost === 0 && (c.recoverableSell ?? 0) === 0) continue;
+    out.push({
+      chargeKey: c.chargeKey,
+      // Traceable to a row rather than a column, which is the whole point of
+      // the phase: a column can hold one charge per quote, a row cannot.
+      sourceColumn: `quote_charge_instance_tiers:${c.chargeInstanceId}`,
+      ownerKind: "component",
+      ownerRef: c.ownerRef,
+      cost: c.cost,
+      recoverableSell: c.recoverableSell,
+      // The rate is the operator's ask, not a category default. Recording a
+      // category here would claim a governed rate resolved it, and none did.
+      rateCategory: null,
+      ratePct: null,
     });
   }
   return out;
@@ -1876,6 +1977,14 @@ function computeLeafPerTier(args: {
   packaging: CostingPackagingInput[];
   production: CostingProductionInput | null;
   /**
+   * Component-owned charges for THIS (leaf, tier) — OD-032 phase 2.
+   *
+   * Pre-filtered by the caller, like every other input here. The filter is on
+   * the CAUSAL owner (`quote_leaves.id`), never on an anchor, so which leaf a
+   * charge lands on is decided by who caused it rather than by row order.
+   */
+  componentCharges: readonly ComponentChargeInput[];
+  /**
    * Recovery elections for this quote. Resolved ONCE, here, into the
    * constructed commercial state every consumer reads. Empty is the whole of
    * production today; the writer refuses to create a row.
@@ -2156,7 +2265,14 @@ function computeLeafPerTier(args: {
   const productionMarkup = productionMarkupResolution.value ?? 0;
   const rawMarkup = rawMarkupResolution2.value ?? 0;
 
-  const chargeEconomics = chargeEconomicsFor(production, productionMarkupResolution.value);
+  // Production columns and component-owned rows are the same commercial
+  // family arriving from two places, so they concatenate rather than one
+  // taking precedence. A leaf can legitimately carry both: an Item Group's
+  // tooling AND a plate set its own carton caused.
+  const chargeEconomics = [
+    ...chargeEconomicsFor(production, productionMarkupResolution.value),
+    ...componentChargeEconomics(args.componentCharges),
+  ];
 
   // ── THE CONSTRUCTION, AT THE ONLY PLACE THAT CAN DO IT ─────────────────
   //
@@ -4194,6 +4310,27 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           tier,
           packaging: pkgs,
           production: prod,
+          // Filtered on the CAUSAL owner and the tier: "charges this carton
+          // caused at this tier", not "charges that happened to anchor here".
+          //
+          // MATCHED ON `canonicalQuoteLeafId`, WHICH IS THE WHOLE CLAIM.
+          // `ownerRef` is a `quote_leaves.id` — the identity an operator
+          // authored the charge against. `sku.id` is the MATH leaf id, a
+          // different identity entirely, and matching on it would find nothing:
+          // every component charge would contribute zero, silently, on a
+          // surface reporting it as elected. Same defect the adapter's
+          // `chargeElections` comment records, one layer down.
+          //
+          // It is also the OD-028-safe identity. The anchor that moves between
+          // a quote and its copy is derived from row order; this is the leaf
+          // the operator pointed at.
+          componentCharges: sku.canonicalQuoteLeafId
+            ? (input.componentCharges ?? []).filter(
+                (c) =>
+                  c.ownerRef === sku.canonicalQuoteLeafId &&
+                  c.tierId === tier.id,
+              )
+            : [],
           chargeElections: input.chargeElections ?? [],
           freightLegs: sortedLegs,
           freightLegTiers: input.freightLegTiers,
