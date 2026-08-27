@@ -225,7 +225,11 @@ export function PackagingDrilldown({
   // both missing and duplicate, so a cell with no single answer renders a dash
   // rather than a number nobody computed.
   //
-  // `line.quoteSkuId` is the assembly_leaf id, which IS the id the engine keys
+  // `line.quoteSkuId` is the CANONICAL `quote_leaves` id, which IS the id the
+  // engine keys — the Costs page sets it from `assembly_leaf_inputs.quoteLeafId`.
+  // (This comment previously said "assembly_leaf id". That is the junction id,
+  // which is what `sku.id` carries for a member — a different value, and
+  // believing this comment cost OD-032 Shape A a silent render miss.)
   // its SKU rollups on for a grouped attachment — the same `mathSkuId` the
   // adapter emits. Cost inputs are keyed on assembly_leaf_id today (OD-017), so
   // every line that has cost data has one.
@@ -289,11 +293,6 @@ export function PackagingDrilldown({
   }
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
-
-  // Cost-input id → the sku, so a packaging line can reach its CANONICAL leaf
-  // id. The line carries the assembly_leaf id; the charge carries the
-  // quote_leaves id. They are different identities for the same component.
-  const skuByCostId = new Map(skus.map((s) => [s.id, s]));
 
   const chargesByLeaf = new Map<string, ComponentChargeForCosts[]>();
   for (const c of componentCharges ?? []) {
@@ -439,14 +438,24 @@ export function PackagingDrilldown({
             categories={categories}
             reads={reads}
             disabled={!editable}
-            // Matched on the CAUSAL owner. `line.quoteSkuId` is the
-            // assembly_leaf id; the charge is owned by the canonical
-            // `quote_leaves` id, so the two are joined through the sku map
-            // rather than compared directly — the same mismatch that would
-            // have made component charges contribute nothing to costing.
-            charges={chargesByLeaf.get(
-              skuByCostId.get(line.quoteSkuId)?.quoteLeafId ?? "",
-            )}
+            // ── MATCHED DIRECTLY, AND THE INDIRECTION WAS THE BUG ────────
+            //
+            // `line.quoteSkuId` IS the canonical `quote_leaves` id: the Costs
+            // page sets it from `assembly_leaf_inputs.quoteLeafId`, and its
+            // own comment calls that "the identity every assembly_leaf_inputs
+            // row carries".
+            //
+            // The first version routed through the sku map to "translate" it,
+            // on the strength of a stale comment in this file claiming the
+            // field was the assembly_leaf id. For a MEMBER of an Item Group
+            // `sku.id` IS the junction id — so the lookup missed every member
+            // and matched only Direct Products, where the two ids coincide.
+            //
+            // Measured on production: the block rendered for nothing, on a
+            // quote whose reader returned both charges correctly. The failure
+            // was silent because a missing charge looks exactly like a
+            // component that caused none.
+            charges={chargesByLeaf.get(line.quoteSkuId)}
           />
         ))}
 
