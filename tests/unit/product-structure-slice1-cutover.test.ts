@@ -548,6 +548,29 @@ const classifiedIdentityFiles = new Set([
   // inside a transaction that always rolls back, and the final check asserts
   // nothing persisted.
   "scripts/gate-1b/od-032-phase-2-contraction-proof.mjs",
+  // CLASSIFIED - canonical identity only, and it is the sole writer of it.
+  //
+  // OD-032's charge-instance helper. It handles `quote_leaves.id` as the causal
+  // owner of a component-owned charge, derives `owner_quote_leaf_id` from it,
+  // and writes both columns so the owner-agreement CHECK holds by construction.
+  //
+  // It reads no anchor. The owner arrives as an argument from the surface that
+  // authored the charge, and the file's own header records why that matters:
+  // an identity derived from the anchor-coerced `owner_ref` would move when the
+  // anchor moved (OD-028). `assembly_leaves` is never queried.
+  "src/lib/commercial-recovery/charge-instance.ts",
+  // CLASSIFIED - canonical identity only, and every write is rolled back.
+  //
+  // The OD-032 copy-integrity proof. Reads `quote_leaves.id` to pick two
+  // components, owns charges from them via `owner_quote_leaf_id`, and asserts
+  // the clone REMAPS that owner onto the copy's own leaf rather than carrying
+  // the source's. `assembly_leaves` is never queried and nothing resolves
+  // through the legacy junction.
+  //
+  // It writes, deliberately: a structural claim is proven by a transaction that
+  // performs it. Every statement runs inside a transaction that always rolls
+  // back, and a final check asserts nothing persisted.
+  "scripts/gate-1b/od-032-copy-integrity-proof.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

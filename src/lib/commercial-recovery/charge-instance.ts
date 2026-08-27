@@ -21,6 +21,24 @@
  * That is not a convention this file merely follows. It is falsified in
  * `tests/unit/od-032-charge-instance-identity.test.ts`, which permutes the
  * anchor and asserts the resolved instance is unchanged.
+ *
+ * ── THE OWNER IS TWO COLUMNS, AND THEY CANNOT DISAGREE ────────────────────
+ *
+ * Phase 2 added `owner_quote_leaf_id` — a real FK, so that deleting a component
+ * cascades to the charges it caused rather than stranding them — and a CHECK
+ * tying it to `owner_ref`:
+ *
+ *   (owner_ref = '@quote' AND owner_quote_leaf_id IS NULL)
+ *     OR (owner_quote_leaf_id IS NOT NULL AND owner_ref = owner_quote_leaf_id::text)
+ *
+ * Until this change the helper wrote `owner_ref` alone, so a component owner
+ * satisfied NEITHER branch and the database refused the insert outright. That
+ * was the CHECK doing its job — the inconsistent state was unrepresentable, and
+ * the helper was one of the writers that would have produced it.
+ *
+ * So the leaf id is derived here, from the one value the caller passes, and
+ * written to both columns. A caller cannot supply them separately and cannot
+ * make them disagree.
  */
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
@@ -38,7 +56,15 @@ type Runner = Pick<typeof db, "select" | "insert">;
 export type ChargeInstanceKey = {
   quoteId: string;
   chargeKey: string;
-  /** Defaults to `'@quote'`. A `quote_leaves` id once phase 2 lands. */
+  /**
+   * Defaults to `'@quote'`. Otherwise a `quote_leaves` id — the component that
+   * caused the charge.
+   *
+   * ONE value, not two. `owner_quote_leaf_id` is derived from this rather than
+   * accepted alongside it, because two parameters can disagree and the CHECK
+   * would then reject the write at the database instead of the caller being
+   * unable to express the mistake.
+   */
   ownerRef?: string;
   /** Required for `other`; an optional override otherwise. */
   label?: string | null;
@@ -58,9 +84,19 @@ export async function ensureChargeInstance(
   const ownerRef = args.ownerRef ?? QUOTE_OWNER_REF;
   const label = args.label ?? null;
 
+  // The FK half of the owner. NULL for the engagement, the leaf id itself for a
+  // component — which is the CHECK's second branch satisfied by construction.
+  const ownerQuoteLeafId = ownerRef === QUOTE_OWNER_REF ? null : ownerRef;
+
   // `IS NULL`, never `= NULL`. The constraint is NULLS NOT DISTINCT, so an
   // unlabelled charge has exactly one row — but an equality comparison matches
   // none of them, which would mint a duplicate on every single election.
+  //
+  // The lookup matches `owner_ref` only, deliberately. It is the business
+  // constraint's own column and the CHECK guarantees the FK agrees with it, so
+  // adding a second owner predicate would narrow the search by a value that
+  // cannot differ — and would silently mint a duplicate if it ever did, which
+  // is the opposite of what a redundant check should do.
   const match = and(
     eq(quoteChargeInstances.quoteId, args.quoteId),
     eq(quoteChargeInstances.chargeKey, args.chargeKey as never),
@@ -81,6 +117,7 @@ export async function ensureChargeInstance(
       quoteId: args.quoteId,
       chargeKey: args.chargeKey as never,
       ownerRef,
+      ownerQuoteLeafId,
       label,
     })
     .onConflictDoNothing()

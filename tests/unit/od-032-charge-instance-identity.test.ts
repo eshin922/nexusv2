@@ -161,15 +161,22 @@ test("every election writer supplies an instance id", () => {
   assert.match(persist, /chargeInstanceId,/);
 
   const quotes = readFileSync("src/app/actions/quotes.ts", "utf8");
-  assert.match(quotes, /ensureChargeInstance\(tx, \{ quoteId: newQuoteId/);
-  assert.match(quotes, /chargeInstanceId: clonedInstanceIds\[i\]/);
+  // Phase 2 made the copy instance-driven, so the call is multi-line and the
+  // election reads its id from a map rather than a positional array. The claim
+  // is unchanged: the copy path resolves an instance, and every election it
+  // writes carries one.
+  assert.match(quotes, /ensureChargeInstance\(tx, \{[\s\S]{0,200}?quoteId: newQuoteId/);
+  assert.match(quotes, /chargeInstanceId: targetInstanceId/);
+  // And the resolution cannot silently fail: an election whose charge did not
+  // clone refuses the copy rather than writing a dangling or invented id.
+  assert.match(quotes, /targetInstanceId === undefined/);
 });
 
 test("a copy gets its own instances, never the source's", () => {
   const quotes = readFileSync("src/app/actions/quotes.ts", "utf8");
   // Sharing an id across a copy would make two quotes' elections one row, so
   // re-electing on the copy would silently move the source.
-  assert.match(quotes, /quoteId: newQuoteId, chargeKey: e\.chargeKey/);
+  assert.match(quotes, /quoteId: newQuoteId,\s*\n?\s*chargeKey: (e|src)\.chargeKey/);
   assert.ok(
     !/chargeInstanceId: e\.chargeInstanceId/.test(quotes),
     "the copy must not inherit the source's instance id",
