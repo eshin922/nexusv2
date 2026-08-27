@@ -34,7 +34,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DPS Quoting Tool",
+  title: "Nexus",
   description: "Internal quoting tool for The DPS",
   /*
    * The Nexus mark as the app icon. The sign-in v2 handoff supplies these and
