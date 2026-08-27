@@ -1152,6 +1152,26 @@ export type ChargeEconomics = {
   /** The governed column this came from — traceable without grepping. */
   sourceColumn: string;
   /**
+   * The durable instance identity, for a charge that has one — OD-032 P-3.
+   *
+   * ── WHY IT IS A FIELD AND NOT PARSED OUT OF `sourceColumn` ──────────────
+   *
+   * `sourceColumn` already spells the id for a component charge, as
+   * `quote_charge_instance_tiers:<uuid>`. That is a TRACEABILITY STRING built
+   * for a human reading a value's provenance, and recovering identity by
+   * splitting it on `:` would be reading a value through an instrument that
+   * was not built to carry it — the measurement error Pattern 58 records.
+   *
+   * A display string can be reworded. An identity cannot, so it travels on its
+   * own field and no runtime path derives it from anything else.
+   *
+   * Undefined for a charge with no instance: a legacy fee placed by
+   * per-assembly resolution has no election and therefore no instance row.
+   * That absence is a fact about the legacy model, not a discriminator — see
+   * the freeze column's own comment for what may and may not branch on it.
+   */
+  chargeInstanceId?: string;
+  /**
    * The COMMERCIAL GRAIN of the source: a one-time fee an Item Group authored,
    * or a Direct Service leaf that is already its own customer line.
    *
@@ -1319,6 +1339,10 @@ export function componentChargeEconomics(
       // Traceable to a row rather than a column, which is the whole point of
       // the phase: a column can hold one charge per quote, a row cannot.
       sourceColumn: `quote_charge_instance_tiers:${c.chargeInstanceId}`,
+      // Set BESIDE the traceability string, from the same value, rather than
+      // recovered from it later. Every component charge has an instance by
+      // construction — it cannot be authored without one.
+      chargeInstanceId: c.chargeInstanceId,
       ownerKind: "component",
       ownerRef: c.ownerRef,
       cost: c.cost,

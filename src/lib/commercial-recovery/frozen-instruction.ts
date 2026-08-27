@@ -28,6 +28,22 @@ export type FrozenRecoveryInstruction = {
   /** Assembly or quote-leaf id. Traceability, not a join key. */
   ownerRef: string;
   tierId: string;
+  /**
+   * The durable instance identity — OD-032 P-3, and the reason this field
+   * exists at all.
+   *
+   * Without it, two Print plates charges caused by the SAME carton freeze as
+   * two rows identical in every column but their amounts, and an accountant
+   * cannot tell which instruction belongs to which charge. That is the exact
+   * case OD-032 exists to make representable, so the record Accounting bills
+   * from has to be able to represent it too.
+   *
+   * NULL ONLY for a legacy-placed charge, which has no election and therefore
+   * no instance. NOT NULL for every component-owned charge, which cannot exist
+   * without one — asserted, because a null there would mean identity was lost
+   * between authoring and freeze.
+   */
+  chargeInstanceId: string | null;
   treatment: ChargePlacement;
   treatmentSource: "election" | "legacy";
   /** What DPS pays. */
@@ -75,6 +91,8 @@ export function projectFrozenInstructions(
     chargeKey: c.chargeKey,
     ownerRef,
     tierId,
+    // Read from the field, never parsed from `sourceColumn`.
+    chargeInstanceId: c.chargeInstanceId ?? null,
     treatment: c.placement,
     treatmentSource: c.source,
     cost: c.cost,

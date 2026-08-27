@@ -78,6 +78,8 @@ export type ChargeEconomicsInput = {
    * and has no standing to decide who caused it.
    */
   ownerRef?: string;
+  /** WHICH CHARGE IT IS — OD-032 P-3. Carried, never derived. */
+  chargeInstanceId?: string;
 };
 
 export type PlacedCharge = {
@@ -94,6 +96,14 @@ export type PlacedCharge = {
   ownerKind: "assembly" | "direct_service" | "component";
   /** Causal owner, carried from the economics. See `ChargeEconomicsInput`. */
   ownerRef?: string;
+  /**
+   * Durable instance identity, carried from the economics.
+   *
+   * Placement is a decision ABOUT a charge and never a decision about which
+   * charge it is, so this passes through this layer exactly as `ownerRef`
+   * does — untouched, and never reconstructed from `sourceColumn`.
+   */
+  chargeInstanceId?: string;
   /**
    * Whether an operator elected this placement or it fell through to the
    * legacy per-assembly boolean.
@@ -491,6 +501,7 @@ export function composeFromPlacements(
         source,
         ownerKind: e.ownerKind ?? "assembly",
         ownerRef: e.ownerRef,
+        chargeInstanceId: e.chargeInstanceId,
         // Copied. Not recomputed, not re-rated, not rounded.
         cost: e.cost,
         recoverableSell: e.recoverableSell,

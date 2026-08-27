@@ -764,6 +764,13 @@
       "when": 1788078720000,
       "tag": "0110_od_032_phase_2_drop_legacy_charge_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1788165120000,
+      "tag": "0111_od_032_frozen_instruction_identity",
+      "breakpoints": true
     }
   ]
 }
