@@ -24,6 +24,7 @@ import {
   type RecoveryChargeKey,
   type RecoveryMode,
 } from "@/lib/commercial-recovery/registry";
+import { ensureChargeInstance } from "@/lib/commercial-recovery/charge-instance";
 
 export type PersistedElection = { chargeKey: RecoveryChargeKey; mode: RecoveryMode };
 
@@ -100,12 +101,19 @@ export async function persistChargeRecoverySet(input: {
     for (const { chargeKey, mode } of requested) {
       if (priorByKey.get(chargeKey) === mode) continue;
       assertElectionAllowed(chargeKey, mode, ctx);
+      // OD-032 phase 1 — every write carries an instance id. Resolved before
+      // the upsert rather than inside it, because the instance is the durable
+      // identity and an upsert that created one only on the insert branch
+      // would leave re-elections keyed to nothing.
+      const chargeInstanceId = await ensureChargeInstance(db, { quoteId, chargeKey });
       await db
         .insert(quoteChargeRecovery)
-        .values({ quoteId, chargeKey, mode, electedByUserId: user.id })
+        .values({ quoteId, chargeKey, chargeInstanceId, mode, electedByUserId: user.id })
         .onConflictDoUpdate({
+          // Still the pre-1b key. Phase 1b moves the PK to charge_instance_id;
+          // until it does, this target is the unique index that exists.
           target: [quoteChargeRecovery.quoteId, quoteChargeRecovery.chargeKey],
-          set: { mode, electedByUserId: user.id, electedAt: new Date() },
+          set: { mode, chargeInstanceId, electedByUserId: user.id, electedAt: new Date() },
         });
       await writeAuditEntry({
         userId: user.id,

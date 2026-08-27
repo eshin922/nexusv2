@@ -112,6 +112,7 @@ import { requireResolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { requireBelowFloorAuthorizedToSend } from "@/lib/below-floor-send-gate";
 import { requireNoUnbillableRecoveryToSend } from "@/lib/unbillable-recovery-send-gate";
 import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
+import { ensureChargeInstance } from "@/lib/commercial-recovery/charge-instance";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
@@ -4289,10 +4290,26 @@ export async function cloneQuoteGraph(
     .where(eq(quoteChargeRecovery.quoteId, args.sourceQuoteId));
 
   if (sourceElections.length > 0) {
+    // OD-032 phase 1 — the COPY gets its own instances, not the source's.
+    //
+    // An instance is a fact about one quote, so sharing an id across a copy
+    // would make two quotes' elections one row: re-electing on the copy would
+    // silently move the source. Same reasoning as re-stamping provenance
+    // below — the decision carries, the identity does not.
+    //
+    // Sequential, not Promise.all: this runs inside the clone transaction and
+    // the election set is a handful of rows.
+    const clonedInstanceIds: string[] = [];
+    for (const e of sourceElections) {
+      clonedInstanceIds.push(
+        await ensureChargeInstance(tx, { quoteId: newQuoteId, chargeKey: e.chargeKey }),
+      );
+    }
     await tx.insert(quoteChargeRecovery).values(
-      sourceElections.map((e) => ({
+      sourceElections.map((e, i) => ({
         quoteId: newQuoteId,
         chargeKey: e.chargeKey,
+        chargeInstanceId: clonedInstanceIds[i],
         mode: e.mode,
         // PROVENANCE IS RE-STAMPED, and the election itself is not.
         //

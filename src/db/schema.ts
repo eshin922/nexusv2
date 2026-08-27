@@ -4266,6 +4266,64 @@ export const recoveryCharge = pgEnum("recovery_charge", [
   "tooling_artwork_legacy",
 ]);
 
+/**
+ * A charge INSTANCE — the durable identity of one charge on one quote.
+ *
+ * OD-032 phase 1. Recovery, freeze and the send checklist address charges by
+ * `charge_key` today, which makes the TYPE the identity and allows exactly one
+ * charge of each type per quote. That is the grain the design replaces: two
+ * cartons can each cause print plates, and one may be absorbed as a concession
+ * the other is not.
+ *
+ * ── THE IDENTITY IS `id`, AND THE NATURAL KEY IS NOT ────────────────────
+ *
+ * `(quote_id, charge_key, owner_ref, label)` is a business-uniqueness
+ * constraint serving the design's duplicate WARNING — "selecting a type the
+ * component already owns warns and offers a second instance with a distinct
+ * label required." It is deliberately NOT the primary key: `label` is operator-
+ * edited, so a natural key containing it would make renaming "foil die" an
+ * identity change, silently repointing the election, the frozen instruction and
+ * the NetSuite memo at a row that no longer exists under that name.
+ *
+ * ── owner_ref IS CAUSAL, AND IS NEVER DERIVED FROM THE ANCHOR ───────────
+ *
+ * `'@quote'` means the engagement caused it — project setup, container freight,
+ * duty. A `quote_leaves` id means that component caused it (phase 2).
+ *
+ * It is NEVER populated from `quote_snapshot_recovery_instructions.owner_ref`,
+ * which is anchor-coerced and whose own comment calls it "traceability, not a
+ * join key". The anchor moves with physical row order when `position` ties
+ * (OD-028); an identity derived from it would move with it. Synthesis reads
+ * `(quote_id, charge_key)` and nothing else, so OD-028 has no reach here.
+ */
+export const quoteChargeInstances = pgTable(
+  "quote_charge_instances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    chargeKey: recoveryCharge("charge_key").notNull(),
+    /** `'@quote'` or a `quote_leaves` id. Never null — a nullable owner is the
+     * state the design rejects, and the one that makes freight attribution
+     * guesswork today. */
+    ownerRef: text("owner_ref").notNull(),
+    /** Required when `charge_key = 'other'`; an optional override otherwise. */
+    label: text("label"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("quote_charge_instances_business_unique").on(
+      t.quoteId,
+      t.chargeKey,
+      t.ownerRef,
+      t.label,
+    ),
+  ],
+);
+
 export const quoteChargeRecovery = pgTable(
   "quote_charge_recovery",
   {
@@ -4273,6 +4331,21 @@ export const quoteChargeRecovery = pgTable(
       .notNull()
       .references(() => quotes.id, { onDelete: "cascade" }),
     chargeKey: recoveryCharge("charge_key").notNull(),
+    /**
+     * The election's durable identity (OD-032 phase 1).
+     *
+     * NULLABLE ONLY UNTIL PHASE 1b, and not a discriminator. Phase 1 expands;
+     * 1b tightens to NOT NULL and moves the primary key here, once this code is
+     * deployed. Tightening ahead of the deployed writer is the 0066 shape.
+     *
+     * Every write from this codebase populates it. No runtime path branches on
+     * its nullity, and none may: a reader that treated null as a second
+     * identity regime would preserve exactly the split phase 1 exists to end.
+     */
+    chargeInstanceId: uuid("charge_instance_id").references(
+      () => quoteChargeInstances.id,
+      { onDelete: "cascade" },
+    ),
     mode: recoveryMode("mode").notNull(),
     electedAt: timestamp("elected_at", { withTimezone: true })
       .notNull()
