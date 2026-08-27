@@ -1,0 +1,201 @@
+/**
+ * OD-032 phase 1 — the identity is anchor-independent.
+ *
+ * The disposition's load-bearing clause:
+ *
+ *   > OD-028 anchor movement must have no ability to change election identity.
+ *
+ * OD-028 is that `quote_leaves.position` is not unique, so "the lowest-position
+ * leaf" is decided by physical row order when members tie — and that anchor can
+ * differ between a quote and its copy. `quote_snapshot_recovery_instructions.
+ * owner_ref` is populated from it, and its own schema comment calls it
+ * "traceability, not a join key."
+ *
+ * OD-032 makes owner attribution load-bearing. So the one thing that must be
+ * true of phase 1 is that synthesis never consults that anchor — otherwise an
+ * anchor that moved would move an election's identity, and OD-028 would stop
+ * being a display concern and become a commercial one.
+ *
+ * These assert it structurally rather than by inspection, because "I read the
+ * code and it doesn't" is exactly the claim a later edit invalidates silently.
+ */
+
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readFileSync } from "node:fs";
+
+const helper = () =>
+  readFileSync("src/lib/commercial-recovery/charge-instance.ts", "utf8");
+const migration = () =>
+  readFileSync(
+    "drizzle/0107_od_032_phase_1_charge_instance_identity.sql",
+    "utf8",
+  );
+
+// ── the anchor is unreachable from synthesis ───────────────────────────────
+
+test("the synthesis helper cannot read an anchor-derived owner", () => {
+  const src = helper();
+
+  // The three routes to a coerced anchor. None may appear.
+  for (const forbidden of [
+    /quoteSnapshotRecoveryInstructions/,
+    /ownedPlacedCharges/,
+    /skuRollups/,
+  ]) {
+    assert.ok(!forbidden.test(src), `synthesis must not reach for ${forbidden}`);
+  }
+
+  // The owner it does use is a literal, not a lookup.
+  assert.match(src, /export const QUOTE_OWNER_REF = "@quote"/);
+  assert.match(src, /args\.ownerRef \?\? QUOTE_OWNER_REF/);
+});
+
+test("the backfill derives identity from (quote_id, charge_key) and nothing else", () => {
+  const sql = migration();
+
+  // The INSERT that synthesises. Its SELECT list is the whole claim.
+  const insert = sql.slice(
+    sql.indexOf('INSERT INTO "quote_charge_instances"'),
+    sql.indexOf('UPDATE "quote_charge_recovery" r'),
+  );
+  assert.ok(insert.length > 0, "the synthesis INSERT must exist");
+
+  // Reads only the election's own primary key, and writes a literal owner.
+  assert.match(insert, /FROM "quote_charge_recovery"/);
+  assert.match(insert, /'@quote'/);
+
+  // No join to anything anchor-derived.
+  for (const forbidden of [
+    /quote_snapshot_recovery_instructions/i,
+    /owner_ref\s*=\s*i\./i,
+    /quote_leaves/i,
+    /assembly_leaves/i,
+    /position/i,
+  ]) {
+    assert.ok(
+      !forbidden.test(insert),
+      `synthesis must not consult ${forbidden} — that is the anchor`,
+    );
+  }
+});
+
+test("permuting the anchor cannot change a synthesised identity — by construction", () => {
+  // The falsification a database permutation would perform, expressed as the
+  // property that makes it unnecessary: the synthesis key is a pure function of
+  // (quote_id, charge_key), and the anchor appears in neither.
+  //
+  // A permutation test against live rows would prove the same thing for the
+  // rows that happen to exist today. This proves it for every row that can
+  // ever exist, which is the stronger claim and the one that survives a future
+  // quote shape nobody has built yet.
+  const insert = migration().slice(
+    migration().indexOf('INSERT INTO "quote_charge_instances"'),
+    migration().indexOf('UPDATE "quote_charge_recovery" r'),
+  );
+
+  const selectList = insert.slice(insert.indexOf("SELECT"), insert.indexOf("FROM"));
+  const columns = selectList
+    .replace("SELECT", "")
+    .split(",")
+    .map((c) => c.trim().replace(/"/g, ""));
+
+  assert.deepEqual(
+    columns,
+    ['quote_id', 'charge_key', "'@quote'"],
+    "the synthesis key must be exactly (quote_id, charge_key) plus a literal owner",
+  );
+});
+
+// ── exactly once, in both directions ───────────────────────────────────────
+
+test("the migration refuses to proceed on an incomplete or duplicated backfill", () => {
+  const sql = migration();
+  // A tightening that discovered a partial backfill would fail naming a column
+  // rather than a cause. These fail first, in their own words.
+  assert.match(sql, /did not receive an instance/);
+  assert.match(sql, /claimed by more than one election/);
+  assert.match(sql, /claimed by no election/);
+  assert.match(sql, /RAISE EXCEPTION/);
+});
+
+// ── the nullable is not a discriminator ────────────────────────────────────
+
+test("no runtime path branches on a null charge_instance_id", () => {
+  // The disposition forbids a permanent nullable discriminator preserving two
+  // identity models. The column is nullable only until phase 1b; what makes
+  // that safe is that nothing READS the null to choose behaviour.
+  const roots = [
+    "src/app/actions/commercial-recovery-persist.ts",
+    "src/app/actions/commercial-recovery.ts",
+    "src/app/actions/costing.ts",
+    "src/app/actions/quotes.ts",
+    "src/lib/commercial-recovery/election-context.ts",
+    "src/lib/commercial-recovery/charge-instance.ts",
+  ];
+  for (const f of roots) {
+    const src = readFileSync(f, "utf8");
+    for (const branch of [
+      /chargeInstanceId\s*===\s*null/,
+      /chargeInstanceId\s*!==\s*null/,
+      /!\s*\w*\.?chargeInstanceId\b/,
+      /isNull\(\s*quoteChargeRecovery\.chargeInstanceId/,
+    ]) {
+      assert.ok(
+        !branch.test(src),
+        `${f} must not branch on a null charge_instance_id (${branch})`,
+      );
+    }
+  }
+});
+
+test("every election writer supplies an instance id", () => {
+  // Both writers, asserted by name. A third writer added later without one
+  // fails the count assertion in the migration's validate block on the next
+  // run, but this catches it at review time instead.
+  const persist = readFileSync(
+    "src/app/actions/commercial-recovery-persist.ts",
+    "utf8",
+  );
+  assert.match(persist, /ensureChargeInstance\(db, \{ quoteId, chargeKey \}\)/);
+  assert.match(persist, /chargeInstanceId,/);
+
+  const quotes = readFileSync("src/app/actions/quotes.ts", "utf8");
+  assert.match(quotes, /ensureChargeInstance\(tx, \{ quoteId: newQuoteId/);
+  assert.match(quotes, /chargeInstanceId: clonedInstanceIds\[i\]/);
+});
+
+test("a copy gets its own instances, never the source's", () => {
+  const quotes = readFileSync("src/app/actions/quotes.ts", "utf8");
+  // Sharing an id across a copy would make two quotes' elections one row, so
+  // re-electing on the copy would silently move the source.
+  assert.match(quotes, /quoteId: newQuoteId, chargeKey: e\.chargeKey/);
+  assert.ok(
+    !/chargeInstanceId: e\.chargeInstanceId/.test(quotes),
+    "the copy must not inherit the source's instance id",
+  );
+});
+
+// ── identity is not the natural key ────────────────────────────────────────
+
+test("business uniqueness exists, and is not the identity", () => {
+  const sql = migration();
+  assert.match(sql, /"id"\s+uuid PRIMARY KEY/);
+  assert.match(sql, /UNIQUE NULLS NOT DISTINCT \("quote_id", "charge_key", "owner_ref", "label"\)/);
+
+  // NULLS NOT DISTINCT matters more than it looks: every synthesised row has a
+  // null label, so Postgres' default would treat them all as distinct and the
+  // constraint would silently not apply to the entire population it governs.
+  assert.ok(
+    !/UNIQUE \("quote_id", "charge_key", "owner_ref", "label"\)/.test(sql),
+    "a plain UNIQUE would not constrain the unlabelled population",
+  );
+});
+
+test("owner is never nullable, and the sentinel cannot collide with an id", () => {
+  const sql = migration();
+  assert.match(sql, /"owner_ref"\s+text NOT NULL/);
+  // '@quote' is not a valid uuid, so "owned by the engagement" and "owned by an
+  // entity that happens to have this id" stay distinguishable without a flag.
+  assert.ok(!/^[0-9a-f-]{36}$/.test("@quote"));
+});
