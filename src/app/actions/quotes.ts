@@ -49,6 +49,8 @@ import {
   projects,
   quotes,
   quoteReviewEvents,
+  quoteChargeInstanceTiers,
+  quoteChargeInstances,
   quoteChargeRecovery,
   quoteSnapshotChargeRecovery,
   quoteSnapshotRecoveryInstructions,
@@ -4281,47 +4283,173 @@ export async function cloneQuoteGraph(
   // Revise is the control: it operates in place on the same `quote_id`, so
   // elections have always carried there. Only copy lost them, and it lost them
   // because it mints a new id — tracking the id change, not any decision.
+  // ── CHARGE INSTANCES FIRST, ELECTIONS SECOND ─────────────────────────────
+  //
+  // OD-032 phase 2 made the INSTANCE the thing that exists and the election a
+  // decision about it. So the copy is driven by instances, not by elections.
+  //
+  // Why that distinction is load-bearing rather than tidy: a charge is authored
+  // `unplaced` and the send checklist holds until it has a placement, so a
+  // freshly authored charge has an instance and its per-tier money and NO
+  // election row. An election-driven copy drops it — the copy would lose a cost
+  // the operator had entered, and lose it silently.
+  //
+  // On the legacy population this is behaviourally identical: instances were
+  // backfilled from elections and `ensureChargeInstance` is only reached from
+  // an election write, so the two sets are 1:1 (measured 2026-08-27: 27
+  // instances, 27 elections, zero instances without one). Verified by the
+  // neutrality harness rather than assumed.
+  const sourceInstances = await tx
+    .select({
+      id: quoteChargeInstances.id,
+      chargeKey: quoteChargeInstances.chargeKey,
+      ownerRef: quoteChargeInstances.ownerRef,
+      ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
+      label: quoteChargeInstances.label,
+    })
+    .from(quoteChargeInstances)
+    .where(eq(quoteChargeInstances.quoteId, args.sourceQuoteId));
+
+  // sourceInstanceId → the copy's own instance id.
+  const chargeInstanceIdMap = new Map<string, string>();
+
+  // Sequential, not Promise.all: this runs inside the clone transaction and the
+  // charge set is a handful of rows.
+  for (const src of sourceInstances) {
+    // ── THE OWNER IS REMAPPED, NEVER CARRIED ───────────────────────────────
+    //
+    // The clone mints new `quote_leaves`, so the source's leaf id addresses a
+    // component on a DIFFERENT quote. Copying it verbatim would attribute this
+    // quote's charge to another quote's carton, and the FK would happily hold
+    // it — a pointer that resolves is not a pointer that means anything.
+    //
+    // `quoteLeafIdMap` is the same map four other blocks above already use, and
+    // it is complete by this point in the clone.
+    let ownerRef = src.ownerRef;
+    if (src.ownerQuoteLeafId !== null) {
+      const remapped = quoteLeafIdMap.get(src.ownerQuoteLeafId);
+      if (!remapped) {
+        // REFUSE, never skip. A charge whose cause cannot be located on the
+        // copy is not a charge to drop quietly — dropping it removes a cost
+        // from a quote and nothing reports it. Failing the clone is loud, and
+        // this transaction rolls back whole.
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Copy refused: a one-time charge is owned by a component that did not clone (leaf ${src.ownerQuoteLeafId}). Copying it would attribute the charge to the wrong component or lose it.`,
+        );
+      }
+      ownerRef = remapped;
+    }
+
+    // The copy gets its OWN instance, not the source's. An instance is a fact
+    // about one quote; sharing an id would make two quotes' elections one row,
+    // so re-electing on the copy would silently move the source. Same reasoning
+    // as re-stamping provenance below — the decision carries, the identity does
+    // not.
+    //
+    // `label` carries: it is what distinguishes two charges of one type on one
+    // component, and dropping it would collapse them into a single instance.
+    const newInstanceId = await ensureChargeInstance(tx, {
+      quoteId: newQuoteId,
+      chargeKey: src.chargeKey,
+      ownerRef,
+      label: src.label,
+    });
+    chargeInstanceIdMap.set(src.id, newInstanceId);
+  }
+
+  // ── PER-TIER ECONOMICS ───────────────────────────────────────────────────
+  //
+  // The money. Carried VERBATIM, because a copy is commercially equivalent to
+  // its source — the same rule that carries component costs, freight and
+  // tooling without ceremony. `recovery_ask` carries as the governed figure it
+  // already was, and NULL carries as NULL: it means nothing governs what this
+  // recovers, which is a different claim from recovering zero.
+  if (sourceInstances.length > 0) {
+    const sourceTierRows = await tx
+      .select({
+        chargeInstanceId: quoteChargeInstanceTiers.chargeInstanceId,
+        tierId: quoteChargeInstanceTiers.tierId,
+        costAmount: quoteChargeInstanceTiers.costAmount,
+        recoveryAsk: quoteChargeInstanceTiers.recoveryAsk,
+      })
+      .from(quoteChargeInstanceTiers)
+      .where(
+        inArray(
+          quoteChargeInstanceTiers.chargeInstanceId,
+          sourceInstances.map((i) => i.id),
+        ),
+      );
+
+    if (sourceTierRows.length > 0) {
+      const cloned = sourceTierRows.map((r) => {
+        const newInstanceId = chargeInstanceIdMap.get(r.chargeInstanceId);
+        const newTierId = tierIdMap.get(r.tierId);
+        if (!newInstanceId || !newTierId) {
+          // Same discipline as the owner above: an amount that cannot be placed
+          // is refused, not dropped. Silently losing one tier's cost would
+          // leave the copy priced from a subset of what the source paid.
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "Copy refused: a one-time charge amount could not be mapped onto the copy's charges and tiers.",
+          );
+        }
+        return {
+          chargeInstanceId: newInstanceId,
+          tierId: newTierId,
+          costAmount: r.costAmount,
+          recoveryAsk: r.recoveryAsk,
+        };
+      });
+      await tx.insert(quoteChargeInstanceTiers).values(cloned);
+    }
+  }
+
+  // ── ELECTIONS ────────────────────────────────────────────────────────────
+  //
+  // Keyed to the copy's instances via the map above. An instance with no
+  // election stays unplaced on the copy, exactly as it was on the source.
   const sourceElections = await tx
     .select({
       chargeKey: quoteChargeRecovery.chargeKey,
+      chargeInstanceId: quoteChargeRecovery.chargeInstanceId,
       mode: quoteChargeRecovery.mode,
     })
     .from(quoteChargeRecovery)
     .where(eq(quoteChargeRecovery.quoteId, args.sourceQuoteId));
 
   if (sourceElections.length > 0) {
-    // OD-032 phase 1 — the COPY gets its own instances, not the source's.
-    //
-    // An instance is a fact about one quote, so sharing an id across a copy
-    // would make two quotes' elections one row: re-electing on the copy would
-    // silently move the source. Same reasoning as re-stamping provenance
-    // below — the decision carries, the identity does not.
-    //
-    // Sequential, not Promise.all: this runs inside the clone transaction and
-    // the election set is a handful of rows.
-    const clonedInstanceIds: string[] = [];
-    for (const e of sourceElections) {
-      clonedInstanceIds.push(
-        await ensureChargeInstance(tx, { quoteId: newQuoteId, chargeKey: e.chargeKey }),
-      );
-    }
     await tx.insert(quoteChargeRecovery).values(
-      sourceElections.map((e, i) => ({
-        quoteId: newQuoteId,
-        chargeKey: e.chargeKey,
-        chargeInstanceId: clonedInstanceIds[i],
-        mode: e.mode,
-        // PROVENANCE IS RE-STAMPED, and the election itself is not.
-        //
-        // `elected_at` defaults to now and `elected_by_user_id` is the copying
-        // operator. Carrying the source's would assert that someone made an
-        // election on a quote that did not exist at the time — a false record,
-        // and one that would misdate any forensic read of when this quote's
-        // commercial shape was decided.
-        //
-        // The DECISION carries. The claim about who made it HERE does not.
-        electedByUserId: args.createdByUserId,
-      })),
+      sourceElections.map((e) => {
+        // `=== undefined` rather than a falsy test, and named for what it is:
+        // the COPY's instance id, resolved through the map. Never the source's,
+        // and never the column read back — a falsy test on something called
+        // `chargeInstanceId` is the shape the phase 1 guard forbids, because
+        // that is how a nullable column quietly becomes a behaviour switch.
+        const targetInstanceId = chargeInstanceIdMap.get(e.chargeInstanceId);
+        if (targetInstanceId === undefined) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "Copy refused: a recovery election references a charge that did not clone.",
+          );
+        }
+        return {
+          quoteId: newQuoteId,
+          chargeKey: e.chargeKey,
+          chargeInstanceId: targetInstanceId,
+          mode: e.mode,
+          // PROVENANCE IS RE-STAMPED, and the election itself is not.
+          //
+          // `elected_at` defaults to now and `elected_by_user_id` is the copying
+          // operator. Carrying the source's would assert that someone made an
+          // election on a quote that did not exist at the time — a false record,
+          // and one that would misdate any forensic read of when this quote's
+          // commercial shape was decided.
+          //
+          // The DECISION carries. The claim about who made it HERE does not.
+          electedByUserId: args.createdByUserId,
+        };
+      }),
     );
   }
 
