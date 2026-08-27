@@ -4,6 +4,9 @@
 @import "../styles/r6-2-freight.css";
 @import "../styles/freight-1a.css";
 @import "../styles/r2-pricing.css";
+/* OD-032 phase 4 — the add-charges sheet. Prefix-clean (`od032-`), so it
+   loads globally without cross-polluting. */
+@import "../styles/od032-charge-sheet.css";
 @import "../styles/r1-setup.css";
 @import "../styles/r7b-setup.css";
 @import "../styles/r-a1v2-setup.css";

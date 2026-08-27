@@ -582,6 +582,38 @@ const classifiedIdentityFiles = new Set([
   // never derives an owner — a component proposal ARRIVES with its instance and
   // is refused a synthesised one.
   "src/app/actions/commercial-recovery-persist.ts",
+  // CLASSIFIED - canonical identity, and the component charge's whole point.
+  //
+  // OD-032 phase 4's authoring writer. It takes a `quote_leaves.id` from the
+  // operator's own gesture — they opened the sheet on that component — and
+  // passes it to `ensureChargeInstance` as the CAUSAL owner, which derives
+  // `owner_quote_leaf_id` from it.
+  //
+  // The leaf is verified to be ON THIS QUOTE before anything is written: a
+  // foreign key alone would happily accept another quote's component and
+  // attribute the charge to something this quote does not contain.
+  // `assembly_leaves` is never queried; nothing resolves through the legacy
+  // junction; no anchor is consulted.
+  "src/lib/component-charges/create.ts",
+  // CLASSIFIED - the server-action door, and nothing else.
+  //
+  // It names `quoteLeafId` in its input type and passes it through untouched.
+  // It resolves the operator via `ensureUser()` and delegates; it reads no
+  // table, resolves no identity, and never touches `assembly_leaves`.
+  "src/app/actions/component-charges.ts",
+  // CLASSIFIED - the governed proof that authoring refuses an unpriced tier.
+  //
+  // Reads `quote_leaves.id` only to pick a subject component, and hands it to
+  // the real write path unchanged. It writes, deliberately: a refusal is proven
+  // by attempting the write and finding nothing persisted, and the control run
+  // is cleaned up afterwards. `assembly_leaves` is never queried.
+  "scripts/gate-1b/od-032-cost-required-proof.ts",
+  // CLASSIFIED - carries a canonical id, resolves nothing.
+  //
+  // The two-phase sheet. It receives `quoteLeafId` as a prop from the tree that
+  // already knows it, and hands it back to the action unchanged. It performs no
+  // lookup, reads no table, and derives no owner.
+  "src/components/assembly-tree/add-component-charges-sheet.tsx",
   // CLASSIFIED - canonical identity only, and every write is rolled back.
   //
   // The OD-032 copy-integrity proof. Reads `quote_leaves.id` to pick two

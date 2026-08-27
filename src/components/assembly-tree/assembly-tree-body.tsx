@@ -6,6 +6,8 @@ import type { TargetTier } from "./client-target";
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
+import type { AssemblyLeafNode } from "@/lib/assembly-tree";
+import { AddComponentChargesSheet } from "./add-component-charges-sheet";
 import { DirectProductRow } from "./direct-product-row";
 import { attachDragProxy } from "./drag-proxy";
 import {
@@ -49,6 +51,7 @@ export function AssemblyTreeBody({
   fullLeafTypes,
   permissions,
   tiers,
+  existingComponentCharges,
   targetsByUnit,
 }: {
   tree: AssemblyTree;
@@ -59,6 +62,18 @@ export function AssemblyTreeBody({
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: { canCreateLeaves: boolean };
   tiers: ReadonlyArray<TargetTier>;
+  /**
+   * Charges each component already owns — OD-032 phase 4.
+   *
+   * Used to WARN when a type is picked twice, never to block: two dies on one
+   * carton is a real thing. Optional, so a tree rendered without it simply
+   * warns about nothing rather than claiming a component owns none.
+   */
+  existingComponentCharges?: ReadonlyArray<{
+    quoteLeafId: string;
+    chargeKey: string;
+    label: string | null;
+  }>;
   /** Resolved-ready targets, indexed by sellable-unit id at the tree root. */
   targetsByUnit: ReadonlyMap<string, UnitTargets>;
 }) {
@@ -71,6 +86,15 @@ export function AssemblyTreeBody({
   const router = useRouter();
   const [, startReorderTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The component whose charges sheet is open — OD-032 phase 4.
+   *
+   * Held at TREE level rather than inside the row, because the sheet outlives
+   * the menu that opened it: the menu closes on click, and a sheet owned by it
+   * would close with it.
+   */
+  const [chargeSheetLeaf, setChargeSheetLeaf] =
+    useState<AssemblyLeafNode | null>(null);
 
   const orderedAssemblies = useMemo(() => {
     if (!optimisticOrder) return tree.assemblies;
@@ -590,6 +614,7 @@ export function AssemblyTreeBody({
                 directDestination,
               ]}
               onMemberMove={moveViaMenu}
+              onAddCharges={setChargeSheetLeaf}
               onMemberDragStart={beginMove}
               onMemberRowDragOver={(e, quoteLeafId) =>
                 overProductRow(e, { kind: "group", assemblyId: asy.id }, quoteLeafId)
@@ -635,6 +660,26 @@ export function AssemblyTreeBody({
           Reorder failed: {error}
         </div>
       ) : null}
+
+      {/* The sheet is portalled to the body, so its position here is about
+          OWNERSHIP rather than layout: the tree knows the quote, the tiers and
+          which charges the component already has, and the row does not. */}
+      {chargeSheetLeaf && (
+        <AddComponentChargesSheet
+          quoteId={quoteId}
+          quoteLeafId={chargeSheetLeaf.quoteLeafId}
+          componentSku={chargeSheetLeaf.sku ?? null}
+          componentName={chargeSheetLeaf.name}
+          productTypeLabel={chargeSheetLeaf.productType?.label ?? null}
+          tiers={tiers.map((t) => ({ id: t.id, label: t.label }))}
+          existingKeys={
+            existingComponentCharges?.filter(
+              (c) => c.quoteLeafId === chargeSheetLeaf.quoteLeafId,
+            ) ?? []
+          }
+          onClose={() => setChargeSheetLeaf(null)}
+        />
+      )}
     </div>
   );
 }
