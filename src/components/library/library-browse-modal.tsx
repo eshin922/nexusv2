@@ -112,10 +112,12 @@ export function LibraryBrowseModal({
   // type-filter shape; same source (loadProductTypeOptions) on
   // the page.
   fullLeafTypes: LeafSpecEntryProductType[];
-  // slice-library-first-creation-flow Step 3 — per locked Q6:
-  // gate "+ Create new product" + (Step 5) "↗ Refresh from
-  // HubSpot" affordances on canCreateLeaves. Attach actions stay
-  // ungated at UI layer (server-side gate is canonical).
+  // slice-library-first-creation-flow Step 3 — per locked Q6, this gated
+  // "+ Create new product" AND "↗ Refresh from HubSpot" on canCreateLeaves.
+  //
+  // AMENDED 2026-08-27 (Edward): creation is open to every authenticated user
+  // for beta and no longer reads this. The flag is still consulted for the
+  // catalog REFRESH, which is why it remains on the prop.
   permissions: { canCreateLeaves: boolean };
 }) {
   const router = useRouter();
@@ -568,18 +570,26 @@ export function LibraryBrowseModal({
             </span>
           </div>
           <div className="head-actions">
+            {/* UNGATED for beta — Edward's disposition, 2026-08-27: every
+                authenticated Nexus user may create a library item.
+
+                What was wrong here was not the gate's value but that the two
+                layers applied DIFFERENT rules. `assertCanCreateLeaves` passes
+                an admin through on `role === "admin"` alone; this button read
+                the raw `can_create_leaves` column, which is false for every
+                admin on the roster bar one. So the operator was authorized on
+                the server and disabled in the UI, and the tooltip told an
+                admin to "ask an admin".
+
+                Now neither layer consults the grant for creation, so they
+                cannot disagree. The Refresh button below still does, and is
+                deliberately untouched: it is a catalog pull, not creation. */}
             {offersCreate && (
             <button
               type="button"
               className="a1v2-btn primary sm"
               onClick={() => setCreateOpen(true)}
-              disabled={!permissions.canCreateLeaves}
-              aria-disabled={!permissions.canCreateLeaves}
-              title={
-                permissions.canCreateLeaves
-                  ? "Create a new HubSpot Product and reusable library component"
-                  : "You don't have permission to create new products. Ask an admin."
-              }
+              title="Create a new HubSpot Product and reusable library component"
             >
               + Create new product
             </button>
@@ -1043,13 +1053,15 @@ export function LibraryBrowseModal({
                     started.
                   </p>
                   <div className="cta-row">
+                    {/* Ungated with the header control above — the empty
+                        state is the likeliest place an operator meets this,
+                        and a disabled CTA inside "create your first one" is
+                        the worst version of the defect. */}
                     {offersCreate && (
                     <button
                       type="button"
                       className="lib-empty-cta primary"
                       onClick={() => setCreateOpen(true)}
-                      disabled={!permissions.canCreateLeaves}
-                      aria-disabled={!permissions.canCreateLeaves}
                     >
                       + Create new product →
                     </button>

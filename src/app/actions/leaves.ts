@@ -132,8 +132,23 @@ export async function createLeaf(
     if (!name)
       throw new ActionGuardError(ERR.VALIDATION, "name required");
 
-    // Permission gate (Path B per Architect Gate 5).
-    const user = await assertCanCreateLeaves();
+    // CREATION IS OPEN TO EVERY AUTHENTICATED USER for beta.
+    //
+    // Business disposition, Edward 2026-08-27: "all Nexus users are authorized
+    // to create a new Product Library item", so the unavailability of
+    // + Create new product was never an intentional restriction.
+    //
+    // This REMOVES a check rather than adding one. `assertCanCreateLeaves` is
+    // deliberately still used by `restoreLeaf` below and by
+    // `pullProductsBatch` — un-archiving a library item and pulling the
+    // HubSpot catalog are not creation, and the disposition changes only who
+    // may initiate creation. Widening the shared guard would have carried both
+    // along with it.
+    //
+    // Every other rule on this path is untouched: name is still required
+    // above, and the HubSpot-first write-back below still governs the
+    // library/HubSpot semantics.
+    const user = await ensureUser();
 
     // HubSpot-first write-back. Push mapping per Concern C
     // disposition: name + sku + unit_cost + url + technical catalog price.
