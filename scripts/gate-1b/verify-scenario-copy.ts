@@ -46,6 +46,7 @@ import {
   quoteLeafLifts,
 } from "@/db/schema";
 import type { QuoteCostingResult } from "@/lib/costing";
+import { ensureChargeInstance } from "@/lib/commercial-recovery/charge-instance";
 
 const SOURCE_ID = "2f29af72-805b-446c-866c-73e9b0991b1a";
 const NOISE = 1e-9;
@@ -457,10 +458,22 @@ async function main() {
     .where(eq(quotes.id, SOURCE_ID))
     .limit(1);
 
-  await db.insert(quoteChargeRecovery).values([
-    { quoteId: electionHost, chargeKey: "project_setup" as const, mode: "separate" as const },
-    { quoteId: electionHost, chargeKey: "tooling" as const, mode: "included" as const },
-  ]);
+  // OD-032 phase 1 — elections key to an instance, so a fixture that seeds them
+  // directly must mint instances too. Caught by `verify:gate-1b-types`, which
+  // covers this tree while `verify:types` does not: enumerating writers by
+  // grepping `src/` missed a writer living in `scripts/`.
+  for (const seed of [
+    { chargeKey: "project_setup" as const, mode: "separate" as const },
+    { chargeKey: "tooling" as const, mode: "included" as const },
+  ]) {
+    const chargeInstanceId = await ensureChargeInstance(db, {
+      quoteId: electionHost,
+      chargeKey: seed.chargeKey,
+    });
+    await db
+      .insert(quoteChargeRecovery)
+      .values({ quoteId: electionHost, chargeInstanceId, ...seed });
+  }
 
   const electionCopy = await copyOf(electionHost, "ZZ-VALIDATION-copy-elect-dst");
 
