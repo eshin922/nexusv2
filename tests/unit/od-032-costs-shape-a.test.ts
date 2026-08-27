@@ -49,15 +49,51 @@ test("charges are read by the CAUSAL owner, never by owner_ref", () => {
   assert.ok(!/assembly_leaves|assemblyLeaves/.test(reader));
 });
 
-test("the row joins the two identities rather than comparing them", () => {
+test("the row matches on the id the page actually supplies", () => {
+  // ── THE CONTRACT, PINNED AT BOTH ENDS ──────────────────────────────────
+  //
+  // The Costs page sets a packaging line's `quoteSkuId` from
+  // `assembly_leaf_inputs.quoteLeafId` — the CANONICAL `quote_leaves` id. So a
+  // charge, which is owned by that same id, is matched directly.
+  //
+  // The first version "translated" it through the sku map, believing a stale
+  // comment that called the field an assembly_leaf id. For a MEMBER of an Item
+  // Group `sku.id` IS the junction id, so the lookup missed every member and
+  // matched only Direct Products — where the two ids happen to coincide.
+  //
+  // It rendered nothing on a quote whose reader returned both charges, and it
+  // was silent: a missing charge looks exactly like a component that caused
+  // none. So the contract is asserted at BOTH ends rather than in one file's
+  // prose.
   const pkg = codeOnly(read(PKG));
-  // `line.quoteSkuId` is the assembly_leaf id; the charge carries the
-  // canonical `quote_leaves` id. Comparing them directly is the mismatch that
-  // would have made component charges contribute nothing to costing — the same
-  // one caught in phase 2.
-  assert.match(pkg, /const skuByCostId = new Map/);
-  assert.match(pkg, /skuByCostId\.get\(line\.quoteSkuId\)\?\.quoteLeafId/);
-  assert.match(pkg, /chargesByLeaf\.get\(/);
+  assert.match(pkg, /charges=\{chargesByLeaf\.get\(line\.quoteSkuId\)\}/);
+  assert.ok(
+    !/skuByCostId/.test(pkg),
+    "the sku-map indirection was the bug — a dead lookup invites it back",
+  );
+
+  // The page's half of the contract.
+  const page = codeOnly(read(PAGE));
+  assert.match(page, /quoteSkuId: r\.assembly_leaf_inputs\.quoteLeafId/);
+
+  // And the reader's: charges are keyed by the same canonical id.
+  const reader = codeOnly(read(READER));
+  assert.match(reader, /quoteLeafId: quoteChargeInstances\.ownerQuoteLeafId/);
+});
+
+test("a MEMBER of an Item Group is not a Direct Product", () => {
+  // The distinction the bug turned on, asserted so it cannot quietly go away:
+  // a member's synthetic sku carries the JUNCTION id, a direct product's
+  // carries the canonical leaf id. Any future join that routes through
+  // `sku.id` will therefore work for one and silently fail for the other.
+  const page = codeOnly(read(PAGE));
+  assert.match(page, /for \(const \{ al, leaf \} of newAssemblyLeafRows\)[\s\S]{0,200}?id: al\.id/);
+  assert.match(
+    page,
+    // No escaped newline in the pattern — writing one puts a literal newline
+    // inside the regex literal, which does not parse.
+    /newDirectProductRows[\s\S]{0,900}?id: ql\.id,[\s\S]{0,80}?quoteLeafId: ql\.id/,
+  );
 });
 
 test("an instance with no economics yet still appears", () => {
