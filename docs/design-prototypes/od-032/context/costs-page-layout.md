@@ -33,7 +33,7 @@ other" is withdrawn, and sections are treated consistently.
 | Family | Behaviour | Has a SKU dimension? | Needs tier columns? |
 |---|---|---|---|
 | **Per-unit** | scales with volume | **Yes** — repeats per SKU | **Yes** |
-| **One-time** | fixed total per tier | **No** — appears once | **Yes** |
+| **One-time** | fixed total per tier | **An OWNER dimension** — see §11 | **Yes** |
 
 > **Corrected (CA/Edward):** one-time costs **are entered per tier, explicitly, by the
 > operator.** If tooling costs more at 10k units than at 50k, the operator enters both
@@ -45,6 +45,11 @@ other" is withdrawn, and sections are treated consistently.
 > dimension.** Per-unit costs have one; one-time costs don't. That — not the grid — is why
 > the one-time section appears **once at the foot** instead of repeating per SKU, and that
 > reasoning is untouched. The page-length economy survives intact.
+>
+> **Amended for OD-032 (Aug 2026) — see §11.** The clause "one-time costs don't [have a SKU
+> dimension]" stays true and stops being the whole story: an owned charge has an **owner**
+> dimension, which is not a SKU dimension and does not repeat the section. Rows group under
+> their owner; the section still appears once; tier column positions are unchanged.
 
 ## 2 · The page scrolls. It never paginates. It never switches.
 
@@ -262,7 +267,8 @@ families** — one total per tier, breakdown as the traceability mechanism.
    all reflect this. The two families remain real, and the distinction is now exactly one
    thing: **the SKU dimension.** Per-unit costs have one; one-time costs do not. That — not
    the grid — is why the one-time section appears **once at the foot**, and the page-length
-   economy is unaffected.
+   economy is unaffected. **Amended by §11 (OD-032):** one-time costs gain an *owner*
+   dimension, which groups rows within the single section rather than repeating it.
 2. **Bulk Raw is out of v1.** Removed from §4a's section list and from the ledger's columns.
    Plumbing preserved; returns with NetSuite Assemblies. The per-unit family is now
    **Packaging + Production**, and the open arity question is retired rather than answered.
@@ -270,6 +276,58 @@ families** — one total per tier, breakdown as the traceability mechanism.
 Everything else in this document stands: section-major, the scroll/collapse guard, the
 completeness matrix, the tier geometry, and the naming decision.
 
+
+---
+
+## §11 · Amendment — one-time costs gain an owner dimension (OD-032, Aug 2026)
+
+**Documentation only. No runtime or UI behaviour changes with this amendment** — it settles
+the Design Authority so the later OD-032 UI phases build against a document that is true.
+
+### What stops being true, and what does not
+
+This document's load-bearing claim for the one-time section is:
+
+> per-unit costs have a SKU dimension; one-time costs don't — that is why the one-time
+> section appears once at the foot.
+
+**Half of that stops being true.** Under OD-032 a one-time charge is owned by the commercial
+object that caused it: `'@quote'` for engagement-level charges — project setup, container
+freight, duty — or a packaging component for the charges that component caused. So an owned
+charge **has an owner dimension.**
+
+**The economy survives, and the correction is narrow**, because the section's rows were
+always *lines* rather than SKUs and it already carries the tier grid:
+
+> **Rows group under their owner. The section still appears once. Tier column x-positions are
+> unchanged.** Quote-owned charges group under a **Project** heading — the honest name for
+> what that section has always held.
+
+### Why an owner dimension does not repeat the section
+
+A SKU dimension would repeat the section, because a per-unit cost exists once *per SKU* and
+the reader needs each SKU's figure side by side. An owner dimension does not: a charge exists
+once, under exactly one owner, and grouping is how the reader is told which. Grouping adds
+headings inside one region; it does not add regions.
+
+That is the whole reason the page-length argument in §4b — "the majority quote is one SKU
+plus a pile of one-time costs" — is unaffected. The pile gains headings. It does not gain
+copies.
+
+### The Project heading is a rename, not a new concept
+
+Every charge in the section today is engagement-caused; none has ever had another owner. The
+heading names what was already true rather than introducing a category, which is why existing
+quotes need no migration and no backfill to render correctly under the amended layout.
+
+### What this amendment deliberately does not decide
+
+- **Whether a legacy charge may display an owner name.** It may not, and that is governed
+  outside this document: charges whose `owner_ref` is anchor-coerced are Project-owned for
+  OD-032 purposes and their anchor is never surfaced as a cause. See OD-028 and
+  `docs/validation/od-032-implementation-plan.md` §2.2.
+- **The two-phase entry sheet.** That is the round trip's §03, not this document's concern.
+  This document governs the Costs region the resulting rows land in.
 
 ---
 
