@@ -17,7 +17,7 @@
  *
  *   usage: npm run gate1b:od-032-cost-required
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   auditLog,
@@ -278,6 +278,16 @@ async function main() {
   );
 
   // ── cleanup ────────────────────────────────────────────────────────────
+  //
+  // NOT conditional on the run having gone well. The earlier form ran only when
+  // the control succeeded, so a run where the code under test was DEFECTIVE —
+  // which is exactly what a falsification run is — left its rows behind on a
+  // shared production database. Two instances and six economics rows survived
+  // one such run and were found by reading the tables afterwards rather than by
+  // anything the harness reported.
+  //
+  // A harness that cleans up only when it passes is a harness that litters
+  // precisely when it is doing its job.
   if (valid.ok) {
     const ids = valid.data.created.map((c) => c.chargeInstanceId);
     await db.delete(quoteChargeInstances).where(inArray(quoteChargeInstances.id, ids));
@@ -295,11 +305,66 @@ async function main() {
     await assertNothingPersisted("after cleanup");
   }
 
+  // The sweep runs before the verdict is reported, and before the process can
+  // exit — `process.exit` inside a `finally` would still preempt an awaited
+  // delete, so the order is explicit rather than left to cleanup semantics.
+  await sweep(quoteId);
+
   const failed = results.filter((r) => !r.ok);
   console.log(
     `\n${failed.length === 0 ? "PROOF: PASS" : "PROOF: FAIL"} (${results.length - failed.length}/${results.length})`,
   );
   process.exit(failed.length === 0 ? 0 : 1);
+}
+
+/**
+ * Remove every component-owned charge this proof could have created on the
+ * subject quote, whatever happened.
+ *
+ * COMPONENT-OWNED ONLY, and only on the subject quote. A legacy `'@quote'`
+ * instance stands for a production column with an election resolving through
+ * it; deleting one would orphan the election. And an instance an election
+ * references is refused outright rather than cascaded away — a sweep that
+ * removes real commercial state is worse than the residue it was cleaning.
+ */
+async function sweep(quoteId: string) {
+  const victims = await db
+    .select({ id: quoteChargeInstances.id, chargeKey: quoteChargeInstances.chargeKey })
+    .from(quoteChargeInstances)
+    .where(
+      and(
+        eq(quoteChargeInstances.quoteId, quoteId),
+        isNotNull(quoteChargeInstances.ownerQuoteLeafId),
+      ),
+    );
+  if (victims.length === 0) return;
+
+  const ids = victims.map((v) => v.id);
+  const elected = await db
+    .select({ id: quoteChargeRecovery.chargeInstanceId })
+    .from(quoteChargeRecovery)
+    .where(inArray(quoteChargeRecovery.chargeInstanceId, ids));
+  if (elected.length > 0) {
+    console.error(
+      `SWEEP REFUSED: ${elected.length} election(s) reference these charges. ` +
+        "Left in place deliberately — removing them would delete commercial state.",
+    );
+    return;
+  }
+
+  await db.delete(quoteChargeInstances).where(inArray(quoteChargeInstances.id, ids));
+  await db
+    .delete(auditLog)
+    .where(
+      and(
+        eq(auditLog.entityId, quoteId),
+        eq(auditLog.action, "component_charge_created"),
+      ),
+    );
+  console.log(
+    `\nswept ${victims.length} residual component charge(s): ` +
+      victims.map((v) => v.chargeKey).join(", "),
+  );
 }
 
 await main();
