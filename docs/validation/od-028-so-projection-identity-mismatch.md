@@ -127,3 +127,89 @@ header total of `12000`. Assertions were corrected to compare absolute values.
 
 The control also re-confirms the SO2703 defect signature (`-1000000` member
 quantities against a header total of `0`) is **absent** from SO2707.
+
+---
+
+## 7 · A second consequence, observed 2026-08-26 — sub-cent float accumulation
+
+**Record only.** Not repaired here, not a new OD, and not in the scope of the
+phase that observed it. It is written down because it is the second distinct
+consequence of the same root cause, and the first one to be *measured* rather
+than reasoned about.
+
+### What was observed
+
+The governed OD-032 anchor-permutation gate, run at the close of OD-032 phase 2
+against draft quote `4781e4bb` (`ZZ-VALIDATION-pricing-authority`, 4 leaves,
+6 elections, positions `0,1,0,1`):
+
+```
+permutation "reverse" → 3,2,1,0
+  instance identity unchanged  : PASS
+  election mapping unchanged   : PASS
+  recovery resolution unchanged: PASS
+  tier float accumulation      : moved sub-cent
+
+permutation "all-tied at 0" → 0,0,0,0
+  instance identity unchanged  : PASS
+  election mapping unchanged   : PASS
+  recovery resolution unchanged: PASS
+  tier float accumulation      : identical
+
+positions restored             : PASS
+GATE: PASS (2 permutations, restore verified)
+```
+
+### Why it happens, and why it is the same root cause
+
+OD-028 is that `quote_leaves.position` is not unique, so where members tie the
+resulting order is decided by physical row order. Reordering the leaves changes
+the ORDER IN WHICH tier totals are summed, and IEEE-754 addition is not
+associative: `(a + b) + c` and `a + (b + c)` can differ in the last bits.
+
+So the movement is in the SUMMATION ORDER, not in any operand. No amount
+changed, no attribution changed, and no election moved — the three assertions
+that carry commercial meaning all PASS under both permutations. What moved is
+an artefact of adding the same numbers in a different sequence.
+
+The second permutation is the control that establishes this: with every
+position tied at 0 the order is unchanged, and the accumulation is *identical*.
+A defect in the amounts would have moved under both.
+
+### Why the gate still reports PASS
+
+Deliberately, and the gate says so itself. It compares tier sums at cents and
+basis points while holding per-charge values EXACT, and reports `tiersRaw`
+movement unconditionally so the reader sees the sub-cent delta whether or not
+it crossed a threshold. Reporting it without failing on it is the honest
+handling of a difference that exists and does not mean anything commercially.
+
+Suppressing the report would be worse than the movement: a gate that hides a
+real difference cannot later be trusted to have seen a meaningful one.
+
+### What would change this assessment
+
+Any of the following turns this from a recorded artefact into a defect:
+
+- a delta that reaches a cent on any live quote, since a cent is billable
+- movement in a value that is FROZEN, where the difference is preserved into
+  the record Accounting bills from rather than recomputed each read
+- movement under the tied-position control, which would mean the cause is not
+  summation order and this analysis is wrong
+
+None of the three has been observed.
+
+### Bearing on the standing repair question
+
+It strengthens the case for making `position` deterministic — a stable total
+order removes this alongside the identity mismatch that OD-028 is actually
+about — and it does not, on its own, justify the repair. The commercially
+meaningful consequences remain the ones in §1.
+
+**Cross-reference:** OD-025's repair is the cautionary sibling. Its premise was
+that it moved no money, and a dimension-aware fold moved `blendedMarginPct` on
+three real quotes through exactly this class of arithmetic —
+`(v − f) × 1 + f` is not bit-for-bit `v`. Any repair that touches summation
+here must assert bit-for-bit equality on the identity case rather than trusting
+a round trip to restore it.
+
