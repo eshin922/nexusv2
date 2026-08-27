@@ -264,8 +264,13 @@ accounting error. (b) is the principle Edward stated and should follow a
 disposition, not precede one. (c) is a live-vs-frozen disagreement that deserves
 its own finding rather than arriving as someone else's step 3.
 
-**Proposed as OD-029** (highest existing is OD-028). Not filed — filing it is a
-disposition, and this is evidence.
+**Filed as OD-032**, per Edward's disposition of 2026-08-26 to keep the finding
+separate from gate closure. See [`docs/OPEN_DECISIONS.md`](../OPEN_DECISIONS.md).
+
+*Corrected:* this first said "proposed as OD-029 (highest existing is OD-028)".
+Both halves were wrong — OD-029 is taken, and the register runs to OD-031 with
+OD-018 absent. The number came from a `head`-truncated grep read as though it
+were the whole list, which is the same instrument error as the site count in §3.
 
 ---
 
