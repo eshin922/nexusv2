@@ -4458,6 +4458,27 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
     /** Assembly or quote-leaf id as text — the two are different tables and a
      * single FK cannot address both. Traceability, not a join key. */
     ownerRef: text("owner_ref").notNull(),
+    /**
+     * The durable instance identity — OD-032 P-3.
+     *
+     * `(charge_key, owner_ref, tier_id)` cannot separate two charges of one
+     * type on one component: all three are identical, so the instructions
+     * differ only in their amounts and an accountant reading the record
+     * Accounting bills from cannot tell them apart.
+     *
+     * NULL only for a legacy-placed charge, which has no election and so no
+     * instance. NOT NULL for every component-owned charge — asserted in
+     * `tests/unit/od-032-freeze-integrity.test.ts`, not left as convention.
+     *
+     * ON DELETE SET NULL, never CASCADE. A frozen instruction outlives the
+     * draft-side charge it was projected from: deleting a charge on a later
+     * revision must not delete the record of what a customer was already
+     * billed. The pointer is traceability; the instruction is the fact.
+     */
+    chargeInstanceId: uuid("charge_instance_id").references(
+      () => quoteChargeInstances.id,
+      { onDelete: "set null" },
+    ),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),

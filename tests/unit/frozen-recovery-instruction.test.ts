@@ -246,6 +246,10 @@ const sample: FrozenRecoveryInstruction = {
   chargeKey: "project_setup",
   ownerRef: "leaf",
   tierId: "t1",
+  // NULL, and correctly so: this sample is a LEGACY placed charge, which has
+  // no election and therefore no instance. The component case is asserted in
+  // `od-032-freeze-integrity.test.ts`.
+  chargeInstanceId: null,
   treatment: "absorbed",
   treatmentSource: "election",
   cost: 1000,

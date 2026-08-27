@@ -68,6 +68,7 @@ if (snap.length === 0) {
 } else {
   const rows = (await db.execute(sql`
     select charge_key, owner_ref, tier_id::text as tier_id,
+           charge_instance_id::text as charge_instance_id,
            treatment, treatment_source,
            cost::float8 as cost,
            governed_recovery::float8 as governed_recovery,
@@ -79,6 +80,7 @@ if (snap.length === 0) {
      order by treatment_source desc, charge_key
   `)) as unknown as {
     charge_key: string; owner_ref: string; tier_id: string;
+    charge_instance_id: string | null;
     treatment: string; treatment_source: string;
     cost: number; governed_recovery: number | null;
     separate_invoice_amount: number | null;
@@ -90,6 +92,9 @@ if (snap.length === 0) {
   const asInstruction = (r: (typeof rows)[number]): FrozenRecoveryInstruction => ({
     chargeKey: r.charge_key as FrozenRecoveryInstruction["chargeKey"],
     ownerRef: r.owner_ref,
+    // OD-032 P-3. NULL for a legacy placed charge, which has no election and
+    // therefore no instance; non-null for every component-owned charge.
+    chargeInstanceId: r.charge_instance_id,
     tierId: r.tier_id,
     treatment: r.treatment as FrozenRecoveryInstruction["treatment"],
     treatmentSource: r.treatment_source as "election" | "legacy",

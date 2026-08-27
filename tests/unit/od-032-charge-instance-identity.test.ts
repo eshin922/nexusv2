@@ -261,15 +261,59 @@ test("the legacy unique is retained on purpose, and its removal is dated", () =>
   assert.match(sql, /PHASE 2 DROPS IT/);
 });
 
-test("the historical snapshot exception is recorded as currently vacuous", () => {
-  // `quote_snapshot_recovery_instructions` has no charge_instance_id column, so
-  // there is no null to preserve yet. Saying so stops a later reader assuming
-  // the exception was handled and finding nothing that handles it.
+test("the historical snapshot exception is LIVE, and honoured", () => {
+  // ── A TRIPWIRE THAT FIRED, INVERTED RATHER THAN DELETED ────────────────
+  //
+  // This asserted the opposite until OD-032 P-3: the snapshot table had no
+  // `charge_instance_id`, so the historical-snapshot exception preserved a null
+  // that did not exist yet, and the assertion said so — deliberately, so a
+  // later reader could not assume the exception was handled and find nothing
+  // handling it.
+  //
+  // P-3 added the column. The exception is now LIVE, so the tripwire becomes
+  // the permanent assertion of what it was waiting for, exactly as OD-025's
+  // divergence tripwire was inverted on repair rather than removed.
+  //
+  // The 1b contract's own wording still stands and is still true of ITS
+  // migration: at 1b there was nothing to preserve.
   assert.match(contract(), /currently VACUOUS/);
+
   const schema = readFileSync("src/db/schema.ts", "utf8");
-  const snap = schema.slice(schema.indexOf("quoteSnapshotRecoveryInstructions"));
-  assert.ok(
-    !/chargeInstanceId/.test(snap.slice(0, 2000)),
-    "the snapshot table must not have gained the column before phase 6",
+  const start = schema.lastIndexOf('"quote_snapshot_recovery_instructions"');
+  const end = schema.indexOf("pgTable(", start);
+  const snap = schema.slice(start, end === -1 ? schema.length : end);
+
+  // The column exists...
+  assert.match(
+    snap,
+    /chargeInstanceId: uuid\("charge_instance_id"\)/,
+    "P-3 added this column; if it is gone the freeze writer silently drops it",
   );
+  // ...and it is NULLABLE, because a legacy placed charge has no election and
+  // therefore no instance. A NOT NULL here would require inventing one for the
+  // great majority of live rows.
+  // Scoped to THIS column's own declaration. A fixed-width window after
+  // `chargeInstanceId:` reaches into `tierId`, which is legitimately notNull —
+  // an instrument wide enough to catch the neighbour reports a failure that is
+  // not there.
+  const decl = snap.slice(
+    snap.indexOf("chargeInstanceId:"),
+    snap.indexOf("tierId:", snap.indexOf("chargeInstanceId:")),
+  );
+  assert.ok(decl.length > 0 && decl.length < 400, "the declaration slice is wrong");
+  assert.ok(
+    !/\.notNull\(\)/.test(decl),
+    "the instance id must stay nullable — legacy placed charges have none",
+  );
+
+  // And the exception is honoured where it matters: the migration that added
+  // the column BACKFILLS NOTHING. A frozen instruction is the record of what
+  // Accounting was told, and back-filling one would rewrite that record.
+  const p3 = readFileSync(
+    "drizzle/0111_od_032_frozen_instruction_identity.sql",
+    "utf8",
+  ).replace(/^[ \t]*--.*$/gm, "");
+  assert.ok(p3.includes("ADD COLUMN"), "comment stripping removed the statement");
+  assert.doesNotMatch(p3, /UPDATE /);
+  assert.doesNotMatch(p3, /SET NOT NULL/);
 });
