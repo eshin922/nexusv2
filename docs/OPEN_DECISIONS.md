@@ -1944,6 +1944,131 @@ visible-and-honest rather than wrong.
 
 ---
 
+### OD-032 · A packaging component cannot own the one-time charge it caused
+
+**Owner:** Edward + Nexus engineering · **Status:** OPEN, traced not repaired ·
+**Do not implement before the beta clean pair** (Edward, 2026-08-26) ·
+**Severity:** model gap, operator-reachable today.
+
+> A supplier's printing-plate, die or tooling fee for a packaging component has
+> no owner it can belong to, no column it can occupy, and no charge key that
+> names it. Every available workaround misattributes it.
+
+**The principle it fails**, stated by Edward:
+
+> The one-time charge should belong to the commercial object that caused it.
+> Recovery placement is a separate decision.
+
+## What was traced
+
+Ownership is fixed at Production, and the database enforces it. Every governed
+one-time charge sources from `assembly_production_inputs`
+(`src/lib/commercial-recovery/registry.ts`):
+
+```
+tooling / project_setup / artwork_plate / rd_formulation /
+testing_micros / other_service / tooling_artwork_legacy
+```
+
+That table's owner is an XOR — `assembly_id` **or** `quote_leaf_id`, never both
+(`assembly_production_inputs_owner_xor`, migration 0082) — and
+`owner_commercial_kind` is a **generated** column:
+
+```sql
+CASE WHEN "quote_leaf_id" IS NULL THEN NULL ELSE 'service' END
+```
+
+So a leaf-owned charge is *necessarily* a Direct Service. **A Direct Product
+cannot own a one-time charge, in the schema rather than by convention.**
+
+**Packaging inputs cannot represent a fixed cost.** `assembly_leaf_inputs`
+carries `unit_cost`, `qty_per_sellable_unit` and `purchase_qty` — no
+fixed-amount column, no grain flag. A plate fee entered there is multiplied by
+quantity and becomes per-unit COGS inside the unit price: not a charge placed in
+the unit price, but not a charge at all — unrecoverable, unelectable, and
+invisible on the customer document.
+
+**Production requires a turnkey context**, in the UI as well as the schema
+(`production-drilldown.tsx:436`): *"Member leaves and Direct Products own no
+Production economics, so they get no Production surface."* One authoring surface
+per Item Group. So a packaging-only quote containing a printed carton as a
+Direct Product has **no Production surface and therefore no charge path at
+all.**
+
+**Direct Service is honest by design and positioned to become the container.**
+The vocabulary is closed and every member is a genuinely sold service
+(`formulation`, `filling_blending`, `packout_assembly`, `testing_micros`,
+`other_service`), and the schema says promoting a BV-011 destination into it
+*"should require a migration that says so rather than a new string at a call
+site."* But `other_service` is the only open-ended key and the only place a
+plate fee can be typed, so an operator needing one is pushed to assert that **a
+service is being sold** in order to record **a component cost**. That is the
+model leaving one door open and no other, not operators misusing a feature.
+
+**BV-011 already names the destinations nothing can reach.** The accounting map
+has sixteen; `OTC_COLUMN_DESTINATION` fills five. `otc_print_plates`,
+`otc_dies`, `otc_cartons`, `otc_samples` and `otc_processing_fee` have **no
+source column** and are reachable only through `other_service`'s per-line item
+override. Accounting recognises a print plate as its own destination; the quote
+cannot express one.
+
+## The related defect found alongside it
+
+The **live election has no owner and the frozen instruction does.**
+
+```
+quote_charge_recovery                  PK (quote_id, charge_key)                  no owner
+quote_snapshot_recovery_instructions   UNIQUE (snapshot, charge_key, owner_ref, tier_id)
+```
+
+The snapshot's own comment states the reason: one row per charge *"would have to
+pick, and picking would write a false instruction."* The live table has exactly
+that shape. So electing a placement for Tooling elects it for **every** Tooling
+charge in the quote regardless of which Item Group authored it — a defect that
+exists **today, for Item Groups, with no packaging-origin charge involved.**
+
+## The three-part correction
+
+Not implemented. Ordered smallest-first; each is separately dispositionable.
+
+**(a) Name the missing charge types.** Add `dies`, `print_plates` and `cartons`
+to `recovery_charge` with `grain: "one_time"`, the matching
+`assembly_production_inputs` columns, and `OTC_COLUMN_DESTINATION` entries.
+Routes the fee to its true BV-011 destination instead of `OTC - Other Service`.
+Migration plus registry; **no ownership consequence** — the charge still belongs
+to an Item Group. This is the half that reaches the customer's invoice.
+
+**(b) Introduce packaging ownership for one-time charges.** Either extend the
+production-input owner XOR to admit a packaging leaf, or add a sibling table
+keyed on the leaf that caused the charge, at the `(charge_key, owner, tier)`
+grain the frozen instruction already uses. **The freeze layer needs no change:**
+`owner_ref` is already text and already accepts a quote-leaf id. This is the
+change that lets a carton's plate fee belong to the carton.
+
+**(c) Give the live election the owner the snapshot already has** — re-key
+`quote_charge_recovery` to include `owner_ref`. **Governed separately**: it is
+wrong today without (a) or (b), and it deserves its own disposition rather than
+arriving as someone else's step three.
+
+## What would settle it
+
+For (a): Accounting confirming that a supplier plate fee should post to
+`OTC - Print Plates` rather than `OTC - Other Service`. For (b): Edward's
+disposition on whether a packaging component is a commercial object that may own
+a charge, or whether the Item Group remains the only owner and the correction is
+instead to make that ownership explicit and documented. For (c): whether any
+live quote holds one charge key at more than one owner — measurable, and worth
+measuring before deciding.
+
+## Provenance
+
+Traced 2026-08-26 on Edward's instruction, after soak run 5. Evidence in
+[`docs/validation/post-run-05-dispositions.md`](validation/post-run-05-dispositions.md) §2.
+Numbered OD-032: an earlier note proposed OD-029, which is already taken —
+the register runs to OD-031 with OD-018 absent.
+
+---
+
 
 ## Closed
 
