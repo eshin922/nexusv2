@@ -4334,18 +4334,20 @@ export const quoteChargeRecovery = pgTable(
     /**
      * The election's durable identity (OD-032 phase 1).
      *
-     * NULLABLE ONLY UNTIL PHASE 1b, and not a discriminator. Phase 1 expands;
-     * 1b tightens to NOT NULL and moves the primary key here, once this code is
-     * deployed. Tightening ahead of the deployed writer is the 0066 shape.
+     * NOT NULL and the PRIMARY KEY since phase 1b. Phase 1 expanded and
+     * backfilled; 1b re-backfilled the window's rows and contracted.
+     *
+     * `(quote_id, charge_key)` keeps a temporary UNIQUE so the writer's
+     * onConflictDoUpdate keeps working. Phase 2 drops it, on the same day two
+     * cartons may each cause print plates and it stops being true.
      *
      * Every write from this codebase populates it. No runtime path branches on
      * its nullity, and none may: a reader that treated null as a second
      * identity regime would preserve exactly the split phase 1 exists to end.
      */
-    chargeInstanceId: uuid("charge_instance_id").references(
-      () => quoteChargeInstances.id,
-      { onDelete: "cascade" },
-    ),
+    chargeInstanceId: uuid("charge_instance_id")
+      .notNull()
+      .references(() => quoteChargeInstances.id, { onDelete: "cascade" }),
     mode: recoveryMode("mode").notNull(),
     electedAt: timestamp("elected_at", { withTimezone: true })
       .notNull()

@@ -199,3 +199,70 @@ test("owner is never nullable, and the sentinel cannot collide with an id", () =
   // entity that happens to have this id" stay distinguishable without a flag.
   assert.ok(!/^[0-9a-f-]{36}$/.test("@quote"));
 });
+
+// ── phase 1b · the contraction tightens only what is invariant ─────────────
+
+const contract = () =>
+  readFileSync(
+    "drizzle/0108_od_032_phase_1b_contract_instance_identity.sql",
+    "utf8",
+  );
+
+test("1b re-backfills before contracting, on the same anchor-free derivation", () => {
+  const sql = contract();
+  // The window between 0107 applying and the new writer deploying was live to
+  // the OLD writer, whose INSERT path had no instance to write. Observed on
+  // production, not theorised.
+  const backfill = sql.slice(0, sql.indexOf("DO $$"));
+  assert.match(backfill, /WHERE r\."charge_instance_id" IS NULL/);
+  assert.match(backfill, /'@quote'/);
+  // Same derivation as 0107 — never an anchor.
+  for (const forbidden of [/owner_ref"\s*=\s*i\./, /quote_leaves/i, /position/i]) {
+    assert.ok(!forbidden.test(backfill), `re-backfill must not consult ${forbidden}`);
+  }
+});
+
+test("1b does NOT require zero orphan instances", () => {
+  const sql = contract();
+  const validate = sql.slice(sql.indexOf("DO $$"), sql.indexOf("END $$"));
+  // 0107 asserted it — correct then, wrong forever. An instance with no
+  // election is the governed `unplaced` state and must stay representable.
+  assert.ok(
+    !/claimed by no election/.test(validate),
+    "carrying 0107's orphan assertion forward would fail on a legitimate row",
+  );
+  assert.match(sql, /DELIBERATELY NOT CHECKED: orphan instances/);
+});
+
+test("1b asserts the four things that are invariant", () => {
+  const validate = contract().slice(
+    contract().indexOf("DO $$"),
+    contract().indexOf("END $$"),
+  );
+  assert.match(validate, /still have no instance after re-backfill/);   // (a)
+  assert.match(validate, /claimed by more than one election/);           // (b)
+  assert.match(validate, /reference a missing instance/);                // (c)
+  assert.match(validate, /disagree with their instance/);                // (d)
+});
+
+test("the legacy unique is retained on purpose, and its removal is dated", () => {
+  const sql = contract();
+  // Dropping the index the deployed writer's ON CONFLICT names would break
+  // every election the moment this applied — the shape phase 1 was split to
+  // avoid, in the other direction.
+  assert.match(sql, /quote_charge_recovery_legacy_quote_charge_unique/);
+  assert.match(sql, /PHASE 2 DROPS IT/);
+});
+
+test("the historical snapshot exception is recorded as currently vacuous", () => {
+  // `quote_snapshot_recovery_instructions` has no charge_instance_id column, so
+  // there is no null to preserve yet. Saying so stops a later reader assuming
+  // the exception was handled and finding nothing that handles it.
+  assert.match(contract(), /currently VACUOUS/);
+  const schema = readFileSync("src/db/schema.ts", "utf8");
+  const snap = schema.slice(schema.indexOf("quoteSnapshotRecoveryInstructions"));
+  assert.ok(
+    !/chargeInstanceId/.test(snap.slice(0, 2000)),
+    "the snapshot table must not have gained the column before phase 6",
+  );
+});
