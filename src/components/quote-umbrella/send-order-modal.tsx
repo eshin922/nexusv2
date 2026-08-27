@@ -92,11 +92,12 @@ export function SendOrderModal({
   // button's own `disabled={sending}` treatment.
   const modalClose = sending ? () => {} : onClose;
   return (
-    <Modal open={open} onClose={modalClose} size="lg">
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 560 }}
-      >
+    // THE UNUSED WHITE COLUMN. `size="lg"` gives the dialog 720px and this
+    // inner div capped its content at 560, so 160px of the modal was empty
+    // space to the right of everything in it — which soak run 1 logged. The cap
+    // is gone and the width now comes from one place: `.modal.lg.send-order`.
+    <Modal open={open} onClose={modalClose} size="lg" className="send-order">
+      <div onClick={(e) => e.stopPropagation()}>
         <div className="r8-final-head">
           <p className="eyebrow">Send order · irreversible</p>
           <h2>

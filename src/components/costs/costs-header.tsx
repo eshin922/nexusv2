@@ -85,18 +85,23 @@ export function CostsHeader({
           stack across {tierCount} {tierWord}. Drill in to edit; the stack
           updates live.
         </p>
-        {/* Pattern 21 dev-scaffolding (visible-pending) — pulse-dot
-            sync indicator is shipped as a placeholder pending Slice 11
-            HubSpot data binding. `.pending` modifier dims the dot
-            (no animation) + copy reads "Sync status pending" so PMs
-            don't read a fake-current freshness signal. Slice 11
-            replaces this with real `lastHubspotRefreshAt` wiring +
-            resolves the live-sync-vs-manual-pull semantic question.
-            See header comment for full rationale. */}
-        <div className="meta pending">
-          <span className="live" aria-hidden />
-          <span>Sync status pending · Slice 11</span>
-        </div>
+        {/* THE SYNC INDICATOR IS GONE, not wired.
+
+            It shipped as Pattern 21 visible-pending scaffolding awaiting
+            "Slice 11 HubSpot data binding". Slice 11 has since shipped and the
+            binding was never made, because there is nothing on this surface for
+            it to bind to: Costs holds PM-entered cost inputs, which are not
+            synced from HubSpot at all. The indicator was not merely unwired, it
+            was measuring a thing this page does not have.
+
+            Soak run 1 logged it as reading like development scaffolding, which
+            is exactly what it was, on an operator surface. The freshness signal
+            that IS real — when this project's HubSpot context was last pulled —
+            already lives in the project header, where the refresh action is.
+
+            Removed rather than relabelled: a status row that reports no status
+            is not a status row, and leaving the shape in place reserves a
+            promise nothing intends to keep. */}
       </div>
       {/*
         The action cluster is removed, container included.
