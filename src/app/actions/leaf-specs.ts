@@ -103,8 +103,37 @@ export async function updateLeafSpec(
     if (!fieldKey)
       throw new ActionGuardError(ERR.VALIDATION, "fieldKey required");
 
-    // Permission gate (Path B per Architect Gate 5; impl-1 helper).
-    const user = await assertCanEditSpecs();
+    // THE GATE IS SCOPE-DEPENDENT, because the two authorities are governed by
+    // different rules and always were — this only stops them sharing one check.
+    //
+    // LIBRARY scope is open to every authenticated user for beta. Business
+    // disposition, Edward 2026-08-27. `assertCanEditSpecs` passes on
+    // `role === "admin"` alone, and `users.can_edit_specs` is false for the
+    // entire roster, so master authoring was reachable by four accounts and
+    // exercised by two. Meanwhile the ✎ "Edit default specs" control is
+    // ungated on every library row, so a PM could open the editor and only
+    // learn on save that they may not use it. Now the control and the server
+    // agree.
+    //
+    // This measured out as 188 of 199 quote-owned spec rows being EMPTY —
+    // attachment shells that found no master to copy. Not a broken write path:
+    // an unauthorized one.
+    //
+    // QUOTE scope is UNCHANGED and deliberately so. It keeps
+    // `assertCanEditSpecs` and it keeps the draft guard below, because a
+    // quote-scoped value is customer-visible in the PDF specification addendum
+    // (OD-023). Opening master authoring says nothing about who may edit an
+    // artifact a customer may already hold.
+    //
+    // `assertCanEditSpecs` has exactly one caller — this one — so narrowing it
+    // to quote scope weakens no other action. Asserted by test rather than
+    // trusted.
+    //
+    // Either way `user` is the same AppUser, so `createdBy` / `updatedBy` and
+    // both audit writers below carry real attribution for every library-default
+    // edit.
+    const user =
+      "library" in scope ? await ensureUser() : await assertCanEditSpecs();
 
     // OD-023 · a QUOTE-scoped spec value is customer-visible: it renders in the
     // PDF specification addendum. Editing one after Send would change an
