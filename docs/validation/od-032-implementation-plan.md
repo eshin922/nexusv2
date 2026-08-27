@@ -1,7 +1,20 @@
 # OD-032 · Owner-attributed one-time charges — implementation plan
 
 **Planning only. No implementation.** Written against the Design Authority in
-`od-032-bundle/`, mapped onto the certified architecture on baseline `3558e09`.
+[`docs/design-prototypes/od-032/`](../design-prototypes/od-032/), mapped onto the
+certified architecture on baseline `3558e09`.
+
+**AMENDED 2026-08-27** with Edward's five Phase 0 dispositions. Each is recorded
+at the point it governs, and the amended sequence is §13. What changed from the
+first draft:
+
+| # | Disposition | Effect on this plan |
+|---|---|---|
+| 1 | Legacy `owner_ref` is never presented as causal | §2.2 hardens from recommendation to **rule** |
+| 2 | Never rename `artwork_plate` in place | §3 hardens; add alongside only if a distinct meaning is required |
+| 3 | Run setup is **not** a blocker | **removed from V1**; §3, §12, §13 revised |
+| 4 | Generated charge-instance id is the identity | §2.1 **corrected** — the first draft was wrong |
+| 5 | Bundle committed under `docs/design-prototypes/od-032/` | all references updated |
 
 The invariant this plan preserves throughout:
 
@@ -134,18 +147,51 @@ because their absence is load-bearing rather than incidental.
 
 # 2 · Charge-instance identity and owner grain — and the conflict to surface
 
-## 2.1 The identity
+## 2.1 The identity — CORRECTED per disposition 4
+
+**The durable identity is a generated `charge_instance_id`.** The first draft of
+this plan proposed making `(quote, type, owner, label)` the key. That was wrong,
+and the disposition names exactly why:
+
+> *Two same-type charges on one component must remain independently editable
+> even if labels change.*
+
+A natural key containing `label` makes the row's identity depend on a value the
+operator edits. Renaming "foil die" to "foil stamping die" would then be an
+identity change — which means the recovery election keyed to it, the frozen
+instruction referencing it and the NetSuite memo describing it all point at a
+row that no longer exists under that name. The failure is silent and it lands in
+an already-sent artifact.
 
 ```
-charge instance  =  (quote_id, charge_type, owner_ref)
-recovery grain   =  the same triple
-freeze grain     =  (snapshot, charge_key, owner_ref, tier_id)   -- unchanged
+charge instance   =  charge_instance_id            generated, opaque, durable
+business uniqueness  (quote, owner, type, label)   a CONSTRAINT, not the identity
+recovery grain    =  charge_instance_id
+freeze grain      =  (snapshot, charge_key, owner_ref, tier_id)   -- unchanged
 ```
 
-Two instances of one type on one owner — *"two dies on one carton is a real
-thing"* — are distinguished by the required distinct label, so identity is
-strictly `(quote, type, owner, label)`. Recommend making `label` part of the key
-from the start rather than adding it when the second die arrives.
+**Uniqueness stays**, because the design wants duplicate *detection*: selecting a
+type the component already owns *"warns and offers a second instance with a
+distinct label required — a warning, not a block"*. That is a `UNIQUE (quote_id,
+owner_ref, charge_type, label)` constraint serving the warning, with the row's
+identity independent of it.
+
+**Consequence for the election table.** §1.3 M1 widens the live election to
+`(quote_id, charge_key, owner_ref)`, which is right for the legacy population
+whose charges have no instance row. Component-owned charges elect against
+`charge_instance_id` instead. Two options, and the choice is a real one:
+
+- **(a) one election table, nullable `charge_instance_id`** — legacy rows carry
+  `NULL`, component rows carry the id. Simple, but reintroduces a nullable
+  discriminator of exactly the kind the design rejected for owner.
+- **(b) elections keyed on `charge_instance_id` for every population**, with
+  legacy charges given synthesised instance rows at migration time.
+
+**(b) is recommended.** It ends the two-grain split rather than encoding it, and
+the synthesis is mechanical: one instance row per existing
+`(quote, charge_key)` election with `owner_ref = '@quote'`. It is more migration
+work in phase 1 and less permanent complexity everywhere after. **This choice
+should be confirmed before phase 1 rather than discovered during it.**
 
 ## 2.2 ⚠ The conflict — OD-032 makes OD-028 commercially load-bearing
 
@@ -176,14 +222,23 @@ copy**.
 - **Existing production-sourced charges keep a coerced `owner_ref`.** For those,
   the plan must *not* present the anchor as a cause.
 
-**Recommendation:** quote-owned legacy charges group under the design's
-**Project** heading — which the round trip already specifies — and their
-`owner_ref` is never surfaced as a causal owner in Costs, Recovery, the customer
-document or the NetSuite memo. That keeps OD-028 exactly where it is: a display
-and coaching concern, not a commercial-attribution one.
+**RULE — disposition 1, accepted 2026-08-27.** Not a recommendation:
 
-**What would break that:** if V1 ever surfaces the coerced anchor as an owner
-name, OD-028 stops being post-gate. That is a decision for Edward, not for code.
+> A charge whose `owner_ref` comes from anchor coercion **must not be presented
+> as causally owned by that component**. On every OD-032 surface those charges
+> group under **Project**, and the coerced anchor is never exposed as the cause
+> in Costs, Commercial Recovery, customer copy or the NetSuite memo.
+>
+> New packaging-owned charges use their actual `quote_leaf_id` and therefore
+> have genuine causal ownership.
+>
+> **OD-028 remains post-gate unless we ever decide to expose coerced owner
+> attribution.**
+
+This is testable rather than merely intended, and §12 asserts it: no OD-032
+surface may render an owner label for a charge whose owner is `'@quote'` or
+whose instance row is synthesised. The rule fails loudly if a future surface
+reaches for the anchor.
 
 ---
 
@@ -191,15 +246,66 @@ name, OD-028 stops being post-gate. That is a decision for Edward, not for code.
 
 The design's six types against today's enum and BV-011:
 
-| Design type | Owner | Enum today | BV-011 destination | Status |
+**V1 ships five component types plus quote-owned Project setup.** Run setup is
+**out of V1** per disposition 3.
+
+| V1 type | Owner | Enum today | BV-011 destination | Status |
 |---|---|---|---|---|
 | Print plates | component | — | `otc_print_plates` | **enum add**; destination exists, unmapped |
 | Tooling & dies | component | `tooling` | `otc_tooling` + `otc_dies` | reuse; **dies destination unmapped** |
-| Artwork & prepress | component | `artwork_plate` | `otc_artwork` | reuse, **rename**, re-grain (§02a) |
-| Run setup | component | — | *(none)* | **enum add + destination add** |
-| Project setup | **quote only** | `project_setup` | `otc_setup` | reuse unchanged |
+| Artwork & prepress | component | `artwork_plate` | `otc_artwork` | **no rename** — see below |
 | Samples & proofs | component | — | `otc_samples` | **enum add**; destination exists, unmapped |
-| Other · labelled | either | `other_service` | `otc_other_service` | reuse; already per-line item selection |
+| Other · labelled | either | `other_service` | `otc_other_service` | reuse; already per-line selection |
+| Project setup | **quote only** | `project_setup` | `otc_setup` | reuse unchanged |
+
+| Deferred | Why |
+|---|---|
+| **Run setup** | No governed NetSuite destination. **Not a blocker** — raised with Accounting separately and added once the destination is authoritative. |
+
+**Disposition 3 · Run setup is not a blocker.** The first draft called it
+blocking. It is not: it is one type among six, every other type's destination
+already exists, and the two-phase sheet, owner grouping, instance-grained
+recovery and the whole migration are indifferent to whether the vocabulary has
+five component types or six.
+
+What matters is that adding it later is **cheap and non-breaking**, and it is:
+a new enum value, a `CHARGE_TYPE_DESTINATION` entry and a `library_charge_template`
+row. No migration of existing charges, because none will exist under a type
+that was never offered. So the design's *"the vocabulary earns growth"*
+principle applies to Run setup exactly as it does to a graduating `Other` label
+— which is the more honest place for it than a V1 blocker.
+
+**Interim behaviour:** press/line setup attributable to a component arrives
+through **Other · labelled** in V1, which is what Other is for. Its labels are
+the measuring instrument, so a run of "run setup" labels is itself the evidence
+Accounting needs.
+
+**Disposition 2 · `artwork_plate` is never renamed in place.**
+
+> Preserve existing/frozen semantics. Add a new governed value alongside only if
+> the V1 vocabulary requires a distinct `artwork_prepress` meaning.
+
+The value appears in live elections and in **frozen instructions**, which are
+the record of what Accounting was told. Renaming rewrites the meaning of an
+artifact nobody may amend — the same reasoning that made
+`tooling_artwork_legacy` a separate value rather than a redefinition.
+
+**Whether a new value is needed at all is a real question, and the answer is
+probably no for V1.** The round trip splits Print plates (plate and cylinder
+*making*) from Artwork & prepress (design and adaptation *labour*). Today's
+`artwork_plate` spans both — its name says so. Once `print_plates` exists as its
+own value, `artwork_plate` on a **new component-owned charge** means only the
+labour half, because the making half has somewhere else to go.
+
+So: **reuse `artwork_plate` with the label "Artwork & prepress" on the OD-032
+surfaces, add no enum value, and change no existing row's meaning.** If a future
+reading finds the two-meaning span genuinely ambiguous in reporting, an
+`artwork_prepress` value is added alongside then, with `artwork_plate` deprecated
+exactly as `tooling_artwork_legacy` is.
+
+**§02a re-graining is unaffected by this.** The `per_sku → one_time` rule is
+about the *basis* of new component-owned charges, not about the enum value, and
+legacy quote-owned rows keep their basis untouched.
 
 **Three destinations already exist with no source column** —
 `otc_print_plates`, `otc_dies`, `otc_samples` — which is the gap I traced when
@@ -207,17 +313,6 @@ this finding opened. OD-032 fills exactly those. `otc_cartons` stays unfilled,
 correctly: the round trip rejects Cartons as a charge.
 
 **`otc_processing_fee` stays unfilled**, matching the deferral to Other.
-
-**Run setup needs a new BV-011 destination** and the README flags it as an
-accounting task. It is a **blocking dependency** for V1 — a charge type with no
-destination cannot post — and should be raised with Accounting now rather than
-at implementation.
-
-**Renaming `artwork_plate` → `artwork_prepress`** is an enum value rename on a
-column with live rows and frozen snapshots. Recommend **adding** the new value
-and leaving the old as deprecated-but-readable, exactly as
-`tooling_artwork_legacy` already models. Renaming in place would rewrite the
-meaning of frozen instructions.
 
 **Allowed modes** are already expressed in `registry.ts` as
 `available[] + refusals{}` with the class rule *"all one-time fees permit all
@@ -360,7 +455,7 @@ existing unmatched pre-send flag. No second mechanism.
 
 # 10 · Design-fidelity mapping
 
-Screens and states from `od-032-bundle/design/Nexus OD-032 Round Trip`, §03
+Screens and states from `docs/design-prototypes/od-032/design/Nexus OD-032 Round Trip`, §03
 Preview (three switchable states) and §04.
 
 | Design element | Exact copy / behaviour | Nexus target | Risk |
@@ -398,7 +493,9 @@ owner-grouped nesting in Costs, the group recovery action.
    Do not port the switcher.
 3. **Allowed-mode narrowing** conflicts with the banked class rule that all
    one-time fees permit all three modes. Surfaced, not resolved.
-4. **Run setup has no NetSuite destination.** Blocking; Accounting task.
+4. ~~Run setup has no NetSuite destination.~~ **Resolved by disposition 3** —
+   Run setup leaves V1 and is raised with Accounting separately. Not a blocker,
+   and its absence changes nothing about the sheet, the grouping or the grain.
 
 **Visual acceptance is part of completion**, not a polish pass. Each phase ships
 with its design-fidelity manifest per Pattern 27 (structural + polish), and the
@@ -424,10 +521,19 @@ called done.
 Ordered so the cheapest disproof comes first.
 
 **Unit / pure**
+0. **Disposition 1, asserted rather than intended.** No OD-032 surface renders an
+   owner label for a charge whose owner is `'@quote'` or whose instance row is
+   synthesised. A future surface that reaches for the coerced anchor fails here
+   rather than shipping — which is what keeps OD-028 post-gate.
 1. Owner is never nullable; `'@quote'` and a leaf id are both valid and distinct.
 2. Two instances of one type on two owners hold **different** recovery modes —
    the case the grain exists for.
-3. Two instances of one type on **one** owner require distinct labels.
+3. Two instances of one type on one owner require distinct labels — **and remain
+   independently editable when a label changes.** Identity is the generated id;
+   renaming one must not repoint its election, its frozen instruction or its
+   NetSuite memo (disposition 4).
+3b. `artwork_plate` is not renamed, and an existing row's meaning is unchanged
+   by the arrival of `print_plates` (disposition 2).
 4. A component-owned charge is always `one_time`; no path sets another basis.
 5. `library_charge_template` has no amount and no default mode — asserted
    structurally so a future column fails the suite.
@@ -465,18 +571,37 @@ catch an owner identity that moves.
 
 # 13 · Recommended sequencing
 
+**Phase 0 is now two items, not four.** Dispositions 1–5 are settled, and Run
+setup left the critical path with them.
+
 | phase | contents | gate |
 |---|---|---|
-| **0** | `costs-page-layout` §1/§9 amendment · Accounting: Run setup destination · disposition on mode-narrowing and on §2.2 | **all three before code** |
-| **1** | M1 election widening, expand→backfill→validate→contract; `'@quote'` everywhere; zero behaviour change | full suite green, no visible change |
-| **2** | M2/M3 storage + registry; costing input; no UI | falsifications 1–8 |
-| **3** | Costs owner-grouped rendering | fidelity manifest vs bundle |
+| **0** | **(a)** amend `costs-page-layout` §1/§9 · **(b)** confirm the election-key choice, §2.1 (a) vs **(b)** | both before phase 1 |
+| **1** | Election → instance grain. Synthesise instance rows for existing elections; expand→backfill→validate→contract. **Zero behaviour change.** | full suite green, and Production visibly identical |
+| **2** | M2/M3 storage + registry + costing input. No UI. | falsifications 0–8 |
+| **3** | Costs owner-grouped rendering, Project heading | fidelity manifest vs bundle |
 | **4** | The two-phase sheet | fidelity manifest; the new-component risk sits here |
 | **5** | Recovery instance rows + group action | falsifications 9–13 |
 | **6** | Customer document + NetSuite | falsifications 14–16 + certification walk |
+| **later** | Run setup, once Accounting supplies a destination | one enum value + one map entry |
+
+**Phase 0(b) is the one open engineering decision left.** §2.1 recommends
+option (b) — elections keyed on `charge_instance_id` for every population, with
+synthesised instance rows for the legacy set — because it ends the two-grain
+split instead of encoding it as a nullable discriminator. It costs more
+migration in phase 1 and less permanent complexity afterwards. Confirming it
+before phase 1 rather than discovering it during phase 1 is the difference
+between one migration and two.
+
+**Mode-narrowing is deferred to phase 5**, where Recovery is actually touched.
+It is a change to a banked class rule (*all one-time fees permit all three
+modes*) and it can be dispositioned with the surface in front of you rather than
+in the abstract now. Nothing before phase 5 depends on the answer.
 
 Phase 1 is deliberately invisible: it moves the live election to the grain the
-snapshot has always had, and if it is correct nothing changes at all.
+snapshot has always had, and if it is correct nothing changes at all. That is
+also what makes it safe to ship on its own — a phase whose success criterion is
+"nothing moved" can be verified against Production directly.
 
 ---
 
@@ -489,3 +614,8 @@ snapshot has always had, and if it is correct nothing changes at all.
 - **Tier 2–4 governed-action migration** untouched. New OD-032 client
   components must call `runGoverned` from the start; the enforced region should
   extend to cover them as they land.
+- **The Design Authority is committed** at
+  [`docs/design-prototypes/od-032/`](../design-prototypes/od-032/), moved intact
+  from the repository root per disposition 5. Visual acceptance runs against
+  that bundle throughout implementation — the fidelity is not to be recreated
+  from this document's prose, which is a map of it and not a substitute for it.

@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: oklch(0.965 0.008 85); }
+  body { font-family: "Instrument Sans", system-ui, sans-serif; color: oklch(0.20 0.02 255); -webkit-font-smoothing: antialiased; }
+  a { color: oklch(0.42 0.14 255); text-decoration: none; }
+  a:hover { color: oklch(0.28 0.12 255); text-decoration: underline; }
+  * { box-sizing: border-box; }
+  textarea, input, button { font-family: inherit; }
+  ::selection { background: oklch(0.92 0.04 255); }
+</style>
+</helmet>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+    <rect width="400" height="300" fill="#1d2430" />
+    <g stroke="#7d93ad" stroke-width="3" fill="none">
+      <circle cx="200" cy="150" r="14" fill="#c9d6e4" stroke="none" />
+      <line x1="200" y1="150" x2="200" y2="96" />
+      <line x1="200" y1="150" x2="247" y2="177" />
+      <line x1="200" y1="150" x2="153" y2="177" />
+      <circle cx="200" cy="88" r="9" fill="#7d93ad" stroke="none" />
+      <circle cx="254" cy="181" r="9" fill="#7d93ad" stroke="none" />
+      <circle cx="146" cy="181" r="9" fill="#7d93ad" stroke="none" />
+    </g>
+  </svg>
+</template>
+
+<div style="height: 100vh; overflow: hidden; display: flex; flex-direction: column; background: oklch(0.965 0.008 85);">
+
+  <div style="display: flex; align-items: center; gap: 16px; padding: 0 22px; height: 56px; background: oklch(0.985 0.006 85); border-bottom: 1px solid oklch(0.88 0.012 85); flex: none;">
+    <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(0.68 0.012 255);">Nexus</span>
+    <span style="color: oklch(0.82 0.014 85);">/</span>
+    <span style="font-size: 13px; color: oklch(0.52 0.015 255);">Lumen Beauty Co.</span>
+    <span style="color: oklch(0.82 0.014 85);">/</span>
+    <span style="font-family: 'Newsreader', Georgia, serif; font-size: 19px; font-weight: 500;">Customer view</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 7px; border-radius: 4px; background: oklch(0.945 0.010 85); color: oklch(0.36 0.02 255); border: 1px solid oklch(0.88 0.012 85);">{{ quoteChip }}</span>
+    <span style="{{ verdictChipStyle }}">{{ verdictChip }}</span>
+    <div style="flex: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: oklch(0.52 0.015 255);">
+      <span style="width: 22px; height: 22px; border-radius: 50%; background: oklch(0.92 0.04 255); color: oklch(0.28 0.12 255); display: grid; place-items: center; font-size: 10px; font-weight: 600;">CA</span>
+      Cally A.
+    </div>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex; align-items: stretch; overflow: hidden;">
+
+    <div style="flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid oklch(0.88 0.012 85);">
+      <div style="display: flex; align-items: center; gap: 14px; padding: 9px 20px; background: oklch(0.985 0.006 85); border-bottom: 1px solid oklch(0.88 0.012 85); flex: none;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: oklch(0.55 0.06 300); background: oklch(0.95 0.02 300); padding: 3px 8px; border-radius: 4px;">What the customer receives</span>
+        <span style="font-size: 12px; color: oklch(0.52 0.015 255);">{{ previewSummary }}</span>
+        <div style="flex: 1;"></div>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: oklch(0.52 0.015 255);">{{ pageCount }} page PDF</span>
+        <div style="display: flex; gap: 2px; padding: 3px; background: oklch(0.965 0.008 85); border: 1px solid oklch(0.88 0.012 85); border-radius: 7px;">
+          <button onClick="{{ zoomOut }}" style="border: none; background: transparent; padding: 2px 9px; border-radius: 4px; color: oklch(0.36 0.02 255); font-size: 13px;">−</button>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 2px; color: oklch(0.36 0.02 255); min-width: 38px; text-align: center;">{{ zoomLabel }}</span>
+          <button onClick="{{ zoomIn }}" style="border: none; background: transparent; padding: 2px 9px; border-radius: 4px; color: oklch(0.36 0.02 255); font-size: 13px;">+</button>
+        </div>
+      </div>
+
+      <sc-if value="{{ frozen }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 20px; background: oklch(0.94 0.035 155); border-bottom: 1px solid oklch(0.88 0.012 85); font-size: 12.5px; color: oklch(0.36 0.02 255); flex: none;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: oklch(0.55 0.10 155);">frozen</span>
+          <span>{{ frozenLine }}</span>
+        </div>
+      </sc-if>
+
+      <div style="flex: 1; min-height: 0; overflow: auto; padding: 28px 0 60px; background: repeating-linear-gradient(-45deg, oklch(0.955 0.008 85) 0 8px, oklch(0.965 0.008 85) 8px 16px);">
+        <div style="width: 816px; margin: 0 auto; transform: scale({{ zoom }}); transform-origin: top center; display: flex; flex-direction: column; gap: 22px;">
+
+          <div style="background: oklch(0.995 0.003 85); box-shadow: 0 24px 60px oklch(0.20 0.02 255 / 0.10); border: 1px solid oklch(0.88 0.012 85); padding: 54px 58px 42px; min-height: 1056px; display: flex; flex-direction: column;">
+
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 18px; border-bottom: 1.5px solid oklch(0.20 0.02 255);">
+              <div>
+                <div style="font-family: 'Newsreader', Georgia, serif; font-size: 26px; font-weight: 500;">The DPS</div>
+                <div style="font-size: 11.5px; color: oklch(0.52 0.015 255); max-width: 250px; margin-top: 3px; line-height: 1.45;">Turnkey product development &amp; manufacturing for beauty, health &amp; wellness brands</div>
+              </div>
+              <div style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: oklch(0.36 0.02 255); line-height: 1.8;">
+                <div style="font-size: 12px; color: oklch(0.20 0.02 255);">{{ docNumber }}</div>
+                <div>Issued · August 21, 2026</div>
+                <div>Valid until · October 15, 2026</div>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 20px 0 24px;">
+              <div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 5px;">Prepared for</div>
+                <div style="font-family: 'Newsreader', Georgia, serif; font-size: 16px;">Lumen Beauty Co.</div>
+                <div style="font-size: 11.5px; color: oklch(0.52 0.015 255); line-height: 1.6;">Nadia Roy · Head of Product<br />nadia@lumenbeauty.com<br />1180 Abbot Kinney Blvd, Venice, CA 90291</div>
+              </div>
+              <div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 5px;">Prepared by</div>
+                <div style="font-family: 'Newsreader', Georgia, serif; font-size: 16px;">The DPS</div>
+                <div style="font-size: 11.5px; color: oklch(0.52 0.015 255); line-height: 1.6;">Cally Adeyemi · Program Manager<br />cally@thedps.co · +1 949 555 0142<br />3943 Irvine Blvd #1129, Irvine, CA 92602</div>
+              </div>
+            </div>
+
+            <sc-if value="{{ isItemized }}" hint-placeholder-val="{{ true }}">
+              <div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255);">{{ pricingEyebrow }}</div>
+                <div style="font-family: 'Newsreader', Georgia, serif; font-size: 21px; margin: 4px 0 6px;">{{ pricingTitle }}</div>
+                <div style="font-size: 12px; color: oklch(0.36 0.02 255); line-height: 1.55; max-width: 630px;">{{ pricingLede }}</div>
+
+                <div style="display: grid; grid-template-columns: 1fr {{ colTrack }}; margin-top: 18px; border-bottom: 1px solid oklch(0.20 0.02 255);">
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); padding-bottom: 7px;">Product</div>
+                  <sc-for list="{{ cols }}" as="col" hint-placeholder-count="3">
+                    <div style="text-align: right; padding: 0 0 7px 14px;">
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">{{ col.label }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: oklch(0.52 0.015 255); margin-top: 2px;">{{ col.sub }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <sc-for list="{{ rows }}" as="row" hint-placeholder-count="3">
+                  <div style="display: grid; grid-template-columns: 1fr {{ colTrack }}; padding: 10px 0; border-bottom: 1px solid oklch(0.92 0.010 85);">
+                    <div>
+                      <div style="font-family: 'Newsreader', Georgia, serif; font-size: 14.5px;">{{ row.name }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255); margin-top: 2px;">{{ row.meta }}</div>
+                    </div>
+                    <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="3">
+                      <div style="text-align: right; padding-left: 14px;">
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">{{ cell.unit }}</div>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255); margin-top: 2px;">{{ cell.ext }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+
+                <sc-if value="{{ hasAmortized }}" hint-placeholder-val="{{ true }}">
+                  <div style="display: grid; grid-template-columns: 1fr {{ colTrack }}; padding: 10px 0; border-bottom: 1px solid oklch(0.92 0.010 85);">
+                    <div>
+                      <div style="font-family: 'Newsreader', Georgia, serif; font-size: 14.5px;">{{ amortizedLabel }}</div>
+                      <div style="font-size: 11px; color: oklch(0.52 0.015 255); font-style: italic; margin-top: 2px;">landed in the unit price above</div>
+                    </div>
+                    <sc-for list="{{ cols }}" as="col" hint-placeholder-count="3">
+                      <div style="text-align: right; padding-left: 14px;">
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px;">{{ col.amortUnit }}</div>
+                        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255); margin-top: 2px;">{{ col.amortExt }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+
+                <div style="display: grid; grid-template-columns: 1fr {{ colTrack }}; padding: 12px 0; border-bottom: 1.5px solid oklch(0.20 0.02 255); background: oklch(0.975 0.010 85);">
+                  <div style="padding-left: 8px;">
+                    <div style="font-family: 'Newsreader', Georgia, serif; font-size: 15px; font-weight: 500;">{{ totalLabel }}</div>
+                    <div style="font-size: 11px; color: oklch(0.52 0.015 255); font-style: italic;">{{ totalSub }}</div>
+                  </div>
+                  <sc-for list="{{ cols }}" as="col" hint-placeholder-count="3">
+                    <div style="text-align: right; padding-right: 8px; padding-left: 14px;">
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 500;">{{ col.unitTotal }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255); margin-top: 2px;">{{ col.perUnit }} /unit</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ isTurnkey }}" hint-placeholder-val="{{ false }}">
+              <div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255);">Turnkey pricing</div>
+                <div style="font-family: 'Newsreader', Georgia, serif; font-size: 21px; margin: 4px 0 6px;">{{ turnkeyTitle }}</div>
+                <div style="font-size: 12px; color: oklch(0.36 0.02 255); line-height: 1.55; max-width: 630px;">{{ turnkeyLede }}</div>
+                <div style="display: flex; gap: 14px; margin-top: 20px;">
+                  <sc-for list="{{ cols }}" as="col" hint-placeholder-count="3">
+                    <div style="flex: 1; border: 1px solid oklch(0.88 0.012 85); padding: 16px; background: oklch(0.985 0.006 85);">
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">{{ col.label }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255); margin-top: 2px;">{{ col.sub }}</div>
+                      <div style="font-family: 'Newsreader', Georgia, serif; font-size: 25px; margin-top: 13px;">{{ col.unitTotal }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: oklch(0.52 0.015 255); margin-top: 3px;">{{ col.perUnit }} /unit</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="margin-top: 18px; border-top: 1px solid oklch(0.92 0.010 85); padding-top: 13px;">
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 7px;">What this price includes</div>
+                  <div style="font-size: 12px; color: oklch(0.36 0.02 255); line-height: 1.85;">
+                    <sc-for list="{{ includesLines }}" as="ln" hint-placeholder-count="3">
+                      <div>{{ ln.text }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showSeparate }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid oklch(0.92 0.010 85);">
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 4px;">Charges billed separately</div>
+                <div style="font-size: 11.5px; color: oklch(0.52 0.015 255); margin-bottom: 9px;">Not included in the unit price above — invoiced as separate line items.</div>
+                <sc-for list="{{ separateLines }}" as="ch" hint-placeholder-count="2">
+                  <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid oklch(0.94 0.008 85);">
+                    <div style="font-size: 12.5px;">{{ ch.label }}<span style="color: oklch(0.68 0.012 255); font-size: 11px;"> · {{ ch.basis }}</span></div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: oklch(0.52 0.015 255);">{{ ch.qty }}</div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; min-width: 80px; text-align: right;">{{ ch.amt }}</div>
+                  </div>
+                </sc-for>
+                <div style="display: grid; grid-template-columns: 1fr auto; padding: 9px 0 0;">
+                  <div style="font-size: 12.5px; font-weight: 500;">{{ payableLabel }}</div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px; font-weight: 500;">{{ payableTotal }}</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showFeeNote }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top: 14px; font-size: 11.5px; color: oklch(0.52 0.015 255); line-height: 1.55;">{{ feeNote }}</div>
+            </sc-if>
+
+            <sc-if value="{{ showFeeLines }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top: 22px; padding-top: 16px; border-top: 1px solid oklch(0.92 0.010 85);">
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 8px;">Included in the price above</div>
+                <sc-for list="{{ feeLines }}" as="fl" hint-placeholder-count="3">
+                  <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid oklch(0.94 0.008 85);">
+                    <div style="font-size: 12.5px;">{{ fl.label }}<span style="color: oklch(0.68 0.012 255); font-size: 11px;"> · {{ fl.basis }}</span></div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: oklch(0.52 0.015 255);">{{ fl.qty }}</div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; min-width: 80px; text-align: right;">{{ fl.amt }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <div style="flex: 1;"></div>
+
+            <sc-if value="{{ showTerms }}" hint-placeholder-val="{{ true }}">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 13px 40px; margin-top: 26px; padding-top: 16px; border-top: 1px solid oklch(0.20 0.02 255);">
+                <sc-for list="{{ termRows }}" as="t" hint-placeholder-count="4">
+                  <div>
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255);">{{ t.k }}</div>
+                    <div style="font-size: 13px; margin-top: 3px;">{{ t.v }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hasNote }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top: 20px; padding: 13px 15px; background: oklch(0.975 0.010 85); border-left: 2px solid oklch(0.82 0.014 85);">
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 5px;">Notes</div>
+                <div style="font-size: 12.5px; line-height: 1.6; color: oklch(0.36 0.02 255);">{{ note }}</div>
+              </div>
+            </sc-if>
+
+            <div style="margin-top: 22px;">
+              <div style="font-family: 'Newsreader', Georgia, serif; font-size: 15px; margin-bottom: 4px;">How to accept</div>
+              <div style="font-size: 12px; color: oklch(0.36 0.02 255); line-height: 1.6; max-width: 560px;">Reply to this quote with the tier and quantity you'd like to proceed on. We'll issue a PO confirmation and production schedule within 2 business days of acceptance.</div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; margin-top: 26px; padding-top: 10px; border-top: 1px solid oklch(0.92 0.010 85); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: oklch(0.68 0.012 255);">
+              <span>The DPS · {{ docNumber }}</span>
+              <span>Page 1 of {{ pageCount }}</span>
+            </div>
+          </div>
+
+          <sc-if value="{{ showAddendum }}" hint-placeholder-val="{{ false }}">
+            <div style="background: oklch(0.995 0.003 85); box-shadow: 0 24px 60px oklch(0.20 0.02 255 / 0.10); border: 1px solid oklch(0.88 0.012 85); padding: 54px 58px 42px; min-height: 1056px; display: flex; flex-direction: column;">
+              <div style="display: flex; justify-content: space-between; padding-bottom: 13px; border-bottom: 1px solid oklch(0.88 0.012 85); font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255);">
+                <span>The DPS · {{ docNumber }}</span><span>Specification addendum</span>
+              </div>
+              <div style="padding-top: 20px;">
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255);">Addendum A</div>
+                <div style="font-family: 'Newsreader', Georgia, serif; font-size: 21px; margin: 4px 0 16px;">Product specifications</div>
+                <sc-for list="{{ specs }}" as="spec" hint-placeholder-count="3">
+                  <div style="border: 1px solid oklch(0.90 0.010 85); padding: 15px 17px; margin-bottom: 11px;">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                      <div style="font-family: 'Newsreader', Georgia, serif; font-size: 16px;">{{ spec.name }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: oklch(0.52 0.015 255);">{{ spec.code }}</div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 11px;">
+                      <sc-for list="{{ spec.fields }}" as="f" hint-placeholder-count="6">
+                        <div>
+                          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(0.68 0.012 255);">{{ f.k }}</div>
+                          <div style="font-size: 12px; margin-top: 2px; color: oklch(0.36 0.02 255);">{{ f.v }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="flex: 1;"></div>
+              <div style="display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid oklch(0.92 0.010 85); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: oklch(0.68 0.012 255);">
+                <span>The DPS · {{ docNumber }}</span><span>Page 2 of {{ pageCount }}</span>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+
+    <div style="flex: none; width: {{ railW }}; display: flex; flex-direction: column; min-height: 0; background: oklch(0.965 0.008 85);">
+      <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 13px;">
+
+        <div style="flex: none; background: oklch(0.945 0.010 85); border: 1px dashed oklch(0.82 0.014 85); border-radius: 10px; padding: 12px 14px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 9px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.52 0.015 255);">Governed · not editable here</span>
+            <div style="flex: 1;"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.52 0.015 255);">🔒</span>
+          </div>
+          <sc-for list="{{ governedRows }}" as="g" hint-placeholder-count="4">
+            <div style="display: flex; align-items: baseline; gap: 10px; padding: 4px 0; border-bottom: 1px solid oklch(0.92 0.010 85);">
+              <span style="flex: 1; font-size: 12px; color: oklch(0.36 0.02 255);">{{ g.k }}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: oklch(0.20 0.02 255);">{{ g.v }}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: oklch(0.68 0.012 255); min-width: 58px; text-align: right;">{{ g.src }}</span>
+            </div>
+          </sc-for>
+          <div style="font-size: 11px; color: oklch(0.52 0.015 255); line-height: 1.5; margin-top: 9px;">Cost amounts are owned by <a href="#costs">Costs</a> and <a href="#pricing">Pricing</a>. This surface decides how they are <strong style="font-weight: 500; color: oklch(0.36 0.02 255);">recovered</strong> and how they are <strong style="font-weight: 500; color: oklch(0.36 0.02 255);">shown</strong> — never what they are.</div>
+        </div>
+
+        <div style="flex: none; background: oklch(0.985 0.006 85); border: 1px solid oklch(0.82 0.014 85); border-radius: 10px; overflow: hidden;">
+          <div style="padding: 11px 14px 10px; border-bottom: 1px solid oklch(0.92 0.010 85); display: flex; align-items: baseline; gap: 8px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.68 0.012 255);">1</span>
+            <div>
+              <div style="font-family: 'Newsreader', Georgia, serif; font-size: 16px;">Commercial recovery</div>
+              <div style="font-size: 11.5px; color: oklch(0.52 0.015 255); margin-top: 1px;">Changes sell price and margin. Runs through pricing governance.</div>
+            </div>
+          </div>
+
+          <sc-for list="{{ charges }}" as="ch" hint-placeholder-count="5">
+            <div style="padding: 10px 14px; border-bottom: 1px solid oklch(0.94 0.008 85);">
+              <div style="display: flex; align-items: baseline; gap: 8px;">
+                <span style="flex: 1; font-size: 13px;">{{ ch.label }}</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: oklch(0.36 0.02 255);">{{ ch.recover }}</span>
+              </div>
+              <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: oklch(0.68 0.012 255); margin: 2px 0 7px;">{{ ch.policy }}</div>
+              <div style="display: flex; gap: 5px;">
+                <sc-for list="{{ ch.options }}" as="opt" hint-placeholder-count="3">
+                  <button onClick="{{ opt.pick }}" title="{{ opt.title }}" style="{{ opt.style }}">{{ opt.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+
+          <div style="padding: 11px 14px; background: oklch(0.975 0.010 85);">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 7px;">Margin after recovery · all governed tiers · floor 25% · target 30%</div>
+            <div style="display: flex; gap: 6px;">
+              <sc-for list="{{ marginCards }}" as="m" hint-placeholder-count="3">
+                <div style="{{ m.style }}">
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: 0.75;">{{ m.label }}</div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 3px;">{{ m.pct }}</div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; margin-top: 2px;">{{ m.state }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="{{ govNoteStyle }}">{{ govNote }}</div>
+          </div>
+        </div>
+
+        <div style="flex: none; background: oklch(0.985 0.006 85); border: 1px solid oklch(0.88 0.012 85); border-radius: 10px; overflow: hidden;">
+          <div style="padding: 11px 14px 10px; border-bottom: 1px solid oklch(0.92 0.010 85); display: flex; align-items: baseline; gap: 8px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.68 0.012 255);">2</span>
+            <div>
+              <div style="font-family: 'Newsreader', Georgia, serif; font-size: 16px;">Customer presentation</div>
+              <div style="font-size: 11.5px; color: oklch(0.52 0.015 255); margin-top: 1px;">Never changes economics. Display only.</div>
+            </div>
+          </div>
+
+          <div style="padding: 11px 14px; border-bottom: 1px solid oklch(0.94 0.008 85);">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 6px;">Shape</div>
+            <div style="display: flex; gap: 6px;">
+              <button onClick="{{ setItemized }}" style="{{ segItemized }}">Itemized<span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; opacity: 0.7; margin-top: 2px;">line by line</span></button>
+              <button onClick="{{ setTurnkey }}" style="{{ segTurnkey }}">Turnkey<span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; opacity: 0.7; margin-top: 2px;">one number</span></button>
+            </div>
+          </div>
+
+          <div style="padding: 11px 14px; border-bottom: 1px solid oklch(0.94 0.008 85);">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); margin-bottom: 6px;">Tiers shown</div>
+            <div style="display: flex; gap: 6px;">
+              <sc-for list="{{ tierToggles }}" as="t" hint-placeholder-count="3">
+                <button onClick="{{ t.flip }}" style="{{ t.style }}">{{ t.label }}<span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; opacity: 0.7; margin-top: 2px;">{{ t.qty }}</span></button>
+              </sc-for>
+            </div>
+            <div style="display: flex; align-items: center; gap: 7px; margin-top: 9px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255);">Recommended</span>
+              <div style="display: flex; gap: 5px;">
+                <sc-for list="{{ recChoices }}" as="r" hint-placeholder-count="3">
+                  <button onClick="{{ r.pick }}" style="{{ r.style }}">{{ r.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <sc-for list="{{ toggles }}" as="tg" hint-placeholder-count="4">
+            <div onClick="{{ tg.flip }}" style="{{ tg.rowStyle }}">
+              <span style="{{ tg.trackStyle }}"><span style="{{ tg.knobStyle }}"></span></span>
+              <span style="flex: 1;">
+                <span style="display: block; font-size: 12.5px;">{{ tg.label }}</span>
+                <span style="display: block; font-size: 11px; color: oklch(0.52 0.015 255); margin-top: 1px;">{{ tg.meta }}</span>
+              </span>
+              <span style="{{ tg.stateStyle }}">{{ tg.state }}</span>
+            </div>
+          </sc-for>
+
+          <div style="padding: 11px 14px;">
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255);">Customer note</span>
+              <div style="flex: 1;"></div>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.68 0.012 255);">{{ noteCount }}/400</span>
+            </div>
+            <textarea value="{{ note }}" onChange="{{ editNote }}" rows="3" placeholder="Printed verbatim above How to accept." style="width: 100%; resize: vertical; border: 1px solid oklch(0.82 0.014 85); border-radius: 7px; padding: 8px 9px; font-size: 12.5px; line-height: 1.55; background: oklch(0.995 0.003 85); color: oklch(0.20 0.02 255);"></textarea>
+          </div>
+        </div>
+
+        <div style="flex: none; background: oklch(0.95 0.02 300); border: 1px solid oklch(0.90 0.03 300); border-radius: 10px; overflow: hidden;">
+          <div style="padding: 11px 14px 10px; border-bottom: 1px solid oklch(0.90 0.03 300); display: flex; align-items: baseline; gap: 8px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: oklch(0.55 0.06 300);">3</span>
+            <div style="flex: 1;">
+              <div style="font-family: 'Newsreader', Georgia, serif; font-size: 16px;">Accounting handoff</div>
+              <div style="font-size: 11.5px; color: oklch(0.45 0.04 300); margin-top: 1px;">Inherited on acceptance. Never printed for the customer.</div>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.07em; text-transform: uppercase; color: oklch(0.55 0.06 300); background: oklch(0.985 0.006 85); border: 1px solid oklch(0.90 0.03 300); padding: 3px 6px; border-radius: 4px;">internal</span>
+          </div>
+
+          <div style="padding: 11px 14px; border-bottom: 1px solid oklch(0.90 0.03 300);">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.55 0.06 300); margin-bottom: 7px;">Commercial agreement · read-only</div>
+            <sc-for list="{{ agreementRows }}" as="a" hint-placeholder-count="6">
+              <div style="display: flex; align-items: baseline; gap: 10px; padding: 4px 0; border-bottom: 1px solid oklch(0.92 0.02 300);">
+                <span style="flex: 1; font-size: 12px; color: oklch(0.45 0.04 300);">{{ a.k }}</span>
+                <span style="font-size: 12px; text-align: right; color: oklch(0.20 0.02 255);">{{ a.v }}</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: oklch(0.60 0.05 300); min-width: 56px; text-align: right;">{{ a.src }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="padding: 11px 14px; border-bottom: 1px solid oklch(0.90 0.03 300);">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.55 0.06 300); margin-bottom: 7px;">Customer received · derived</div>
+            <sc-for list="{{ receivedRows }}" as="r" hint-placeholder-count="7">
+              <div style="display: flex; align-items: baseline; gap: 10px; padding: 3px 0;">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; color: oklch(0.60 0.05 300); min-width: 92px;">{{ r.k }}</span>
+                <span style="flex: 1; font-size: 12px; color: oklch(0.20 0.02 255);">{{ r.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="padding: 11px 14px;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.55 0.06 300); margin-bottom: 6px;">Instruction to Accounting · authored here</div>
+            <textarea value="{{ acctNote }}" onChange="{{ editAcctNote }}" rows="3" placeholder="e.g. Invoice freight on the shipment invoice, not the deposit." style="width: 100%; resize: vertical; border: 1px solid oklch(0.90 0.03 300); border-radius: 7px; padding: 8px 9px; font-size: 12.5px; line-height: 1.55; background: oklch(0.995 0.003 85); color: oklch(0.20 0.02 255);"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex: none; border-top: 1px solid oklch(0.82 0.014 85); background: oklch(0.985 0.006 85); padding: 12px 16px 15px; box-shadow: 0 -8px 24px oklch(0.20 0.02 255 / 0.05);">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <span style="{{ sendChipStyle }}">{{ sendChip }}</span>
+          <span style="font-size: 11.5px; color: oklch(0.52 0.015 255);">{{ sendLine }}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;">
+          <sc-for list="{{ checks }}" as="c" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: oklch(0.36 0.02 255);">
+              <span style="{{ c.markStyle }}">{{ c.mark }}</span>{{ c.label }}
+            </div>
+          </sc-for>
+        </div>
+        <button onClick="{{ send }}" style="{{ sendBtnStyle }}">{{ sendBtnLabel }}</button>
+        <div style="display: flex; gap: 7px; margin-top: 7px;">
+          <button onClick="{{ noop }}" title="Generates the PDF and saves it to your Downloads." style="flex: 1; border: 1px solid oklch(0.82 0.014 85); background: oklch(0.985 0.006 85); color: oklch(0.36 0.02 255); border-radius: 7px; padding: 9px 10px; font-size: 12.5px; text-align: center;" style-hover="border-color: oklch(0.52 0.015 255);">⤓ Download PDF</button>
+          <button onClick="{{ noop }}" title="Generates the PDF, saves it to Downloads, and opens a new draft in your default mail client addressed to the customer." style="flex: 1; border: 1px solid oklch(0.82 0.014 85); background: oklch(0.985 0.006 85); color: oklch(0.36 0.02 255); border-radius: 7px; padding: 9px 10px; font-size: 12.5px; text-align: center;" style-hover="border-color: oklch(0.52 0.015 255);">↳ Download + mail draft</button>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: oklch(0.68 0.012 255); margin-top: 6px;">{{ artifactLine }}</div>
+        <div style="font-size: 11px; color: oklch(0.68 0.012 255); margin-top: 7px; line-height: 1.5;">{{ sendFoot }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;railWidth&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:452,&quot;min&quot;:380,&quot;max&quot;:560,&quot;step&quot;:8,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Layout&quot;}}">
+const TIERS = [
+  { id: "t1", label: "Tier 1", qty: 1000, sub: "1k units" },
+  { id: "t2", label: "Tier 2", qty: 5000, sub: "5k units" },
+  { id: "t3", label: "Tier 3", qty: 10000, sub: "10k units" },
+];
+const SKUS = [
+  { name: "Primary bottle · 200ml", meta: "BTL-200 · 24/case", prices: [3.62, 3.28, 3.05] },
+  { name: "Airless pump", meta: "PMP-4208 · 48/case", prices: [1.94, 1.71, 1.58] },
+  { name: "Serum fill, cap & label", meta: "FIL-SER · per unit", prices: [2.40, 2.15, 1.98] },
+];
+const GOODS_COST_RATIO = 0.62;
+
+// Governed charges: cost and approved recovery amount are owned upstream.
+// `allowed` is the charge's governed recovery policy — the operator may only pick from it.
+const CHARGES = [
+  { id: "freight", label: "Container freight", cost: 900, recover: 1150, basis: "per shipment",
+    allowed: ["included", "separate"], reason: { absorbed: "Policy: freight must be recovered" }, default: "included" },
+  { id: "duty", label: "Duty & tariffs", cost: 520, recover: 520, basis: "pass-through, at cost",
+    allowed: ["included", "separate"], reason: { absorbed: "Statutory pass-through — cannot be absorbed" }, default: "included" },
+  { id: "tooling", label: "Tooling — pump collar", cost: 1400, recover: 1750, basis: "one-time",
+    allowed: ["included", "separate", "absorbed"], reason: {}, default: "included" },
+  { id: "setup", label: "Project setup", cost: 700, recover: 900, basis: "one-time",
+    allowed: ["included", "separate", "absorbed"], reason: {}, default: "included" },
+  { id: "artwork", label: "Artwork & plate", cost: 300, recover: 380, basis: "per SKU · 3 SKUs",
+    allowed: ["included", "absorbed"], reason: { separate: "Not separately invoiceable" }, default: "included" },
+];
+const OPTS = [
+  { id: "included", label: "In unit price" },
+  { id: "separate", label: "Separate" },
+  { id: "absorbed", label: "Absorbed" },
+];
+const SPECS = [
+  { name: "Primary bottle · 200ml", code: "BTL-200", fields: [
+    { k: "Material", v: "PET, 30% PCR" }, { k: "Neck", v: "24/410" }, { k: "Finish", v: "Soft-touch matte" },
+    { k: "Decoration", v: "2-colour screen" }, { k: "Tolerance", v: "±0.4mm" }, { k: "Cert", v: "FDA food-contact" }] },
+  { name: "Airless pump", code: "PMP-4208", fields: [
+    { k: "Dose", v: "0.20ml ±10%" }, { k: "Body", v: "PP / POM" }, { k: "Actuation", v: "≤ 12N" },
+    { k: "Cycles", v: "3,000 tested" }, { k: "Colour", v: "Pantone 7541 C" }, { k: "Cert", v: "ISO 9001 line" }] },
+  { name: "Serum fill, cap & label", code: "FIL-SER", fields: [
+    { k: "Fill", v: "200ml ±1.5%" }, { k: "Environment", v: "ISO 8 clean room" }, { k: "Torque", v: "14–18 in-lb" },
+    { k: "Label", v: "BOPP, 3-mil" }, { k: "Batch", v: "Lot + expiry coded" }, { k: "QC", v: "AQL 1.0 major" }] },
+];
+const FLOOR = 0.25, TARGET = 0.30;
+const money = n => "$" + Math.round(n).toLocaleString("en-US");
+const unit = n => "$" + n.toFixed(2);
+const pct = n => (n * 100).toFixed(1) + "%";
+
+class Component extends DCLogic {
+  state = {
+    recovery: CHARGES.reduce((a, c) => (a[c.id] = c.default, a), {}),
+    detail: "itemized",
+    shown: { t1: true, t2: true, t3: true },
+    recTier: "t2",
+    include: { feeLines: true, terms: true, note: true, addendum: false },
+    note: "Tier 2 pricing holds through Q4 2026 if the PO lands before Oct 15.",
+    acctNote: "Invoice freight on the shipment invoice, not the deposit.",
+    zoom: 0.78,
+    frozen: false,
+    approval: null, // null | "requested" | "granted" — cleared whenever recovery changes
+  };
+
+  setRecovery(id, mode) {
+    this.setState(p => ({
+      recovery: Object.assign({}, p.recovery, { [id]: mode }),
+      approval: null, // economics moved — any prior exception is void
+    }));
+  }
+
+  seg(active, opts) {
+    const o = opts || {};
+    return {
+      flex: o.grow === false ? "none" : 1, textAlign: "left", borderRadius: 6,
+      padding: o.tight ? "5px 8px" : "8px 10px", fontSize: o.tight ? 11.5 : 12.5, lineHeight: 1.2,
+      cursor: o.disabled ? "not-allowed" : "pointer", transition: "all 120ms",
+      opacity: o.disabled ? 0.42 : 1,
+      background: active ? "oklch(0.20 0.02 255)" : "oklch(0.985 0.006 85)",
+      color: active ? "oklch(0.985 0.006 85)" : "oklch(0.36 0.02 255)",
+      border: "1px solid " + (active ? "oklch(0.20 0.02 255)" : "oklch(0.82 0.014 85)"),
+    };
+  }
+
+  econ(tierIdx) {
+    const t = TIERS[tierIdx];
+    const goodsSell = SKUS.reduce((a, k) => a + k.prices[tierIdx], 0) * t.qty;
+    const goodsCost = goodsSell * GOODS_COST_RATIO;
+    let included = 0, separate = 0, absorbed = 0, chargeCost = 0;
+    CHARGES.forEach(c => {
+      chargeCost += c.cost;
+      const m = this.state.recovery[c.id];
+      if (m === "included") included += c.recover;
+      else if (m === "separate") separate += c.recover;
+      else absorbed += c.recover;
+    });
+    const revenue = goodsSell + included + separate;
+    const cost = goodsCost + chargeCost;
+    return {
+      tier: t, goodsSell, included, separate, absorbed,
+      unitTotal: goodsSell + included,
+      payable: revenue,
+      perUnit: (goodsSell + included) / t.qty,
+      amortUnit: included / t.qty,
+      margin: revenue > 0 ? (revenue - cost) / revenue : 0,
+    };
+  }
+
+  flipInc(k) { return () => this.setState(s => ({ include: Object.assign({}, s.include, { [k]: !s.include[k] }) })); }
+
+  renderVals() {
+    const s = this.state;
+    const isItemized = s.detail === "itemized";
+    let idxs = TIERS.map((t, i) => i).filter(i => s.shown[TIERS[i].id]);
+    if (!idxs.length) idxs = [TIERS.findIndex(t => t.id === s.recTier)];
+    const recIdx = TIERS.findIndex(t => t.id === s.recTier);
+    const e = idxs.map(i => this.econ(i));
+    const allE = TIERS.map((t, i) => this.econ(i));
+    // Governance evaluates EVERY governed tier — never only the shown ones.
+    // A display toggle must not be able to clear a floor breach.
+    const breaches = TIERS.filter((t, i) => allE[i].margin < FLOOR - 1e-6);
+    const approved = s.approval === "granted";
+    const needsApproval = breaches.length > 0;
+    const blocked = needsApproval && !approved;
+
+    const sepCharges = CHARGES.filter(c => s.recovery[c.id] === "separate");
+    const incCharges = CHARGES.filter(c => s.recovery[c.id] === "included");
+    const absCharges = CHARGES.filter(c => s.recovery[c.id] === "absorbed");
+    const recE = this.econ(recIdx);
+
+    const charges = CHARGES.map(c => ({
+      label: c.label,
+      recover: money(c.recover),
+      policy: "policy: " + c.allowed.map(a => OPTS.find(o => o.id === a).label.toLowerCase()).join(" / ") + " · cost governed",
+      options: OPTS.map(o => {
+        const permitted = c.allowed.includes(o.id);
+        return {
+          label: o.label,
+          title: permitted ? "" : (c.reason[o.id] || "Not permitted by this charge's governed policy"),
+          style: this.seg(permitted && s.recovery[c.id] === o.id, { disabled: !permitted, tight: true }),
+          pick: permitted && !s.frozen ? () => this.setRecovery(c.id, o.id) : () => {},
+        };
+      }),
+    }));
+
+    const marginCards = TIERS.map((t, i) => {
+      const m = allE[i].margin;
+      const below = m < FLOOR - 1e-6, under = m < TARGET - 1e-6;
+      const shown = idxs.indexOf(i) !== -1;
+      return {
+        label: t.label + (shown ? "" : " · not shown"), pct: pct(m),
+        state: below ? "below floor" : under ? "below target" : "on target",
+        style: {
+          flex: 1, borderRadius: 7, padding: "7px 9px",
+          background: below ? "oklch(0.94 0.04 25)" : under ? "oklch(0.94 0.05 70)" : "oklch(0.94 0.035 155)",
+          color: below ? "oklch(0.55 0.18 25)" : under ? "oklch(0.62 0.13 70)" : "oklch(0.55 0.10 155)",
+          border: "1px solid transparent", opacity: shown ? 1 : 0.62,
+        },
+      };
+    });
+
+    const govNote = blocked
+      ? "Recovery choice puts " + breaches.map(t => t.label).join(", ") + " below the 25% floor — evaluated across all governed tiers, whether or not the customer sees them. Send is blocked until Pricing approves; the same gate as any lift."
+      : needsApproval
+      ? "Below-floor exception approved by Dana K. for " + breaches.map(t => t.label).join(", ") + ". Changing any recovery election voids the approval."
+      : "Within governed floor on all tiers. No approval needed; the election is recorded against the version.";
+
+    const toggles = [
+      { key: "feeLines", label: "Itemize included charges", meta: s.include.feeLines
+          ? incCharges.length + " lines shown inside the price" : "collapsed to one sentence · total unchanged" },
+      { key: "terms", label: "Commercial terms block", meta: s.include.terms ? "validity, payment, lead time, incoterms" : "omitted — terms sent separately" },
+      { key: "addendum", label: "Specification addendum", meta: s.include.addendum ? "+1 page · 3 product panels" : "pricing-only PDF" },
+      { key: "note", label: "Customer note", meta: s.include.note ? "printed above How to accept" : "written but withheld" },
+    ].map(t => {
+      const on = s.include[t.key];
+      return {
+        label: t.label, meta: t.meta, state: on ? "Hide" : "Show", flip: this.flipInc(t.key),
+        stateStyle: { flex: "none", fontSize: 11, padding: "3px 8px", borderRadius: 5,
+          border: "1px solid " + (on ? "oklch(0.88 0.012 85)" : "oklch(0.42 0.14 255)"),
+          background: on ? "oklch(0.985 0.006 85)" : "oklch(0.92 0.04 255)",
+          color: on ? "oklch(0.52 0.015 255)" : "oklch(0.28 0.12 255)", fontWeight: on ? 400 : 500 },
+        rowStyle: { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+          borderBottom: "1px solid oklch(0.94 0.008 85)", cursor: "pointer",
+          background: on ? "transparent" : "oklch(0.972 0.008 85)" },
+        trackStyle: { flex: "none", width: 28, height: 16, borderRadius: 8, padding: 2, display: "flex",
+          transition: "all 140ms", background: on ? "oklch(0.42 0.14 255)" : "oklch(0.86 0.012 85)",
+          justifyContent: on ? "flex-end" : "flex-start" },
+        knobStyle: { width: 12, height: 12, borderRadius: "50%", background: "oklch(0.995 0.003 85)", boxShadow: "0 1px 2px oklch(0.20 0.02 255 / 0.25)" },
+      };
+    });
+
+    const recWord = m => m === "included" ? "in unit price" : m === "separate" ? "billed separately" : "absorbed — not charged";
+    const agreementRows = CHARGES.map(c => ({
+      k: c.label, v: recWord(s.recovery[c.id]) + " · " + money(c.recover),
+      src: s.recovery[c.id] === "absorbed" ? "not billed" : "this quote",
+    })).concat([
+      { k: "Payment terms", v: "50% deposit / balance at shipment", src: "sales order" },
+      { k: "Deposit", v: "50% of accepted tier — resolves on acceptance", src: "sales order" },
+      { k: "Bill to", v: "ap@lumenbeauty.com", src: "customer" },
+      { k: "Incoterms", v: sepCharges.some(c => c.id === "freight") ? "EXW Long Beach" : "FOB Long Beach", src: "derived" },
+    ]);
+
+    const receivedRows = [
+      { k: "Shape", v: isItemized ? "Itemized — per-unit and extended" : "Turnkey — one figure per tier" },
+      { k: "Tiers shown", v: idxs.map(i => TIERS[i].label).join(" · ") },
+      { k: "Recommended", v: TIERS[recIdx].label + (s.shown[s.recTier] ? "" : " (not shown on the document)") },
+      { k: "In unit price", v: incCharges.length ? incCharges.map(c => c.label).join(", ") : "none" },
+      { k: "Separate", v: sepCharges.length ? sepCharges.map(c => c.label).join(", ") : "none" },
+      { k: "Absorbed", v: absCharges.length ? absCharges.map(c => c.label).join(", ") + " — never shown to the customer" : "none" },
+      { k: "Fees", v: s.include.feeLines ? "itemized inside the price" : "collapsed to one sentence" },
+      { k: "Terms", v: s.include.terms ? "on the document" : "sent separately" },
+      { k: "Addendum", v: s.include.addendum ? "included" : "not included" },
+      { k: "Note", v: s.include.note && s.note.trim() ? "included" : s.note.trim() ? "written but withheld" : "none" },
+    ];
+
+    const checks = [
+      { ok: !blocked, label: blocked
+          ? "Recovery below floor at " + breaches.map(t => t.label).join(", ") + " — Pricing approval required"
+          : needsApproval
+          ? "Below-floor exception approved — Dana K., " + breaches.map(t => t.label).join(", ")
+          : "Recovery within governed floor on all tiers" },
+      { ok: true, label: "Presentation: " + (isItemized ? "itemized" : "turnkey") + " · " + idxs.length + " tier" + (idxs.length > 1 ? "s" : "") },
+      { ok: s.acctNote.trim().length > 0, label: s.acctNote.trim() ? "Accounting instruction recorded" : "Accounting instruction empty" },
+      { ok: true, label: "Delivery is manual — Nexus does not email the customer" },
+    ].map(c => ({
+      label: c.label, mark: c.ok ? "✓" : "!",
+      markStyle: { flex: "none", width: 15, height: 15, borderRadius: "50%", display: "grid", placeItems: "center",
+        fontSize: 9, fontFamily: "'JetBrains Mono', monospace",
+        background: c.ok ? "oklch(0.94 0.035 155)" : "oklch(0.94 0.04 25)",
+        color: c.ok ? "oklch(0.55 0.10 155)" : "oklch(0.55 0.18 25)" },
+    }));
+
+    const feeLines = incCharges.map(c => ({ label: c.label, basis: c.basis, qty: "1 ×", amt: money(c.recover) }));
+    const separateLines = sepCharges.map(c => ({ label: c.label, basis: c.basis, qty: "1 ×", amt: money(c.recover) }));
+
+    return {
+      railW: (this.props.railWidth ?? 452) + "px",
+      zoom: s.zoom, zoomLabel: Math.round(s.zoom * 100) + "%",
+      zoomIn: () => this.setState(p => ({ zoom: Math.min(1.15, p.zoom + 0.08) })),
+      zoomOut: () => this.setState(p => ({ zoom: Math.max(0.5, p.zoom - 0.08) })),
+
+      quoteChip: s.frozen ? "Q-2419 · v1 frozen" : "Q-2419 · draft",
+      docNumber: s.frozen ? "Q-2419" : "Q-2419 · draft",
+      verdictChip: blocked ? "approval required" : needsApproval ? "exception approved" : "within floor",
+      verdictChipStyle: { fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.06em",
+        textTransform: "uppercase", padding: "3px 7px", borderRadius: 4,
+        background: blocked ? "oklch(0.94 0.04 25)" : needsApproval ? "oklch(0.94 0.05 70)" : "oklch(0.94 0.035 155)",
+        color: blocked ? "oklch(0.55 0.18 25)" : needsApproval ? "oklch(0.62 0.13 70)" : "oklch(0.55 0.10 155)" },
+
+      governedRows: [
+        { k: "Goods sell · " + TIERS[recIdx].label, v: money(recE.goodsSell), src: "pricing" },
+        { k: "Charges at cost", v: money(CHARGES.reduce((a, c) => a + c.cost, 0)), src: "costs" },
+        { k: "Approved recovery", v: money(CHARGES.reduce((a, c) => a + c.recover, 0)), src: "pricing" },
+        { k: "Margin floor / target", v: "25% / 30%", src: "policy" },
+      ],
+
+      charges, marginCards, govNote,
+      govNoteStyle: { fontSize: 11.5, lineHeight: 1.5, marginTop: 9,
+        color: needsApproval ? "oklch(0.55 0.18 25)" : "oklch(0.52 0.015 255)" },
+
+      isItemized, isTurnkey: !isItemized,
+      setItemized: () => this.setState({ detail: "itemized" }),
+      setTurnkey: () => this.setState({ detail: "turnkey" }),
+      segItemized: this.seg(isItemized), segTurnkey: this.seg(!isItemized),
+      tierToggles: TIERS.map(t => ({
+        label: t.label, qty: t.sub, style: this.seg(!!s.shown[t.id]),
+        flip: () => this.setState(p => ({ shown: Object.assign({}, p.shown, { [t.id]: !p.shown[t.id] }) })),
+      })),
+      recChoices: TIERS.map(t => ({
+        label: t.label, style: this.seg(s.recTier === t.id, { tight: true, grow: false }),
+        pick: () => this.setState({ recTier: t.id }),
+      })),
+      toggles, note: s.note, noteCount: s.note.length,
+      editNote: ev => this.setState({ note: ev.target.value.slice(0, 400) }),
+
+      agreementRows, receivedRows,
+      acctNote: s.acctNote, editAcctNote: ev => this.setState({ acctNote: ev.target.value }),
+
+      cols: e.map((x, n) => ({
+        label: x.tier.label,
+        sub: x.tier.sub + (TIERS[idxs[n]].id === s.recTier ? " · recommended" : ""),
+        unitTotal: money(x.unitTotal), perUnit: unit(x.perUnit),
+        amortUnit: unit(x.amortUnit), amortExt: money(x.included),
+      })),
+      colTrack: "repeat(" + idxs.length + ", " + (idxs.length === 1 ? "190px" : idxs.length === 2 ? "140px" : "112px") + ")",
+      rows: SKUS.map(k => ({ name: k.name, meta: k.meta,
+        cells: idxs.map(i => ({ unit: unit(k.prices[i]), ext: money(k.prices[i] * TIERS[i].qty) })) })),
+      hasAmortized: incCharges.length > 0,
+      amortizedLabel: "Landed charges — " + incCharges.length + " item" + (incCharges.length === 1 ? "" : "s"),
+      totalLabel: sepCharges.length ? "Unit-price subtotal" : "Turnkey total",
+      totalSub: sepCharges.length ? "before separately-billed charges" : "all-in for this tier's order",
+      pricingEyebrow: idxs.length === 1 ? "Confirmed pricing" : "Tiered pricing",
+      pricingTitle: idxs.length === 1 ? "Per-unit pricing · " + TIERS[idxs[0]].label : "Per-unit pricing across volume tiers",
+      pricingLede: (sepCharges.length
+        ? "Pricing landed EXW Long Beach. The charges listed below the table are invoiced separately."
+        : "Pricing landed FOB Long Beach — freight, duty and applicable tariffs are included in the unit price shown.")
+        + (idxs.length > 1 ? " " + TIERS[recIdx].label + " is our recommended first-PO volume." : ""),
+      turnkeyTitle: idxs.length === 1 ? "Your turnkey total" : "Turnkey total by volume tier",
+      turnkeyLede: sepCharges.length
+        ? "One figure per tier for the manufactured basket. Charges listed below are invoiced separately."
+        : "One number per volume tier — freight, duty, tooling and one-time fees are landed in the price shown.",
+      includesLines: [{ text: "→ Three finished products — BTL-200 · PMP-4208 · FIL-SER" }]
+        .concat(incCharges.map(c => ({ text: "→ " + c.label + " — included in the price" })))
+        .concat(sepCharges.map(c => ({ text: "× " + c.label + " — invoiced separately" }))),
+
+      showSeparate: separateLines.length > 0, separateLines,
+      payableLabel: "Total payable · " + TIERS[idxs[0]].label,
+      payableTotal: money(e[0].payable),
+      showFeeLines: isItemized && s.include.feeLines && feeLines.length > 0, feeLines,
+      showFeeNote: isItemized && !s.include.feeLines && incCharges.length > 0,
+      feeNote: "Freight, duty, tooling and one-time fees of " + money(incCharges.reduce((a, c) => a + c.recover, 0)) +
+        " are included in the totals above — itemization available on request.",
+      showTerms: s.include.terms,
+      termRows: [
+        { k: "Valid until", v: "October 15, 2026" },
+        { k: "Payment terms", v: "50% deposit / balance at shipment" },
+        { k: "Lead time", v: "8–12 weeks from confirmed PO" },
+        { k: "Incoterms", v: sepCharges.some(c => c.id === "freight") ? "EXW Long Beach" : "FOB Long Beach" },
+      ],
+      hasNote: s.include.note && s.note.trim().length > 0,
+      showAddendum: s.include.addendum, specs: SPECS,
+      pageCount: s.include.addendum ? 2 : 1,
+      previewSummary: (isItemized ? "Itemized" : "Turnkey") + " · " + idxs.length + " tier" + (idxs.length > 1 ? "s" : "") +
+        " · " + (sepCharges.length ? sepCharges.length + " charge" + (sepCharges.length > 1 ? "s" : "") + " billed separately" : "all-in unit price"),
+
+      frozen: s.frozen,
+      frozenLine: "Recovery and presentation frozen on v1 · Aug 21, 2026 · changes create v2.",
+      checks,
+      sendChip: s.frozen ? "frozen · v1" : blocked ? "blocked" : needsApproval ? "approved exception" : "draft",
+      sendChipStyle: { fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, letterSpacing: "0.07em",
+        textTransform: "uppercase", padding: "3px 7px", borderRadius: 4,
+        background: s.frozen ? "oklch(0.94 0.035 155)" : blocked ? "oklch(0.94 0.04 25)" : "oklch(0.94 0.05 70)",
+        color: s.frozen ? "oklch(0.55 0.10 155)" : blocked ? "oklch(0.55 0.18 25)" : "oklch(0.62 0.13 70)" },
+      sendLine: s.frozen ? "nadia@lumenbeauty.com · delivery not recorded" : "nadia@lumenbeauty.com",
+      artifactLine: s.frozen
+        ? "both actions emit the frozen v1 artifact · mail draft opens in your default client"
+        : "both actions emit a draft-marked PDF · mail draft opens in your default client",
+      sendBtnLabel: s.frozen ? "Frozen — start v2" : blocked ? "Request pricing approval" : "Freeze & send",
+      sendBtnStyle: {
+        display: "block", width: "100%", textAlign: "center",
+        borderRadius: 7, padding: "11px 14px", fontSize: 13.5, fontWeight: 500, cursor: "pointer",
+        border: "1px solid " + (s.frozen ? "oklch(0.82 0.014 85)" : blocked ? "oklch(0.55 0.18 25)" : "oklch(0.42 0.14 255)"),
+        background: s.frozen ? "oklch(0.965 0.008 85)" : blocked ? "oklch(0.94 0.04 25)" : "oklch(0.42 0.14 255)",
+        color: s.frozen ? "oklch(0.36 0.02 255)" : blocked ? "oklch(0.55 0.18 25)" : "oklch(0.985 0.006 85)",
+      },
+      send: () => {
+        if (s.frozen) this.setState({ frozen: false });
+        else if (blocked) this.setState({ approval: "granted" }); // stands in for the out-of-band Pricing approval
+        else this.setState({ frozen: true });
+      },
+      sendFoot: s.frozen
+        ? "Recovery, presentation, the exact PDF and the Accounting instruction are frozen on v1. Delivery is recorded separately."
+        : blocked
+        ? "Recovery below floor. Approval is the same gate as a pricing lift — nothing sends until it clears."
+        : needsApproval
+        ? "Freezes the approved below-floor election, the presentation, this exact PDF and the Accounting instruction against v1."
+        : "Freezes recovery + presentation + this exact PDF against v1, and files the Accounting instruction.",
+      noop: () => {},
+    };
+  }
+}
+
+</script>
+</body>
+</html>
