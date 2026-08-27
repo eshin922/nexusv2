@@ -59,6 +59,7 @@ import { OrderReceipt } from "./order-receipt";
 import type { OrderReceiptFlag, OrderReceiptLine, OrderReceiptOneTime, ReceiptState } from "./order-receipt";
 import { SendOrderModal } from "./send-order-modal";
 import type { SubTabId } from "./subtabs";
+import { runGoverned } from "@/lib/governed-action";
 
 function usd(n: number, dec = 0): string {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -531,22 +532,44 @@ export function TabSalesOrder({
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     startTransition(async () => {
-      const result = await markComplete(fd);
-      if (result.ok) {
+      const result = await runGoverned(() => markComplete(fd));
+      if (result.kind === "ok") {
         // Success: refresh so page.tsx re-reads quote.status='complete'
         // and the record variant renders with real soId/soCreatedAt.
         // Modal will unmount when the parent re-renders (variant flip).
         router.refresh();
         setModal(false);
-      } else {
-        // Failure: keep the modal open so the PM sees the error next
-        // to what they were about to send. router.refresh() surfaces
-        // the persisted netsuite_so_pushes row for the failed variant
-        // on any subsequent navigation. Modal's cancel button
-        // dismisses back to the failed-tab.
-        setInFlightError(result.error.message);
-        router.refresh();
+        return;
       }
+      // Failure: keep the modal open so the PM sees the error next
+      // to what they were about to send. router.refresh() surfaces
+      // the persisted netsuite_so_pushes row for the failed variant
+      // on any subsequent navigation. Modal's cancel button
+      // dismisses back to the failed-tab.
+      //
+      // AN UNREACHABLE SERVER GETS ITS OWN SENTENCE HERE, and this is the one
+      // place in the product where the generic one would be wrong. Everywhere
+      // else, "this may or may not have gone through" is an inconvenience. On
+      // the irreversible act it is the whole question: the operator cannot see
+      // whether a Sales Order now exists, and silence — which is what this
+      // was, before this repair — is the worst possible answer to it.
+      //
+      // What the sentence can truthfully promise is that retrying is safe. A
+      // duplicate is refused at three independent layers: `markComplete`'s own
+      // prior-success check on `netsuite_so_pushes` (STEP 6), the ownership
+      // veto in `decideReconciliation`, and the NetSuite-side
+      // `_dps_ue_prevent_dupplicated_so` UserEvent. So the instruction is to
+      // look and then retry, never to assume in either direction.
+      setInFlightError(
+        result.kind === "unreachable"
+          ? "Couldn't reach the server, so it is not known whether the Sales " +
+              "Order was created. Nothing here can tell you — reload and check " +
+              "the order record below before doing anything else. Sending " +
+              "again is safe: an order that already exists for this deal is " +
+              "detected and refused rather than duplicated."
+          : result.message,
+      );
+      router.refresh();
     });
   }
 

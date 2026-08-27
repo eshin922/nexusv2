@@ -228,3 +228,30 @@ test("every enforced call site routes through the helper", async () => {
     assert.ok(readFileSync(f, "utf8").includes('role="alert"'), `${f} needs role="alert"`);
   }
 });
+
+test("Phase 0 · the irreversible push and the second sendQuote site are guarded", async () => {
+  const { readFileSync } = await import("node:fs");
+
+  // `markComplete` is the one irreversible act in the product. A rejection here
+  // used to leave the operator unable to tell whether a Sales Order existed.
+  const so = readFileSync("src/components/quote-umbrella/tab-sales-order.tsx", "utf8");
+  assert.ok(so.includes("runGoverned(() => markComplete(fd))"));
+  assert.ok(so.includes('result.kind === "unreachable"'));
+  // And it does NOT reuse the generic sentence: on the irreversible act the
+  // operator needs to be told to go and look, and told that retrying is safe.
+  assert.ok(
+    so.includes("it is not known whether the Sales Order was created") ||
+      so.includes("not known whether the Sales "),
+    "the irreversible act needs its own sentence",
+  );
+  assert.ok(so.includes("detected and refused rather than duplicated"));
+
+  // The SECOND call site of the action soak run 5 caught. Repairing only the
+  // one the soak landed on would scope the fix to the evidence, not the defect.
+  const flow = readFileSync("src/components/quote-umbrella/send-quote-flow.tsx", "utf8");
+  assert.ok(flow.includes("runGoverned(() => sendQuote(fd))"));
+  assert.ok(flow.includes('setStatus({ kind: "error", message: r.message })'));
+  // `onClose` refuses to dismiss while sending, so a rejection that left the
+  // status pinned on "sending" shut the operator inside the modal.
+  assert.ok(flow.includes("if (isSending) return"), "the trap this repair opens");
+});

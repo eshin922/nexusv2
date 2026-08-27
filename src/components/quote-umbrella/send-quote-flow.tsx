@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { sendQuote } from "@/app/actions/quotes";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal/modal";
 import { useQuoteAxis } from "./quote-axis-context";
+import { runGoverned } from "@/lib/governed-action";
 
 type SendStatus =
   | { kind: "idle" }
@@ -87,9 +88,17 @@ export function SendQuoteFlow({
     fd.set("includeSpecAddendum", includeSpecAddendum ? "1" : "0");
     setStatus({ kind: "sending" });
     startTransition(async () => {
-      const r = await sendQuote(fd);
-      if (!r.ok) {
-        setStatus({ kind: "error", message: r.error.message });
+      // THE SECOND CALL SITE of the action soak run 5 caught. Repairing only
+      // the one the soak happened to land on would have scoped the fix to
+      // where the evidence was rather than to where the defect is.
+      //
+      // Worse here than on the Preview button, because `onClose` refuses to
+      // dismiss while `sending`: a rejection left the status pinned on
+      // "sending" forever and the operator shut inside an un-dismissable
+      // modal, with no error and no way out.
+      const r = await runGoverned(() => sendQuote(fd));
+      if (r.kind !== "ok") {
+        setStatus({ kind: "error", message: r.message });
         return;
       }
       setStatus({ kind: "success", quoteNumber: r.data.quoteNumber });
