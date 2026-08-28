@@ -269,7 +269,7 @@ test("collision labelling counts INSTANCES, not tier entries", () => {
   // One instance over four tiers is unambiguous and must carry no owner label;
   // labelling it would put lineage on a row nothing collides with.
   const one = build(rollups([LEAF_A], TIERS, () => [component("inst-1", LEAF_A, 1450, 1450)]));
-  assert.equal(one.find((r) => r.chargeInstanceId === "inst-1")!.ownerLabel, null);
+  assert.equal(one.find((r) => r.chargeInstanceId === "inst-1")!.qualifier, null);
 });
 
 // ══════════════════════════════════════════════════════════════════════

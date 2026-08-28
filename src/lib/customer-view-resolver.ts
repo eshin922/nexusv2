@@ -901,6 +901,10 @@ export async function resolveCustomerView(args: {
             state: r.state,
             chargeKey: r.chargeKey as RecoveryChargeKey,
             ownLabel: r.ownLabel,
+            // The causal owner, so an UNCOSTED sibling can be disambiguated on
+            // the same footing as a placed one — two components may each label
+            // their charge the same, and then only the owner separates them.
+            quoteLeafId: r.quoteLeafId,
             missingTierLabels: r.missingTierLabels,
           },
         ]),

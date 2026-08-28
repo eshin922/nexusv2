@@ -76,6 +76,7 @@ async function rowFor(quoteId: string, chargeInstanceId: string) {
           state: r.state,
           chargeKey: r.chargeKey as RecoveryChargeKey,
           ownLabel: r.ownLabel,
+          quoteLeafId: r.quoteLeafId,
           missingTierLabels: r.missingTierLabels,
         },
       ]),

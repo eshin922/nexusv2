@@ -673,6 +673,15 @@ const classifiedIdentityFiles = new Set([
   // owner id is carried out for the caller to label with; it is never used to
   // resolve anything, and `assembly_leaves` is never queried.
   "src/lib/component-charges/readiness.ts",
+  // CLASSIFIED - carries the canonical id outward, resolves nothing with it.
+  //
+  // The customer-view resolver. It reads component-charge readiness and passes
+  // each charge's causal owner (`quote_leaves.id`) into the recovery workspace
+  // so an uncosted charge can be disambiguated on the same footing as a placed
+  // one — two components may each label their charge alike, and then only the
+  // owner separates them. The id is carried and NAME-LOOKED-UP; nothing is
+  // resolved through it, and `assembly_leaves` is never queried.
+  "src/lib/customer-view-resolver.ts",
   // CLASSIFIED - the COSTS write path, and the identity is only carried.
   //
   // It writes `cost_amount` and `recovery_ask` on an existing instance, scoped

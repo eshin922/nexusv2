@@ -151,7 +151,7 @@ test("ONE charge of a type gets no owner label", () => {
   );
   // Nature reads; lineage does not need to. Labelling an unambiguous row would
   // put provenance on a surface where the type already says everything.
-  assert.equal(row.ownerLabel, null);
+  assert.equal(row.qualifier, null);
 });
 
 test("TWO charges of a type both get owner labels", () => {
@@ -167,7 +167,7 @@ test("TWO charges of a type both get owner labels", () => {
     ]),
   );
   assert.deepEqual(
-    rows.map((r) => r.ownerLabel).sort(),
+    rows.map((r) => r.qualifier).sort(),
     ["Dropper sleeve", "Kids' Cough carton"],
   );
 });
@@ -183,7 +183,7 @@ test("a missing name shows NO label rather than an id", () => {
     [],
     new Map(),
   );
-  assert.ok(rows.every((r) => r.ownerLabel === null));
+  assert.ok(rows.every((r) => r.qualifier === null));
 });
 
 test("a LEGACY row is never given an owner label", () => {
@@ -193,7 +193,7 @@ test("a LEGACY row is never given an owner label", () => {
     { key: "project_setup", placement: "unit_price", source: "legacy", cost: 1200, sell: 1680 },
   ]);
   const legacy = rows.find((r) => r.chargeKey === "project_setup");
-  assert.equal(legacy?.ownerLabel, undefined);
+  assert.equal(legacy?.qualifier, undefined);
   assert.equal(legacy?.chargeInstanceId, undefined);
 });
 
@@ -305,7 +305,7 @@ test("send refuses while any charge is unplaced, and names them", () => {
   // NAMED. A refusal that says only "something is undecided" leaves the
   // operator hunting a surface they have already looked at.
   assert.match(send, /Recovery is undecided for \$\{unplaced\.length\}/);
-  assert.match(send, /r\.ownerLabel \? `\$\{r\.label\} · \$\{r\.ownerLabel\}` : r\.label/);
+  assert.match(send, /r\.qualifier \? `\$\{r\.label\} · \$\{r\.qualifier\}` : r\.label/);
 });
 
 test("the refusal precedes the freeze, and the freeze refuses too", () => {
@@ -449,7 +449,7 @@ test("BOUNDARY · two owners with the SAME display name still read alike", () =>
     ]),
   );
 
-  const labels = rows.map((r) => `${r.label} · ${r.ownerLabel}`);
+  const labels = rows.map((r) => `${r.label} · ${r.qualifier}`);
   assert.equal(
     new Set(labels).size,
     1,

@@ -186,19 +186,39 @@ export type RecoveryChargeRow = {
    */
   chargeInstanceId?: string;
   /**
-   * The component that CAUSED this charge, named for the operator — and shown
-   * ONLY when the type alone would be ambiguous.
+   * What tells this row apart from its siblings — shown ONLY when the type
+   * alone would be ambiguous.
    *
-   * Two Print plates rows need telling apart; one does not, and labelling it
+   * Two Print plates rows need telling apart; one does not, and qualifying it
    * would put lineage on a surface where nature is what reads. The same
    * collision-only rule the customer document uses, so internal and external
    * copy agree.
    *
-   * Null when the type is unambiguous, when no name is available, or on a
-   * legacy row — whose owner is the engagement and whose anchor must never be
-   * surfaced as a cause (OD-028).
+   * ── WHAT IT HOLDS, AND WHY IT IS NOT `ownerLabel` ───────────────────────
+   *
+   * It was named for the owner and held one, which was right while the only
+   * collision it had to resolve was two CARTONS each causing plates. Two
+   * charges on ONE carton share the owner, so both rows read identically —
+   * measured on production over charges costing $1,450-$1,300 and $600 flat,
+   * with the operator's own label sitting unused in the database.
+   *
+   * The order is now: the charge's OWN label first, because that is the field
+   * the authoring sheet demands the moment a second instance appears and so
+   * the field that actually distinguishes them; the owner name second, which
+   * is what separates two UNLABELLED instances on different components.
+   *
+   * Renamed with the meaning. A field called `ownerLabel` holding a charge
+   * label is the comment-shaped defect Pattern 54 is about — true when
+   * written, quietly false afterwards, and believed by the next reader.
+   *
+   * PRESENTATION ONLY. Every control binds to `chargeInstanceId`; which string
+   * is printed beside it changes nothing underneath.
+   *
+   * Null when the type is unambiguous, when neither field is available, or on
+   * a legacy row — whose owner is the engagement and whose anchor must never
+   * be surfaced as a cause (OD-028).
    */
-  ownerLabel?: string | null;
+  qualifier?: string | null;
   /**
    * Nobody has decided who bears this charge yet.
    *
@@ -369,6 +389,9 @@ export function buildRecoveryWorkspace(input: {
       state: ChargeEconomicsState;
       chargeKey: RecoveryChargeKey;
       ownLabel: string | null;
+      /** The causal owner, so an UNCOSTED sibling participates in
+       *  disambiguation on the same footing as a placed one. */
+      quoteLeafId: string;
       missingTierLabels: string[];
     }
   >;
@@ -405,25 +428,118 @@ export function buildRecoveryWorkspace(input: {
     placedByCharge.set(charge.chargeKey, list);
   }
 
-  // ── COLLISION-ONLY OWNER NAMING ─────────────────────────────────────────
+  // ── COLLISION-ONLY QUALIFICATION ────────────────────────────────────────
   //
-  // A name appears only where the TYPE alone is ambiguous, which is the rule
-  // the customer document already follows. One Print plates row reads "Print
-  // plates"; two read "Print plates · Kids' Cough carton".
+  // A qualifier appears only where the TYPE alone is ambiguous, which is the
+  // rule the customer document already follows. One Print plates row reads
+  // "Print plates"; two need telling apart.
   //
-  // Counted per (type, tier), because two rows for one type on one tier are
-  // what an operator actually sees side by side.
+  // ── BY THE FIELD THAT ACTUALLY DISTINGUISHES THEM ──────────────────────
+  //
+  // This qualified by OWNER NAME only, which was built for two CARTONS each
+  // causing plates. Two charges on ONE carton share the owner, so both rows
+  // rendered identically:
+  //
+  //   Print plates · Genexa - Box - Kids' Cough (10064-GNX)
+  //   Print plates · Genexa - Box - Kids' Cough (10064-GNX)
+  //
+  // Measured on production 2026-08-28, over charges costing $1,450-$1,300 and
+  // $600 flat. The operator had two identical controls and no way to tell
+  // which was which — while the sheet had just REQUIRED them to type the label
+  // that distinguishes them, and the card did not show it.
+  //
+  // The model disambiguates by the charge's own label; the surface must use
+  // the same field. Owner name remains the fallback, because it is what
+  // separates two unlabelled instances on DIFFERENT components.
+  //
+  // PRESENTATION ONLY. Instance identity is never replaced by owner identity
+  // underneath — `chargeInstanceId` is what every control binds to, and that
+  // is untouched by which string is printed beside it.
   // ── COUNTED BY INSTANCE, NEVER BY TIER ENTRY ──────────────────────────
   //
   // `componentCharges` holds one entry per (instance, tier), so counting it
   // directly told an operator a charge costed at four tiers was four charges —
   // and the group control offered "All 4 print plates charges" for one.
   const instancesPerKey = new Map<string, Set<string>>();
+  const countInstance = (chargeKey: string, instanceId: string) => {
+    const set = instancesPerKey.get(chargeKey) ?? new Set<string>();
+    set.add(instanceId);
+    instancesPerKey.set(chargeKey, set);
+  };
+  // ── EVERY INSTANCE OF A TYPE, WITH BOTH OF ITS NAMES ──────────────────
+  //
+  // Qualification is a question about SIBLINGS, so it cannot be answered from
+  // one row. Two components can each label their plates "Front panel"; both
+  // labels are valid on their own and neither distinguishes anything.
+  type Sibling = { instanceId: string; ownLabel: string | null; ownerName: string | null };
+  const siblingsPerKey = new Map<string, Sibling[]>();
+  const addSibling = (chargeKey: string, sib: Sibling) => {
+    const list = siblingsPerKey.get(chargeKey) ?? [];
+    if (!list.some((x) => x.instanceId === sib.instanceId)) list.push(sib);
+    siblingsPerKey.set(chargeKey, list);
+  };
+  const nameOf = (ownerRef: string | undefined) =>
+    ownerRef !== undefined ? (input.ownerNames?.get(ownerRef) ?? null) : null;
+
   for (const { charge } of componentCharges) {
-    const set = instancesPerKey.get(charge.chargeKey) ?? new Set<string>();
-    set.add(charge.chargeInstanceId as string);
-    instancesPerKey.set(charge.chargeKey, set);
+    const id = charge.chargeInstanceId as string;
+    countInstance(charge.chargeKey, id);
+    addSibling(charge.chargeKey, {
+      instanceId: id,
+      ownLabel: input.chargeEconomics?.get(id)?.ownLabel ?? null,
+      ownerName: nameOf(charge.ownerRef),
+    });
   }
+  // INCLUDING the ones with no economics. A charge nobody has priced is still
+  // a charge, and two of a type still need telling apart — counting only the
+  // placed ones would leave a labelled pair unqualified until both were costed.
+  for (const [instanceId, e] of input.chargeEconomics ?? []) {
+    countInstance(e.chargeKey, instanceId);
+    addSibling(e.chargeKey, {
+      instanceId,
+      ownLabel: e.ownLabel,
+      ownerName: nameOf(e.quoteLeafId),
+    });
+  }
+
+  /**
+   * The SMALLEST human-readable qualifier that actually distinguishes a row.
+   *
+   * ── WHY UNIQUENESS AND NOT PRESENCE ────────────────────────────────────
+   *
+   * The first version preferred the label whenever one existed. That is not
+   * the same question: two components can each label their plates "Front
+   * panel", and both rows then read `Print plates · Front panel` while the
+   * distinct owner names sit unused — the identical-rows defect again, one
+   * field along.
+   *
+   * So each candidate is tested against the SIBLINGS, cheapest first:
+   *
+   *   own label, if no sibling shares it
+   *   owner name, if no sibling shares that
+   *   both, if the pair is unique where neither part is
+   *   nothing — never an id, which an operator cannot act on
+   *
+   * PRESENTATION ONLY. Identity is `chargeInstanceId` throughout.
+   */
+  const qualifierFor = (chargeKey: string, instanceId: string): string | null => {
+    const sibs = siblingsPerKey.get(chargeKey) ?? [];
+    if (sibs.length < 2) return null;
+    const me = sibs.find((x) => x.instanceId === instanceId);
+    if (!me) return null;
+    const labelUnique =
+      me.ownLabel !== null && sibs.filter((x) => x.ownLabel === me.ownLabel).length === 1;
+    if (labelUnique) return me.ownLabel;
+    const ownerUnique =
+      me.ownerName !== null && sibs.filter((x) => x.ownerName === me.ownerName).length === 1;
+    if (ownerUnique) return me.ownerName;
+    const pairUnique =
+      sibs.filter((x) => x.ownLabel === me.ownLabel && x.ownerName === me.ownerName).length === 1;
+    if (pairUnique && me.ownLabel !== null && me.ownerName !== null) {
+      return `${me.ownLabel} · ${me.ownerName}`;
+    }
+    return null;
+  };
 
   const states = input.allocationStates.length ? input.allocationStates : [true];
 
@@ -551,9 +667,7 @@ export function buildRecoveryWorkspace(input: {
       // instance — so `unplaced` is a property of the instance, and asserting
       // it from every entry rather than the first would only hide that.
       const unplaced = entries.every((e) => e.charge.placement === "unplaced");
-      const ambiguous = (instancesPerKey.get(c.chargeKey)?.size ?? 0) > 1;
-      const ownerName =
-        c.ownerRef !== undefined ? (input.ownerNames?.get(c.ownerRef) ?? null) : null;
+      const qualifier = qualifierFor(c.chargeKey, c.chargeInstanceId as string);
       const perTier = tierVector(entries);
 
     const economics = input.chargeEconomics?.get(c.chargeInstanceId!)?.state ?? null;
@@ -604,8 +718,9 @@ export function buildRecoveryWorkspace(input: {
     return {
       chargeKey: c.chargeKey,
       chargeInstanceId: c.chargeInstanceId,
-      // Shown only on collision, and NEVER an id when the name is missing.
-      ownerLabel: ambiguous ? ownerName : null,
+      // `qualifierFor` returns null for a lone instance, so the collision rule
+      // and the choice of qualifier are one decision made in one place.
+      qualifier,
       unplaced,
       label: policy.label,
       grain: policy.grain,
@@ -651,10 +766,9 @@ export function buildRecoveryWorkspace(input: {
     uncostedRows.push({
       chargeKey: e.chargeKey,
       chargeInstanceId,
-      // The operator's own label, which is what tells two charges of a type
-      // apart. Not the collision-only owner name — that is computed from placed
-      // charges, and this one is not among them.
-      ownerLabel: e.ownLabel,
+      // The SAME rule as the placed rows, from the same function — an uncosted
+      // charge collides with its siblings exactly as a priced one does.
+      qualifier: qualifierFor(e.chargeKey, chargeInstanceId),
       // Nobody has decided who bears it, because nobody could: there is no
       // amount to bear. Both facts are true and both are said.
       unplaced: true,
