@@ -113,10 +113,30 @@ for (const q of quotes) {
     measured++;
 
     // 2 · the same construction, so the same recovery.
-    if (row.totalRecovery !== null && inc.governedRecovery !== null) {
-      if (cents(row.totalRecovery) !== cents(inc.governedRecovery)) {
+    //
+    // ── WHAT THIS COMPARISON CAN AND CANNOT SEE ──────────────────────────
+    //
+    // It certifies that the workspace and the preview read ONE construction —
+    // the double-counted-rollup defect, where a $1,400 charge reported $2,800.
+    // For that it is valid and it stays.
+    //
+    // It cannot speak to TIER semantics. `RecoveryImpact.governedRecovery` is
+    // itself "summed over every (owner, tier)" by its own definition, so both
+    // sides of this comparison still cancel the tier dimension — the same
+    // shape as the Card 1 certification before it was made tier-aware.
+    //
+    // The workspace's vector is therefore summed HERE, deliberately, to match
+    // the preview's basis. That is a comparison of like with like and not a
+    // statement that either figure is the amount of anything. The preview's
+    // own cross-tier sum is a separate defect at a separate site, reported
+    // rather than repaired inside a scope that named two.
+    const rowRecovery = row.perTier.every((t) => t.recovery !== null)
+      ? row.perTier.reduce((a, t) => a + (t.recovery as number), 0)
+      : null;
+    if (rowRecovery !== null && inc.governedRecovery !== null) {
+      if (cents(rowRecovery) !== cents(inc.governedRecovery)) {
         failures.push(
-          `${q.quote_id} ${key}: workspace says ${usd(row.totalRecovery)} recovered, preview says ${usd(inc.governedRecovery)} — one is counting a rollup twice`,
+          `${q.quote_id} ${key}: workspace says ${usd(rowRecovery)} recovered, preview says ${usd(inc.governedRecovery)} — one is counting a rollup twice`,
         );
       }
     }
@@ -145,7 +165,7 @@ for (const q of quotes) {
 
     const delta = inc.customerTotalAfter - inc.customerTotalBefore;
     const ladder =
-      row.totalRecovery === null ? null : -(row.totalRecovery * q.gpa);
+      rowRecovery === null ? null : -(rowRecovery * q.gpa);
     console.log(
       `  ${q.quote_id.slice(0, 8)}  ${key.padEnd(18)} gpa=${q.gpa.toFixed(2)}  ` +
         `${usd(inc.customerTotalBefore)} → ${usd(inc.customerTotalAfter)}  ` +

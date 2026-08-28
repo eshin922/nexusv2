@@ -104,20 +104,28 @@ for (const q of quotes) {
   for (const row of rows) {
     // No economics, nothing to classify — see the sibling certification. Never
     // folded to 0: that would state a cost the operator has not entered.
-    if (row.totalCost === null) continue;
+    if (row.perTier.length === 0) continue;
+    // Summed across the row's tiers ONLY to compare against a fee total that
+    // is itself summed the same way. This is a classification report about
+    // fee-vs-service composition, not a statement of any charge's amount —
+    // see the tier-semantics note in the sibling certification.
+    const rowCost = row.perTier.reduce((a, t) => a + t.cost, 0);
+    const rowRecovery = row.perTier.every((t) => t.recovery !== null)
+      ? row.perTier.reduce((a, t) => a + (t.recovery as number), 0)
+      : null;
     const feeCost = feeCostByCharge.get(row.chargeKey) ?? 0;
     // The row's own cost is the authority on what it thinks it holds; the fee
     // columns are the authority on the OTC portion. Their difference is the
     // Direct Service contribution.
-    const residualCost = row.totalCost - feeCost;
+    const residualCost = rowCost - feeCost;
     const isDefect = Math.abs(residualCost) > 0.005;
     if (isDefect) defects++;
     header.push(
       [
         isDefect ? "DEFECT " : "ok     ",
         row.chargeKey.padEnd(22),
-        "shown " + money(row.totalRecovery ?? 0).padStart(12),
-        "| cost " + money(row.totalCost).padStart(11),
+        "shown " + money(rowRecovery ?? 0).padStart(12),
+        "| cost " + money(rowCost).padStart(11),
         "= fee " + money(feeCost).padStart(11),
         "+ service " + money(residualCost).padStart(11),
       ].join(" "),
