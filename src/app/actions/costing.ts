@@ -11,6 +11,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { db } from "@/db";
+import { readExistingComponentCharges } from "@/lib/component-charges/read";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
   assemblies,
@@ -2104,6 +2105,9 @@ export async function getCostingBundle(
       quoteId: quote.id,
       projectId: quote.projectId,
       chargeElections,
+      // Identity + names for the customer document's OTC lines. Read once,
+      // here, so the projection never looks anything up for itself.
+      componentChargeMeta: await readExistingComponentCharges(quoteId),
       globalPriceAdjPct: num(quote.globalPriceAdjPct),
       targetMarginPct: numOrNull(quote.targetMarginPct),
       firmSettings: input.firmSettings,

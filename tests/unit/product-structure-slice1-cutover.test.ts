@@ -682,6 +682,14 @@ const classifiedIdentityFiles = new Set([
   // owner separates them. The id is carried and NAME-LOOKED-UP; nothing is
   // resolved through it, and `assembly_leaves` is never queried.
   "src/lib/customer-view-resolver.ts",
+  // CLASSIFIED - a type declaration that NAMES the canonical id, nothing more.
+  //
+  // The hydrate snapshot gained `componentChargeMeta`, whose rows carry each
+  // component charge's causal owner (`quote_leaves.id`) so the commercial
+  // projection can name the component a customer-facing OTC line belongs to.
+  // This file declares the shape; it resolves nothing, queries nothing, and
+  // never mentions `assembly_leaves`.
+  "src/lib/costing-store.ts",
   // CLASSIFIED - the COSTS write path, and the identity is only carried.
   //
   // It writes `cost_amount` and `recovery_ask` on an existing instance, scoped
@@ -725,6 +733,22 @@ const classifiedIdentityFiles = new Set([
   // meant to create — which is how it caught a row an unexpectedly-successful
   // call had left behind.
   "scripts/gate-1b/od-032-second-instance-proof.ts",
+  // CLASSIFIED - canonical identity throughout, and it queries the junction
+  // ONLY to find sell-price overrides, which are keyed that way.
+  //
+  // The OD-032 customer-document invariant: placement moves value between the
+  // unit price and an OTC line without changing what the customer owes. It
+  // reads `quote_leaves.id` to pick a subject component and to look up which
+  // tiers carry an override — `assembly_leaf_overrides` keys on the JUNCTION
+  // id, so the join goes through `assembly_leaves` to reach the canonical leaf.
+  // Asked rather than assumed: the first version used the canonical id
+  // directly, found nothing, and would have reported the exclusion as absent.
+  //
+  // It writes, deliberately: the invariant is a property of engine, placement,
+  // projection and totals together, and only the composed figure disagrees.
+  // Everything it creates is deleted and the deletion is VERIFIED
+  // population-wide.
+  "scripts/gate-1b/od-032-document-invariant.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

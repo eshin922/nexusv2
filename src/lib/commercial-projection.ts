@@ -16,8 +16,13 @@ import {
 } from "@/lib/commercial-recovery/resolve";
 import {
   OTC_COLUMN_TO_CHARGE,
+  chargePolicy,
   type RecoveryChargeKey,
 } from "@/lib/commercial-recovery/registry";
+import {
+  chooseQualifier,
+  type QualifierSibling,
+} from "@/lib/commercial-recovery/qualifier";
 
 /**
  * THE commercial projection — one governed boundary, two consumers.
@@ -94,6 +99,16 @@ export type CommercialLine = {
   /** The Item Group this line belongs to. NULL for top-level lines. */
   owningAssemblyId: string | null;
   quoteLeafId: string | null;
+  /**
+   * The charge this line bills, when it is a component-owned one — OD-032.
+   *
+   * FIRST-CLASS. Never reconstructed downstream from `sourceColumn`, the
+   * charge type, the display copy or an array position: those are the four
+   * ways an identity gets invented, and the last one silently reorders with
+   * the array. Null on unit lines and on legacy column-shaped OTC, which have
+   * no instance.
+   */
+  chargeInstanceId?: string | null;
   displayName: string;
   displaySku: string | null;
   /** Customer-facing descriptive copy. Present on OTC lines; null on unit lines. */
@@ -491,6 +506,146 @@ export function projectCommercial(
         allocationByTier,
       });
     }
+  }
+
+  // ── COMPONENT-OWNED OTC, DRIVEN BY INSTANCE ────────────────────────────
+  //
+  // ── WHY A SEPARATE PROJECTION AND NOT AN EXTENSION OF THE LOOP ABOVE ───
+  //
+  // The legacy loop is shaped around three things a component charge does not
+  // have, and each excluded it independently:
+  //
+  //   it iterates ASSEMBLIES WITH PRODUCTION ROWS   a component charge is owned
+  //                                                 by a `quote_leaf` and has no
+  //                                                 production row; a Direct
+  //                                                 Product has no parent
+  //                                                 assembly and is skipped
+  //                                                 outright
+  //   it iterates OTC_FEES, a fixed COLUMN list     a component charge has no
+  //                                                 column
+  //   it matches `.find(c => c.chargeKey === k)`    two same-type instances
+  //                                                 would collapse to the first
+  //                                                 even if reached
+  //
+  // Fixing any one alone changes nothing, and bending the loop to fit would
+  // have made a column-shaped path pretend to be an instance-shaped one.
+  //
+  // ── WHAT THIS COST, MEASURED ──────────────────────────────────────────
+  //
+  // Production 2026-08-28, one component with two Print plates over four
+  // tiers. With BOTH charges elected `separate`, the engine reported $10,800
+  // of governed recovery and the document's tier totals were byte-identical to
+  // a quote carrying no charges at all. Placement moved the customer's total
+  // by the whole amount, in the direction that silently under-bills.
+  //
+  // `included` never had this problem: the engine amortises that recovery into
+  // `requiredSellPerUnit` and the unit lines read it. Only the separately
+  // billed half had nowhere to land.
+  //
+  // Included charges emit NOTHING here, deliberately — their value is already
+  // in the unit lines, and a line here as well would bill the customer twice.
+  const componentSiblings = new Map<string, QualifierSibling[]>();
+  for (const m of bundle.componentChargeMeta ?? []) {
+    const list = componentSiblings.get(m.chargeKey) ?? [];
+    list.push({
+      instanceId: m.chargeInstanceId,
+      ownLabel: m.label,
+      // The component as the CUSTOMER would read it. The operator's surface
+      // uses its own names for the same rule; what may differ between the two
+      // is which names are fed in, never how the choice is made.
+      ownerName: skuById.get(m.quoteLeafId)?.productName ?? null,
+    });
+    componentSiblings.set(m.chargeKey, list);
+  }
+  const metaByInstance = new Map(
+    (bundle.componentChargeMeta ?? []).map((m) => [m.chargeInstanceId, m]),
+  );
+
+  // Every placed component charge, gathered by INSTANCE and kept per tier.
+  // `ownedPlacedCharges` is not used here: it walks leaf rollups and this needs
+  // the same per-(owner, tier) traversal the rest of this function already has.
+  const componentByInstance = new Map<
+    string,
+    { ownerId: string; byTier: Map<string, { revenue: number | null; separate: boolean }> }
+  >();
+  for (const rollup of costing.skuRollups) {
+    for (const pt of rollup.perTier) {
+      for (const c of pt.constructed?.charges ?? []) {
+        if (!c.chargeInstanceId) continue;
+        const e =
+          componentByInstance.get(c.chargeInstanceId) ??
+          { ownerId: c.ownerRef ?? rollup.skuId, byTier: new Map() };
+        // Tiers are alternative scenarios: each keeps its own cell and none is
+        // summed into another.
+        e.byTier.set(pt.tierId, {
+          revenue: c.revenueContribution,
+          separate: c.placement === "separate_line",
+        });
+        componentByInstance.set(c.chargeInstanceId, e);
+      }
+    }
+  }
+
+  for (const [chargeInstanceId, entry] of componentByInstance) {
+    const meta = metaByInstance.get(chargeInstanceId);
+    // No metadata means no name for the customer to read. Emitting an unnamed
+    // charge would put an amount on the document with nothing saying what it
+    // is for, which is worse than the omission this repair exists to fix.
+    if (!meta) continue;
+
+    const cells: CommercialCell[] = [];
+    let anyBilled = false;
+    for (const t of tiers) {
+      const at = entry.byTier.get(t.tierId);
+      // Not separately billed: inside the unit price, absorbed, unpriced, or
+      // absent at this tier. All emit nothing, and `included` emitting nothing
+      // is the point — its value is already in the unit lines.
+      if (!at || !at.separate) {
+        cells.push({ state: "quote_on_request" });
+        continue;
+      }
+      if (at.revenue === null) {
+        // BV-013: no governed rate means no price, never a price computed at
+        // cost. The engine declined to state an amount; this declines to bill
+        // one.
+        cells.push({ state: "quote_on_request" });
+        continue;
+      }
+      anyBilled = true;
+      cells.push({ state: "priced", unitRate: at.revenue, quantity: 1, lineAmount: at.revenue });
+    }
+    if (!anyBilled) continue;
+
+    const policy = chargePolicy(meta.chargeKey as RecoveryChargeKey);
+    const qualifier = chooseQualifier(
+      componentSiblings.get(meta.chargeKey) ?? [],
+      chargeInstanceId,
+    );
+
+    lines.push({
+      // KEYED BY INSTANCE. `otc:${assembly}:${column}` cannot express two
+      // charges of one type on one component; this can, and it is the identity
+      // the freeze and the elections already use.
+      key: `otc:instance:${chargeInstanceId}`,
+      kind: "otc",
+      owningAssemblyId: null,
+      quoteLeafId: meta.quoteLeafId,
+      // FIRST-CLASS, never reconstructed downstream from a column, a type, a
+      // label or an array position.
+      chargeInstanceId,
+      displayName: qualifier ? `${policy.label} · ${qualifier}` : policy.label,
+      displaySku: skuById.get(meta.quoteLeafId)?.skuLabel ?? null,
+      displaySub: "One-time charge caused by this component.",
+      displayQtyLabel: "1",
+      serviceIdentity: null,
+      bv011Destination: null,
+      legacyUnresolved: false,
+      selectedNetsuiteItem: null,
+      cells,
+      // A component charge is not a production row, so it carries no
+      // per-assembly allocation flag. Null is the honest answer.
+      allocationByTier: tiers.map(() => null),
+    });
   }
 
   // ── per-tier totals ────────────────────────────────────────────────────

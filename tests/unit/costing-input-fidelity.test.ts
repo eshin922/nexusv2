@@ -141,6 +141,7 @@ function snapshot(): HydrateSnapshot {
     // Empty is production's whole state: the writer refuses every election
     // that changes anything until the cutover is complete.
     chargeElections: [],
+  componentChargeMeta: [],
     globalPriceAdjPct: 0.1,
     targetMarginPct: null,
     firmSettings: input.firmSettings,

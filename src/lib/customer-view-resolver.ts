@@ -569,6 +569,10 @@ export async function resolveCustomerView(args: {
     .filter((l) => l.kind === "otc")
     .map((l) => ({
       id: l.key,
+      // Threaded, not derived. `id` is `otc:instance:<uuid>` for a component
+      // charge today, and a reader tempted to parse it would be reconstructing
+      // an identity from a display key — the shape OD-028 warns about.
+      chargeInstanceId: l.chargeInstanceId ?? null,
       scope: "sku" as const,
       skuLabel: l.displaySku ?? undefined,
       label: l.displayName,

@@ -273,6 +273,9 @@ const sample: FrozenRecoveryInstruction = {
   separateInvoiceAmount: 0,
   amortizedPerUnit: null,
   tierQuantity: null,
+  // A computed price, so the recovery figures mean what they say. The manual
+  // all-in case is asserted in `od-032-override-authority.test.ts`.
+  manualAllInSell: false,
 };
 
 test("an absorbed instruction states the retained cost and bills nothing", () => {
