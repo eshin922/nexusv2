@@ -363,8 +363,8 @@ export function CardCommercialRecovery({
 
                       A legacy row never gets one: its owner is the engagement,
                       and its anchor must never be surfaced as a cause. */}
-                  {row.ownerLabel ? (
-                    <span className="cv-charge-owner"> · {row.ownerLabel}</span>
+                  {row.qualifier ? (
+                    <span className="cv-charge-owner"> · {row.qualifier}</span>
                   ) : null}
                 </span>
                 <span className="cv-charge-amt">

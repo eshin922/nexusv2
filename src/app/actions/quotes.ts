@@ -1873,7 +1873,7 @@ export async function sendQuote(
     const unplaced = resolved.recoveryRows.filter((r) => r.unplaced);
     if (unplaced.length > 0) {
       const named = unplaced
-        .map((r) => (r.ownerLabel ? `${r.label} · ${r.ownerLabel}` : r.label))
+        .map((r) => (r.qualifier ? `${r.label} · ${r.qualifier}` : r.label))
         .join(", ");
       throw new ActionGuardError(
         ERR.VALIDATION,
