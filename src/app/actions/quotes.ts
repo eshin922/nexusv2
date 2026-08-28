@@ -120,10 +120,8 @@ import {
   describeMissing,
   readComponentChargeReadiness,
 } from "@/lib/component-charges/readiness";
-import {
-  describeMissingAsk,
-  readChargeRecoveryPricingGaps,
-} from "@/lib/component-charges/recovery-pricing";
+import { readChargeRecoveryPricingGaps } from "@/lib/component-charges/recovery-pricing";
+import { describeMissingAsk } from "@/lib/component-charges/recovery-pricing-rule";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 

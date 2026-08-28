@@ -175,7 +175,7 @@ export type ResolveCustomerViewResult =
        * reached a customer document as "$0.00" on a quote the rail called
        * ready, because this question had no detection at all.
        */
-      chargeRecoveryPricingGaps: import("./component-charges/recovery-pricing").ChargeRecoveryPricingGap[];
+      chargeRecoveryPricingGaps: import("./component-charges/recovery-pricing-rule").ChargeRecoveryPricingGap[];
       /**
        * Card 3's authored instruction to Accounting.
        *

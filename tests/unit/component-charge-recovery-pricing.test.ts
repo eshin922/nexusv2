@@ -96,3 +96,47 @@ test("the existing cost readiness states are untouched", () => {
   assert.doesNotMatch(readiness, /recoveryAsk/);
   assert.doesNotMatch(readiness, /recovery_ask/);
 });
+
+test("no client component reaches the database module for a pure symbol", () => {
+  // THE BUILD IS THE ONLY THING THAT CAUGHT THIS. An earlier revision
+  // re-exported the pure rule from the reader "so callers have one import
+  // site"; the rail then imported `describeMissingAsk` from there, the reader
+  // imports `@/db`, and postgres went into the browser bundle —
+  // `Can't resolve 'fs'`. tsc was clean and verify:ci was clean.
+  //
+  // The re-export is gone, so the wrong import no longer type-checks. This
+  // asserts the property directly, because a future re-export would make it
+  // compile again and only Vercel would notice.
+  const reader = read("src/lib/component-charges/recovery-pricing.ts");
+  assert.doesNotMatch(
+    reader,
+    /export \{[^}]*(describeMissingAsk|treatmentRequiresAsk)/,
+    "the db-importing module must not re-export the pure rule",
+  );
+
+  for (const client of [
+    "src/components/quote/customer-view-rail.tsx",
+    "src/components/quote/quote-host.tsx",
+    "src/components/quote-umbrella/tab-preview-quote.tsx",
+    "src/components/quote-umbrella/quote-umbrella.tsx",
+  ]) {
+    const src = read(client);
+    assert.doesNotMatch(
+      src,
+      /from "@\/lib\/component-charges\/recovery-pricing"/,
+      `${client} must take the rule from recovery-pricing-rule, not the reader`,
+    );
+  }
+
+  // And the rule module must stay free of the thing that made this possible.
+  // Matched on IMPORT STATEMENTS, not on the text anywhere: the first version
+  // of this assertion matched the module's own comment explaining why it must
+  // not import `@/db`, and reported a defect that did not exist.
+  const rule = read("src/lib/component-charges/recovery-pricing-rule.ts");
+  const imports = [...rule.matchAll(/^\s*import[\s\S]*?from\s+"([^"]+)";/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    imports.filter((i) => /@\/db|drizzle-orm|postgres/.test(i)),
+    [],
+    `the pure rule imports a database module: ${imports.join(", ")}`,
+  );
+});

@@ -18,7 +18,7 @@
 
 import { QuoteHost } from "@/components/quote/quote-host";
 import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
-import type { ChargeRecoveryPricingGap } from "@/lib/component-charges/recovery-pricing";
+import type { ChargeRecoveryPricingGap } from "@/lib/component-charges/recovery-pricing-rule";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,

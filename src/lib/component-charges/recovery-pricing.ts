@@ -53,10 +53,17 @@ import {
   type ChargeRecoveryPricingGap,
 } from "@/lib/component-charges/recovery-pricing-rule";
 
-// Re-exported so every consumer has one import site for the diagnostic, whether
-// it needs the rule, the sentence or the reader.
-export { describeMissingAsk, treatmentRequiresAsk };
-export type { ChargeRecoveryPricingGap };
+// DELIBERATELY NOT RE-EXPORTED.
+//
+// An earlier revision re-exported the pure rule from here "so callers have one
+// import site". A client component then imported `describeMissingAsk` from this
+// module, and this module imports `@/db` — which pulled postgres into the
+// browser bundle and failed the build with `Can't resolve 'fs'`. TypeScript and
+// `verify:ci` were both clean; only the bundler could see it.
+//
+// So the split is load-bearing, not cosmetic: anything a client may touch lives
+// in `recovery-pricing-rule.ts`, and the only export here is the one that reads
+// the database. Making the wrong import impossible beats fixing it once.
 
 /**
  * Every elected component charge that is missing recovery pricing.

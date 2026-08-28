@@ -43,7 +43,7 @@ import {
 import {
   describeMissingAsk,
   type ChargeRecoveryPricingGap,
-} from "@/lib/component-charges/recovery-pricing";
+} from "@/lib/component-charges/recovery-pricing-rule";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { CustomerViewDetailLevel, CustomerViewPdfLayout } from "@/types/quote";
 import type { RecoveryProposalFailure } from "./use-recovery-draft";
