@@ -652,6 +652,33 @@ const classifiedIdentityFiles = new Set([
   // columns. Everything it creates is deleted and the deletion is VERIFIED by
   // re-reading, rather than assumed from the delete returning.
   "scripts/gate-1b/od-032-direct-product-authoring.ts",
+  // CLASSIFIED - reads the canonical id, resolves nothing, writes nothing.
+  //
+  // OD-032 step B readiness. It asks whether each component charge has a cost
+  // for every quoted tier, reading `quote_charge_instances` (owner filtered on
+  // the typed `owner_quote_leaf_id`) LEFT JOINed to its tier economics. The
+  // owner id is carried out for the caller to label with; it is never used to
+  // resolve anything, and `assembly_leaves` is never queried.
+  "src/lib/component-charges/readiness.ts",
+  // CLASSIFIED - the COSTS write path, and the identity is only carried.
+  //
+  // It writes `cost_amount` and `recovery_ask` on an existing instance, scoped
+  // to the quote. `owner_quote_leaf_id` is read for two things and neither
+  // resolves an owner: refusing a legacy `'@quote'` instance, whose amount
+  // lives on a production column, and recording the causal owner in the audit
+  // row. It cannot create a charge, change its owner, or elect a mode.
+  "src/lib/component-charges/update.ts",
+  // CLASSIFIED - canonical identity only, and every row it writes is removed.
+  //
+  // The OD-032 step B proof: clearing a cost removes the row rather than
+  // storing a zero, readiness reads the result as `partial` and names the
+  // tier, and a refusal persists nothing. It reads `quote_leaves.id` only to
+  // pick a subject component and hands it to the real writers unchanged;
+  // `assembly_leaves` is never queried.
+  //
+  // It writes, deliberately: these are facts about stored rows. Everything it
+  // creates is deleted and the deletion is VERIFIED by re-reading.
+  "scripts/gate-1b/od-032-costs-economics-proof.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

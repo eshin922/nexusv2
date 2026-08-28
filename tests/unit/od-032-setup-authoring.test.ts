@@ -435,8 +435,17 @@ test("the auth guard sits on the only door the UI can reach", () => {
   const wrapper = codeOnly(read(WRAPPER));
   assert.match(wrapper, /"use server"/);
   assert.match(wrapper, /const user = await ensureUser\(\);/);
-  // Both actions, not one.
-  assert.equal((wrapper.match(/await ensureUser\(\)/g) ?? []).length, 2);
+  // EVERY exported action, derived rather than counted. A literal `2` passes
+  // the day a third action ships without a guard — the count was the assertion
+  // and the count would still be right about the two that had one.
+  const exported = (wrapper.match(/export async function \w+/g) ?? []).length;
+  const guarded = (wrapper.match(/await ensureUser\(\)/g) ?? []).length;
+  assert.equal(
+    guarded,
+    exported,
+    `${exported} exported action(s) but ${guarded} guard(s) — every door must resolve the operator`,
+  );
+  assert.ok(exported >= 2, "the file must still export the authoring doors");
   assert.match(wrapper, /return createComponentChargesAs\(user\.id, input\)/);
   assert.match(wrapper, /return deleteComponentChargeAs\(user\.id, input\)/);
 });

@@ -19,6 +19,11 @@ import {
   type PackagingRowIdentity,
 } from "@/lib/costs/packaging-row-identity";
 import type { ComponentChargeForCosts } from "@/lib/component-charges/read";
+import type { ComponentChargeReadiness } from "@/lib/component-charges/readiness";
+import {
+  updateComponentChargeAsk,
+  updateComponentChargeCost,
+} from "@/app/actions/component-charges";
 import { COMPONENT_CHARGE_LABELS } from "@/lib/commercial-recovery/registry";
 import {
   selectActiveTierId,
@@ -167,13 +172,17 @@ function readKey(lineGroupId: string, tierId: string): string {
 }
 
 export function PackagingDrilldown({
+  quoteId,
   skus,
   tiers,
   inputRows,
   categories,
   editable,
   componentCharges,
+  chargeReadiness,
 }: {
+  /** Required to write charge economics — Costs owns what DPS pays. */
+  quoteId: string;
   skus: QuoteSku[];
   /**
    * Component-owned one-time charges — OD-032 Shape A.
@@ -182,6 +191,14 @@ export function PackagingDrilldown({
    * claiming a component has none.
    */
   componentCharges?: readonly ComponentChargeForCosts[];
+  /**
+   * Per-charge economics state, read from the instance and tier tables.
+   *
+   * NOT derived from the costing output. An uncosted charge produces no
+   * economics at all, so asking the engine whether anything is missing asks a
+   * layer that was never told.
+   */
+  chargeReadiness?: readonly ComponentChargeReadiness[];
   tiers: Array<{ id: string; label: string; qty: number | null }>;
   inputRows: PackagingInputRow[];
   categories: Array<{ category: string; defaultMarkupPct: string }>;
@@ -294,6 +311,9 @@ export function PackagingDrilldown({
 
   const leafSkus = skus.filter((s) => s.skuRole === "leaf");
 
+  const readinessByInstance = new Map(
+    (chargeReadiness ?? []).map((r) => [r.chargeInstanceId, r]),
+  );
   const chargesByLeaf = new Map<string, ComponentChargeForCosts[]>();
   for (const c of componentCharges ?? []) {
     chargesByLeaf.set(c.quoteLeafId, [
@@ -456,6 +476,8 @@ export function PackagingDrilldown({
             // was silent because a missing charge looks exactly like a
             // component that caused none.
             charges={chargesByLeaf.get(line.quoteSkuId)}
+            quoteId={quoteId}
+            readinessByInstance={readinessByInstance}
           />
         ))}
 
@@ -506,8 +528,12 @@ function PackagingRow({
   reads,
   disabled,
   charges,
+  quoteId,
+  readinessByInstance,
 }: {
   line: LineForUI;
+  quoteId: string;
+  readinessByInstance: ReadonlyMap<string, ComponentChargeReadiness>;
   /**
    * One-time charges this component caused — OD-032 Shape A.
    *
@@ -1165,51 +1191,23 @@ function PackagingRow({
       {charges && charges.length > 0 && (
         <div className="od032-costs-charges" data-testid="component-charges">
           <div className="od032-costs-charges-label">
-            One-time charges caused by this component
+            <span>One-time charges caused by this component</span>
+            {/* WHAT THE FIGURES ARE, said once. The grid above is per-unit
+                rates; these are not, and four right-aligned numbers under a
+                four-column grid do not say which they are on their own. */}
+            <span className="basis">
+              fixed total per tier — not a per-unit rate
+            </span>
           </div>
           {charges.map((c) => (
-            <div
+            <ComponentChargeRow
               key={c.chargeInstanceId}
-              className="od032-costs-charge"
-              data-testid={`component-charge-${c.chargeInstanceId}`}
-            >
-              <span className="od032-costs-charge-name">
-                {COMPONENT_CHARGE_LABELS[
-                  c.chargeKey as keyof typeof COMPONENT_CHARGE_LABELS
-                ] ?? c.chargeKey}
-                {c.label ? (
-                  <span className="od032-costs-charge-label"> · {c.label}</span>
-                ) : null}
-              </span>
-              <span className="od032-costs-charge-amounts">
-                {c.amounts.map((a) => (
-                  <span key={a.tierId} className="od032-costs-charge-amt">
-                    {Number(a.cost).toLocaleString("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                ))}
-              </span>
-              {/* ── WHERE THE DECISION IS MADE, NAMED CORRECTLY ──────────
-                  This row's job is to send the operator somewhere, so the
-                  destination has to be the one that exists.
-
-                  The Design Authority says "recovery set in pricing". That was
-                  written before Commercial Recovery became its own governed
-                  surface, and shipping it now would teach the old mental model
-                  at exactly the moment the architecture stopped matching it —
-                  recovery is not a pricing decision, which is the whole reason
-                  the two were separated.
-
-                  Named as the surface names itself: `cv-card-title` reads
-                  "Commercial recovery". Divergence asserted in the Shape A
-                  suite so it reads as a decision rather than as drift. */}
-              <span className="od032-costs-charge-note">
-                one-time · set in Commercial recovery
-              </span>
-            </div>
+              quoteId={quoteId}
+              charge={c}
+              tiers={tiers}
+              readiness={readinessByInstance.get(c.chargeInstanceId)}
+              disabled={disabled}
+            />
           ))}
         </div>
       )}
@@ -1418,5 +1416,199 @@ function PackagingTierCell({
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * One component-owned charge, priced per tier — OD-032 step B.
+ *
+ * ── ONE CELL PER QUOTED TIER, NOT ONE PER STORED AMOUNT ─────────────────
+ *
+ * Shape A mapped over `charge.amounts` and rendered whatever came back, in
+ * whatever order it came back — the reader has no ORDER BY, so the sequence was
+ * not guaranteed to match the tier columns above. Four unlabelled figures under
+ * a four-column grid read as if they line up with it, and nothing made them.
+ *
+ * Iterating the QUOTE'S tiers and looking each amount up by id fixes three
+ * things at once, and by construction rather than by a clause someone has to
+ * remember: order is the quote's order, every figure carries the name of the
+ * tier it belongs to, and a tier with no cost is an empty field rather than a
+ * shorter row — which is the state that blocks the send, so it must be visible.
+ */
+function ComponentChargeRow({
+  quoteId,
+  charge,
+  tiers,
+  readiness,
+  disabled,
+}: {
+  quoteId: string;
+  charge: ComponentChargeForCosts;
+  tiers: Array<{ id: string; label: string; qty: number | null }>;
+  readiness: ComponentChargeReadiness | undefined;
+  disabled: boolean;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const byTier = new Map(charge.amounts.map((a) => [a.tierId, a]));
+  const state = readiness?.state ?? null;
+  const chargeLabel =
+    COMPONENT_CHARGE_LABELS[
+      charge.chargeKey as keyof typeof COMPONENT_CHARGE_LABELS
+    ] ?? charge.chargeKey;
+
+  return (
+    <div
+      className="od032-costs-charge"
+      data-testid={`component-charge-${charge.chargeInstanceId}`}
+      data-economics={state ?? undefined}
+    >
+      <div className="od032-costs-charge-head">
+        <span className="od032-costs-charge-name">
+          {chargeLabel}
+          {charge.label ? (
+            <span className="od032-costs-charge-label"> · {charge.label}</span>
+          ) : null}
+        </span>
+        {state !== null && (
+          // READ FROM THE STRUCTURAL FACT, never from the engine. `partial` is
+          // the state worth naming: the charge IS priced, so it produces real
+          // economics everywhere a complete one does and simply costs less
+          // than it does.
+          <span className="od032-costs-charge-state" data-state={state}>
+            {state === "complete"
+              ? "costed"
+              : state === "none"
+                ? "no cost yet"
+                : `no cost at ${readiness!.missingTierLabels.join(", ")}`}
+          </span>
+        )}
+        {/* ── WHERE THE RECOVERY DECISION IS MADE ──────────────────────────
+            The Design Authority says "recovery set in pricing". That was
+            written before Commercial Recovery became its own governed surface,
+            and shipping it would teach the superseded model at exactly the
+            moment the architecture stopped matching it. Named as the surface
+            names itself; divergence asserted in the Shape A suite. */}
+        <span className="od032-costs-charge-note">
+          one-time · set in Commercial recovery
+        </span>
+      </div>
+
+      <div className="od032-costs-charge-tiers">
+        {tiers.map((t) => (
+          <label key={t.id} className="od032-costs-charge-tier">
+            <span className="od032-costs-charge-tier-label">{t.label}</span>
+            <ChargeAmountInput
+              quoteId={quoteId}
+              chargeInstanceId={charge.chargeInstanceId}
+              tierId={t.id}
+              tierLabel={t.label}
+              value={byTier.get(t.id)?.cost ?? null}
+              disabled={disabled}
+              ariaLabel={`Cost for ${chargeLabel} at ${t.label}`}
+              onError={setError}
+            />
+          </label>
+        ))}
+      </div>
+
+      {error && (
+        <p className="od032-costs-charge-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What DPS pays for one charge at one tier.
+ *
+ * ── BLUR/ENTER COMMIT, NOT PER-KEYSTROKE ────────────────────────────────
+ *
+ * Pattern 47's sub-pattern for fields where per-keystroke save is the wrong
+ * UX. A currency amount is typed through states that are not the operator's
+ * answer — `1`, `14`, `145` on the way to `1450` — and saving each of them
+ * would write three cost facts nobody stated. Worse, it would make `0` a
+ * transient stored value on a field where zero is refused outright.
+ *
+ * ── AND THE INPUT IS NEVER DISABLED BY `pending` ────────────────────────
+ *
+ * Pattern 47(e). `disabled` carries only the surface's own read-only state;
+ * the in-flight flag drives the caption instead. Blocking the element mid-save
+ * drops focus, which is the defect the whole pattern exists to prevent.
+ */
+function ChargeAmountInput({
+  quoteId,
+  chargeInstanceId,
+  tierId,
+  tierLabel,
+  value,
+  disabled,
+  ariaLabel,
+  onError,
+}: {
+  quoteId: string;
+  chargeInstanceId: string;
+  tierId: string;
+  tierLabel: string;
+  value: string | null;
+  disabled: boolean;
+  ariaLabel: string;
+  onError: (message: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [pending, startTransition] = useTransition();
+
+  // Server truth wins when it changes underneath — the same shape `LegDateInput`
+  // uses. Wait-for-quiet upstream is what keeps this from clobbering an edit in
+  // progress.
+  useEffect(() => {
+    setDraft(value ?? "");
+  }, [value, tierId, chargeInstanceId]);
+
+  function commitIfChanged() {
+    const next = draft.trim() === "" ? null : draft.trim();
+    if ((value ?? null) === next) return;
+    onError(null);
+    startTransition(async () => {
+      const res = await updateComponentChargeCost({
+        quoteId,
+        chargeInstanceId,
+        tierId,
+        cost: next,
+      });
+      if (!res.ok) {
+        // Restored, not left showing a value the database refused. A field
+        // still displaying a rejected number reads as saved.
+        setDraft(value ?? "");
+        onError(res.error.message);
+      }
+    });
+  }
+
+  return (
+    <input
+      className="od032-costs-charge-amt"
+      inputMode="decimal"
+      // A BLANK IS ABSENCE, so the placeholder must not suggest otherwise:
+      // "0.00" here would read as what the field holds when empty, and that is
+      // precisely the value Option A refuses.
+      placeholder="—"
+      aria-label={ariaLabel}
+      title={pending ? `Saving the cost for ${tierLabel}…` : undefined}
+      data-missing={(value ?? "") === "" ? "yes" : undefined}
+      data-testid={`charge-cost-${chargeInstanceId}-${tierId}`}
+      value={draft}
+      // Pattern 47(e): NEVER `disabled || pending` on an input element.
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commitIfChanged}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+    />
   );
 }

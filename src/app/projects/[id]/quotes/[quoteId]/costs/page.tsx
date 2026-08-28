@@ -40,6 +40,7 @@ import { ClientTargetContext } from "@/components/costs/client-target-context";
 import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown";
 import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
 import { readComponentChargesForCosts } from "@/lib/component-charges/read";
+import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
@@ -472,6 +473,11 @@ export default async function CostBuildPage({
   // `owner_ref` — a legacy charge is engagement-owned and must not appear
   // under a component.
   const componentCharges = await readComponentChargesForCosts(quoteId);
+  // Read from the instance and tier tables, NOT from the costing output. An
+  // uncosted charge produces no economics at all — `componentChargeEconomics`
+  // drops it and `loadComponentCharges` inner-joins past it — so the engine
+  // cannot report a charge it was never given.
+  const chargeReadiness = await readComponentChargeReadiness(quoteId);
 
   const pkgRows: SyntheticPackagingRow[] = newPkgInputRows.map((r) => ({
     packaging_inputs: {
@@ -779,6 +785,7 @@ export default async function CostBuildPage({
             deposit={deposits.find((d) => d.sectionKind === "packaging")}
           >
             <PackagingDrilldown
+              quoteId={quoteId}
               skus={skus}
               tiers={tiers}
               inputRows={pkgRows}
@@ -787,6 +794,7 @@ export default async function CostBuildPage({
               // OD-032 Shape A — a charge renders where its owner already
               // lives, and the component is already in this drilldown.
               componentCharges={componentCharges}
+              chargeReadiness={chargeReadiness}
             />
           </SectionWithDrilldown>
 
