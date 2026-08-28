@@ -366,7 +366,21 @@ export function CardCommercialRecovery({
                 {/* UNPLACED IS SAID, not left blank. A blank reads as "no
                     election yet" on a charge that already has a treatment; this
                     charge has none, and the quote cannot send until it does. */}
-                {row.unplaced
+                {/* ── WHY THE CONTROLS ARE DEAD, SAID ON THE SURFACE ──────
+                    Read before the placement state, because it is prior to it:
+                    a charge whose cost is incomplete cannot be placed at all,
+                    and "not yet decided" would invite the operator to decide it
+                    here rather than to go and finish the cost.
+
+                    Visible text, not only the buttons' `title`. Every option is
+                    refused in this state, so the operator meets a row of dead
+                    controls — and hover-to-discover is a navigation pattern,
+                    not a presentation one. */}
+                {row.economics === "none"
+                  ? " · no cost entered yet — enter it on Costs"
+                  : row.economics === "partial"
+                    ? ` · no cost at ${row.missingTierLabels.join(", ")} — complete it on Costs`
+                    : row.unplaced
                   ? " · not yet decided — required before sending"
                   : row.mixed
                     ? " · placed more than one way"

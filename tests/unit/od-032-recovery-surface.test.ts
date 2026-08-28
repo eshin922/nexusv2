@@ -104,7 +104,7 @@ test("two same-type charges produce TWO rows, not one aggregate", () => {
   assert.equal(rows.length, 2);
   // Each carries its OWN amount. An aggregate row would carry 1775 and one
   // control, which is the collapse the grain removes.
-  assert.deepEqual(rows.map((r) => r.totalCost).sort((a, b) => a - b), [325, 1450]);
+  assert.deepEqual(rows.map((r) => r.totalCost ?? 0).sort((a, b) => a - b), [325, 1450]);
   // And neither is `mixed`: one charge has one placement, so the state that
   // used to mean "this row covers charges placed differently" cannot arise.
   assert.ok(rows.every((r) => !r.mixed));
@@ -447,6 +447,6 @@ test("BOUNDARY · two owners with the SAME display name still read alike", () =>
   // on — each control still addresses exactly one charge.
   assert.equal(rows.length, 2);
   assert.equal(new Set(rows.map((r) => r.chargeInstanceId)).size, 2);
-  assert.deepEqual(rows.map((r) => r.totalCost).sort((a, b) => a - b), [600, 1450]);
+  assert.deepEqual(rows.map((r) => r.totalCost ?? 0).sort((a, b) => a - b), [600, 1450]);
 });
 

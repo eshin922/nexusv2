@@ -54,6 +54,7 @@ import {
   type RecoveryChargeKey,
   type RecoveryMode,
 } from "./registry";
+import type { ChargeEconomicsState } from "@/lib/component-charges/readiness";
 import { RECOVERY_MODES } from "./registry";
 import { refusalFor, type ChargeElection } from "./resolve";
 import {
@@ -105,6 +106,28 @@ export type RecoveryChargeRow = {
    * a treatment, and send is refused while any remains.
    */
   unplaced: boolean;
+  /**
+   * Whether an operator has stated what this charge COSTS — OD-032 step B.
+   *
+   * ── WHY A RECOVERY SURFACE CARES ────────────────────────────────────────
+   *
+   * Recovery decides how a cost is recovered. A charge with no cost has
+   * nothing to recover, so a control over it is inert — the same shape as the
+   * Direct Service case, where a row advertised $9,800 for an election that
+   * could move nothing.
+   *
+   * Worse, before this the charge did not appear at all: it produces no
+   * economics, so it reached neither this surface nor the send gate, and an
+   * operator could author a charge, have nothing price it, and send with
+   * nothing reporting the loss. Rendering it as OUTSTANDING is the repair;
+   * omitting it was the defect.
+   *
+   * Null when economics were not assessed by the caller — stated as unknown
+   * rather than assumed complete.
+   */
+  economics: ChargeEconomicsState | null;
+  /** Quoted tiers with no cost stated. Empty unless `economics` is `partial`. */
+  missingTierLabels: string[];
   label: string;
   grain: ChargeGrain;
   /** Whether this quote carries the charge at all. */
@@ -139,7 +162,8 @@ export type RecoveryChargeRow = {
    * can actually move. Summed straight off the constructed state, never
    * recomputed.
    */
-  totalCost: number;
+  /** Null when the charge has no economics at all — unknown, never zero. */
+  totalCost: number | null;
   /** Null when any instance's recovery is unknown — see BV-013. */
   totalRecovery: number | null;
   /**
@@ -203,6 +227,26 @@ export function buildRecoveryWorkspace(input: {
    * to resolve.
    */
   ownerNames?: ReadonlyMap<string, string>;
+  /**
+   * Per-instance economics state — OD-032 step B.
+   *
+   * Supplied by the caller from `readComponentChargeReadiness`, which reads the
+   * instance and tier tables directly. It is NOT derivable here: this function
+   * projects the CONSTRUCTED costing, and a charge with no economics was never
+   * constructed. That is the whole reason an uncosted charge was invisible.
+   *
+   * Optional, and its absence is handled honestly — rows report `economics:
+   * null`, meaning "not assessed", rather than being assumed complete.
+   */
+  chargeEconomics?: ReadonlyMap<
+    string,
+    {
+      state: ChargeEconomicsState;
+      chargeKey: RecoveryChargeKey;
+      ownLabel: string | null;
+      missingTierLabels: string[];
+    }
+  >;
 }): RecoveryChargeRow[] {
   // ── TWO GRAINS, SPLIT ONCE, HERE ────────────────────────────────────────
   //
@@ -340,6 +384,11 @@ export function buildRecoveryWorkspace(input: {
           : null,
       totalCost,
       totalRecovery,
+      // A legacy row stands for a production column, whose amount lives on that
+      // column. There is no instance and no per-tier economics to be missing,
+      // so this is not "complete" — the question does not apply.
+      economics: null,
+      missingTierLabels: [],
       serviceContext: svcPresent ? { cost: svcCost, recovery: svcRecovery } : null,
       options,
     };
@@ -356,16 +405,45 @@ export function buildRecoveryWorkspace(input: {
     const ownerName =
       c.ownerRef !== undefined ? (input.ownerNames?.get(c.ownerRef) ?? null) : null;
 
+    const economics = input.chargeEconomics?.get(c.chargeInstanceId!)?.state ?? null;
+    const missingTierLabels =
+      input.chargeEconomics?.get(c.chargeInstanceId!)?.missingTierLabels ?? [];
+
     const options: ChargeModeOption[] = RECOVERY_MODES.map((mode) => {
-      let reason: string | null = null;
-      for (const perAssemblyAllocate of states) {
-        reason = refusalFor(c.chargeKey, mode, {
-          perAssemblyAllocate,
-          // A component charge is its own fee. It carries no Direct Service
-          // half, so nothing refuses on account of one.
-          hasDirectServiceContribution: false,
-        });
-        if (reason) break;
+      // ── INCOMPLETE COST, NO PLACEMENT ────────────────────────────────
+      //
+      // Refused before every other rule, because it is prior to them: a
+      // treatment applies to an amount, and there is not a whole one yet.
+      //
+      // BOTH incomplete states, not just the empty one. `partial` is the more
+      // interesting refusal: that charge has a real amount, so a control over
+      // it looks perfectly serviceable and would take a decision made against
+      // economics that are still moving. The operator would then have to come
+      // back and re-decide once the missing tiers were costed — and nothing
+      // would tell them to.
+      //
+      // Disposition, Edward 2026-08-27: "I don't think we should let Recovery
+      // make a commercial decision until Costs has completed the charge across
+      // all quoted tiers." Setup defines it → Costs completes it → Recovery
+      // decides it, in that order, with the surface enforcing the order rather
+      // than the operator remembering it.
+      let reason: string | null =
+        economics === "none"
+          ? "This charge has no cost yet. Enter what DPS pays on Costs before deciding how it is recovered."
+          : economics === "partial"
+            ? `This charge has no cost at ${missingTierLabels.join(", ")}. ` +
+              "Complete it on Costs before deciding how it is recovered."
+            : null;
+      if (reason === null) {
+        for (const perAssemblyAllocate of states) {
+          reason = refusalFor(c.chargeKey, mode, {
+            perAssemblyAllocate,
+            // A component charge is its own fee. It carries no Direct Service
+            // half, so nothing refuses on account of one.
+            hasDirectServiceContribution: false,
+          });
+          if (reason) break;
+        }
       }
       return { mode, available: reason === null, reason };
     });
@@ -392,6 +470,8 @@ export function buildRecoveryWorkspace(input: {
       effectiveMode: unplaced ? null : (MODE_BY_PLACEMENT[c.placement] ?? null),
       totalCost: c.cost,
       totalRecovery: c.recoverableSell,
+      economics,
+      missingTierLabels,
       // A component charge is never a Direct Service, so there is no second
       // half to hold apart.
       serviceContext: null,
@@ -399,5 +479,55 @@ export function buildRecoveryWorkspace(input: {
     };
   });
 
-  return [...legacyRows, ...componentRows];
+  // ── CHARGES THE ENGINE NEVER SAW ────────────────────────────────────────
+  //
+  // A charge with no economics at all produces no `PlacedCharge`, so it has no
+  // row above. Before this it therefore appeared NOWHERE — not on this surface
+  // and not at the send gate — and an operator could author a charge, have
+  // nothing price it, and send the quote with nothing reporting the omission.
+  //
+  // Synthesized from the structural fact instead. The row exists because the
+  // CHARGE exists; that it has no amount is what the row is there to say.
+  const placedInstances = new Set(
+    componentCharges.map((c) => c.chargeInstanceId).filter(Boolean) as string[],
+  );
+  const uncostedRows: RecoveryChargeRow[] = [];
+  for (const [chargeInstanceId, e] of input.chargeEconomics ?? []) {
+    if (e.state !== "none" || placedInstances.has(chargeInstanceId)) continue;
+    const policy = chargePolicy(e.chargeKey);
+    uncostedRows.push({
+      chargeKey: e.chargeKey,
+      chargeInstanceId,
+      // The operator's own label, which is what tells two charges of a type
+      // apart. Not the collision-only owner name — that is computed from placed
+      // charges, and this one is not among them.
+      ownerLabel: e.ownLabel,
+      // Nobody has decided who bears it, because nobody could: there is no
+      // amount to bear. Both facts are true and both are said.
+      unplaced: true,
+      economics: "none",
+      missingTierLabels: e.missingTierLabels,
+      label: policy.label,
+      grain: policy.grain,
+      present: true,
+      placements: [],
+      mixed: false,
+      electedMode: null,
+      source: "election",
+      effectiveMode: null,
+      // ZERO WOULD BE A CLAIM. The cost is unknown, not nothing — the same
+      // distinction BV-013 draws for recovery, applied to the other side of it.
+      totalCost: null,
+      totalRecovery: null,
+      serviceContext: null,
+      options: RECOVERY_MODES.map((mode) => ({
+        mode,
+        available: false,
+        reason:
+          "This charge has no cost yet. Enter what DPS pays on Costs before deciding how it is recovered.",
+      })),
+    });
+  }
+
+  return [...legacyRows, ...componentRows, ...uncostedRows];
 }

@@ -106,6 +106,11 @@ for (const q of quotes) {
 
   for (const row of rows) {
     if (!row.present && row.serviceContext === null) continue;
+    // A charge with NO economics has no cost to reconcile against the fee
+    // columns — the question this certification asks does not apply to it.
+    // Skipped explicitly rather than coerced to 0, which would assert it costs
+    // nothing and then compare that assertion to the columns.
+    if (row.totalCost === null) continue;
     rowsChecked++;
 
     // (1) The actionable figure excludes the service contribution.

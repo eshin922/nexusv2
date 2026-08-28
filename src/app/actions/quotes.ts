@@ -115,6 +115,10 @@ import { requireBelowFloorAuthorizedToSend } from "@/lib/below-floor-send-gate";
 import { requireNoUnbillableRecoveryToSend } from "@/lib/unbillable-recovery-send-gate";
 import { prepareQuoteCommercialPin } from "@/lib/commercial-settings";
 import { ensureChargeInstance } from "@/lib/commercial-recovery/charge-instance";
+import {
+  describeMissing,
+  readComponentChargeReadiness,
+} from "@/lib/component-charges/readiness";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
@@ -1822,6 +1826,35 @@ export async function sendQuote(
         resolved.kind === "not_found"
           ? "Quote not found during send-time render."
           : `Costing bundle error during send-time render: ${resolved.message}`,
+      );
+    }
+
+    // ── OD-032 · SEND REFUSES AN UNPRICED CHARGE ───────────────────────────
+    //
+    // BEFORE the placement check, because it is the prior problem: a charge
+    // with no cost has nothing to place, and telling an operator to go and
+    // decide a recovery for it would send them to the wrong surface.
+    //
+    // Read from the instance and tier tables, NOT from the resolved rows. An
+    // uncosted charge produces no economics — `componentChargeEconomics` drops
+    // it and `loadComponentCharges` inner-joins past it — so a gate that asked
+    // the engine would be asking a layer that was never told the charge
+    // existed. That is precisely how a charge could be authored, priced by
+    // nothing, and sent with nothing reporting it.
+    //
+    // Option A, enforced here rather than at authoring: every quoted tier
+    // needs an explicit positive cost before the quote may proceed. Setup is
+    // not blocked for creating a charge that has no cost yet — that is an
+    // expected intermediate state — but the quote cannot leave the building in
+    // it.
+    const chargeReadiness = await readComponentChargeReadiness(quoteId);
+    const unpriced = chargeReadiness.filter((r) => r.state !== "complete");
+    if (unpriced.length > 0) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `${unpriced.length} one-time charge${unpriced.length === 1 ? " has" : "s have"} ` +
+          `no cost entered: ${unpriced.map(describeMissing).join("; ")}. ` +
+          "Enter what DPS pays for each quoted tier on Costs before sending.",
       );
     }
 

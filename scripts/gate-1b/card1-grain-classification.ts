@@ -102,6 +102,9 @@ for (const q of quotes) {
 
   const header: string[] = [];
   for (const row of rows) {
+    // No economics, nothing to classify — see the sibling certification. Never
+    // folded to 0: that would state a cost the operator has not entered.
+    if (row.totalCost === null) continue;
     const feeCost = feeCostByCharge.get(row.chargeKey) ?? 0;
     // The row's own cost is the authority on what it thinks it holds; the fee
     // columns are the authority on the OTC portion. Their difference is the

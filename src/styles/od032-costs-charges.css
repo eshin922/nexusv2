@@ -1,11 +1,19 @@
 /*
- * OD-032 Shape A — component charges in their causal Packaging context, and
- * the Item Group attribution line in Production.
+ * OD-032 — component charges in their causal Packaging context, and the Item
+ * Group attribution line in Production.
  *
- * Deliberately small. Shape A is a PLACEMENT, not the Costs redesign that was
- * deferred: two additive elements, no region moved, no tier column touched.
+ * Shape A placed them. Step B made them ACTIONABLE: Costs is the surface that
+ * owns economics, so what DPS pays is entered here.
  *
  * Prefix-clean (`od032-`), so it loads globally without cross-polluting.
+ *
+ * ── TOKENS, NOT LITERALS ─────────────────────────────────────────────────
+ *
+ * Shape A shipped with literal oklch values. That was survivable while the
+ * block was read-only text; it is not survivable now that it holds inputs,
+ * because a literal-coloured field renders unreadable the moment the surface is
+ * viewed in the other theme. Converted wholesale rather than half — a box with
+ * literal walls and tokenised contents is the worst of both.
  */
 
 /* ── the nested charge block ──────────────────────────────────────────── */
@@ -17,59 +25,159 @@
   grid-column: 1 / -1;
   margin: 6px 0 2px 18px;
   padding: 8px 10px 9px;
-  background: oklch(0.975 0.010 85);
-  border: 1px solid oklch(0.92 0.010 85);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
   border-radius: 6px;
 }
 
 .od032-costs-charges-label {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: oklch(0.68 0.012 255);
+  color: var(--ink-4);
   margin-bottom: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* WHAT THE NUMBERS ARE, said once at the top of the block rather than repeated
+   per figure. The grid above is per-unit rates; these are not. */
+.od032-costs-charges-label .basis {
+  margin-left: auto;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: var(--ink-3);
 }
 
 .od032-costs-charge {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 5px 0;
-  border-top: 1px solid oklch(0.94 0.008 85);
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
 }
 .od032-costs-charge:first-of-type {
   border-top: 0;
 }
 
-.od032-costs-charge-name {
-  font-size: 12.5px;
-  color: oklch(0.20 0.02 255);
-}
-.od032-costs-charge-label {
-  color: oklch(0.52 0.015 255);
+.od032-costs-charge-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
 }
 
-.od032-costs-charge-amounts {
-  margin-left: auto;
-  display: flex;
-  gap: 14px;
+.od032-costs-charge-name {
+  font-size: 12.5px;
+  color: var(--ink);
 }
-.od032-costs-charge-amt {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  min-width: 72px;
+.od032-costs-charge-label {
+  color: var(--ink-3);
 }
 
 .od032-costs-charge-note {
-  font-family: "JetBrains Mono", monospace;
+  margin-left: auto;
+  font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: oklch(0.68 0.012 255);
+  color: var(--ink-4);
   white-space: nowrap;
+}
+
+/* ── per-tier fixed totals ────────────────────────────────────────────── */
+
+/*
+ * ONE CELL PER QUOTED TIER, EACH LABELLED.
+ *
+ * Shape A rendered a bare row of amounts in whatever order the reader returned
+ * them — which had no ORDER BY, so the sequence was not guaranteed to match the
+ * tier columns above it. Four unlabelled figures under a four-column grid read
+ * as if they line up with it. They did not have to.
+ *
+ * Now the block iterates the QUOTE'S tiers and looks each amount up by id, so
+ * ordering is correct by construction rather than by a clause someone has to
+ * remember, a missing tier is visible as an empty field rather than as a
+ * shorter row, and every figure carries the name of the tier it belongs to.
+ */
+.od032-costs-charge-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.od032-costs-charge-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 104px;
+}
+
+.od032-costs-charge-tier-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.od032-costs-charge-amt {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  width: 100%;
+  padding: 3px 6px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+.od032-costs-charge-amt:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.od032-costs-charge-amt::placeholder {
+  color: var(--ink-4);
+}
+.od032-costs-charge-amt:disabled {
+  background: var(--paper-3);
+  color: var(--ink-3);
+}
+/* A tier with no cost stated. Not an error — an operator has not got to it yet
+   — but it is the state that blocks the send, so it is visible rather than
+   merely empty. */
+.od032-costs-charge-amt[data-missing="yes"] {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+/* ── readiness ────────────────────────────────────────────────────────── */
+
+.od032-costs-charge-state {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.od032-costs-charge-state[data-state="none"],
+.od032-costs-charge-state[data-state="partial"] {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.od032-costs-charge-state[data-state="complete"] {
+  color: var(--good);
+  background: var(--good-soft);
+}
+
+.od032-costs-charge-error {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--bad);
 }
 
 /* ── the Production attribution line ──────────────────────────────────── */
@@ -79,16 +187,16 @@
   align-items: center;
   gap: 10px;
   padding: 7px 12px;
-  background: oklch(0.968 0.012 85);
-  border-bottom: 1px solid oklch(0.92 0.010 85);
-  font-family: "JetBrains Mono", monospace;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: oklch(0.68 0.012 255);
+  color: var(--ink-4);
 }
 .od032-prod-attribution .why {
   margin-left: auto;
   letter-spacing: 0.06em;
-  color: oklch(0.52 0.015 255);
+  color: var(--ink-3);
 }

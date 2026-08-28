@@ -46,6 +46,8 @@ import { type ProposedElections, getCostingBundle } from "@/app/actions/costing"
 import { projectCommercial } from "@/lib/commercial-projection";
 import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
 import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
+import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
+import type { RecoveryChargeKey } from "@/lib/commercial-recovery/registry";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { loadQuoteAddendum } from "@/lib/addendum-loader";
 import { toLocalIsoDate } from "@/lib/local-date";
@@ -306,6 +308,11 @@ export async function resolveCustomerView(args: {
   if (!bundle.ok) {
     return { ok: false, kind: "bundle_error", message: bundle.error.message };
   }
+
+  // Sequential, deliberately: `getCostingBundle` runs an 8-wide `Promise.all`
+  // internally, and nesting this inside one would add to that peak rather than
+  // cap it. One extra small read after the bundle costs nothing measurable.
+  const chargeReadiness = await readComponentChargeReadiness(quoteId);
 
   /**
    * Which rollups OWN their charges, rather than carrying a merge of their
@@ -828,6 +835,20 @@ export async function resolveCustomerView(args: {
       })),
     },
     recoveryRows: buildRecoveryWorkspace({
+      // Structural state, read from the instance and tier tables. The costing
+      // bundle cannot supply it: a charge with no economics was never
+      // constructed, which is exactly why it used to appear nowhere.
+      chargeEconomics: new Map(
+        chargeReadiness.map((r) => [
+          r.chargeInstanceId,
+          {
+            state: r.state,
+            chargeKey: r.chargeKey as RecoveryChargeKey,
+            ownLabel: r.ownLabel,
+            missingTierLabels: r.missingTierLabels,
+          },
+        ]),
+      ),
       costing: bundle.data.costing,
       isLeaf: ownsItsCharges,
       elections: bundle.data.chargeElections ?? [],
