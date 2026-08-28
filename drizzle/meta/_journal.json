@@ -771,6 +771,13 @@
       "when": 1788165120000,
       "tag": "0111_od_032_frozen_instruction_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1788251520000,
+      "tag": "0112_od_032_manual_all_in_sell_provenance",
+      "breakpoints": true
     }
   ]
 }

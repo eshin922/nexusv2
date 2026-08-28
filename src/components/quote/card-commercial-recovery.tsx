@@ -406,6 +406,25 @@ export function CardCommercialRecovery({
                     refused in this state, so the operator meets a row of dead
                     controls — and hover-to-discover is a navigation pattern,
                     not a presentation one. */}
+                {/* ── A MANUAL ALL-IN PRICE, SAID ON THE SURFACE ──────────
+                    Disposition, Edward 2026-08-28: an override IS the final
+                    all-in customer unit price. Electing `included` on such a
+                    tier is a real statement — the operator asserts the charge
+                    is inside the price they typed — but Nexus cannot say how
+                    much of it is recovery, and the freeze now declines to.
+
+                    NOT "absorbed". Absorbed is a governed treatment of its own
+                    — a decision to eat a cost and recover nothing — and using
+                    the word here would describe one decision with another
+                    one's name.
+
+                    Visible, not hover-only: the row is otherwise identical to
+                    one on a computed price, so nothing would tell the operator
+                    their election has nothing measurable to act on. */}
+                {row.effectiveMode === "included" &&
+                row.perTier.some((t) => t.manualAllInSell)
+                  ? " · included in your manual all-in price — embedded recovery cannot be measured separately"
+                  : ""}
                 {row.economics === "none"
                   ? " · no cost entered yet — enter it on Costs"
                   : row.economics === "partial"

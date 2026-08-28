@@ -278,9 +278,9 @@ test("collision labelling counts INSTANCES, not tier entries", () => {
 
 test("tierVector sums owners within a tier and keeps tiers apart", () => {
   const v = tierVector([
-    { ownerRef: LEAF_A, tierId: T1, charge: legacy(300, 0) as never },
-    { ownerRef: LEAF_B, tierId: T1, charge: legacy(200, 0) as never },
-    { ownerRef: LEAF_A, tierId: T2, charge: legacy(300, 0) as never },
+    { ownerRef: LEAF_A, tierId: T1, charge: legacy(300, 0) as never, manualAllInSell: false },
+    { ownerRef: LEAF_B, tierId: T1, charge: legacy(200, 0) as never, manualAllInSell: false },
+    { ownerRef: LEAF_A, tierId: T2, charge: legacy(300, 0) as never, manualAllInSell: false },
   ]);
   assert.equal(v.length, 2);
   assert.equal(v.find((t) => t.tierId === T1)!.cost, 500, "owners add inside a tier");

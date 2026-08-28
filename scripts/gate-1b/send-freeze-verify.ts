@@ -85,6 +85,7 @@ if (snap.length === 0) {
     cost: number; governed_recovery: number | null;
     separate_invoice_amount: number | null;
     amortized_per_unit: number | null; tier_quantity: number | null;
+    manual_all_in_sell: boolean;
   }[];
 
   console.log(`  snapshot v${snap[0].version_number} · ${rows.length} frozen instruction(s)\n`);
@@ -92,6 +93,7 @@ if (snap.length === 0) {
   const asInstruction = (r: (typeof rows)[number]): FrozenRecoveryInstruction => ({
     chargeKey: r.charge_key as FrozenRecoveryInstruction["chargeKey"],
     ownerRef: r.owner_ref,
+    manualAllInSell: r.manual_all_in_sell,
     // OD-032 P-3. NULL for a legacy placed charge, which has no election and
     // therefore no instance; non-null for every component-owned charge.
     chargeInstanceId: r.charge_instance_id,

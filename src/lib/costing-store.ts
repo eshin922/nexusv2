@@ -407,6 +407,22 @@ export type HydrateSnapshot = {
    * that — an omission would be a silent reversion to legacy placement.
    */
   chargeElections: ChargeElection[];
+  /**
+   * Component-owned charges as IDENTITY — OD-032 Customer Document.
+   *
+   * The engine's `ComponentChargeInput` carries economics and no name, so the
+   * commercial projection could not have said which charge a line was for even
+   * once it could see one. Carried on the bundle so the projection stays a
+   * pure function of it: a lookup inside the projection would be a second
+   * source of truth for the same line.
+   */
+  componentChargeMeta: {
+    chargeInstanceId: string;
+    /** The causal owner — `quote_leaves.id`. */
+    quoteLeafId: string;
+    chargeKey: string;
+    label: string | null;
+  }[];
   cellOverrides: CostingCellOverride[];
   // Slice 9.4b — sparse per-cell client target benchmarks (rows that
   // exist in DB at hydration time).

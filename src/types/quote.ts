@@ -210,6 +210,17 @@ export type CustomerViewTier = {
 
 export type CustomerViewServiceFee = {
   id: string;
+  /**
+   * The charge this fee bills, when it is a component-owned one — OD-032.
+   *
+   * Carried as IDENTITY so nothing downstream reconstructs it from `id`, the
+   * label, or a position in the array. `id` is a display key and has been two
+   * different shapes already; this is the same value the elections and the
+   * frozen instructions use.
+   *
+   * Null for legacy column-shaped fees, which have no instance.
+   */
+  chargeInstanceId?: string | null;
   scope: "project" | "sku";
   /** Required when scope === "sku". */
   skuLabel?: string;
