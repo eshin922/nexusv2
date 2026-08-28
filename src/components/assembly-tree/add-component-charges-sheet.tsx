@@ -98,7 +98,11 @@ export function AddComponentChargesSheet({
    * Used to warn — never to block. Two dies on one carton is a real thing, and
    * the model must not out-argue the shop floor.
    */
-  existingKeys: readonly { chargeKey: string; label: string | null }[];
+  existingKeys: readonly {
+    chargeInstanceId: string;
+    chargeKey: string;
+    label: string | null;
+  }[];
   onClose: () => void;
 }) {
   const [picked, setPicked] = useState<Set<ComponentChargeKey>>(new Set());
@@ -115,6 +119,12 @@ export function AddComponentChargesSheet({
 
   const ownedCount = (k: ComponentChargeKey) =>
     existingKeys.filter((e) => e.chargeKey === k).length;
+  /** Labels already in use for this type — what a second one must differ from. */
+  const ownedLabels = (k: ComponentChargeKey) =>
+    existingKeys
+      .filter((e) => e.chargeKey === k)
+      .map((e) => e.label)
+      .filter((l): l is string => !!l);
 
   /** A label is demanded by the type itself, or by a collision with one the
    *  component already has. Two charges of a type are told apart by their
@@ -131,6 +141,29 @@ export function AddComponentChargesSheet({
       return next;
     });
   }
+
+  /**
+   * Why the sheet cannot be submitted yet, or null.
+   *
+   * The action refuses all of these too, and THAT is the enforcement. This
+   * exists so the operator is told before they press a button rather than by a
+   * failure afterwards.
+   */
+  const blocked = (): string | null => {
+    for (const k of picked) {
+      const label = labels[k]?.trim() || null;
+      if (needsLabel(k) && !label) {
+        return labelRequiredFor(k)
+          ? `${COMPONENT_CHARGE_LABELS[k]} needs a label saying what it is for.`
+          : `This component already has a ${COMPONENT_CHARGE_LABELS[k]} charge. ` +
+            "Give the new one a label that tells it apart.";
+      }
+      if (label && ownedLabels(k).includes(label)) {
+        return `This component already has a ${COMPONENT_CHARGE_LABELS[k]} charge labelled "${label}".`;
+      }
+    }
+    return null;
+  };
 
   function submit() {
     setError(null);
@@ -226,7 +259,15 @@ export function AddComponentChargesSheet({
                           label to tell them apart. */}
                       {owned > 0 && (
                         <span className="od032-pick-warn" data-testid={`owned-${k}`}>
-                          already has {owned} — adding another needs a distinct label
+                          {/* NAMES what is already there. "Adding another needs
+                              a distinct label" states a rule; the labels state
+                              what to be distinct FROM, which is the thing the
+                              operator actually has to decide. */}
+                          already has {owned}
+                          {ownedLabels(k).length > 0
+                            ? ` (${ownedLabels(k).join(", ")})`
+                            : ""}{" "}
+                          — a second needs a distinct label
                         </span>
                       )}
                     </span>
@@ -274,6 +315,14 @@ export function AddComponentChargesSheet({
             complete. The quote cannot be sent until both are done.
           </p>
 
+          {/* Said on the surface, not only in the button's title. Pattern 47(f):
+              a disabled control must communicate why, and hover-to-discover is
+              a navigation pattern rather than a presentation one. */}
+          {blocked() !== null && !error && (
+            <p className="od032-error" data-testid="sheet-blocked">
+              {blocked()}
+            </p>
+          )}
           {error && (
             <p className="od032-error" role="alert" data-testid="sheet-error">
               {error}
@@ -292,14 +341,14 @@ export function AddComponentChargesSheet({
               type="button"
               className="od032-btn primary"
               // Pattern 47(f): action-scoped, and it says why it is disabled.
-              disabled={picked.size === 0 || saving}
+              disabled={picked.size === 0 || saving || blocked() !== null}
               aria-busy={saving || undefined}
               title={
                 saving
                   ? "Adding these charges…"
                   : picked.size === 0
                     ? "Select at least one type of charge."
-                    : undefined
+                    : (blocked() ?? undefined)
               }
               data-testid="submit-charges"
               onClick={submit}

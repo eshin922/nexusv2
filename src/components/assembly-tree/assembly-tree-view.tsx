@@ -42,6 +42,7 @@ export function AssemblyTreeView({
   itemGroupCategories,
   leafTypes,
   permissions,
+  existingComponentCharges,
   tiers,
   clientTargets,
 }: {
@@ -56,6 +57,20 @@ export function AssemblyTreeView({
   // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
   // Page-level fetcher reads user.canCreateLeaves via ensureUser.
   permissions: { canCreateLeaves: boolean };
+  /**
+   * Charges each component already owns — OD-032.
+   *
+   * Threaded rather than fetched here: the tree is a client component and this
+   * is server state. Carried as IDENTITY (instance, type, label, owner) rather
+   * than a count by type, because the sheet needs to know both whether the type
+   * is already present AND which labels exist to be distinguished from.
+   */
+  existingComponentCharges?: ReadonlyArray<{
+    chargeInstanceId: string;
+    quoteLeafId: string;
+    chargeKey: string;
+    label: string | null;
+  }>;
   /** Tier list for the Client Target drawer, in display order. */
   tiers: ReadonlyArray<TargetTier>;
   /** Raw Client Target rows for the quote. Indexed here, resolved per row. */
@@ -212,6 +227,7 @@ export function AssemblyTreeView({
         targetsByUnit={targetsByUnit}
         fullLeafTypes={leafTypes}
         permissions={permissions}
+        existingComponentCharges={existingComponentCharges}
       />
     </div>
   );

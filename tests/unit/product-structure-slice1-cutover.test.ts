@@ -630,6 +630,14 @@ const classifiedIdentityFiles = new Set([
   // already knows it, and hands it back to the action unchanged. It performs no
   // lookup, reads no table, and derives no owner.
   "src/components/assembly-tree/add-component-charges-sheet.tsx",
+  // CLASSIFIED - threads a canonical id, resolves nothing.
+  //
+  // OD-032: it passes `existingComponentCharges` from the page to the tree
+  // body so the authoring sheet knows what each component already owns. The
+  // rows carry `quote_leaves.id` as the owner and the instance id as the
+  // identity; this component reads neither and matches on neither — it hands
+  // the array straight down. `assembly_leaves` is never touched.
+  "src/components/assembly-tree/assembly-tree-view.tsx",
   // CLASSIFIED - canonical identity only, and every write is rolled back.
   //
   // The OD-032 copy-integrity proof. Reads `quote_leaves.id` to pick two
@@ -696,6 +704,18 @@ const classifiedIdentityFiles = new Set([
   // from any one of them. Everything it creates is deleted and the deletion is
   // VERIFIED by re-reading.
   "scripts/gate-1b/od-032-lifecycle-proof.ts",
+  // CLASSIFIED - canonical identity only, and every row it writes is removed.
+  //
+  // The OD-032 second-instance proof: two charges of one type on one
+  // component, refused when nothing tells them apart and created when
+  // something does. It reads `quote_leaves.id` only to pick a subject
+  // component; `assembly_leaves` is never queried.
+  //
+  // It writes, deliberately: minting a second identity is a fact about rows.
+  // Its residue check is POPULATION-WIDE rather than scoped to what the run
+  // meant to create — which is how it caught a row an unexpectedly-successful
+  // call had left behind.
+  "scripts/gate-1b/od-032-second-instance-proof.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

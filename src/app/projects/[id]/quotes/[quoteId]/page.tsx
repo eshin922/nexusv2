@@ -16,6 +16,7 @@ import {
 // the legacy quote_skus render path which this slice drops. New
 // path uses <AssemblyTreeView> exclusively.
 import { loadAssemblyTree } from "@/lib/assembly-tree";
+import { readExistingComponentCharges } from "@/lib/component-charges/read";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -290,6 +291,11 @@ export default async function QuoteBuilderPage({
           itemGroupCategories={productTypeOptions.itemGroupCategories}
           leafTypes={productTypeOptions.leafTypes}
           permissions={{ canCreateLeaves: user.canCreateLeaves }}
+          // OD-032 · what each component ALREADY owns, with full identity.
+          // Without this the sheet believed every component owned nothing, so
+          // a second charge of a type submitted with no label and silently
+          // resolved to the first.
+          existingComponentCharges={await readExistingComponentCharges(quoteId)}
         />
       ) : null}
 

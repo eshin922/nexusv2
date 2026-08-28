@@ -85,3 +85,72 @@ export async function readComponentChargesForCosts(
   }
   return [...byInstance.values()];
 }
+
+/**
+ * The charges each component already owns, for the Setup authoring sheet.
+ *
+ * ── WHY IDENTITY AND NOT A COUNT ────────────────────────────────────────
+ *
+ * The sheet has two questions to answer and a count can only answer one.
+ * "Does this component already have a Tooling charge?" needs the TYPE; "what
+ * distinguishes a second one from the first?" needs the LABELS that already
+ * exist, because a label is what tells two charges of a type apart. A count by
+ * type would answer the first and leave the second to be guessed, which is the
+ * ambiguity the instance grain was introduced to remove.
+ *
+ * `chargeInstanceId` rides along because the identity is the fact. A caller
+ * that has it cannot later be tempted to reconstruct one from a type and a
+ * position — the shape OD-028 exists to warn about.
+ *
+ * ── THE DEFECT THIS CLOSES ──────────────────────────────────────────────
+ *
+ * `AssemblyTreeBody` declared `existingComponentCharges` as OPTIONAL and no
+ * caller ever passed it. So the sheet believed every component owned nothing:
+ * the "already has N" warning never rendered, the distinct-label input never
+ * appeared, and a second charge of a type submitted with `label: null`.
+ *
+ * `ensureChargeInstance` is idempotent on (quote, type, owner, label) — rightly,
+ * since re-submitting one commercial fact must not mint a rival identity — so
+ * that second submission RESOLVED TO THE FIRST and reported success. Measured
+ * on production 2026-08-28: three submissions, two charges, no error shown.
+ *
+ * Nothing was corrupted. But two same-type charges on one component, which the
+ * model supports and the Recovery grain exists to give back, could not be
+ * authored at all.
+ */
+export type ExistingComponentCharge = {
+  chargeInstanceId: string;
+  /** The causal owner — `quote_leaves.id`. */
+  quoteLeafId: string;
+  chargeKey: string;
+  label: string | null;
+};
+
+export async function readExistingComponentCharges(
+  quoteId: string,
+): Promise<ExistingComponentCharge[]> {
+  const rows = await db
+    .select({
+      chargeInstanceId: quoteChargeInstances.id,
+      quoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
+      chargeKey: quoteChargeInstances.chargeKey,
+      label: quoteChargeInstances.label,
+    })
+    .from(quoteChargeInstances)
+    .where(
+      and(
+        eq(quoteChargeInstances.quoteId, quoteId),
+        // Component-owned only. A legacy `'@quote'` charge is owned by the
+        // engagement and belongs to no component's picker.
+        isNotNull(quoteChargeInstances.ownerQuoteLeafId),
+      ),
+    );
+  return rows.map((r) => ({
+    chargeInstanceId: r.chargeInstanceId,
+    // Non-null by the WHERE above; the narrowing is for the compiler, which
+    // cannot see a predicate expressed in SQL.
+    quoteLeafId: r.quoteLeafId as string,
+    chargeKey: r.chargeKey,
+    label: r.label,
+  }));
+}

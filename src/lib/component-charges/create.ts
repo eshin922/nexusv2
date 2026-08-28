@@ -132,6 +132,28 @@ export async function createComponentChargesAs(
       );
     }
 
+    // ── WHAT THIS COMPONENT ALREADY OWNS ──────────────────────────────────
+    //
+    // Read before validating, because a second charge of a type is only legal
+    // if it is DISTINGUISHABLE from the first — and a label is what
+    // distinguishes them.
+    const owned = await db
+      .select({
+        chargeKey: quoteChargeInstances.chargeKey,
+        label: quoteChargeInstances.label,
+      })
+      .from(quoteChargeInstances)
+      .where(
+        and(
+          eq(quoteChargeInstances.quoteId, quoteId),
+          eq(quoteChargeInstances.ownerQuoteLeafId, quoteLeafId),
+        ),
+      );
+    const ownedKey = (k: string, l: string | null) => `${k}\u0000${l ?? ""}`;
+    const taken = new Set(owned.map((o) => ownedKey(o.chargeKey, o.label)));
+    const labelsFor = (k: string) =>
+      owned.filter((o) => o.chargeKey === k).map((o) => o.label);
+
     const validated = input.charges.map((c) => {
       if (!isComponentChargeKey(c.chargeKey)) {
         throw new ActionGuardError(
@@ -147,6 +169,57 @@ export async function createComponentChargesAs(
           "Other requires a label saying what the charge is for.",
         );
       }
+
+      // ── A SECOND OF A TYPE MUST BE TOLD APART FROM THE FIRST ────────────
+      //
+      // `ensureChargeInstance` is idempotent on (quote, type, owner, label),
+      // and rightly so — re-submitting one commercial fact must not mint a
+      // rival identity for it. But that made this path report SUCCESS for a
+      // write it did not perform: an operator adding a second Print plates
+      // with no label silently got the first one back.
+      //
+      // Measured on production 2026-08-28: three submissions, two charges, no
+      // error shown. Nothing was corrupted and nothing was created, which is
+      // the worst combination to hand an operator — the surface said it worked.
+      //
+      // So the collision is REFUSED and named. The idempotency stays where it
+      // belongs, on `ensureChargeInstance`, which the copy path still relies on.
+      // ── A SECOND OF A TYPE NEEDS A LABEL AT ALL ────────────────────────
+      //
+      // Checked BEFORE the exact-duplicate test, because it is the wider rule
+      // and the narrow one cannot stand in for it: `(print_plates, null)` does
+      // not collide with `(print_plates, "Front panel")`, so an unlabelled
+      // second charge slipped straight past a duplicate check and minted a
+      // third identity nothing could tell from the first two.
+      //
+      // Caught by the runtime proof, not by the source assertions — they could
+      // see that a collision was refused and not that this was not one.
+      if (label === null && labelsFor(key).length > 0) {
+        const existing = labelsFor(key).filter((l) => l !== null) as string[];
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `This component already has a ${COMPONENT_CHARGE_LABELS[key]} charge. ` +
+            "A second one needs a label saying what tells it apart from the first" +
+            (existing.length > 0 ? ` (already used: ${existing.join(", ")}).` : "."),
+        );
+      }
+      if (taken.has(ownedKey(key, label))) {
+        const existing = labelsFor(key).filter((l) => l !== null) as string[];
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          label === null
+            ? `This component already has a ${COMPONENT_CHARGE_LABELS[key]} charge. ` +
+              "A second one needs a label saying what tells it apart from the first" +
+              (existing.length > 0 ? ` (already used: ${existing.join(", ")}).` : ".")
+            : `This component already has a ${COMPONENT_CHARGE_LABELS[key]} charge ` +
+              `labelled "${label}". Give the new one a different label.`,
+        );
+      }
+      // Two drafts in ONE submission colliding with each other, which the
+      // stored set cannot see. The sheet offers one row per type so this needs
+      // a caller to construct it, but a refusal is cheaper than the alternative.
+      taken.add(ownedKey(key, label));
+
       return { key, label };
     });
 
