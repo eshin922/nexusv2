@@ -637,6 +637,21 @@ const classifiedIdentityFiles = new Set([
   // performs it. Every statement runs inside a transaction that always rolls
   // back, and a final check asserts nothing persisted.
   "scripts/gate-1b/od-032-copy-integrity-proof.ts",
+  // CLASSIFIED - canonical identity only. It QUERIES `assembly_leaves`, and
+  // that is the one thing it uses the junction for: proving ABSENCE.
+  //
+  // The OD-032 A proof, that a Direct Product authors a component charge with
+  // the same ownership semantics as a grouped member. Owners are read and
+  // asserted as `owner_quote_leaf_id` throughout; no owner is ever RESOLVED
+  // through the junction. `assembly_leaves` is counted only to establish that
+  // the two subjects really are one grouped and one standalone — without that
+  // count the comparison could be between two members of the same shape and
+  // would prove nothing, so the script refuses rather than passing.
+  //
+  // It writes, deliberately: ownership semantics are facts about stored
+  // columns. Everything it creates is deleted and the deletion is VERIFIED by
+  // re-reading, rather than assumed from the delete returning.
+  "scripts/gate-1b/od-032-direct-product-authoring.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

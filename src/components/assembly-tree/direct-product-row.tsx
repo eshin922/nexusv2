@@ -40,6 +40,7 @@ export function DirectProductRow({
   onRowDrop,
   moveDestinations,
   onMove,
+  onAddCharges,
 }: {
   product: DirectProductNode;
   editable: boolean;
@@ -66,6 +67,23 @@ export function DirectProductRow({
     position: number;
   }>;
   onMove?: (target: string, position: number) => void;
+  /**
+   * Open the one-time charges sheet for this component — OD-032.
+   *
+   * ── WHY THIS ROW NEEDED IT SEPARATELY ──────────────────────────────────
+   *
+   * Ownership in OD-032 is COMPONENT ownership, not Item Group membership. A
+   * standalone component causes print plates and tooling exactly as a grouped
+   * one does, and the storage path is the same: `owner_quote_leaf_id` is a
+   * plain FK to `quote_leaves`, which is what a Direct Product already is.
+   *
+   * The affordance was grouped-only for a structural reason rather than a
+   * policy one. This row deliberately does not reuse `LeafContextMenu`, so
+   * "add the item to the component row's menu" reached one of the two
+   * component rows; the Design Authority illustrates only the grouped case,
+   * so nothing contradicted it. Same act, same writer, same ownership.
+   */
+  onAddCharges?: () => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +287,30 @@ export function DirectProductRow({
                     hold. "library" satisfies it directly, and is neutral. */}
                 Edit library specs
               </a>
+              {/* OD-032. Identical to the member row's item — same label, same
+                  frozen-quote refusal, same act. A charge authored here is
+                  owned by this component's own `quote_leaf_id`; no Item Group
+                  identity is in scope on this row at all. */}
+              {onAddCharges && (
+                <button
+                  type="button"
+                  className="item"
+                  role="menuitem"
+                  disabled={!editable}
+                  title={
+                    !editable
+                      ? "This quote is no longer a draft; charges are frozen."
+                      : undefined
+                  }
+                  data-testid="direct-add-charges"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onAddCharges();
+                  }}
+                >
+                  Add one-time charges
+                </button>
+              )}
               {/* The governed move, reachable without a drag.
                   `moveProductMembership` preserves `quote_leaves.id` and
                   repoints every dependent economic row; Remove-and-re-add

@@ -42,6 +42,19 @@ import { useRouter } from "next/navigation";
 // LEAF reorder within an ASY is handled inside AsyRow; this wrapper
 // only manages ASY-level reorder.
 
+
+/**
+ * What the one-time charges sheet needs to open — and nothing else.
+ *
+ * `AssemblyLeafNode` and `DirectProductNode` both satisfy it, which is the
+ * point: the sheet serves a COMPONENT, and a component's row shape is not a
+ * fact about the charge it caused.
+ */
+type ChargeSheetTarget = Pick<
+  AssemblyLeafNode,
+  "quoteLeafId" | "sku" | "name" | "productType"
+>;
+
 export function AssemblyTreeBody({
   tree,
   editable,
@@ -93,8 +106,18 @@ export function AssemblyTreeBody({
    * the menu that opened it: the menu closes on click, and a sheet owned by it
    * would close with it.
    */
+  // ── THE SHEET'S TARGET IS A COMPONENT, NOT A ROW SHAPE ─────────────────
+  //
+  // OD-032 ownership is COMPONENT ownership. A grouped member and a Direct
+  // Product are different row shapes over the same commercial fact, and the
+  // sheet needs the same four things from either.
+  //
+  // Narrowed to exactly those four deliberately: `junctionId` and every
+  // assembly identity are OUT OF SCOPE of this type, so no code path from this
+  // state can attribute a charge to an Item Group even by accident. Both node
+  // types satisfy it structurally.
   const [chargeSheetLeaf, setChargeSheetLeaf] =
-    useState<AssemblyLeafNode | null>(null);
+    useState<ChargeSheetTarget | null>(null);
 
   const orderedAssemblies = useMemo(() => {
     if (!optimisticOrder) return tree.assemblies;
@@ -565,6 +588,22 @@ export function AssemblyTreeBody({
               moveDestinations={moveDestinations}
               onMove={(target, position) =>
                 moveViaMenu(product.quoteLeafId, target, position)
+              }
+              // ── A DIRECT PRODUCT AUTHORS CHARGES; A DIRECT SERVICE DOES NOT
+              //
+              // Both render through this row. `commercialKind` is the governed
+              // discriminator between them, and the distinction is real here:
+              // a component charge is caused by a PACKAGING component, whereas
+              // a Direct Service is already its own priced customer line —
+              // which is exactly why the recovery layer carries
+              // `ownerKind: "direct_service"` separately.
+              //
+              // Read from the governed field, never from the `SVC-` SKU
+              // prefix, which is the string-sniffing this field exists to end.
+              onAddCharges={
+                product.commercialKind === "product"
+                  ? () => setChargeSheetLeaf(product)
+                  : undefined
               }
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
