@@ -18,6 +18,18 @@ import { buildRecoveryWorkspace } from "../../src/lib/commercial-recovery/worksp
 import type { ConstructedRollups } from "../../src/lib/commercial-recovery/construct.ts";
 import type { ChargeElection } from "../../src/lib/commercial-recovery/resolve.ts";
 
+/**
+ * The single tier's amounts, for fixtures that have exactly one.
+ *
+ * Asserting the count is part of the read: these fixtures are single-tier, and
+ * a helper that silently took the first entry would hide the very multiplicity
+ * this repair is about.
+ */
+function only(row: { perTier: { cost: number; recovery: number | null }[] }) {
+  assert.equal(row.perTier.length, 1, "fixture is single-tier");
+  return row.perTier[0];
+}
+
 const CARD = "src/components/quote/card-commercial-recovery.tsx";
 const HOOK = "src/components/quote/use-recovery-draft.ts";
 const PERSIST = "src/app/actions/commercial-recovery-persist.ts";
@@ -104,7 +116,7 @@ test("two same-type charges produce TWO rows, not one aggregate", () => {
   assert.equal(rows.length, 2);
   // Each carries its OWN amount. An aggregate row would carry 1775 and one
   // control, which is the collapse the grain removes.
-  assert.deepEqual(rows.map((r) => r.totalCost ?? 0).sort((a, b) => a - b), [325, 1450]);
+  assert.deepEqual(rows.map((r) => only(r).cost ?? 0).sort((a, b) => a - b), [325, 1450]);
   // And neither is `mixed`: one charge has one placement, so the state that
   // used to mean "this row covers charges placed differently" cannot arise.
   assert.ok(rows.every((r) => !r.mixed));
@@ -121,7 +133,10 @@ test("a component row never merges into its type's legacy row", () => {
   // component charge — otherwise the amount is on screen twice and one of the
   // two controls moves nothing.
   assert.equal(typeRow?.present, false);
-  assert.equal(typeRow?.totalCost, 0);
+  // EMPTY, not a zero total. A vector of zeroes would claim the type row costs
+  // nothing in every scenario; an empty one says it has no economics at all,
+  // which is the truth — the component charge carries them.
+  assert.deepEqual(typeRow?.perTier, []);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -194,7 +209,7 @@ test("an unplaced charge is flagged and offers no treatment as in force", () => 
   // No mode is shown as selected, because none was chosen.
   assert.equal(row.effectiveMode, null);
   // Cost is still real — DPS paid it.
-  assert.equal(row.totalCost, 1450);
+  assert.equal(only(row).cost, 1450);
 });
 
 test("a legacy row is never unplaced", () => {
@@ -447,6 +462,6 @@ test("BOUNDARY · two owners with the SAME display name still read alike", () =>
   // on — each control still addresses exactly one charge.
   assert.equal(rows.length, 2);
   assert.equal(new Set(rows.map((r) => r.chargeInstanceId)).size, 2);
-  assert.deepEqual(rows.map((r) => r.totalCost ?? 0).sort((a, b) => a - b), [600, 1450]);
+  assert.deepEqual(rows.map((r) => only(r).cost ?? 0).sort((a, b) => a - b), [600, 1450]);
 });
 

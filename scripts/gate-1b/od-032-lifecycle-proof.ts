@@ -137,9 +137,9 @@ async function main() {
       r0 ? "row present" : "MISSING — the defect this workstream began with",
     );
     record(
-      "it reports no economics, and a cost of NULL rather than zero",
-      r0?.economics === "none" && r0?.totalCost === null,
-      `economics=${r0?.economics} totalCost=${r0?.totalCost}`,
+      "it reports no economics, and an EMPTY tier vector rather than zeroes",
+      r0?.economics === "none" && r0?.perTier.length === 0,
+      `economics=${r0?.economics} perTier=${r0?.perTier.length ?? "?"} entries`,
     );
     record(
       "NEGATIVE · no mode may be elected while it has no cost",

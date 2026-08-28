@@ -62,7 +62,11 @@ import {
   ownedPlacedCharges,
   type ConstructedRollups,
 } from "./construct";
-import type { ChargePlacement, PlacedCharge } from "./construct";
+import type {
+  ChargePlacement,
+  OwnedPlacedCharge,
+  PlacedCharge,
+} from "./construct";
 
 export type ChargeModeOption = {
   mode: RecoveryMode;
@@ -70,6 +74,103 @@ export type ChargeModeOption = {
   /** Governed reason, present exactly when `available` is false. */
   reason: string | null;
 };
+
+/**
+ * One tier's economics for one decision — the unit that is never summed away.
+ *
+ * `cost` is what DPS pays IN THAT SCENARIO, already summed across any owners
+ * legitimately additive within it. `recovery` is null when nothing governs
+ * what the charge recovers (BV-013): unknown, never zero.
+ */
+export type TierAmount = {
+  tierId: string;
+  cost: number;
+  recovery: number | null;
+};
+
+/**
+ * What to print for a decision whose economics vary by scenario.
+ *
+ * PRESENTATION ONLY. Nothing stores a range, nothing computes from one, and no
+ * downstream consumer may treat `min`/`max` as an economic figure — they are
+ * two members of the vector, chosen because they bound it.
+ */
+export type AmountDisplay =
+  | { kind: "none" }
+  | { kind: "unpriced" }
+  | { kind: "single"; value: number }
+  | { kind: "range"; min: number; max: number };
+
+/**
+ * Collapse a tier vector for display.
+ *
+ *   equal across tiers  → one amount        Tooling 700/700/700/700 → $700
+ *   differing           → min–max           Setup 100/500/1000/1000 → $100–$1,000
+ *
+ * A range says two true things at once — the charge is this much in some
+ * scenario and that much in another — where a sum said one false thing. And it
+ * makes variance VISIBLE, which the operator should see before choosing a
+ * treatment rather than after.
+ */
+export function displayRecovery(perTier: readonly TierAmount[]): AmountDisplay {
+  if (perTier.length === 0) return { kind: "none" };
+  // Unknown recovery makes the whole display unknown, not smaller. One tier
+  // with no governed rate is enough: printing the others would state a figure
+  // for a decision whose economics are not fully governed.
+  if (perTier.some((t) => t.recovery === null)) return { kind: "unpriced" };
+  const values = perTier.map((t) => t.recovery as number);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  // Compared on cents, so floating-point noise cannot turn a flat charge into
+  // a range of itself.
+  return Math.round(min * 100) === Math.round(max * 100)
+    ? { kind: "single", value: min }
+    : { kind: "range", min, max };
+}
+
+/** The same collapse over cost rather than recovery. */
+export function displayCost(perTier: readonly TierAmount[]): AmountDisplay {
+  if (perTier.length === 0) return { kind: "none" };
+  const values = perTier.map((t) => t.cost);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return Math.round(min * 100) === Math.round(max * 100)
+    ? { kind: "single", value: min }
+    : { kind: "range", min, max };
+}
+
+/**
+ * Group placed charges into a tier vector.
+ *
+ * ── THE ONE PLACE THE DIMENSIONAL RULE LIVES ────────────────────────────
+ *
+ * Owners within a tier are summed; tiers are kept apart. Both halves are here
+ * so neither can be applied without the other — the defect this replaces was
+ * exactly one loop doing both at once.
+ */
+export function tierVector(charges: readonly OwnedPlacedCharge[]): TierAmount[] {
+  const byTier = new Map<string, TierAmount>();
+  for (const { tierId, charge } of charges) {
+    const at = byTier.get(tierId);
+    if (!at) {
+      byTier.set(tierId, {
+        tierId,
+        cost: charge.cost,
+        recovery: charge.recoverableSell,
+      });
+      continue;
+    }
+    // ADDITIVE WITHIN THE TIER. Two owners each causing this charge in this
+    // scenario cost the sum of both, and that is a real number the customer
+    // would pay.
+    at.cost += charge.cost;
+    at.recovery =
+      at.recovery === null || charge.recoverableSell === null
+        ? null
+        : at.recovery + charge.recoverableSell;
+  }
+  return [...byTier.values()];
+}
 
 export type RecoveryChargeRow = {
   chargeKey: RecoveryChargeKey;
@@ -158,14 +259,38 @@ export type RecoveryChargeRow = {
    */
   effectiveMode: RecoveryMode | null;
   /**
-   * The ACTIONABLE cost — one-time fees only, the portion this row's control
-   * can actually move. Summed straight off the constructed state, never
-   * recomputed.
+   * THE AUTHORITATIVE ECONOMIC REPRESENTATION — one entry per quoted tier.
+   *
+   * ── WHY THIS REPLACED A SINGLE TOTAL ────────────────────────────────────
+   *
+   * The row used to carry `totalCost` / `totalRecovery`, summed across every
+   * `(owner, tier)` entry the construction yielded. `ownedPlacedCharges` emits
+   * per (owner, tier), so for a single-owner charge that total was literally
+   * the per-tier amount multiplied by the number of tiers.
+   *
+   * Measured on production 2026-08-27, quote 4781e4bb with four tiers:
+   *
+   *   Tooling        $500 flat per tier  → row showed $2,000 / $2,800 shown
+   *   Artwork        $2,000 flat          → $8,000 / $11,200
+   *   Project setup  100 / 500 / 1000 / 1000 → $2,600
+   *
+   * The customer document on the SAME PAGE stated Tooling at $700 per tier.
+   * The card said $2,800. And project setup's $2,600 is true of no tier the
+   * customer can buy — it is not an overstatement of a real figure, it is a
+   * figure with no referent.
+   *
+   * ── THE DIMENSIONAL RULE ────────────────────────────────────────────────
+   *
+   * Owners within the same tier MAY be additive: two cartons each causing
+   * print plates really do cost the sum of both, in that scenario. Tiers are
+   * ALTERNATIVE SCENARIOS and are never additive — the customer buys one.
+   *
+   * So the collapse groups by tier, sums across owners inside a tier where the
+   * legacy model requires it, and never sums one tier into another. What
+   * survives is a vector, and the vector is the authority. A range is derived
+   * from it for display and is stored nowhere.
    */
-  /** Null when the charge has no economics at all — unknown, never zero. */
-  totalCost: number | null;
-  /** Null when any instance's recovery is unknown — see BV-013. */
-  totalRecovery: number | null;
+  perTier: TierAmount[];
   /**
    * A Direct Service contribution sharing this charge's accounting
    * destination, held APART from the actionable figures above.
@@ -191,7 +316,7 @@ export type RecoveryChargeRow = {
    * be new commercial functionality. This is presentation: the amount is
    * disclosed as context and carries no control.
    */
-  serviceContext: { cost: number; recovery: number | null } | null;
+  serviceContext: { perTier: TierAmount[] } | null;
   options: ChargeModeOption[];
 };
 
@@ -265,17 +390,18 @@ export function buildRecoveryWorkspace(input: {
   }
 
   // Every placed instance, from the ONE constructed state, counted ONCE.
-  const placedByCharge = new Map<RecoveryChargeKey, PlacedCharge[]>();
-  const componentCharges: PlacedCharge[] = [];
-  for (const { charge } of ownedPlacedCharges(input.costing, input.isLeaf)) {
+  const placedByCharge = new Map<RecoveryChargeKey, OwnedPlacedCharge[]>();
+  const componentCharges: OwnedPlacedCharge[] = [];
+  for (const owned of ownedPlacedCharges(input.costing, input.isLeaf)) {
+    const charge = owned.charge;
     if (charge.chargeInstanceId) {
       // Component-owned. It gets its own row below and must NOT be aggregated
       // into the type row, or two charges would share one control again.
-      componentCharges.push(charge);
+      componentCharges.push(owned);
       continue;
     }
     const list = placedByCharge.get(charge.chargeKey) ?? [];
-    list.push(charge);
+    list.push(owned);
     placedByCharge.set(charge.chargeKey, list);
   }
 
@@ -287,10 +413,16 @@ export function buildRecoveryWorkspace(input: {
   //
   // Counted per (type, tier), because two rows for one type on one tier are
   // what an operator actually sees side by side.
-  const perTypeTier = new Map<string, number>();
-  for (const c of componentCharges) {
-    const k = `${c.chargeKey}`;
-    perTypeTier.set(k, (perTypeTier.get(k) ?? 0) + 1);
+  // ── COUNTED BY INSTANCE, NEVER BY TIER ENTRY ──────────────────────────
+  //
+  // `componentCharges` holds one entry per (instance, tier), so counting it
+  // directly told an operator a charge costed at four tiers was four charges —
+  // and the group control offered "All 4 print plates charges" for one.
+  const instancesPerKey = new Map<string, Set<string>>();
+  for (const { charge } of componentCharges) {
+    const set = instancesPerKey.get(charge.chargeKey) ?? new Set<string>();
+    set.add(charge.chargeInstanceId as string);
+    instancesPerKey.set(charge.chargeKey, set);
   }
 
   const states = input.allocationStates.length ? input.allocationStates : [true];
@@ -304,8 +436,8 @@ export function buildRecoveryWorkspace(input: {
     // election on a quote that plainly has one" case. The service was never
     // something the control placed, so it must not be something the control
     // reports on.
-    const actionable = placed.filter((p) => p.ownerKind !== "direct_service");
-    const placements = [...new Set(actionable.map((p) => p.placement))];
+    const actionable = placed.filter((p) => p.charge.ownerKind !== "direct_service");
+    const placements = [...new Set(actionable.map((p) => p.charge.placement))];
 
     // Split by COMMERCIAL GRAIN, not by charge key. A one-time fee is
     // actionable; a Direct Service leaf is already a priced customer line.
@@ -313,27 +445,17 @@ export function buildRecoveryWorkspace(input: {
     // surfaced it -- the classification pass found `rd_formulation` is the only
     // charge carrying a service contribution today, and a rule that only knew
     // about that key would be a fix for this quote rather than for the shape.
-    let totalCost = 0;
-    let totalRecovery: number | null = 0;
-    let svcCost = 0;
-    let svcRecovery: number | null = 0;
-    let svcPresent = false;
-    for (const p of placed) {
-      if (p.ownerKind === "direct_service") {
-        svcPresent = true;
-        svcCost += p.cost;
-        if (svcRecovery !== null) {
-          svcRecovery = p.recoverableSell === null ? null : svcRecovery + p.recoverableSell;
-        }
-        continue;
-      }
-      totalCost += p.cost;
-      if (totalRecovery !== null) {
-        // Unknown recovery makes the total unknown, not smaller. A number here
-        // would state a figure nothing governs.
-        totalRecovery = p.recoverableSell === null ? null : totalRecovery + p.recoverableSell;
-      }
-    }
+    //
+    // ── AND BY TIER, WHICH IS THE OTHER HALF ─────────────────────────────
+    //
+    // This used to be one loop accumulating a single total across every
+    // (owner, tier) entry, which multiplied a flat charge by the tier count
+    // and gave a varying one a figure true of no tier at all. `tierVector`
+    // sums owners WITHIN a tier and keeps tiers apart, which is the only
+    // combination that is true in every scenario.
+    const svc = placed.filter((p) => p.charge.ownerKind === "direct_service");
+    const perTier = tierVector(actionable);
+    const svcPerTier = tierVector(svc);
 
     const elected = electionByType.get(policy.key) ?? null;
 
@@ -349,7 +471,7 @@ export function buildRecoveryWorkspace(input: {
           // charge. The control does not REPORT on that half (it is not
           // actionable), but it must still refuse on account of it — otherwise
           // it offers a placement that creates unbillable revenue.
-          hasDirectServiceContribution: svcPresent,
+          hasDirectServiceContribution: svc.length > 0,
         });
         if (reason) break;
       }
@@ -366,7 +488,7 @@ export function buildRecoveryWorkspace(input: {
       // Actionable presence. A charge whose only contribution is a Direct
       // Service has no fee to place, so offering it a recovery control would
       // be offering an inert one -- which is the $9,800-moves-nothing case.
-      present: placed.some((p) => p.ownerKind !== "direct_service"),
+      present: actionable.length > 0,
       placements,
       mixed: placements.length > 1,
       electedMode: elected,
@@ -382,28 +504,57 @@ export function buildRecoveryWorkspace(input: {
         placements.length === 1
           ? (MODE_BY_PLACEMENT[placements[0]] ?? null)
           : null,
-      totalCost,
-      totalRecovery,
+      perTier,
       // A legacy row stands for a production column, whose amount lives on that
       // column. There is no instance and no per-tier economics to be missing,
       // so this is not "complete" — the question does not apply.
       economics: null,
       missingTierLabels: [],
-      serviceContext: svcPresent ? { cost: svcCost, recovery: svcRecovery } : null,
+      // Held apart, and now per tier for the same reason the actionable half
+      // is: a Direct Service contribution summed across scenarios is the same
+      // false figure in a smaller font.
+      serviceContext: svc.length > 0 ? { perTier: svcPerTier } : null,
       options,
     };
   });
-
-  // ── ONE ROW PER COMPONENT CHARGE ────────────────────────────────────────
+  // ── ONE ROW PER CHARGE INSTANCE ─────────────────────────────────────────
   //
-  // Not per type. Two charges of one type are two commercial facts and get two
-  // controls, which is the capability this grain exists to give back.
-  const componentRows: RecoveryChargeRow[] = componentCharges.map((c) => {
-    const policy = chargePolicy(c.chargeKey);
-    const unplaced = c.placement === "unplaced";
-    const ambiguous = (perTypeTier.get(c.chargeKey) ?? 0) > 1;
-    const ownerName =
-      c.ownerRef !== undefined ? (input.ownerNames?.get(c.ownerRef) ?? null) : null;
+  // Not per type — two charges of one type are two commercial facts and get
+  // two controls, which is the capability this grain exists to give back.
+  //
+  // And not per (instance, tier), which is what this used to be. `componentCharges`
+  // holds one entry per tier, so a single charge costed at four tiers rendered
+  // as FOUR identical rows with four controls, and the group control — which
+  // appears when a type has two or more rows — offered "All 4 print plates
+  // charges" for one charge. Using it would have sent four proposals carrying
+  // the same instance id, which `persistChargeRecoverySet` refuses outright:
+  // "two proposals for one instance is a surface defect". The guard was right.
+  //
+  // Measured on production 2026-08-27: 10 rendered rows, 7 distinct ids, one
+  // instance appearing 4 times. Legacy rows were unaffected because they were
+  // already aggregated by key — the two grains simply never met on a quote
+  // where a component charge had been costed at more than one tier.
+  const byInstance = new Map<string, OwnedPlacedCharge[]>();
+  for (const owned of componentCharges) {
+    const id = owned.charge.chargeInstanceId as string;
+    byInstance.set(id, [...(byInstance.get(id) ?? []), owned]);
+  }
+
+  const componentRows: RecoveryChargeRow[] = [...byInstance.entries()].map(
+    ([chargeInstanceId, entries]) => {
+      // Every entry is the same charge in a different scenario, so the
+      // identity-bearing fields are read from any of them.
+      const c = entries[0].charge;
+      const policy = chargePolicy(c.chargeKey);
+      // The decision is one decision. A charge placed in one tier and not
+      // another is not a state the model can produce — placement is keyed by
+      // instance — so `unplaced` is a property of the instance, and asserting
+      // it from every entry rather than the first would only hide that.
+      const unplaced = entries.every((e) => e.charge.placement === "unplaced");
+      const ambiguous = (instancesPerKey.get(c.chargeKey)?.size ?? 0) > 1;
+      const ownerName =
+        c.ownerRef !== undefined ? (input.ownerNames?.get(c.ownerRef) ?? null) : null;
+      const perTier = tierVector(entries);
 
     const economics = input.chargeEconomics?.get(c.chargeInstanceId!)?.state ?? null;
     const missingTierLabels =
@@ -468,16 +619,16 @@ export function buildRecoveryWorkspace(input: {
       // Null while unplaced: there is no treatment in force, and a mode here
       // would show the operator a decision nobody made.
       effectiveMode: unplaced ? null : (MODE_BY_PLACEMENT[c.placement] ?? null),
-      totalCost: c.cost,
-      totalRecovery: c.recoverableSell,
+      perTier,
       economics,
       missingTierLabels,
       // A component charge is never a Direct Service, so there is no second
       // half to hold apart.
       serviceContext: null,
       options,
-    };
-  });
+      };
+    },
+  );
 
   // ── CHARGES THE ENGINE NEVER SAW ────────────────────────────────────────
   //
@@ -489,7 +640,9 @@ export function buildRecoveryWorkspace(input: {
   // Synthesized from the structural fact instead. The row exists because the
   // CHARGE exists; that it has no amount is what the row is there to say.
   const placedInstances = new Set(
-    componentCharges.map((c) => c.chargeInstanceId).filter(Boolean) as string[],
+    componentCharges
+      .map((o) => o.charge.chargeInstanceId)
+      .filter(Boolean) as string[],
   );
   const uncostedRows: RecoveryChargeRow[] = [];
   for (const [chargeInstanceId, e] of input.chargeEconomics ?? []) {
@@ -515,10 +668,11 @@ export function buildRecoveryWorkspace(input: {
       electedMode: null,
       source: "election",
       effectiveMode: null,
-      // ZERO WOULD BE A CLAIM. The cost is unknown, not nothing — the same
-      // distinction BV-013 draws for recovery, applied to the other side of it.
-      totalCost: null,
-      totalRecovery: null,
+      // EMPTY, NOT ZERO. There are no tier economics at all — the cost is
+      // unknown, not nothing, which is BV-013s distinction applied to the
+      // other side of it. An empty vector displays as `none`; a vector of
+      // zeroes would claim the charge costs nothing in every scenario.
+      perTier: [],
       serviceContext: null,
       options: RECOVERY_MODES.map((mode) => ({
         mode,

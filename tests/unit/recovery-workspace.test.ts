@@ -8,6 +8,18 @@ import { chargeEconomicsFor } from "../../src/lib/costing.ts";
 import { constructCommercial } from "../../src/lib/commercial-recovery/construct.ts";
 import type { ChargeElection } from "../../src/lib/commercial-recovery/resolve.ts";
 
+/**
+ * The single tier's amounts, for fixtures that have exactly one.
+ *
+ * Asserting the count is part of the read: these fixtures are single-tier, and
+ * a helper that silently took the first entry would hide the very multiplicity
+ * this repair is about.
+ */
+function only(row: { perTier: { cost: number; recovery: number | null }[] }) {
+  assert.equal(row.perTier.length, 1, "fixture is single-tier");
+  return row.perTier[0];
+}
+
 const read = (p: string) => readFile(new URL(`../../${p}`, import.meta.url), "utf8");
 const VIEW = "src/lib/commercial-recovery/workspace-view.ts";
 
@@ -87,8 +99,8 @@ test("amounts are summed straight off the constructed charges", () => {
   });
   const setup = rows.find((r) => r.chargeKey === "project_setup")!;
   assert.equal(setup.present, true);
-  assert.equal(setup.totalCost, 1000);
-  assert.equal(setup.totalRecovery, 1400);
+  assert.equal(only(setup).cost, 1000);
+  assert.equal(only(setup).recovery, 1400);
   assert.deepEqual(setup.placements, ["separate_line"]);
 });
 
@@ -522,8 +534,8 @@ test("an unpriced charge reports null recovery, never $0", () => {
     allocationStates: [false],
   });
   const setup = rows.find((r) => r.chargeKey === "project_setup")!;
-  assert.equal(setup.totalRecovery, null);
-  assert.equal(setup.totalCost, 1000, "cost is known even when the rate is not");
+  assert.equal(only(setup).recovery, null);
+  assert.equal(only(setup).cost, 1000, "cost is known even when the rate is not");
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -559,8 +571,8 @@ test("the parent rollup's merged charges are not counted a second time", () => {
     allocationStates: [false],
   }).find((r) => r.chargeKey === "project_setup")!;
 
-  assert.equal(row.totalCost, 1000);
-  assert.equal(row.totalRecovery, 1400);
+  assert.equal(only(row).cost, 1000);
+  assert.equal(only(row).recovery, 1400);
 
   // Non-vacuous, and it names the number the bug produced: counting the parent
   // too doubles both figures.
@@ -570,8 +582,8 @@ test("the parent rollup's merged charges are not counted a second time", () => {
     elections: [],
     allocationStates: [false],
   }).find((r) => r.chargeKey === "project_setup")!;
-  assert.equal(doubled.totalCost, 2000);
-  assert.equal(doubled.totalRecovery, 2800);
+  assert.equal(only(doubled).cost, 2000);
+  assert.equal(only(doubled).recovery, 2800);
 });
 
 test("every reader of the construction goes through the one traversal", async () => {
@@ -749,7 +761,15 @@ test("unknown recovery is unavailable, never $0", async () => {
   // BV-013, and D5: Card 0's "Approved recovery" IS the governed
   // recoverableSell — translated, not minted, and null stays null.
   const card = codeOnly(await read(CARD1));
-  assert.match(card, /totalRecovery === null \? "not priced"/);
+  // Routed through the display rule now, which is where the null decision
+  // lives: `displayRecovery` returns `unpriced` if ANY tier's recovery is
+  // unknown, and `amountText` prints "not priced" for it. One tier without a
+  // governed rate is enough — printing the others would state a figure for a
+  // decision whose economics are not fully governed.
+  assert.match(card, /amountText\(displayRecovery\(row\.perTier\)\)/);
+  assert.match(card, /d\.kind === "unpriced"\) return "not priced"/);
+  const ws = codeOnly(await read("src/lib/commercial-recovery/workspace-view.ts"));
+  assert.match(ws, /perTier\.some\(\(t\) => t\.recovery === null\)/);
   const rail = codeOnly(await read(RAIL));
   // Now nested under the recommended-tier empty state: with no named tier the
   // row shows "—" (no basis to state), and with one it shows "not priced"
@@ -1177,15 +1197,20 @@ test("a fee and a service sharing one charge do not share one figure", () => {
   const rd = rows.find((r) => r.chargeKey === "rd_formulation")!;
 
   // The actionable figure is the FEE alone — 1000 at 0.4.
-  assert.equal(rd.totalCost, 1000);
-  assert.equal(rd.totalRecovery, 1400);
+  assert.equal(only(rd).cost, 1000);
+  assert.equal(only(rd).recovery, 1400);
 
   // The service is carried apart, not added in and not discarded.
-  assert.deepEqual(rd.serviceContext, { cost: 2000, recovery: 2800 });
+  // Per tier now, for the same reason the actionable half is: a service
+  // contribution summed across scenarios is the same false figure in a
+  // smaller font. Single-tier fixture, so the figures are unchanged.
+  assert.equal(rd.serviceContext?.perTier.length, 1);
+  assert.deepEqual(rd.serviceContext?.perTier[0].cost, 2000);
+  assert.deepEqual(rd.serviceContext?.perTier[0].recovery, 2800);
 
   // The pre-repair figure, asserted explicitly so the regression has a name.
   // Summing them gave 4200 against a control that could only ever move 1400.
-  assert.notEqual(rd.totalRecovery, 4200);
+  assert.notEqual(only(rd).recovery, 4200);
 
   // And it still offers a control, because there IS a fee to place.
   assert.equal(rd.present, true);
@@ -1204,10 +1229,15 @@ test("a charge that is only a service offers no control at all", () => {
   // advertising an amount it cannot move is worse than no control, because the
   // operator acts on it and nothing happens.
   assert.equal(rd.present, false);
-  assert.equal(rd.totalCost, 0);
+  // EMPTY, not a zero tier. There is no actionable economics at all, and a
+  // vector containing 0 would claim the fee costs nothing in that scenario
+  // rather than saying there is no fee.
+  assert.deepEqual(rd.perTier, []);
 
   // But the money is not hidden — it is disclosed as what it is.
-  assert.deepEqual(rd.serviceContext, { cost: 2000, recovery: 2800 });
+  assert.equal(rd.serviceContext?.perTier.length, 1);
+  assert.equal(rd.serviceContext?.perTier[0].cost, 2000);
+  assert.equal(rd.serviceContext?.perTier[0].recovery, 2800);
 });
 
 test("a service placed differently cannot blank the fee's selected segment", () => {

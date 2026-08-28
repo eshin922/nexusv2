@@ -59,7 +59,11 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { AuthoritativeProjection } from "./authoritative-projection";
-import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view";
+import type {
+  AmountDisplay,
+  RecoveryChargeRow,
+} from "@/lib/commercial-recovery/workspace-view";
+import { displayRecovery } from "@/lib/commercial-recovery/workspace-view";
 import type { RecoveryMode } from "@/lib/commercial-recovery/registry";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { RecoveryProposalFailure } from "./use-recovery-draft";
@@ -73,6 +77,32 @@ const MODE_LABEL: Record<RecoveryMode, string> = {
 
 const usd = (n: number) =>
   `$${Math.round(n).toLocaleString("en-US")}`;
+
+/**
+ * The decision row's amount, printed.
+ *
+ * ── WHY A RANGE AND NOT A NUMBER ────────────────────────────────────────
+ *
+ * A decision is made once, for a charge whose economics differ by scenario.
+ * There is no single amount unless a scenario is chosen, and the row used to
+ * invent one by summing the scenarios together: a $500-per-tier charge read
+ * $2,800 on a four-tier quote, beside a customer document stating $700.
+ *
+ * A range states two true things — this much in one scenario, that much in
+ * another — where the sum stated one false one. And when the tiers agree it
+ * collapses to the single figure, which is the common case and reads exactly
+ * as it did before.
+ *
+ * PRESENTATION ONLY. The tier vector is the authority; nothing stores a range
+ * and nothing computes from one.
+ */
+function amountText(d: AmountDisplay): string {
+  if (d.kind === "none") return "—";
+  // BV-013 · D5: unknown recovery is unavailable, never $0.
+  if (d.kind === "unpriced") return "not priced";
+  if (d.kind === "single") return usd(d.value);
+  return `${usd(d.min)}–${usd(d.max)}`;
+}
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
@@ -345,7 +375,7 @@ export function CardCommercialRecovery({
                       control: on a production quote this read $12,510 while
                       the election moved $5,600.
                       BV-013 · D5: unknown recovery is unavailable, never $0. */}
-                  {row.totalRecovery === null ? "not priced" : usd(row.totalRecovery)}
+                  {amountText(displayRecovery(row.perTier))}
                 </span>
               </div>
               <div className="cv-charge-policy">
@@ -393,9 +423,10 @@ export function CardCommercialRecovery({
               {row.serviceContext !== null && (
                 <div className="cv-charge-service">
                   plus{" "}
-                  {row.serviceContext.recovery === null
-                    ? "an unpriced"
-                    : usd(row.serviceContext.recovery)}{" "}
+                  {(() => {
+                    const d = displayRecovery(row.serviceContext.perTier);
+                    return d.kind === "unpriced" ? "an unpriced" : amountText(d);
+                  })()}{" "}
                   billed as a service line — already priced to the customer, not
                   a one-time charge, and not moved by this control
                 </div>
@@ -525,9 +556,7 @@ export function CardCommercialRecovery({
           <div className="cv-charge-head">
             <span className="cv-charge-label">{row.label}</span>
             <span className="cv-charge-amt">
-              {row.serviceContext?.recovery === null
-                ? "not priced"
-                : usd(row.serviceContext?.recovery ?? 0)}
+              {amountText(displayRecovery(row.serviceContext?.perTier ?? []))}
             </span>
           </div>
           <div className="cv-charge-policy">

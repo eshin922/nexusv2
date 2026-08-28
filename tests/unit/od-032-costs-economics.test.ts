@@ -292,12 +292,16 @@ test("an uncosted charge gets a ROW, synthesized from the structural fact", () =
   assert.match(w, /return \[\.\.\.legacyRows, \.\.\.componentRows, \.\.\.uncostedRows\]/);
 });
 
-test("its cost is NULL, never zero", () => {
+test("its cost is EMPTY, never zero", () => {
   // Zero would be a claim: the cost is unknown, not nothing. The same
   // distinction BV-013 draws for recovery, applied to the other side of it.
+  //
+  // Made structurally by an EMPTY tier vector rather than a null total: an
+  // empty vector has no scenario to be wrong about, whereas a vector of zeroes
+  // would state that the charge costs nothing in every tier.
   const w = codeOnly(read(WORKSPACE));
-  assert.match(w, /totalCost: null,\s*\n\s*totalRecovery: null,/);
-  assert.match(read(WORKSPACE), /Null when the charge has no economics at all — unknown, never zero/);
+  assert.match(w, /perTier: \[\],/);
+  assert.match(read(WORKSPACE), /EMPTY, NOT ZERO/);
 });
 
 test("no mode is available on it, and each says why", () => {
