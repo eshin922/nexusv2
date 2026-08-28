@@ -2110,9 +2110,19 @@ export async function sendQuote(
       // Inside the send transaction: an accounting instruction recorded by a
       // separately-failable write is an instruction the snapshot can exist
       // without, and the next consumer would be reconstructing history.
-      if (resolved.recoveryInstructions.length > 0) {
+      //
+      // THE COMMIT PROJECTION, not the read one. `resolved.recoveryInstructions`
+      // is the draft-rendering list, which OMITS an unplaced charge so the
+      // Quote page can render one; freezing that list would silently drop a
+      // real cost from the record Accounting bills from. This thunk projects
+      // the same construction in commit mode and throws on an unplaced charge —
+      // the defence in depth behind the operator-facing readiness refusal
+      // above. Both types are `FrozenRecoveryInstruction[]`, so nothing but
+      // this choice distinguishes them.
+      const frozenInstructions = resolved.freezeRecoveryInstructions();
+      if (frozenInstructions.length > 0) {
         await tx.insert(quoteSnapshotRecoveryInstructions).values(
-          resolved.recoveryInstructions.map((i) => ({
+          frozenInstructions.map((i) => ({
             quoteSnapshotId: snapshot.id,
             chargeKey: i.chargeKey,
             ownerRef: i.ownerRef,
