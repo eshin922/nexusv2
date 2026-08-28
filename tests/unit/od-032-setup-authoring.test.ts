@@ -81,12 +81,17 @@ test("submitting sends only what was selected", () => {
 // Same type twice is legal — a warning, not a block
 // ══════════════════════════════════════════════════════════════════════
 
-test("picking an owned type warns and still allows it", () => {
+test("picking an owned type warns, NAMES the labels, and still allows it", () => {
   const sheet = codeOnly(read(SHEET));
-  // The warning renders...
-  assert.match(sheet, /already has \{owned\} — adding another needs a distinct label/);
-  // ...and NOTHING disables the control on account of it. Two dies on one
-  // carton is a real thing; the model must not out-argue the shop floor.
+  // The warning renders, and it names what is already there — "needs a distinct
+  // label" states a rule; the labels state what to be distinct FROM, which is
+  // the thing the operator actually has to decide.
+  assert.match(sheet, /already has \{owned\}/);
+  assert.match(sheet, /ownedLabels\(k\)\.join\(", "\)/);
+  assert.match(sheet, /a second needs a distinct label/);
+  // ...and NOTHING disables the PICK on account of it. Two dies on one carton
+  // is a real thing; the model must not out-argue the shop floor. What is
+  // gated is SUBMIT, and only until the second one can be told apart.
   const pickBtn = sheet.slice(sheet.indexOf('className="od032-pick"'));
   assert.ok(
     !/disabled/.test(pickBtn.slice(0, 500)),

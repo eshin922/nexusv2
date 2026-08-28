@@ -83,6 +83,9 @@ export function AssemblyTreeBody({
    * warns about nothing rather than claiming a component owns none.
    */
   existingComponentCharges?: ReadonlyArray<{
+    /** The identity itself. Carried so nothing downstream is tempted to
+     *  reconstruct one from a type and a position. */
+    chargeInstanceId: string;
     quoteLeafId: string;
     chargeKey: string;
     label: string | null;
