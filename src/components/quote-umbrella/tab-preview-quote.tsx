@@ -18,6 +18,7 @@
 
 import { QuoteHost } from "@/components/quote/quote-host";
 import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
+import type { ChargeRecoveryPricingGap } from "@/lib/component-charges/recovery-pricing-rule";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,
@@ -46,6 +47,7 @@ export function TabPreviewQuote({
   presentationTiers,
   belowFloor,
   unbillableRecovery,
+  chargeRecoveryPricingGaps,
   accountingInstruction,
   quoteRollup,
   governed,
@@ -80,6 +82,7 @@ export function TabPreviewQuote({
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
   unbillableRecovery: UnbillablePlacement[];
+  chargeRecoveryPricingGaps: ChargeRecoveryPricingGap[];
   accountingInstruction: string | null;
   quoteRollup: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
@@ -105,6 +108,7 @@ export function TabPreviewQuote({
       presentationTiers={presentationTiers}
           belowFloor={belowFloor}
           unbillableRecovery={unbillableRecovery}
+          chargeRecoveryPricingGaps={chargeRecoveryPricingGaps}
           accountingInstruction={accountingInstruction}
       quoteRollup={quoteRollup}
       governed={governed}

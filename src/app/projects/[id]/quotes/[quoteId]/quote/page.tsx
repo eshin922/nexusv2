@@ -126,7 +126,7 @@ export default async function CustomerViewPage({
       );
     }
 
-    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed, presentation, belowFloor, unbillableRecovery, accountingInstruction } =
+    const { view, addendumData, project, quote, quoteRollup, recoveryInstructions, recoveryRows, governed, presentation, belowFloor, unbillableRecovery, chargeRecoveryPricingGaps, accountingInstruction } =
       result;
     if (project.id !== projectId) notFound();
 
@@ -400,6 +400,7 @@ export default async function CustomerViewPage({
           presentationTiers={presentation.allTiers}
           belowFloor={belowFloor}
           unbillableRecovery={unbillableRecovery}
+          chargeRecoveryPricingGaps={chargeRecoveryPricingGaps}
           accountingInstruction={accountingInstruction}
           governed={governed}
           presentationRestored={presentationRestored}

@@ -61,9 +61,13 @@ test("the resolver declares it before the return that reads it", async () => {
 
 test("Finalize is disabled while any unbillable placement exists", async () => {
   const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));
+  // `hasUnpricedRecovery` joined the set when an elected-but-unpriced charge
+  // was found reaching a customer document as $0.00. The assertion keeps the
+  // whole expression pinned rather than just its own term, so a future
+  // condition cannot quietly replace this one.
   assert.match(
     rail,
-    /disabled=\{!isDraft \|\| draftState\.status === "unsaved" \|\| hasUnbillable \|\| blocked\}/,
+    /disabled=\{\s*!isDraft \|\|\s*draftState\.status === "unsaved" \|\|\s*hasUnbillable \|\|\s*hasUnpricedRecovery \|\|\s*blocked\s*\}/,
   );
   assert.match(rail, /Resolve recovery placement/);
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useLayoutEffect, useRef } from "react";
 import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
+import type { ChargeRecoveryPricingGap } from "@/lib/component-charges/recovery-pricing-rule";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   CustomerView,
@@ -93,6 +94,7 @@ export function QuoteHost({
   presentationTiers,
   belowFloor,
   unbillableRecovery,
+  chargeRecoveryPricingGaps,
   accountingInstruction,
   quoteId,
   quoteStatus,
@@ -111,6 +113,7 @@ export function QuoteHost({
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
   unbillableRecovery: UnbillablePlacement[];
+  chargeRecoveryPricingGaps: ChargeRecoveryPricingGap[];
   accountingInstruction: string | null;
   quoteId: string;
   quoteStatus: string;
@@ -409,6 +412,7 @@ export function QuoteHost({
             tiers={presentationTiers}
             belowFloor={belowFloor}
             unbillableRecovery={unbillableRecovery}
+            chargeRecoveryPricingGaps={chargeRecoveryPricingGaps}
             accountingInstruction={accountingInstruction}
           />
         </div>

@@ -18,6 +18,7 @@
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import type { UnbillablePlacement } from "@/lib/commercial-recovery/unbillable-placements";
+import type { ChargeRecoveryPricingGap } from "@/lib/component-charges/recovery-pricing-rule";
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import type {
   PresentationState,
@@ -75,6 +76,7 @@ export function QuoteUmbrella({
   presentationTiers,
   belowFloor,
   unbillableRecovery,
+  chargeRecoveryPricingGaps,
   accountingInstruction,
   governed,
   presentationRestored,
@@ -188,6 +190,7 @@ export function QuoteUmbrella({
   presentationTiers: readonly PresentationTier[];
   belowFloor: BelowFloorProjection;
   unbillableRecovery: UnbillablePlacement[];
+  chargeRecoveryPricingGaps: ChargeRecoveryPricingGap[];
   accountingInstruction: string | null;
   governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
@@ -342,6 +345,7 @@ export function QuoteUmbrella({
           presentationTiers={presentationTiers}
           belowFloor={belowFloor}
           unbillableRecovery={unbillableRecovery}
+          chargeRecoveryPricingGaps={chargeRecoveryPricingGaps}
           accountingInstruction={accountingInstruction}
               quoteRollup={quoteRollup}
               governed={governed}

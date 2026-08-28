@@ -151,7 +151,7 @@ test("Finalize is refused on a frozen quote and on an unauthorized floor", async
   const rail = codeOnly(await read("src/components/quote/customer-view-rail.tsx"));
   assert.match(
     rail,
-    /disabled=\{!isDraft \|\| draftState\.status === "unsaved" \|\| hasUnbillable \|\| blocked\}/,
+    /disabled=\{\s*!isDraft \|\|\s*draftState\.status === "unsaved" \|\|\s*hasUnbillable \|\|\s*hasUnpricedRecovery \|\|\s*blocked\s*\}/,
     "every refusal, each from a shared verdict — including an election that is not yet stored",
   );
   // `hasUnbillable` joined the two originals when the surface was made to
