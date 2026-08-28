@@ -2132,6 +2132,9 @@ export async function sendQuote(
             tierId: i.tierId,
             treatment: i.treatment,
             treatmentSource: i.treatmentSource,
+            // WHY the recovery figures below may be null. Carried from the
+            // projection, which read it from the cell the charge was priced in.
+            manualAllInSell: i.manualAllInSell,
             cost: i.cost.toFixed(2),
             governedRecovery:
               i.governedRecovery === null ? null : i.governedRecovery.toFixed(2),

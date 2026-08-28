@@ -245,6 +245,25 @@ export type OwnedPlacedCharge = {
   ownerRef: string;
   tierId: string;
   charge: PlacedCharge;
+  /**
+   * Whether this cell's unit sell is the operator's own all-in number.
+   *
+   * ── WHY A PLACEMENT NEEDS TO KNOW ──────────────────────────────────────
+   *
+   * Disposition, Edward 2026-08-28: a manual sell-price override IS the final
+   * all-in customer unit price. If the operator enters $4.06, Nexus quotes
+   * $4.06 — governed recovery is not added on top.
+   *
+   * An `included` charge on such a cell is a real statement: the operator
+   * asserts the charge is inside the price they typed. What Nexus CANNOT do is
+   * say how much of that price is recovery, which is exactly what the pricing
+   * engine reports by returning `embeddedRecoveryTotal: null` there.
+   *
+   * The frozen instruction was asserting a figure anyway — $1,400 recovered at
+   * $0.07/unit on a cell whose own pricing layer declines to say whether any
+   * recovery is embedded. Carried here so the projection can decline too.
+   */
+  manualAllInSell: boolean;
 };
 
 /**
@@ -287,7 +306,14 @@ export function ownedPlacedCharges(
         // Legacy charges keep the anchor, deliberately: it is what they have,
         // and phase 2 surfaces it nowhere. A coerced anchor never becomes
         // causal by being written down — which is the rule this line keeps.
-        out.push({ ownerRef: charge.ownerRef ?? rollup.skuId, tierId: pt.tierId, charge });
+        out.push({
+          ownerRef: charge.ownerRef ?? rollup.skuId,
+          tierId: pt.tierId,
+          charge,
+          // Read from the cell the charge is priced in, not decided here.
+          manualAllInSell:
+            (pt as unknown as { sellSource?: string }).sellSource === "cell_override",
+        });
       }
     }
   }

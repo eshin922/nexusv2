@@ -68,6 +68,15 @@ export type FrozenRecoveryInstruction = {
    * realized one — see `amortizedPerUnit`.
    */
   governedRecovery: number | null;
+  /**
+   * Whether this cell's unit sell is the operator's own all-in number.
+   *
+   * Recorded so an accountant reading a NULL recovery can tell "nobody has
+   * governed what this recovers" (BV-013) from "the operator priced the unit
+   * themselves, charge included, and how much of it is recovery is not a fact
+   * Nexus holds". Both are null; they are not the same absence.
+   */
+  manualAllInSell: boolean;
   /** What Accounting bills separately. 0 for an amortized charge. */
   separateInvoiceAmount: number | null;
   /**
@@ -144,7 +153,10 @@ export function projectRecoveryInstructionsForRead(
     chargeInstanceId: string | null;
     tierId: string;
   }[] = [];
-  for (const { ownerRef, tierId, charge } of ownedPlacedCharges(costing, isLeaf)) {
+  for (const { ownerRef, tierId, charge, manualAllInSell } of ownedPlacedCharges(
+    costing,
+    isLeaf,
+  )) {
     if (charge.placement === "unplaced") {
       unplaced.push({
         chargeKey: charge.chargeKey,
@@ -153,7 +165,7 @@ export function projectRecoveryInstructionsForRead(
       });
       continue;
     }
-    instructions.push(instructionFor(ownerRef, tierId, charge));
+    instructions.push(instructionFor(ownerRef, tierId, charge, manualAllInSell));
   }
   return { instructions, unplaced };
 }
@@ -177,7 +189,8 @@ export function projectFrozenInstructions(
   // `ownedPlacedCharges` skips parent rollups, whose construction is a merge of
   // children already recorded. Recording both would double every amortized
   // charge in the instruction an accountant reads.
-  return ownedPlacedCharges(costing, isLeaf).map(({ ownerRef, tierId, charge: c }) => {
+  return ownedPlacedCharges(costing, isLeaf).map(
+    ({ ownerRef, tierId, charge: c, manualAllInSell }) => {
     if (c.placement === "unplaced") {
       // REFUSED, LOUDLY. Reaching here means send-readiness let an undecided
       // charge through, and the alternatives are both worse than a throw:
@@ -194,9 +207,10 @@ export function projectFrozenInstructions(
           `${c.chargeInstanceId ? ` / ${c.chargeInstanceId}` : ""}). ` +
           "Send readiness must refuse a quote carrying one.",
       );
-    }
-    return instructionFor(ownerRef, tierId, c);
-  });
+      }
+      return instructionFor(ownerRef, tierId, c, manualAllInSell);
+    },
+  );
 }
 
 /**
@@ -216,20 +230,58 @@ function instructionFor(
   ownerRef: string,
   tierId: string,
   c: PlacedCharge,
+  manualAllInSell: boolean,
 ): FrozenRecoveryInstruction {
+  // ── WHAT A MANUAL ALL-IN PRICE MAKES UNKNOWABLE ────────────────────────
+  //
+  // Disposition, Edward 2026-08-28: a manual sell-price override IS the final
+  // all-in customer unit price. If the operator enters $4.06, Nexus quotes
+  // $4.06 and adds no governed recovery on top.
+  //
+  // An `included` charge on such a cell is a real statement — the operator
+  // asserts the charge is inside the price they typed. What Nexus cannot say
+  // is HOW MUCH of that price is recovery, and the pricing engine already says
+  // so by returning `embeddedRecoveryTotal: null` for the cell.
+  //
+  // This record was asserting a figure anyway. Measured on production
+  // 2026-08-28, quote 2f29af72 Tier 3: the freeze told Accounting
+  // `governedRecovery = 1400, amortizedPerUnit = 0.07` while pricing returned
+  // `embeddedRecoveryTotal = null` on the same cell. The billing record was
+  // making a claim the layer beneath it refuses to make.
+  //
+  // NOT INFERRED FROM THE ASK. An ask exists on the charge and is what the
+  // operator WANTED to recover; it is not evidence that the overridden price
+  // recovered it. Nulling on the presence of a number would be the same error
+  // in the other direction.
+  //
+  // Only the amortized-into-unit-price case is affected. A `separate_line`
+  // charge is billed as its own amount and is unaffected by what the unit
+  // price does; an `absorbed` charge recovers nothing by decision, which is a
+  // fact rather than an unknown.
+  const unmeasurable = manualAllInSell && c.placement === "unit_price";
   return {
     chargeKey: c.chargeKey,
     ownerRef,
     tierId,
     // Read from the field, never parsed from `sourceColumn`.
     chargeInstanceId: c.chargeInstanceId ?? null,
+    // PRESERVED: the treatment is still what the operator elected. Silently
+    // converting it to `absorbed` would record a margin decision nobody made —
+    // and `absorbed` is a governed treatment of its own, not a description of
+    // an override.
     treatment: c.placement as Exclude<ChargePlacement, "unplaced">,
     treatmentSource: c.source as "election" | "legacy",
+    // PRESERVED: what DPS pays is known regardless of how the sell was set,
+    // and it still reaches contribution and margin.
     cost: c.cost,
-    governedRecovery: c.recoverableSell,
+    governedRecovery: unmeasurable ? null : c.recoverableSell,
     separateInvoiceAmount: c.separateInvoiceAmount,
-    amortizedPerUnit: c.amortization?.perUnit ?? null,
+    amortizedPerUnit: unmeasurable ? null : (c.amortization?.perUnit ?? null),
+    // The tier's own quantity is a fact about the tier, not about the price,
+    // so it survives — an accountant still needs the basis the charge would
+    // have been spread over.
     tierQuantity: c.amortization?.tierQuantity ?? null,
+    manualAllInSell,
   };
 }
 

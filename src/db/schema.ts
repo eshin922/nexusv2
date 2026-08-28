@@ -4529,6 +4529,18 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
      * moves with the quote-level adjustment — 1400 becomes 1400 x (1 + gpa). */
     amortizedPerUnit: numeric("amortized_per_unit", { precision: 14, scale: 6 }),
     tierQuantity: integer("tier_quantity"),
+    /**
+     * The cell's unit sell was a manual all-in override — OD-032, 2026-08-28.
+     *
+     * Recorded so a reader can tell two NULLs apart. `governed_recovery IS
+     * NULL` with this false means nothing governs what the charge recovers
+     * (BV-013); with it true it means the operator priced the unit themselves,
+     * charge included, and the embedded amount is not a fact Nexus holds.
+     *
+     * An accountant acting on one would act differently on the other, so the
+     * distinction is stored rather than inferred.
+     */
+    manualAllInSell: boolean("manual_all_in_sell").notNull().default(false),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

@@ -270,8 +270,12 @@ test("one row builder, so the two modes cannot drift field by field", () => {
   const f = codeOnly(read("src/lib/commercial-recovery/frozen-instruction.ts"));
   assert.match(f, /function instructionFor\(/);
   // Both paths go through it.
-  assert.match(f, /return instructionFor\(ownerRef, tierId, c\)/);
-  assert.match(f, /instructions\.push\(instructionFor\(ownerRef, tierId, charge\)\)/);
-  // And the shape is built exactly once.
+  assert.match(f, /return instructionFor\(ownerRef, tierId, c, manualAllInSell\)/);
+  assert.match(f, /instructions\.push\(instructionFor\(ownerRef, tierId, charge, manualAllInSell\)\)/);
+  // And the shape is built exactly once. Counted on a field the manual-all-in
+  // repair does NOT branch on — `governedRecovery` and `amortizedPerUnit` now
+  // each appear in a conditional, so counting those would be counting the
+  // repair rather than the number of builders.
   assert.equal((f.match(/separateInvoiceAmount: c\.separateInvoiceAmount/g) ?? []).length, 1);
+  assert.equal((f.match(/function instructionFor\(/g) ?? []).length, 1);
 });

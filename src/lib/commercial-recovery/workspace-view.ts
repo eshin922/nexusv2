@@ -57,6 +57,7 @@ import {
 import type { ChargeEconomicsState } from "@/lib/component-charges/readiness";
 import { RECOVERY_MODES } from "./registry";
 import { refusalFor, type ChargeElection } from "./resolve";
+import { chooseQualifier, type QualifierSibling } from "./qualifier";
 import {
   MODE_BY_PLACEMENT,
   ownedPlacedCharges,
@@ -86,6 +87,20 @@ export type TierAmount = {
   tierId: string;
   cost: number;
   recovery: number | null;
+  /**
+   * This tier's unit sell is the operator's own all-in number.
+   *
+   * Disposition, Edward 2026-08-28: a manual sell-price override IS the final
+   * all-in customer unit price. An `included` charge on such a tier is a real
+   * statement — the operator asserts the charge is inside the price they typed
+   * — but how much of that price is recovery is not a fact Nexus holds, and
+   * the pricing engine says so by returning `embeddedRecoveryTotal: null`.
+   *
+   * Carried so the surface can SAY it. Before this the row looked identical to
+   * one on a computed price, and the operator had no way to know their
+   * election had nothing measurable to act on.
+   */
+  manualAllInSell: boolean;
 };
 
 /**
@@ -150,13 +165,14 @@ export function displayCost(perTier: readonly TierAmount[]): AmountDisplay {
  */
 export function tierVector(charges: readonly OwnedPlacedCharge[]): TierAmount[] {
   const byTier = new Map<string, TierAmount>();
-  for (const { tierId, charge } of charges) {
+  for (const { tierId, charge, manualAllInSell } of charges) {
     const at = byTier.get(tierId);
     if (!at) {
       byTier.set(tierId, {
         tierId,
         cost: charge.cost,
         recovery: charge.recoverableSell,
+        manualAllInSell,
       });
       continue;
     }
@@ -168,6 +184,9 @@ export function tierVector(charges: readonly OwnedPlacedCharge[]): TierAmount[] 
       at.recovery === null || charge.recoverableSell === null
         ? null
         : at.recovery + charge.recoverableSell;
+    // One overridden owner is enough to make the tier's embedded recovery
+    // unmeasurable — the operator's number covers whatever it covers.
+    at.manualAllInSell = at.manualAllInSell || manualAllInSell;
   }
   return [...byTier.values()];
 }
@@ -471,9 +490,8 @@ export function buildRecoveryWorkspace(input: {
   // Qualification is a question about SIBLINGS, so it cannot be answered from
   // one row. Two components can each label their plates "Front panel"; both
   // labels are valid on their own and neither distinguishes anything.
-  type Sibling = { instanceId: string; ownLabel: string | null; ownerName: string | null };
-  const siblingsPerKey = new Map<string, Sibling[]>();
-  const addSibling = (chargeKey: string, sib: Sibling) => {
+  const siblingsPerKey = new Map<string, QualifierSibling[]>();
+  const addSibling = (chargeKey: string, sib: QualifierSibling) => {
     const list = siblingsPerKey.get(chargeKey) ?? [];
     if (!list.some((x) => x.instanceId === sib.instanceId)) list.push(sib);
     siblingsPerKey.set(chargeKey, list);
@@ -502,44 +520,11 @@ export function buildRecoveryWorkspace(input: {
     });
   }
 
-  /**
-   * The SMALLEST human-readable qualifier that actually distinguishes a row.
-   *
-   * ── WHY UNIQUENESS AND NOT PRESENCE ────────────────────────────────────
-   *
-   * The first version preferred the label whenever one existed. That is not
-   * the same question: two components can each label their plates "Front
-   * panel", and both rows then read `Print plates · Front panel` while the
-   * distinct owner names sit unused — the identical-rows defect again, one
-   * field along.
-   *
-   * So each candidate is tested against the SIBLINGS, cheapest first:
-   *
-   *   own label, if no sibling shares it
-   *   owner name, if no sibling shares that
-   *   both, if the pair is unique where neither part is
-   *   nothing — never an id, which an operator cannot act on
-   *
-   * PRESENTATION ONLY. Identity is `chargeInstanceId` throughout.
-   */
-  const qualifierFor = (chargeKey: string, instanceId: string): string | null => {
-    const sibs = siblingsPerKey.get(chargeKey) ?? [];
-    if (sibs.length < 2) return null;
-    const me = sibs.find((x) => x.instanceId === instanceId);
-    if (!me) return null;
-    const labelUnique =
-      me.ownLabel !== null && sibs.filter((x) => x.ownLabel === me.ownLabel).length === 1;
-    if (labelUnique) return me.ownLabel;
-    const ownerUnique =
-      me.ownerName !== null && sibs.filter((x) => x.ownerName === me.ownerName).length === 1;
-    if (ownerUnique) return me.ownerName;
-    const pairUnique =
-      sibs.filter((x) => x.ownLabel === me.ownLabel && x.ownerName === me.ownerName).length === 1;
-    if (pairUnique && me.ownLabel !== null && me.ownerName !== null) {
-      return `${me.ownLabel} · ${me.ownerName}`;
-    }
-    return null;
-  };
+  // ONE grammar, shared with the customer document. See `./qualifier` for why
+  // a second implementation would be a second grammar — free to disagree with
+  // this one about the same charge, on the same quote, one screen apart.
+  const qualifierFor = (chargeKey: string, instanceId: string): string | null =>
+    chooseQualifier(siblingsPerKey.get(chargeKey) ?? [], instanceId);
 
   const states = input.allocationStates.length ? input.allocationStates : [true];
 
