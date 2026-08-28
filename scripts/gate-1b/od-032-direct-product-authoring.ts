@@ -37,6 +37,7 @@ import {
 } from "@/db/schema";
 import { createComponentChargesAs } from "@/lib/component-charges/create";
 import { readComponentChargesForCosts } from "@/lib/component-charges/read";
+import { updateComponentChargeCostAs } from "@/lib/component-charges/update";
 
 const results: { name: string; ok: boolean; detail?: string }[] = [];
 const record = (name: string, ok: boolean, detail?: string) => {
@@ -101,7 +102,6 @@ async function main() {
   );
   if (!nonVacuous) refuse("the two subjects are not the two shapes");
 
-  const amounts = tiers.map((t) => ({ tierId: t.id, cost: "111.00" }));
   const created: string[] = [];
   let directId: string | null = null;
   let groupedId: string | null = null;
@@ -116,7 +116,7 @@ async function main() {
         quoteId,
         quoteLeafId: leafId,
         charges: [
-          { chargeKey: "other_service", label: `OD-032 A proof · ${what}`, amounts },
+          { chargeKey: "other_service", label: `OD-032 A proof · ${what}` },
         ],
       });
       record(
@@ -129,6 +129,21 @@ async function main() {
         created.push(id);
         if (leafId === directLeaf) directId = id;
         else groupedId = id;
+        // ── PRICED SEPARATELY, BECAUSE THAT IS THE REAL PATH ────────────
+        //
+        // Setup creates the structural fact and stops; Costs states what DPS
+        // pays. Doing it in one call here would exercise a path no operator
+        // has, and would leave this proof passing across a boundary change
+        // that had broken the real one.
+        for (const t of tiers) {
+          const priced = await updateComponentChargeCostAs(operator.id, {
+            quoteId,
+            chargeInstanceId: id,
+            tierId: t.id,
+            cost: "111.00",
+          });
+          if (!priced.ok) refuse(`could not price ${what}: ${priced.error.message}`);
+        }
       }
     }
 

@@ -15,18 +15,29 @@
  * can reach, and this module is NOT a server action, so nothing here is exposed
  * as an endpoint.
  *
- * The phase-4 sheet's write path. It creates charge INSTANCES against a
- * packaging component and their per-tier economics, and it deliberately does
- * NOT elect a recovery mode: charges arrive `unplaced`, and the send checklist
- * holds until each has a placement.
+ * The Setup sheet's write path. It creates charge INSTANCES against a packaging
+ * component — type, causal owner, label — and NOTHING ELSE.
  *
- * ── WHY PLACEMENT IS NOT ASKED HERE ─────────────────────────────────────
+ * ── THE THREE SURFACES, AND WHY THIS ONE STOPS HERE ─────────────────────
  *
- * Asking for it would fuse the two decisions the model keeps apart. What was
- * caused and what it cost is a Setup question; who pays for it is a Commercial
- * Recovery one. An operator entering a die cost has not yet decided whether the
- * customer sees it, and a sheet that made them decide would collect an answer
- * to a question they were not asked.
+ *   Setup    what does this component require?   ← this writer
+ *   Costs    what does DPS pay?
+ *   Recovery how does DPS recover it?
+ *
+ * It used to write per-tier economics too. That put what DPS pays on the
+ * surface that defines structure, and the two are different questions answered
+ * by an operator with different things in front of them.
+ *
+ * So a charge is created with NO economics and NO election. Both absences are
+ * expected intermediate states rather than errors:
+ *
+ *   no economics   readiness reports it, Costs is where it is completed, and
+ *                  send refuses the quote until every quoted tier has a cost
+ *   no election    Commercial Recovery is where it is placed, and send refuses
+ *                  the quote until each charge has a placement
+ *
+ * Setup is not blocked for producing either. It is blocked from RESOLVING
+ * either, which is a different thing and is the boundary.
  */
 
 import { and, eq, inArray } from "drizzle-orm";
@@ -35,7 +46,6 @@ import {
   quoteChargeInstanceTiers,
   quoteChargeInstances,
   quoteLeaves,
-  quoteTiers,
 } from "@/db/schema";
 import {
   ActionGuardError,
@@ -57,10 +67,15 @@ import {
 
 export type ComponentChargeDraft = {
   chargeKey: string;
-  /** Required for `other`; an optional override otherwise. */
+  /**
+   * Required for `other_service`; an optional override otherwise, and what
+   * tells two charges of one type on one component apart.
+   *
+   * The ONLY free text this writer accepts. There is deliberately no `amounts`
+   * field: a shape that could carry economics would let a caller send them,
+   * and the boundary would be held by every caller remembering not to.
+   */
   label?: string | null;
-  /** Operator-entered, per tier. Nothing is derived from anything. */
-  amounts: { tierId: string; cost: string; recoveryAsk?: string | null }[];
 };
 
 export type CreateComponentChargesResult = {
@@ -68,26 +83,6 @@ export type CreateComponentChargesResult = {
   /** The instances now stored, read back. */
   created: { chargeInstanceId: string; chargeKey: string; label: string | null }[];
 };
-
-/**
- * A money string as the operator typed it.
- *
- * Rejected rather than coerced: `Number("")` is 0 and `Number("abc")` is NaN,
- * and both would enter the quote as a cost fact nobody stated. An amount that
- * cannot be read is a refusal, not a zero.
- */
-function money(raw: string | null | undefined, what: string): string | null {
-  if (raw === null || raw === undefined) return null;
-  const t = raw.trim().replace(/,/g, "");
-  if (t === "") return null;
-  if (!/^\d+(\.\d{1,2})?$/.test(t)) {
-    throw new ActionGuardError(
-      ERR.VALIDATION,
-      `${what} must be a positive amount with at most two decimals — received "${raw}".`,
-    );
-  }
-  return t;
-}
 
 /**
  * Create one or more charges against a packaging component.
@@ -137,23 +132,6 @@ export async function createComponentChargesAs(
       );
     }
 
-    const tiers = await db
-      .select({ id: quoteTiers.id, label: quoteTiers.label })
-      .from(quoteTiers)
-      .where(eq(quoteTiers.quoteId, quoteId));
-    if (tiers.length === 0) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "This quote has no tiers, so there is nothing to price a charge against.",
-      );
-    }
-    const tierIds = new Set(tiers.map((t) => t.id));
-
-    // ── VALIDATE THE WHOLE SET BEFORE WRITING ANY OF IT ──────────────────
-    //
-    // Same discipline as the recovery writer, for the same reason: refusing the
-    // third charge mid-write leaves the first two stored, and the operator gets
-    // a partial sheet with an error explaining none of it.
     const validated = input.charges.map((c) => {
       if (!isComponentChargeKey(c.chargeKey)) {
         throw new ActionGuardError(
@@ -169,71 +147,7 @@ export async function createComponentChargesAs(
           "Other requires a label saying what the charge is for.",
         );
       }
-      const byTier = new Map(c.amounts.map((a) => [a.tierId, a]));
-      for (const a of c.amounts) {
-        if (!tierIds.has(a.tierId)) {
-          throw new ActionGuardError(
-            ERR.VALIDATION,
-            "A charge was priced against a tier that is not on this quote.",
-          );
-        }
-      }
-
-      // ── EVERY QUOTED TIER NEEDS AN EXPLICIT POSITIVE COST ────────────────
-      //
-      // A BLANK IS NOT ZERO. It means the operator has not supplied the
-      // economic fact, and defaulting it would put a cost of nothing into the
-      // quote on their behalf — a number nobody stated, indistinguishable
-      // afterwards from one they did.
-      //
-      // AN EXPLICIT 0.00 IS ALSO REFUSED, and that is not pedantry: it is the
-      // obvious way round the blank check, and it would encode "this charge
-      // does not apply at this tier" as an amount. If charges ever need to
-      // apply to only some tiers, that is an applicability model with its own
-      // storage and its own meaning — not a zero that every reader downstream
-      // has to guess the intent of.
-      const missing: string[] = [];
-      const zeroed: string[] = [];
-      const amounts = tiers.map((t) => {
-        const a = byTier.get(t.id);
-        const raw = money(a?.cost, `Cost for ${t.label}`);
-        if (raw === null) {
-          missing.push(t.label);
-          return { tierId: t.id, cost: "0", recoveryAsk: null };
-        }
-        if (Number(raw) === 0) {
-          zeroed.push(t.label);
-        }
-        return {
-          tierId: t.id,
-          cost: raw,
-          // NULL is not zero. Zero says the charge recovers nothing; NULL says
-          // nothing governs what it recovers yet (BV-013). It stays optional
-          // because it is a different question with a different answer.
-          recoveryAsk: money(a?.recoveryAsk, `Recovery ask for ${t.label}`),
-        };
-      });
-
-      // NAMED, so the operator can go and fix them. A refusal that says only
-      // "a cost is missing" on a five-tier quote leaves them checking all five.
-      if (missing.length > 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          `${COMPONENT_CHARGE_LABELS[key]} has no cost for ` +
-            `${missing.join(", ")}. Enter what DPS pays at ` +
-            `${missing.length === 1 ? "that tier" : "those tiers"}, or remove the charge.`,
-        );
-      }
-      if (zeroed.length > 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          `${COMPONENT_CHARGE_LABELS[key]} has a cost of 0.00 for ` +
-            `${zeroed.join(", ")}. A charge that costs nothing is not a charge — ` +
-            "enter what DPS pays, or remove it.",
-        );
-      }
-
-      return { key, label, amounts };
+      return { key, label };
     });
 
     const created: CreateComponentChargesResult["created"] = [];
@@ -256,28 +170,6 @@ export async function createComponentChargesAs(
           label: c.label,
         });
 
-        for (const a of c.amounts) {
-          await tx
-            .insert(quoteChargeInstanceTiers)
-            .values({
-              chargeInstanceId,
-              tierId: a.tierId,
-              costAmount: a.cost,
-              recoveryAsk: a.recoveryAsk,
-            })
-            .onConflictDoUpdate({
-              target: [
-                quoteChargeInstanceTiers.chargeInstanceId,
-                quoteChargeInstanceTiers.tierId,
-              ],
-              set: {
-                costAmount: a.cost,
-                recoveryAsk: a.recoveryAsk,
-                updatedAt: new Date(),
-              },
-            });
-        }
-
         await writeAuditEntry(
           {
             userId: user.id,
@@ -290,9 +182,10 @@ export async function createComponentChargesAs(
               // The CAUSAL owner, recorded as the cause it is.
               owner_quote_leaf_id: quoteLeafId,
               label: c.label,
-              amounts: c.amounts,
-              // NOT elected here, and the record says so rather than leaving a
-              // reader to infer it from an absent field.
+              // BOTH absences recorded, rather than left for a reader to infer
+              // from missing fields. A charge is created structurally complete
+              // and commercially unfinished, and the audit says which.
+              economics: "none",
               recovery: "unplaced",
             },
           },

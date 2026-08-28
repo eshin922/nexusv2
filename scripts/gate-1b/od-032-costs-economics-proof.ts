@@ -95,17 +95,24 @@ async function main() {
     const res = await createComponentChargesAs(operator.id, {
       quoteId,
       quoteLeafId: leafId,
-      charges: [
-        {
-          chargeKey: "other_service",
-          label: "OD-032 B proof",
-          amounts: tiers.map((t) => ({ tierId: t.id, cost: "500.00" })),
-        },
-      ],
+      charges: [{ chargeKey: "other_service", label: "OD-032 B proof" }],
     });
     if (!res.ok) refuse(`could not author the subject charge: ${res.error.message}`);
     const id = res.data.created[0].chargeInstanceId;
     created.push(id);
+
+    // Setup creates the charge; COSTS prices it. Two calls because that is the
+    // real path — pricing at authoring time would exercise a route no operator
+    // has, and would keep passing across a change that had broken theirs.
+    for (const t of tiers) {
+      const priced = await updateComponentChargeCostAs(operator.id, {
+        quoteId,
+        chargeInstanceId: id,
+        tierId: t.id,
+        cost: "500.00",
+      });
+      if (!priced.ok) refuse(`could not price the subject: ${priced.error.message}`);
+    }
 
     const readOne = async () =>
       (await readComponentChargeReadiness(quoteId)).find((r) => r.chargeInstanceId === id);

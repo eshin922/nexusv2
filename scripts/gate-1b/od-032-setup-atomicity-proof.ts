@@ -29,6 +29,7 @@ import {
   quotes,
 } from "@/db/schema";
 import { createComponentChargesAs } from "@/lib/component-charges/create";
+import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import { users } from "@/db/schema";
 
 const results: { name: string; ok: boolean; detail?: string }[] = [];
@@ -154,128 +155,97 @@ async function main() {
     );
   }
 
-  // ── 1 · one tier blank, another correct ────────────────────────────────
+  // ── 1 · one charge missing its required label, another correct ─────────
   //
   // NON-VACUOUS BY CONSTRUCTION. The submission carries a fully valid charge
-  // AND a valid amount on the first tier. If the refusal were per-tier, or if
-  // atomicity leaked, the valid parts would land — so a pass here means the
-  // whole sheet was refused rather than most of it.
-  const blank = await createComponentChargesAs(actorId, {
+  // alongside the invalid one. If atomicity leaked, the valid part would land
+  // — so a pass here means the whole sheet was refused rather than most of it.
+  const missingLabel = await createComponentChargesAs(actorId, {
     quoteId,
     quoteLeafId: leafId,
     charges: [
       {
-        chargeKey: "print_plates",
-        // EVERY tier supplied, exactly ONE left blank. Omitting the others
-        // would let the missing-tier check fire instead, and the test would
-        // pass while proving a different rule — the case it names is "one tier
-        // blank while the rest are correct".
-        amounts: tiers.map((t, i) => ({
-          tierId: t.id,
-          cost: i === 1 ? "" : "1450.00",
-        })),
+        // `other_service` is the type whose label is not optional: without one
+        // the charge says only "a service", which is not a commercial fact.
+        chargeKey: "other_service",
+        label: "   ",
       },
       {
         // A SECOND, ENTIRELY VALID CHARGE. It must not survive its sibling's
         // refusal — one sheet is one gesture.
         chargeKey: "tooling",
-        amounts: tiers.map((t) => ({ tierId: t.id, cost: "600.00" })),
       },
     ],
   });
   record(
-    "a blank cost on ONE tier refuses the whole sheet",
-    !blank.ok,
-    blank.ok ? "ACCEPTED — a blank became a value" : blank.error.message,
+    "a charge missing its required label refuses the WHOLE sheet",
+    !missingLabel.ok,
+    missingLabel.ok
+      ? "ACCEPTED — whitespace became a label"
+      : missingLabel.error.message,
   );
-  record(
-    "the refusal NAMES the tier",
-    !blank.ok && blank.error.message.includes(tiers[1].label),
-    !blank.ok ? blank.error.message : undefined,
-  );
-  await assertNothingPersisted("blank cost");
+  await assertNothingPersisted("missing label");
 
-  // ── 2 · explicit 0.00 ──────────────────────────────────────────────────
+  // ── 2 · a type a component cannot own ──────────────────────────────────
   //
-  // The way round the blank check, closed. Without this, an operator who does
-  // not have a figure types a zero and the quote carries a charge that costs
-  // nothing — indistinguishable afterwards from one that genuinely does.
-  const zero = await createComponentChargesAs(actorId, {
+  // The registry is a closed set. A charge key outside it is not a charge a
+  // component causes, and the same whole-sheet rule applies.
+  const badType = await createComponentChargesAs(actorId, {
     quoteId,
     quoteLeafId: leafId,
     charges: [
-      {
-        chargeKey: "print_plates",
-        // ISOLATED. Every tier carries a value and exactly one is 0.00, so the
-        // MISSING check cannot fire first — the earlier form of this supplied
-        // two of three tiers and was refused for the absent third, passing
-        // while never exercising the zero rule at all.
-        amounts: tiers.map((t, i) => ({
-          tierId: t.id,
-          cost: i === 1 ? "0.00" : "1450.00",
-        })),
-      },
+      { chargeKey: "tooling" },
+      { chargeKey: "container_freight" },
     ],
   });
   record(
-    "an explicit 0.00 refuses too",
-    !zero.ok,
-    zero.ok ? "ACCEPTED — zero is the way round the blank check" : zero.error.message,
+    "a type outside the component registry refuses the whole sheet",
+    !badType.ok,
+    badType.ok ? "ACCEPTED — a quote-level charge was owned by a component" : badType.error.message,
   );
-  record(
-    "the zero refusal is a ZERO refusal, and names the tier",
-    !zero.ok &&
-      zero.error.message.includes("cost of 0.00") &&
-      zero.error.message.includes(tiers[1].label),
-    !zero.ok ? zero.error.message : undefined,
-  );
-  await assertNothingPersisted("explicit zero");
+  await assertNothingPersisted("bad type");
 
-  // ── 3 · a tier simply OMITTED from the payload ─────────────────────────
-  //
-  // Not a blank string but an absent entry — the shape a stale tab or a
-  // replayed action id produces. Iterating the QUOTE's tiers rather than the
-  // submission is what catches it.
-  const omitted = await createComponentChargesAs(actorId, {
-    quoteId,
-    quoteLeafId: leafId,
-    charges: [
-      {
-        chargeKey: "print_plates",
-        amounts: [{ tierId: tiers[0].id, cost: "1450.00" }],
-      },
-    ],
-  });
-  record(
-    "a tier omitted from the payload refuses",
-    !omitted.ok,
-    omitted.ok ? "ACCEPTED — an absent tier read as complete" : omitted.error.message,
-  );
-  await assertNothingPersisted("omitted tier");
-
-  // ── 4 · CONTROL · the valid case is accepted ───────────────────────────
+  // ── 3 · CONTROL · the valid case is accepted ───────────────────────────
   //
   // Without this every refusal above is satisfied by an action that refuses
   // everything, and the suite would prove nothing about the rule.
   const valid = await createComponentChargesAs(actorId, {
     quoteId,
     quoteLeafId: leafId,
-    charges: [
-      {
-        chargeKey: "print_plates",
-        label: "ZZ-VALIDATION-cost-required",
-        amounts: tiers.map((t, i) => ({
-          tierId: t.id,
-          cost: i === 0 ? "1450.00" : "1200.00",
-        })),
-      },
-    ],
+    charges: [{ chargeKey: "print_plates", label: "ZZ-VALIDATION-atomicity" }],
   });
   record(
-    "CONTROL · every tier priced is ACCEPTED",
+    "CONTROL · a well-formed charge is ACCEPTED",
     valid.ok,
     valid.ok ? `created ${valid.data.created.length}` : valid.error.message,
   );
+
+  // ── 4 · AND IT ARRIVES WITH NO ECONOMICS ───────────────────────────────
+  //
+  // The point of step C. Setup creates the structural fact and stops; the
+  // charge carries no `quote_charge_instance_tiers` row at all, which is an
+  // expected intermediate state rather than an error. Costs completes it and
+  // send refuses the quote until it is complete.
+  if (valid.ok) {
+    const id = valid.data.created[0].chargeInstanceId;
+    const econ = await db
+      .select({ t: quoteChargeInstanceTiers.tierId })
+      .from(quoteChargeInstanceTiers)
+      .where(eq(quoteChargeInstanceTiers.chargeInstanceId, id));
+    record(
+      "a charge created by Setup carries NO economics",
+      econ.length === 0,
+      `${econ.length} economics row(s) — Setup must write none`,
+    );
+    const ready = (await readComponentChargeReadiness(quoteId)).find(
+      (r) => r.chargeInstanceId === id,
+    );
+    record(
+      "and readiness reports it rather than losing it",
+      ready?.state === "none",
+      `state=${ready?.state ?? "NOT REPORTED"}`,
+    );
+  }
 
   // ── cleanup ────────────────────────────────────────────────────────────
   //

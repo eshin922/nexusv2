@@ -1,29 +1,44 @@
 "use client";
 
 /**
- * Add one-time charges — the two-phase sheet.
+ * Add one-time charges — the Setup sheet.
  *
  * Pattern 30: the geometry, copy and register are the Design Authority's, taken
  * from `Nexus OD-032 Round Trip` §03 rather than interpreted from a screenshot.
  * Where this diverges it is recorded at the divergence, not in a changelog.
  *
- * ── WHY TWO PHASES AND NOT ONE ──────────────────────────────────────────
+ * ── WHAT THIS SHEET ANSWERS, AND WHAT IT DOES NOT ───────────────────────
  *
- * The operator's real motion is "this carton causes plates, dies and samples" —
- * one thought, three charges. Add-row makes that three trips through a modal;
- * a checklist alone leaves three rows with no economics and no prompt to
- * finish them. So: pick the types together, price them together, and then they
- * are ordinary rows.
+ *   Setup    what does this component require?   ← this sheet
+ *   Costs    what does DPS pay?
+ *   Recovery how does DPS recover it?
  *
- * ── WHAT THIS SHEET NEVER ASKS ──────────────────────────────────────────
+ * So it collects a charge's TYPE, its causal COMPONENT, and a LABEL where one
+ * is needed to tell two charges of a type apart. That is the whole of the
+ * structural fact, and it is exactly the shape of a `quote_charge_instances`
+ * row — the split falls on a table boundary rather than across one.
  *
- * Recovery placement. Rows arrive in Commercial Recovery as `unplaced` and the
- * send checklist holds until each has one. Asking here would fuse the two
- * decisions the model keeps apart.
+ * ── IT ASKED FOR COST, AND THAT WAS THE BOUNDARY ERROR ──────────────────
  *
- * And basis, which is `one_time` for every component-owned charge — "no
- * exceptions, and the sheet never asks". It is DISPLAYED, because the operator
- * should see what is being assumed on their behalf; it is not a control.
+ * It used to have a second phase collecting per-tier cost and a recovery ask.
+ * Structurally tidy — pick the types together, price them together — and it
+ * put economics on the surface that defines structure. What DPS pays is a
+ * Costs question, answered on Costs, where the operator has the rest of the
+ * cost picture in front of them rather than a modal opened from a tree.
+ *
+ * A charge therefore arrives here with NO economics, which is an expected
+ * intermediate state and not an error: readiness reports it, Costs is where it
+ * is completed, and send refuses the quote until it is. Setup is not blocked
+ * for creating one.
+ *
+ * ── AND IT NEVER ASKED FOR PLACEMENT ────────────────────────────────────
+ *
+ * Rows arrive in Commercial Recovery as `unplaced` and the send checklist holds
+ * until each has one. Asking here would fuse decisions the model keeps apart.
+ *
+ * Basis is `one_time` for every component-owned charge — "no exceptions, and
+ * the sheet never asks". It is DISPLAYED, because the operator should see what
+ * is being assumed on their behalf; it is not a control.
  */
 
 import { useEffect, useState, useTransition } from "react";
@@ -63,23 +78,12 @@ const SUGGESTED_BY_TYPE: Record<string, ComponentChargeKey[]> = {
   "primary packaging": ["tooling", "samples_proofs"],
 };
 
-type Tier = { id: string; label: string };
-
-type Draft = {
-  key: ComponentChargeKey;
-  label: string;
-  /** Keyed by tier id, as typed. Strings, because the operator types strings. */
-  cost: Record<string, string>;
-  recovery: Record<string, string>;
-};
-
 export function AddComponentChargesSheet({
   quoteId,
   quoteLeafId,
   componentSku,
   componentName,
   productTypeLabel,
-  tiers,
   existingKeys,
   onClose,
 }: {
@@ -88,7 +92,6 @@ export function AddComponentChargesSheet({
   componentSku: string | null;
   componentName: string;
   productTypeLabel: string | null;
-  tiers: readonly Tier[];
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -98,9 +101,9 @@ export function AddComponentChargesSheet({
   existingKeys: readonly { chargeKey: string; label: string | null }[];
   onClose: () => void;
 }) {
-  const [phase, setPhase] = useState<"select" | "economics">("select");
   const [picked, setPicked] = useState<Set<ComponentChargeKey>>(new Set());
-  const [drafts, setDrafts] = useState<Draft[]>([]);
+  /** Per type, as typed. Only read for the types that need one. */
+  const [labels, setLabels] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
   const [mounted, setMounted] = useState(false);
@@ -113,6 +116,12 @@ export function AddComponentChargesSheet({
   const ownedCount = (k: ComponentChargeKey) =>
     existingKeys.filter((e) => e.chargeKey === k).length;
 
+  /** A label is demanded by the type itself, or by a collision with one the
+   *  component already has. Two charges of a type are told apart by their
+   *  labels, so a second one without one would collapse into the first. */
+  const needsLabel = (k: ComponentChargeKey) =>
+    labelRequiredFor(k) || ownedCount(k) > 0;
+
   function toggle(k: ComponentChargeKey) {
     setError(null);
     setPicked((prev) => {
@@ -123,20 +132,6 @@ export function AddComponentChargesSheet({
     });
   }
 
-  function toEconomics() {
-    const chosen = [...picked];
-    if (chosen.length === 0) return;
-    setDrafts(
-      chosen.map((key) => ({
-        key,
-        label: "",
-        cost: {},
-        recovery: {},
-      })),
-    );
-    setPhase("economics");
-  }
-
   function submit() {
     setError(null);
     startSaving(async () => {
@@ -144,18 +139,11 @@ export function AddComponentChargesSheet({
         createComponentCharges({
           quoteId,
           quoteLeafId,
-          charges: drafts.map((d) => ({
-            chargeKey: d.key,
-            label: d.label.trim() || null,
-            // Every quoted tier, as typed. A blank stays blank rather than
-            // becoming "0" here — the action refuses a missing cost, and
-            // filling one in on the way would defeat the refusal by supplying
-            // the very fact it exists to demand.
-            amounts: tiers.map((t) => ({
-              tierId: t.id,
-              cost: d.cost[t.id] ?? "",
-              recoveryAsk: d.recovery[t.id] ?? null,
-            })),
+          // TYPE, OWNER, LABEL. No amounts: this surface does not know what
+          // DPS pays and is not the place to ask.
+          charges: [...picked].map((key) => ({
+            chargeKey: key,
+            label: labels[key]?.trim() || null,
           })),
         }),
       );
@@ -169,20 +157,6 @@ export function AddComponentChargesSheet({
   }
 
   if (!mounted) return null;
-
-  const firstTier = tiers[0];
-
-  /**
-   * The staging grid, widened by one column per tier.
-   *
-   * The fixed widths are the Design Authority's — `1fr` for the charge, `108px`
-   * for an amount, `132px` for basis. At one tier this is the source's grid
-   * exactly; each additional tier repeats the amount column rather than
-   * changing any measure.
-   */
-  const grid = {
-    gridTemplateColumns: `1fr ${tiers.map(() => "108px").join(" ")} 108px 132px`,
-  } as const;
 
   const sheet = (
     // The scope class travels to the portal root. `createPortal` mounts outside
@@ -200,239 +174,142 @@ export function AddComponentChargesSheet({
         <header className="od032-sheet-head">
           <div className="od032-sheet-head-row">
             <h2>Add one-time charges</h2>
-            <span className="od032-step">
-              {phase === "select" ? "PHASE 1 · SELECT TYPES" : "PHASE 2 · ENTER ECONOMICS"}
-            </span>
+            <span className="od032-step">SELECT TYPES</span>
           </div>
           <p className="od032-owner">
             Owned by <span className="mono">{componentSku ?? "—"}</span> · {componentName}
           </p>
         </header>
 
-        {phase === "select" ? (
-          <div className="od032-sheet-body">
-            {suggestions.length > 0 && (
-              <div className="od032-suggest">
-                <span className="od032-suggest-label">
-                  Common on {productTypeLabel?.toLowerCase()}
-                </span>
-                <span className="od032-chips">
-                  {suggestions.map((k) => (
-                    <span key={k} className="od032-chip">
-                      {COMPONENT_CHARGE_LABELS[k]}
-                    </span>
-                  ))}
-                </span>
-                <span className="od032-suggest-note">suggested · never pre-checked</span>
-              </div>
-            )}
-
-            <ul className="od032-picker">
-              {COMPONENT_CHARGE_KEYS.map((k) => {
-                const owned = ownedCount(k);
-                const on = picked.has(k);
-                return (
-                  <li key={k}>
-                    <button
-                      type="button"
-                      className="od032-pick"
-                      role="checkbox"
-                      aria-checked={on}
-                      data-testid={`pick-${k}`}
-                      onClick={() => toggle(k)}
-                    >
-                      <span className="od032-box" data-on={on ? "yes" : undefined}>
-                        {on ? "✓" : ""}
-                      </span>
-                      <span className="od032-pick-text">
-                        <span className="od032-pick-name">
-                          {COMPONENT_CHARGE_LABELS[k]}
-                        </span>
-                        <span className="od032-pick-hint">{HINT[k]}</span>
-                        {/* A WARNING, NOT A BLOCK. Two dies on one carton is a
-                            real thing; selecting a type the component already
-                            owns offers a second and then requires a distinct
-                            label to tell them apart. */}
-                        {owned > 0 && (
-                          <span className="od032-pick-warn" data-testid={`owned-${k}`}>
-                            already has {owned} — adding another needs a distinct label
-                          </span>
-                        )}
-                      </span>
-                      <span className="od032-basis">one-time</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-
-            <footer className="od032-sheet-foot">
-              <span className="od032-count">
-                {picked.size} selected · amounts entered next
+        <div className="od032-sheet-body">
+          {suggestions.length > 0 && (
+            <div className="od032-suggest">
+              <span className="od032-suggest-label">
+                Common on {productTypeLabel?.toLowerCase()}
               </span>
-              <span className="od032-spacer" />
-              <button type="button" className="od032-btn" onClick={onClose}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="od032-btn primary"
-                disabled={picked.size === 0}
-                data-testid="to-economics"
-                onClick={toEconomics}
-              >
-                Enter economics →
-              </button>
-            </footer>
-          </div>
-        ) : (
-          <div className="od032-sheet-body">
-            {/* ── A COLUMN PER TIER ────────────────────────────────────
-                The Design Authority draws ONE cost column, headed `Cost · T1`,
-                because its mock quote has one tier. Every quoted tier now
-                requires an explicit positive cost, so a single column would
-                make a multi-tier quote unauthorable — the operator could not
-                supply what the save demands.
-
-                So the column repeats per tier and keeps the source's header
-                grammar (`Cost · <tier>`) and its measures. A one-tier quote
-                renders exactly what the prototype draws. */}
-            <div className="od032-econ-head" style={grid}>
-              <span>Charge</span>
-              {tiers.map((t) => (
-                <span key={t.id} className="right">
-                  Cost · {t.label}
-                </span>
-              ))}
-              <span className="right">Recovery ask</span>
-              <span>Basis</span>
+              <span className="od032-chips">
+                {suggestions.map((k) => (
+                  <span key={k} className="od032-chip">
+                    {COMPONENT_CHARGE_LABELS[k]}
+                  </span>
+                ))}
+              </span>
+              <span className="od032-suggest-note">suggested · never pre-checked</span>
             </div>
+          )}
 
-            {drafts.map((d, i) => (
-              <div
-                key={d.key}
-                className="od032-econ-row"
-                style={grid}
-                data-testid={`econ-${d.key}`}
-              >
-                <div>
-                  <div className="od032-pick-name">{COMPONENT_CHARGE_LABELS[d.key]}</div>
-                  <div className="od032-pick-hint">{HINT[d.key]}</div>
-                  {(labelRequiredFor(d.key) || ownedCount(d.key) > 0) && (
+          <ul className="od032-picker">
+            {COMPONENT_CHARGE_KEYS.map((k) => {
+              const owned = ownedCount(k);
+              const on = picked.has(k);
+              return (
+                <li key={k}>
+                  <button
+                    type="button"
+                    className="od032-pick"
+                    role="checkbox"
+                    aria-checked={on}
+                    data-testid={`pick-${k}`}
+                    onClick={() => toggle(k)}
+                  >
+                    <span className="od032-box" data-on={on ? "yes" : undefined}>
+                      {on ? "✓" : ""}
+                    </span>
+                    <span className="od032-pick-text">
+                      <span className="od032-pick-name">
+                        {COMPONENT_CHARGE_LABELS[k]}
+                      </span>
+                      <span className="od032-pick-hint">{HINT[k]}</span>
+                      {/* A WARNING, NOT A BLOCK. Two dies on one carton is a
+                          real thing; selecting a type the component already
+                          owns offers a second and then requires a distinct
+                          label to tell them apart. */}
+                      {owned > 0 && (
+                        <span className="od032-pick-warn" data-testid={`owned-${k}`}>
+                          already has {owned} — adding another needs a distinct label
+                        </span>
+                      )}
+                    </span>
+                    <span className="od032-basis">one-time</span>
+                  </button>
+
+                  {/* ── THE LABEL, WHERE THE TYPE IS ────────────────────────
+                      It used to live in the economics phase, which is where it
+                      happened to fit rather than where it belongs: a label is
+                      part of a charge's IDENTITY, and identity is what this
+                      surface owns. It appears under the type it names, the
+                      moment that type is picked. */}
+                  {on && needsLabel(k) && (
                     <input
                       className="od032-label-input"
                       placeholder={
-                        labelRequiredFor(d.key)
+                        labelRequiredFor(k)
                           ? "What is it for? (required)"
                           : "Distinct label (required — this component already has one)"
                       }
-                      value={d.label}
-                      // Pattern 47(e): `pending` never reaches an input's
+                      aria-label={`Label for ${COMPONENT_CHARGE_LABELS[k]}`}
+                      value={labels[k] ?? ""}
+                      // Pattern 47(e): `saving` never reaches an input's
                       // disabled attribute. Blocking it mid-save drops focus.
                       onChange={(e) => {
                         const v = e.target.value;
-                        setDrafts((p) =>
-                          p.map((x, j) => (j === i ? { ...x, label: v } : x)),
-                        );
+                        setLabels((p) => ({ ...p, [k]: v }));
                       }}
-                      data-testid={`label-${d.key}`}
+                      data-testid={`label-${k}`}
                     />
                   )}
-                </div>
-                {tiers.map((t) => (
-                  <input
-                    key={t.id}
-                    className="od032-amt"
-                    inputMode="decimal"
-                    // REQUIRED, and said so: every quoted tier needs an
-                    // explicit positive cost. A blank is not zero — it means
-                    // the operator has not supplied the fact.
-                    aria-required="true"
-                    placeholder="required"
-                    aria-label={`Cost for ${COMPONENT_CHARGE_LABELS[d.key]} at ${t.label}`}
-                    value={d.cost[t.id] ?? ""}
-                    // Pattern 47(e): `saving` never reaches an input's
-                    // disabled attribute — blocking it mid-save drops focus.
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setDrafts((p) =>
-                        p.map((x, j) =>
-                          j === i ? { ...x, cost: { ...x.cost, [t.id]: v } } : x,
-                        ),
-                      );
-                    }}
-                    data-testid={`cost-${d.key}-${t.id}`}
-                  />
-                ))}
-                <input
-                  className="od032-amt"
-                  inputMode="decimal"
-                  // OPTIONAL, and a blank stays NULL. Zero says the charge
-                  // recovers nothing; NULL says nothing governs what it
-                  // recovers yet. Different questions, different answers.
-                  placeholder="optional"
-                  aria-label={`Recovery ask for ${COMPONENT_CHARGE_LABELS[d.key]}`}
-                  value={firstTier ? (d.recovery[firstTier.id] ?? "") : ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!firstTier) return;
-                    setDrafts((p) =>
-                      p.map((x, j) =>
-                        j === i
-                          ? { ...x, recovery: { ...x.recovery, [firstTier.id]: v } }
-                          : x,
-                      ),
-                    );
-                  }}
-                  data-testid={`recovery-${d.key}`}
-                />
-                {/* DISPLAYED, not asked. Every component-owned charge is
-                    one-time, so a control here would offer a choice that does
-                    not exist — but the operator should still see what is being
-                    assumed on their behalf. */}
-                <span className="od032-basis-cell">one-time</span>
-              </div>
-            ))}
+                </li>
+              );
+            })}
+          </ul>
 
-            <p className="od032-note">
-              Recovery placement is not asked here. These rows arrive in
-              Commercial Recovery as <span className="mono">unplaced</span>, and
-              the send checklist holds until each has a placement. Asking for it
-              in this sheet would fuse the two decisions the model keeps apart.
+          {/* WHERE THE REST OF THE ANSWER IS GIVEN. The operator has just said
+              what this component requires and is entitled to know what happens
+              to it next — otherwise a charge created with no cost reads as an
+              omission rather than as the intermediate state it is. */}
+          <p className="od032-note">
+            Cost is entered on <span className="mono">Costs</span>, beneath this
+            component, for every quoted tier. Recovery is decided in{" "}
+            <span className="mono">Commercial recovery</span> once the cost is
+            complete. The quote cannot be sent until both are done.
+          </p>
+
+          {error && (
+            <p className="od032-error" role="alert" data-testid="sheet-error">
+              {error}
             </p>
+          )}
 
-            {error && (
-              <p className="od032-error" role="alert" data-testid="sheet-error">
-                {error}
-              </p>
-            )}
-
-            <footer className="od032-sheet-foot">
-              <button
-                type="button"
-                className="od032-back"
-                onClick={() => setPhase("select")}
-              >
-                ← Back to types
-              </button>
-              <span className="od032-spacer" />
-              <button
-                type="button"
-                className="od032-btn primary"
-                // Pattern 47(f): action-scoped, and it says why it is disabled.
-                disabled={saving}
-                aria-busy={saving || undefined}
-                title={saving ? "Saving these charges…" : undefined}
-                data-testid="submit-charges"
-                onClick={submit}
-              >
-                {saving
-                  ? "Adding…"
-                  : `Add ${drafts.length} charge${drafts.length === 1 ? "" : "s"}`}
-              </button>
-            </footer>
-          </div>
-        )}
+          <footer className="od032-sheet-foot">
+            <span className="od032-count">
+              {picked.size} selected · cost is entered on Costs
+            </span>
+            <span className="od032-spacer" />
+            <button type="button" className="od032-btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="od032-btn primary"
+              // Pattern 47(f): action-scoped, and it says why it is disabled.
+              disabled={picked.size === 0 || saving}
+              aria-busy={saving || undefined}
+              title={
+                saving
+                  ? "Adding these charges…"
+                  : picked.size === 0
+                    ? "Select at least one type of charge."
+                    : undefined
+              }
+              data-testid="submit-charges"
+              onClick={submit}
+            >
+              {saving
+                ? "Adding…"
+                : `Add ${picked.size} charge${picked.size === 1 ? "" : "s"}`}
+            </button>
+          </footer>
+        </div>
       </div>
     </div>
   );
