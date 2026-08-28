@@ -1493,21 +1493,56 @@ function ComponentChargeRow({
         </span>
       </div>
 
+      {/* ── TWO FACTS PER TIER, AND THE SECOND ONE WAS MISSING ────────────
+          Cost is what DPS pays. Recovery is what the customer is charged. The
+          read layer has carried both since the phase shipped — `amounts` is
+          `{ tierId, cost, recoveryAsk }` — and the action to write the second
+          existed and was imported into this file. It was never called, so no
+          operator could price a charge.
+
+          What that produced, measured on Production 2026-08-28: two charges
+          costing $2,700, both elected to bill SEPARATELY, reached a customer
+          document reading "One-time fees $0.00" on a quote whose Finalize
+          button said `ready`. The send gate now refuses that state, and the
+          readiness rail reports it, from one shared diagnostic. This is the
+          input that lets an operator resolve it.
+
+          Deliberately NOT derived from cost by a markup. V1 authority for the
+          ask is manual entry; a rate would be a different decision, made by a
+          different authority, and is out of scope here. */}
       <div className="od032-costs-charge-tiers">
         {tiers.map((t) => (
-          <label key={t.id} className="od032-costs-charge-tier">
+          <div key={t.id} className="od032-costs-charge-tier">
             <span className="od032-costs-charge-tier-label">{t.label}</span>
-            <ChargeAmountInput
-              quoteId={quoteId}
-              chargeInstanceId={charge.chargeInstanceId}
-              tierId={t.id}
-              tierLabel={t.label}
-              value={byTier.get(t.id)?.cost ?? null}
-              disabled={disabled}
-              ariaLabel={`Cost for ${chargeLabel} at ${t.label}`}
-              onError={setError}
-            />
-          </label>
+            <label className="od032-costs-charge-field">
+              <span className="od032-costs-charge-field-label">cost</span>
+              <ChargeAmountInput
+                quoteId={quoteId}
+                chargeInstanceId={charge.chargeInstanceId}
+                tierId={t.id}
+                tierLabel={t.label}
+                field="cost"
+                value={byTier.get(t.id)?.cost ?? null}
+                disabled={disabled}
+                ariaLabel={`Cost for ${chargeLabel} at ${t.label}`}
+                onError={setError}
+              />
+            </label>
+            <label className="od032-costs-charge-field">
+              <span className="od032-costs-charge-field-label">recovery</span>
+              <ChargeAmountInput
+                quoteId={quoteId}
+                chargeInstanceId={charge.chargeInstanceId}
+                tierId={t.id}
+                tierLabel={t.label}
+                field="ask"
+                value={byTier.get(t.id)?.recoveryAsk ?? null}
+                disabled={disabled}
+                ariaLabel={`Recovery for ${chargeLabel} at ${t.label}`}
+                onError={setError}
+              />
+            </label>
+          </div>
         ))}
       </div>
 
@@ -1542,6 +1577,7 @@ function ChargeAmountInput({
   chargeInstanceId,
   tierId,
   tierLabel,
+  field,
   value,
   disabled,
   ariaLabel,
@@ -1551,6 +1587,15 @@ function ChargeAmountInput({
   chargeInstanceId: string;
   tierId: string;
   tierLabel: string;
+  /**
+   * Which economic fact this input carries.
+   *
+   * ONE component for both, because they are the same interaction against the
+   * same grain and a second copy would be free to drift on the thing that
+   * matters here — Pattern 47 commit discipline. The two differ only in which
+   * writer they call and what they are called.
+   */
+  field: "cost" | "ask";
   value: string | null;
   disabled: boolean;
   ariaLabel: string;
@@ -1564,19 +1609,31 @@ function ChargeAmountInput({
   // progress.
   useEffect(() => {
     setDraft(value ?? "");
-  }, [value, tierId, chargeInstanceId]);
+  }, [value, tierId, chargeInstanceId, field]);
 
   function commitIfChanged() {
     const next = draft.trim() === "" ? null : draft.trim();
     if ((value ?? null) === next) return;
     onError(null);
     startTransition(async () => {
-      const res = await updateComponentChargeCost({
-        quoteId,
-        chargeInstanceId,
-        tierId,
-        cost: next,
-      });
+      // EXPLICIT (chargeInstanceId, tierId) on both paths. Nothing is inferred
+      // from position: two same-type charges on one component render adjacent
+      // rows of identical inputs, and an index would be the one mistake that
+      // silently writes A's number onto B.
+      const res =
+        field === "cost"
+          ? await updateComponentChargeCost({
+              quoteId,
+              chargeInstanceId,
+              tierId,
+              cost: next,
+            })
+          : await updateComponentChargeAsk({
+              quoteId,
+              chargeInstanceId,
+              tierId,
+              ask: next,
+            });
       if (!res.ok) {
         // Restored, not left showing a value the database refused. A field
         // still displaying a rejected number reads as saved.
@@ -1588,16 +1645,20 @@ function ChargeAmountInput({
 
   return (
     <input
-      className="od032-costs-charge-amt"
+      className={`od032-costs-charge-amt${field === "ask" ? " ask" : ""}`}
       inputMode="decimal"
       // A BLANK IS ABSENCE, so the placeholder must not suggest otherwise:
       // "0.00" here would read as what the field holds when empty, and that is
       // precisely the value Option A refuses.
       placeholder="—"
       aria-label={ariaLabel}
-      title={pending ? `Saving the cost for ${tierLabel}…` : undefined}
+      title={
+        pending
+          ? `Saving the ${field === "cost" ? "cost" : "recovery"} for ${tierLabel}…`
+          : undefined
+      }
       data-missing={(value ?? "") === "" ? "yes" : undefined}
-      data-testid={`charge-cost-${chargeInstanceId}-${tierId}`}
+      data-testid={`charge-${field}-${chargeInstanceId}-${tierId}`}
       value={draft}
       // Pattern 47(e): NEVER `disabled || pending` on an input element.
       disabled={disabled}

@@ -698,6 +698,24 @@ const classifiedIdentityFiles = new Set([
   // lives on a production column, and recording the causal owner in the audit
   // row. It cannot create a charge, change its owner, or elect a mode.
   "src/lib/component-charges/update.ts",
+  // CLASSIFIED - canonical identity only, and it WRITES NOTHING.
+  //
+  // The OD-032 recovery-pricing diagnostic: does every elected component charge
+  // carry the recovery price its treatment requires? It reads
+  // `quote_charge_instances.owner_quote_leaf_id` — the canonical identity
+  // OD-017 established — to scope itself to component-owned charges, and never
+  // touches `assembly_leaves`.
+  //
+  // Read-only by construction, which matters more here than usual: it is the
+  // single detection behind BOTH the send refusal and the Finalize button, and
+  // a detection that could change what it measures could not be trusted by
+  // either.
+  "src/lib/component-charges/recovery-pricing.ts",
+  // CLASSIFIED - the pure half of the same diagnostic. No database, no identity
+  // read at all; it carries `quoteLeafId` on the gap type so a caller can name
+  // the causal component. Split out so the rule can be exercised by a unit
+  // test — importing the reader pulls `@/db` and cannot be loaded.
+  "src/lib/component-charges/recovery-pricing-rule.ts",
   // CLASSIFIED - canonical identity only, and every row it writes is removed.
   //
   // The OD-032 step B proof: clearing a cost removes the row rather than
@@ -764,6 +782,18 @@ const classifiedIdentityFiles = new Set([
   // count something real before any zero it prints means anything. A sweep that
   // returns zero because its query threw is worse than no sweep.
   "scripts/gate-1b/od-032-production-residue.ts",
+  // CLASSIFIED - canonical identity only, and every row it writes is removed.
+  //
+  // The OD-032 recovery-ask proof: a charge elected for recovery and never
+  // priced cannot be sent, and the refusal names the charge and the tiers. It
+  // reads `quote_leaves.id` only to pick a subject component and hands it to
+  // the real writers unchanged; `assembly_leaves` is never queried.
+  //
+  // It writes, deliberately: whether a quote is sendable is a property of the
+  // database, the diagnostic and the gate together, and the defect it exists
+  // for lived in the gap between them. Everything it creates is deleted in a
+  // `finally`, and the deletion is verified POPULATION-WIDE by re-reading.
+  "scripts/gate-1b/od-032-recovery-ask-proof.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

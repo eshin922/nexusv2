@@ -120,6 +120,30 @@
   color: var(--ink-4);
 }
 
+/* ── TWO FIELDS PER TIER ───────────────────────────────────────────────
+   Cost is what DPS pays; recovery is what the customer is charged. They are
+   stacked under one tier name rather than placed in two separate grids, so the
+   pair an operator reasons about stays adjacent and the tier is named once.
+
+   Each field carries its own tiny caption. Without them the row is two
+   identical mono numbers and nothing on screen says which is which — the
+   ambiguity is the whole reason a missing recovery went unnoticed. */
+.od032-costs-charge-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.od032-costs-charge-field-label {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  width: 42px;
+  flex: none;
+}
+
 .od032-costs-charge-amt {
   font-family: var(--mono);
   font-size: 11.5px;
@@ -149,6 +173,13 @@
 .od032-costs-charge-amt[data-missing="yes"] {
   border-color: var(--warn);
   background: var(--warn-soft);
+}
+
+/* The recovery figure is the customer-facing one of the pair. It is marked by
+   weight rather than by colour: colour here would compete with the
+   `data-missing` warning that shares the element. */
+.od032-costs-charge-amt.ask {
+  font-weight: 500;
 }
 
 /* ── readiness ────────────────────────────────────────────────────────── */

@@ -28,6 +28,7 @@ import { composeAddress } from "@/lib/customer-address-display";
 import { applyTierVisibility } from "@/lib/customer-tier-visibility";
 import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
 import { findUnbillablePlacements } from "@/lib/commercial-recovery/unbillable-placements";
+import { readChargeRecoveryPricingGaps } from "@/lib/component-charges/recovery-pricing";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -166,6 +167,15 @@ export type ResolveCustomerViewResult =
        * disagree because there is only one detection.
        */
       unbillableRecovery: import("./commercial-recovery/unbillable-placements").UnbillablePlacement[];
+      /**
+       * Elected component charges carrying no recovery price.
+       *
+       * Same contract as `unbillableRecovery` above: ONE detection, read by the
+       * surface and by `sendQuote`. A separately-elected charge with no ask
+       * reached a customer document as "$0.00" on a quote the rail called
+       * ready, because this question had no detection at all.
+       */
+      chargeRecoveryPricingGaps: import("./component-charges/recovery-pricing").ChargeRecoveryPricingGap[];
       /**
        * Card 3's authored instruction to Accounting.
        *
@@ -818,6 +828,14 @@ export async function resolveCustomerView(args: {
   //
   // Declared before the return that reads it. This file has twice shipped a
   // read above its declaration, and the second one took down every quote page.
+  // OD-032 · the charges elected for recovery that nobody has priced.
+  //
+  // Computed HERE, beside `unbillableRecovery`, for the same stated reason: the
+  // send gate calls this same function, so the surface and the boundary cannot
+  // disagree about whether the quote may go out. The operator learns it before
+  // clicking Finalize rather than after.
+  const chargeRecoveryPricingGaps = await readChargeRecoveryPricingGaps(quote.id);
+
   const unbillableRecovery = findUnbillablePlacements({
     skuRollups: bundle.data.costing.skuRollups,
     tierLabels: new Map(bundle.data.costing.quoteRollup.map((r) => [r.tierId, r.label])),
@@ -867,6 +885,7 @@ export async function resolveCustomerView(args: {
       projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
     belowFloor: belowFloorProjection,
     unbillableRecovery,
+    chargeRecoveryPricingGaps,
     // Live on a draft, frozen once sent - the same rule as every other quote
     // fact, and the reason is the same: Accounting acts on this after
     // acceptance, and it must describe the quote it was written for.

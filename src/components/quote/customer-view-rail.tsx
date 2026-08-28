@@ -40,6 +40,10 @@ import {
   summariseUnbillablePlacements,
   type UnbillablePlacement,
 } from "@/lib/commercial-recovery/unbillable-placements";
+import {
+  describeMissingAsk,
+  type ChargeRecoveryPricingGap,
+} from "@/lib/component-charges/recovery-pricing";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { CustomerViewDetailLevel, CustomerViewPdfLayout } from "@/types/quote";
 import type { RecoveryProposalFailure } from "./use-recovery-draft";
@@ -80,6 +84,7 @@ export function CustomerViewRail({
   tiers,
   belowFloor,
   unbillableRecovery,
+  chargeRecoveryPricingGaps,
   accountingInstruction,
   onPropose,
   draftState,
@@ -113,6 +118,7 @@ export function CustomerViewRail({
    * every well-formed quote.
    */
   unbillableRecovery: UnbillablePlacement[];
+  chargeRecoveryPricingGaps: ChargeRecoveryPricingGap[];
   /** Internal, never printed. See the resolver's note on why it is not on the view. */
   accountingInstruction: string | null;
   onPropose: (
@@ -145,6 +151,12 @@ export function CustomerViewRail({
   // learned about freight markup instead.
   const unbillable = summariseUnbillablePlacements(unbillableRecovery);
   const hasUnbillable = unbillable.length > 0;
+  // OD-032 · elected but unpriced. The SAME projection `sendQuote` refuses on,
+  // so the rail predicts the boundary's answer rather than holding an opinion
+  // of its own. Before this, the rail said `ready` on a quote whose customer
+  // document stated $0.00 for $2,700 of separately-elected charges.
+  const unpricedRecovery = chargeRecoveryPricingGaps.map(describeMissingAsk);
+  const hasUnpricedRecovery = unpricedRecovery.length > 0;
 
   // Card 3 · commercial agreement, one row per CHARGE. The frozen instruction
   // is per (charge, owner, tier); Accounting reads a charge, so identical
@@ -414,6 +426,15 @@ export function CustomerViewRail({
               {line}
             </div>
           ))}
+          {/* Shown as its own line per gap, named, rather than as one count.
+              An operator told "2 charges are unpriced" has to go and find
+              which; these say the charge and the tiers. */}
+          {unpricedRecovery.map((line) => (
+            <div className="cv-check" key={line}>
+              <span className="cv-mark" data-ok="no">!</span>
+              {line} — enter it on Costs before sending.
+            </div>
+          ))}
           <div className="cv-check">
             <span className="cv-mark" data-ok={blocked ? "no" : "yes"}>{blocked ? "!" : "\u2713"}</span>
             {/* The verdict's OWN words when it refuses. "A governed tier is
@@ -464,7 +485,13 @@ export function CustomerViewRail({
           // clicking - and on the one quote carrying this state, clicking
           // reached an unrelated Costs refusal first and taught them nothing
           // about it.
-          disabled={!isDraft || draftState.status === "unsaved" || hasUnbillable || blocked}
+          disabled={
+            !isDraft ||
+            draftState.status === "unsaved" ||
+            hasUnbillable ||
+            hasUnpricedRecovery ||
+            blocked
+          }
           dataState={
             !isDraft
               ? "frozen"
