@@ -4417,7 +4417,32 @@ export const quoteChargeRecovery = pgTable(
       .defaultNow(),
     electedByUserId: uuid("elected_by_user_id").references(() => users.id),
   },
-  (t) => [primaryKey({ columns: [t.quoteId, t.chargeKey] })],
+  /**
+   * THE CONTRACTED IDENTITY, which is what the database actually has.
+   *
+   * Live constraint, read 2026-08-28:
+   *
+   *   quote_charge_recovery_pk  PRIMARY KEY (charge_instance_id)
+   *
+   * This declared `(quote_id, charge_key)` — the PRE-CONTRACTION shape. Phase
+   * 1b moved the primary key onto the instance and phase 2 (migration 0110)
+   * dropped the temporary `(quote_id, charge_key)` unique, on exactly the
+   * grounds the comment above states: that key can only ever address ONE
+   * charge of a type per quote, and two cartons may each cause print plates.
+   *
+   * The declaration was left behind. Nothing broke, because the writer names
+   * `charge_instance_id` explicitly and the runtime never consulted this — but
+   * a stale declaration on a table is not a cosmetic defect. `drizzle-kit
+   * generate` diffs the DECLARATION against the database, so the next
+   * generation would have emitted a migration DROPPING the real primary key
+   * and recreating the one phase 2 removed — silently reversing a contraction
+   * that took a two-PR sequence to land.
+   *
+   * Found by a trace that tried `on conflict (quote_id, charge_key)` and got
+   * `42P10 · there is no unique or exclusion constraint matching`. The model
+   * said one thing and the database another, and only a write attempt asked.
+   */
+  (t) => [primaryKey({ columns: [t.chargeInstanceId] })],
 );
 
 // The durable record, mirrored inside the send transaction so a sent revision
