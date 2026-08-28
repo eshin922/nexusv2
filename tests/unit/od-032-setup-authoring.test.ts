@@ -71,10 +71,10 @@ test("no type is ever pre-selected", () => {
 
 test("submitting sends only what was selected", () => {
   const sheet = codeOnly(read(SHEET));
-  // `drafts` is built FROM the picked set, and the payload is built from
-  // `drafts` — so a type nobody ticked has no path into the request.
-  assert.match(sheet, /const chosen = \[\.\.\.picked\]/);
-  assert.match(sheet, /charges: drafts\.map/);
+  // The payload is built FROM the picked set, so a type nobody ticked has no
+  // path into the request. One phase now, so it is built directly rather than
+  // staged through a drafts array.
+  assert.match(sheet, /charges: \[\.\.\.picked\]\.map\(\(key\) => \(\{/);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -96,12 +96,17 @@ test("picking an owned type warns and still allows it", () => {
 
 test("a second charge of one type requires a distinct label", () => {
   const sheet = codeOnly(read(SHEET));
-  // The label input appears when the type is `other` OR the component already
-  // owns one, which is exactly when a label is what tells two charges apart.
-  assert.match(
-    sheet,
-    /labelRequiredFor\(d\.key\) \|\| ownedCount\(d\.key\) > 0/,
-  );
+  // The label input appears when the type is `other_service` OR the component
+  // already owns one, which is exactly when a label is what tells two charges
+  // apart.
+  assert.match(sheet, /labelRequiredFor\(k\) \|\| ownedCount\(k\) > 0/);
+  // ── AND IT NOW SITS WITH THE TYPE IT NAMES ───────────────────────────
+  //
+  // It used to live in the economics phase, which is where it fitted rather
+  // than where it belongs: a label is part of a charge's IDENTITY, and
+  // identity is what this surface owns. With economics gone there was no
+  // second phase to hold it, and the right home was the obvious one.
+  assert.match(sheet, /\{on && needsLabel\(k\) && \(/);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -119,11 +124,12 @@ test("the sheet asks for no recovery placement", () => {
       `the sheet must not offer or send "${mode}"`,
     );
   }
-  // And it SAYS so, verbatim from the Design Authority.
-  assert.match(
-    sheet,
-    /Recovery placement is not asked here[\s\S]*?arrive in\s*\n?\s*Commercial Recovery as/,
-  );
+  // And it SAYS where the answer IS given, rather than leaving the operator to
+  // find out. The note now names BOTH downstream surfaces, because with
+  // economics gone there are two things this sheet no longer answers.
+  assert.match(sheet, /Cost is entered on <span className="mono">Costs<\/span>/);
+  assert.match(sheet, /Recovery is decided in\{" "\}/);
+  assert.match(sheet, /The quote cannot be sent until both are done\./);
 });
 
 test("the action elects nothing", () => {
@@ -155,96 +161,80 @@ test("basis is one-time everywhere, and is not a control", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// The amounts are the operator's, and are refused rather than coerced
+// Economics are NOT collected here — the boundary, asserted
 // ══════════════════════════════════════════════════════════════════════
 
-test("an unreadable amount is refused, never coerced to a number", () => {
-  const action = codeOnly(read(ACTION));
-  // `Number("")` is 0 and `Number("abc")` is NaN — both would enter the quote
-  // as a cost fact nobody stated.
-  assert.match(action, /must be a positive amount with at most two decimals/);
-
-  // RAW OPERATOR INPUT is never handed to `Number`. It goes through `money`,
-  // which refuses anything it cannot read.
+test("MOVED · the Option A falsifications now live at Costs", () => {
+  // ── WHERE THEY WENT, AND WHY THEY ARE NOT GONE ─────────────────────────
   //
-  // The earlier form of this banned `Number(` outright and was too broad: the
-  // zero check compares an ALREADY-VALIDATED string, which is not coercion of
-  // input but a question about a value whose shape is settled. A ban that
-  // cannot tell those apart forbids the right code along with the wrong.
-  for (const raw of ["a.cost", "a?.cost", "a.recoveryAsk", "a?.recoveryAsk", "raw"]) {
+  // Setup used to collect per-tier cost, so it carried the Option A refusals:
+  // a blank is not zero, an explicit 0.00 is refused, every quoted tier needs
+  // a positive cost, an unreadable amount is refused rather than coerced.
+  //
+  // The RULE is unchanged. Its enforcement point moved with the economics, to
+  // the surface that now owns them, and the assertions moved with it rather
+  // than being deleted — a rule whose test disappears alongside the code is a
+  // rule nobody can afterwards tell was kept.
+  const costs = read("tests/unit/od-032-costs-economics.test.ts");
+  for (const moved of [
+    "an explicit 0.00 is refused — Option A, enforced at Costs",
+    "an unreadable amount is refused, never coerced",
+    "clearing a cost DELETES the row rather than storing a zero",
+    "send refuses BOTH no-economics and partial-economics",
+    "the ask is still nullable, still manual, still underived",
+  ]) {
     assert.ok(
-      !new RegExp(`Number\\(\\s*${raw.replace(/[.?]/g, "\\$&")}\\s*\\)`).test(
-        action.replace(/Number\(raw\)/g, "«validated»"),
-      ),
-      `${raw} must reach money(), never Number()`,
+      costs.includes(moved),
+      `the Costs suite must carry "${moved}" — it is not enforced here any more`,
     );
   }
-  assert.match(action, /const raw = money\(a\?\.cost, /);
 });
 
-test("a blank recovery ask stays NULL — it is optional, and different", () => {
-  const action = codeOnly(read(ACTION));
-  // Zero says the charge recovers nothing. NULL says nothing governs what it
-  // recovers yet. Different commercial claims, so the blank survives as blank.
-  assert.match(action, /if \(t === ""\) return null;/);
-  assert.match(action, /recoveryAsk: money\(a\?\.recoveryAsk, /);
-  // And no refusal fires on its absence — the whole point of it being optional.
-  assert.ok(
-    !/Recovery ask[^"]*required/i.test(action),
-    "a missing recovery ask must not be refused",
-  );
-});
-
-test("EVERY quoted tier needs an explicit POSITIVE cost", () => {
-  const action = codeOnly(read(ACTION));
-
-  // Iterated over the QUOTE's tiers, not over what was submitted — a payload
-  // that simply omits a tier must be refused, not silently accepted as
-  // complete.
-  assert.match(action, /const amounts = tiers\.map\(\(t\) => \{/);
-
-  // The coercion is gone. A blank no longer becomes "0".
-  assert.ok(
-    !/money\(a\.cost, "Cost"\) \?\? "0"/.test(action),
-    "a blank cost must not default to zero",
-  );
-
-  // Blank refused, and the tiers are NAMED so the operator can fix them.
-  assert.match(action, /missing\.push\(t\.label\)/);
-  assert.match(action, /has no cost for /);
-  assert.match(action, /\$\{missing\.join\(", "\)\}/);
-
-  // Explicit 0.00 refused too — otherwise it is simply the way round the blank
-  // check, and encodes "not applicable at this tier" as an amount.
-  assert.match(action, /if \(Number\(raw\) === 0\)/);
-  assert.match(action, /has a cost of 0\.00 for /);
-  assert.match(action, /\$\{zeroed\.join\(", "\)\}/);
-
-  // Both refusals sit inside the pre-write validation, so neither can fire
-  // after a row has landed.
-  const validate = action.indexOf("const validated = input.charges.map");
-  const write = action.indexOf("await db.transaction");
-  assert.ok(action.indexOf("has no cost for ") > validate);
-  assert.ok(action.indexOf("has no cost for ") < write);
-  assert.ok(action.indexOf("has a cost of 0.00 for ") < write);
-});
-
-test("the sheet collects a cost for EVERY tier", () => {
+test("the sheet asks for no cost, and could not send one", () => {
   const sheet = codeOnly(read(SHEET));
-  // The Design Authority draws one cost column because its mock has one tier.
-  // With every tier required, a single column would make a multi-tier quote
-  // unauthorable — the operator could not supply what the save demands.
-  assert.match(sheet, /\{tiers\.map\(\(t\) => \(/);
-  assert.match(sheet, /data-testid=\{`cost-\$\{d\.key\}-\$\{t\.id\}`\}/);
-  assert.match(sheet, /value=\{d\.cost\[t\.id\] \?\? ""\}/);
-  // Required is SAID, not merely enforced on submit.
-  assert.match(sheet, /aria-required="true"/);
-  assert.match(sheet, /placeholder="required"/);
-  // And the blank is sent as a blank: filling it in here would defeat the
-  // refusal by supplying the fact it exists to demand.
-  assert.match(sheet, /cost: d\.cost\[t\.id\] \?\? ""/);
-  // The recovery ask stays optional, and says so.
-  assert.match(sheet, /placeholder="optional"/);
+  // No amount input, no per-tier column, and no `tiers` prop at all — tiers
+  // are a fact about economics. Removing the prop rather than leaving it
+  // unread is what stops it drifting back into use.
+  for (const gone of ["od032-amt", "d.cost", "recoveryAsk", "amounts:", "tiers"]) {
+    assert.ok(!sheet.includes(gone), `the sheet must not carry ${gone}`);
+  }
+});
+
+test("the writer accepts no amounts, and writes no economics", () => {
+  const action = codeOnly(read(ACTION));
+  // ── THE SHAPE IS THE BOUNDARY ────────────────────────────────────────
+  //
+  // Not "the writer ignores amounts" — the draft type has no field for them,
+  // so a caller cannot send any. A shape that could carry economics would
+  // leave the boundary held by every caller remembering not to use it.
+  const draft = action.slice(
+    action.indexOf("export type ComponentChargeDraft"),
+    action.indexOf("export type CreateComponentChargesResult"),
+  );
+  for (const field of ["amounts", "cost", "recoveryAsk", "tierId"]) {
+    assert.ok(!draft.includes(field), `the draft must not accept ${field}`);
+  }
+  // And nothing writes the economics table on the create path.
+  const create = action.slice(
+    action.indexOf("export async function createComponentChargesAs"),
+    action.indexOf("export async function deleteComponentChargeAs"),
+  );
+  assert.ok(
+    !/insert\(quoteChargeInstanceTiers\)/.test(create),
+    "Setup must not write per-tier economics",
+  );
+  // It does not even load the quote's tiers — there is nothing here to price.
+  assert.ok(!/quoteTiers/.test(create), "Setup has no business reading tiers");
+});
+
+test("a charge with no economics is an EXPECTED state, recorded as one", () => {
+  // Setup is not blocked for creating one: readiness reports it, Costs
+  // completes it, and send refuses the quote until it is complete. The audit
+  // records both absences rather than leaving a reader to infer them from
+  // fields that are not there.
+  const action = codeOnly(read(ACTION));
+  assert.match(action, /economics: "none"/);
+  assert.match(action, /recovery: "unplaced"/);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -286,7 +276,6 @@ test("the writes and their audit rows share one transaction", () => {
   const action = codeOnly(read(ACTION));
   const tx = action.slice(action.indexOf("await db.transaction"));
   assert.match(tx, /ensureChargeInstance\(tx,/);
-  assert.match(tx, /await tx\s*\n?\s*\.insert\(quoteChargeInstanceTiers\)/);
   // Matched on the ARGUMENT rather than on how the call wraps.
   assert.match(tx, /\btx,\s*\n\s*\)/);
   assert.ok(
@@ -295,25 +284,49 @@ test("the writes and their audit rows share one transaction", () => {
   );
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// Design Authority fidelity
-// ══════════════════════════════════════════════════════════════════════
-
 test("the sheet's copy is the Design Authority's, verbatim", () => {
   const sheet = read(SHEET);
   const proto = read(PROTOTYPE);
 
   // Phrases lifted rather than paraphrased. Each appears in the prototype, so
   // this fails if either side is reworded.
+  for (const phrase of ["Add one-time charges", "suggested · never pre-checked"]) {
+    assert.ok(proto.includes(phrase), `prototype no longer contains "${phrase}"`);
+    assert.ok(sheet.includes(phrase), `the sheet must carry "${phrase}" verbatim`);
+  }
+});
+
+test("DIVERGENCE · the economics phase is gone, and its copy with it", () => {
+  // ── A DELIBERATE DEPARTURE FROM THE DESIGN AUTHORITY ───────────────────
+  //
+  // The prototype draws a two-phase sheet: pick the types, then price them.
+  // Structurally tidy, and it put economics on the surface that defines
+  // structure. What DPS pays is a Costs question, answered where the operator
+  // has the rest of the cost picture in front of them rather than in a modal
+  // opened from a tree.
+  //
+  // Disposition, Edward 2026-08-27: "Setup should not collect cost."
+  // A tier-1 business boundary outranks a tier-3 design source, so the phase
+  // goes and its copy goes with it.
+  //
+  // Asserted so it reads as a decision rather than as drift — and asserted on
+  // the PROTOTYPE too, so that if CD later revises the round trip to match,
+  // this test fails and tells us the divergence has resolved.
+  const proto = read(PROTOTYPE);
+  const sheet = read(SHEET);
   for (const phrase of [
-    "Add one-time charges",
-    "suggested · never pre-checked",
     "Enter economics →",
     "← Back to types",
     "Recovery placement is not asked here",
   ]) {
-    assert.ok(proto.includes(phrase), `prototype no longer contains "${phrase}"`);
-    assert.ok(sheet.includes(phrase), `the sheet must carry "${phrase}" verbatim`);
+    assert.ok(
+      proto.includes(phrase),
+      `the prototype no longer says "${phrase}" — the divergence may be resolved`,
+    );
+    assert.ok(
+      !sheet.includes(phrase),
+      `"${phrase}" belongs to the economics phase, which Setup no longer has`,
+    );
   }
 });
 

@@ -703,6 +703,9 @@ export function AssemblyTreeBody({
       {/* The sheet is portalled to the body, so its position here is about
           OWNERSHIP rather than layout: the tree knows the quote, the tiers and
           which charges the component already has, and the row does not. */}
+      {/* No `tiers` reaches the sheet. It collects identity; tiers are a fact
+          about economics, which Costs owns. Removing the prop rather than
+          leaving it unread is what stops it drifting back into use. */}
       {chargeSheetLeaf && (
         <AddComponentChargesSheet
           quoteId={quoteId}
@@ -710,7 +713,6 @@ export function AssemblyTreeBody({
           componentSku={chargeSheetLeaf.sku ?? null}
           componentName={chargeSheetLeaf.name}
           productTypeLabel={chargeSheetLeaf.productType?.label ?? null}
-          tiers={tiers.map((t) => ({ id: t.id, label: t.label }))}
           existingKeys={
             existingComponentCharges?.filter(
               (c) => c.quoteLeafId === chargeSheetLeaf.quoteLeafId,

@@ -612,13 +612,18 @@ const classifiedIdentityFiles = new Set([
   // It resolves the operator via `ensureUser()` and delegates; it reads no
   // table, resolves no identity, and never touches `assembly_leaves`.
   "src/app/actions/component-charges.ts",
-  // CLASSIFIED - the governed proof that authoring refuses an unpriced tier.
+  // CLASSIFIED - the governed proof that one sheet is one gesture.
   //
   // Reads `quote_leaves.id` only to pick a subject component, and hands it to
   // the real write path unchanged. It writes, deliberately: a refusal is proven
   // by attempting the write and finding nothing persisted, and the control run
   // is cleaned up afterwards. `assembly_leaves` is never queried.
-  "scripts/gate-1b/od-032-cost-required-proof.ts",
+  //
+  // Retargeted in step C. It proved the whole-sheet rule through the COST
+  // refusals, which moved to Costs with the economics; it now proves the same
+  // rule through the refusals Setup still owns, and additionally that a charge
+  // Setup creates carries no economics at all.
+  "scripts/gate-1b/od-032-setup-atomicity-proof.ts",
   // CLASSIFIED - carries a canonical id, resolves nothing.
   //
   // The two-phase sheet. It receives `quoteLeafId` as a prop from the tree that
@@ -679,6 +684,18 @@ const classifiedIdentityFiles = new Set([
   // It writes, deliberately: these are facts about stored rows. Everything it
   // creates is deleted and the deletion is VERIFIED by re-reading.
   "scripts/gate-1b/od-032-costs-economics-proof.ts",
+  // CLASSIFIED - canonical identity only, and every row it writes is removed.
+  //
+  // The OD-032 lifecycle walk: Setup creates -> Costs completes -> Recovery
+  // decides, asserting at each step that the charge is REPORTED and that no
+  // mode may be elected until its economics are complete. It reads
+  // `quote_leaves.id` only to pick a subject component; `assembly_leaves` is
+  // never queried.
+  //
+  // It writes, deliberately: the composition of three surfaces is not visible
+  // from any one of them. Everything it creates is deleted and the deletion is
+  // VERIFIED by re-reading.
+  "scripts/gate-1b/od-032-lifecycle-proof.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
