@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteTier, updateTier } from "@/app/actions/quotes";
+import { TIER_LABEL_MAX } from "@/lib/tier-label";
 
 type Tier = {
   id: string;
@@ -89,6 +90,7 @@ export function TierRow({
       <div className="label">
         <input
           className="lab"
+          maxLength={TIER_LABEL_MAX}
           value={label}
           disabled={disabled}
           onChange={(e) => {

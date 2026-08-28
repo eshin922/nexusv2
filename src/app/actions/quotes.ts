@@ -71,6 +71,7 @@ import {
   fingerprintCommercialState,
 } from "@/lib/below-floor-authorization";
 import { writeAuditEntry } from "@/lib/audit";
+import { assertTierLabel } from "@/lib/tier-label";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getCostingBundle } from "@/app/actions/costing";
 import { freezeCommercialLineSet } from "@/lib/commercial-freeze";
@@ -958,7 +959,9 @@ export async function updateTier(
   const quote = await loadQuoteOrThrow(tier.quoteId);
   assertDraft(quote);
 
-  const newLabel = String(formData.get("label") ?? "").trim() || tier.label;
+  const newLabel = assertTierLabel(
+    String(formData.get("label") ?? "").trim() || tier.label,
+  );
   const newQty = parseIntOrNull(formData.get("qty"));
 
   const before = { label: tier.label, qty: tier.qty };
