@@ -749,6 +749,21 @@ const classifiedIdentityFiles = new Set([
   // Everything it creates is deleted and the deletion is VERIFIED
   // population-wide.
   "scripts/gate-1b/od-032-document-invariant.ts",
+  // CLASSIFIED - canonical identity only, and it WRITES NOTHING.
+  //
+  // The OD-032 production residue sweep: does any component-owned charge or
+  // election survive anywhere in the population? It reads
+  // `quote_charge_instances.owner_quote_leaf_id` — the canonical identity
+  // OD-017 established — and never touches `assembly_leaves`.
+  //
+  // Read-only, which is a stronger position than its siblings hold: it is the
+  // instrument that says whether THEIR cleanup actually worked, so it must not
+  // be able to change what it is measuring.
+  //
+  // It reports three outcomes rather than two, and carries a control that must
+  // count something real before any zero it prints means anything. A sweep that
+  // returns zero because its query threw is worse than no sweep.
+  "scripts/gate-1b/od-032-production-residue.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
