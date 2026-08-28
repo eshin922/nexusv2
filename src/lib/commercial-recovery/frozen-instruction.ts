@@ -20,7 +20,7 @@
  */
 
 import { ownedPlacedCharges, type ConstructedRollups } from "./construct";
-import type { ChargePlacement } from "./construct";
+import type { ChargePlacement, PlacedCharge } from "./construct";
 import type { RecoveryChargeKey } from "./registry";
 
 export type FrozenRecoveryInstruction = {
@@ -85,7 +85,84 @@ export type FrozenRecoveryInstruction = {
 };
 
 /**
- * One instruction per placed charge per (owner, tier).
+ * WHICH QUESTION THE CALLER IS ASKING — OD-032, 2026-08-27.
+ *
+ * ── THE DEFECT THIS EXISTS TO FIX ────────────────────────────────────────
+ *
+ * There was one projection and it was written for one caller: the send
+ * transaction, where an unplaced charge must be refused because freezing it
+ * would record a margin decision nobody made.
+ *
+ * `resolveCustomerView` also calls it, on EVERY page load. A component charge
+ * is authored `unplaced` by design, so from #480 onward any quote carrying one
+ * returned 500 on the Quote surface — the page that HOSTS Commercial Recovery,
+ * which is where the charge would have been placed. The operator could not
+ * reach the control that resolves the state, because the unresolved state
+ * killed the page holding the control.
+ *
+ * Measured on production 2026-08-27: two quotes carrying component charges
+ * returned 500, a quote carrying none returned 200, and removing the charges
+ * flipped both of the first two to 200.
+ *
+ * ── WHY A SPLIT CONTRACT AND NOT A `try/catch` ───────────────────────────
+ *
+ * Catching it in the resolver would suppress an exception that also fires for
+ * reasons nobody has anticipated yet, and would leave the read path claiming
+ * to have projected instructions it had actually dropped. The two callers are
+ * asking DIFFERENT QUESTIONS, and the contract should say which:
+ *
+ *   commit  is this quote's recovery ready to be frozen and billed?
+ *           An unplaced charge is a hard refusal. UNCHANGED.
+ *
+ *   read    what recovery instructions does this draft have SO FAR?
+ *           An unplaced charge is a legitimate intermediate state. It produces
+ *           no instruction — there is nothing to instruct — and it is REPORTED
+ *           rather than silently dropped.
+ *
+ * The guard is not weakened. `sendQuote` keeps its operator-facing readiness
+ * refusal, and the freeze keeps the throw below as defence in depth.
+ */
+
+/**
+ * Instructions for a DRAFT, where unplaced is expected.
+ *
+ * Returns what is placed so far and NAMES what is not, so a caller that needs
+ * to know cannot fail to be told. Nothing here decides anything about the
+ * unplaced charges: deciding is Commercial Recovery's job and refusing is
+ * send's.
+ */
+export function projectRecoveryInstructionsForRead(
+  costing: ConstructedRollups,
+  isLeaf: (skuId: string) => boolean,
+): {
+  instructions: FrozenRecoveryInstruction[];
+  unplaced: { chargeKey: string; chargeInstanceId: string | null; tierId: string }[];
+} {
+  const instructions: FrozenRecoveryInstruction[] = [];
+  const unplaced: {
+    chargeKey: string;
+    chargeInstanceId: string | null;
+    tierId: string;
+  }[] = [];
+  for (const { ownerRef, tierId, charge } of ownedPlacedCharges(costing, isLeaf)) {
+    if (charge.placement === "unplaced") {
+      unplaced.push({
+        chargeKey: charge.chargeKey,
+        chargeInstanceId: charge.chargeInstanceId ?? null,
+        tierId,
+      });
+      continue;
+    }
+    instructions.push(instructionFor(ownerRef, tierId, charge));
+  }
+  return { instructions, unplaced };
+}
+
+/**
+ * One instruction per placed charge per (owner, tier) — the COMMIT projection.
+ *
+ * UNCHANGED: an unplaced charge throws. This is what the send transaction
+ * calls, and the refusal is the whole point of it.
  *
  * The owner is the rollup the construction hangs on. An assembly's rollup
  * carries the MERGED charges of its children, so taking instructions from every
@@ -107,29 +184,53 @@ export function projectFrozenInstructions(
       // freezing it as `absorbed` would record a margin decision nobody made,
       // and dropping it would remove a real cost from the record Accounting
       // bills from. Neither is recoverable after the fact.
+      //
+      // The READ projection above does not reach this, and that is not a
+      // loophole: it produces no instruction for an unplaced charge and names
+      // it instead. Nothing it returns can be frozen, because freezing goes
+      // through this function.
       throw new Error(
         `Cannot freeze an unplaced charge (${c.chargeKey}` +
           `${c.chargeInstanceId ? ` / ${c.chargeInstanceId}` : ""}). ` +
           "Send readiness must refuse a quote carrying one.",
       );
     }
-    return {
+    return instructionFor(ownerRef, tierId, c);
+  });
+}
+
+/**
+ * One instruction row, built ONCE for both projections.
+ *
+ * Extracted rather than duplicated: two copies of this mapping would let the
+ * draft's rendering and the record Accounting bills from drift apart field by
+ * field, and nothing would report it — the two are supposed to be the same
+ * projection asked at two moments, differing only in what they do about a
+ * charge nobody has placed yet.
+ *
+ * `placement` is narrowed by both callers before they arrive here: `commit`
+ * has thrown, `read` has skipped. So the treatment and its source can only be
+ * ones an accountant could act on.
+ */
+function instructionFor(
+  ownerRef: string,
+  tierId: string,
+  c: PlacedCharge,
+): FrozenRecoveryInstruction {
+  return {
     chargeKey: c.chargeKey,
     ownerRef,
     tierId,
     // Read from the field, never parsed from `sourceColumn`.
     chargeInstanceId: c.chargeInstanceId ?? null,
-    treatment: c.placement,
-    // Narrowed by the refusal above: the unplaced branch has already thrown,
-    // so `source` here can only be one an accountant can act on.
+    treatment: c.placement as Exclude<ChargePlacement, "unplaced">,
     treatmentSource: c.source as "election" | "legacy",
     cost: c.cost,
     governedRecovery: c.recoverableSell,
     separateInvoiceAmount: c.separateInvoiceAmount,
     amortizedPerUnit: c.amortization?.perUnit ?? null,
     tierQuantity: c.amortization?.tierQuantity ?? null,
-    };
-  });
+  };
 }
 
 /**

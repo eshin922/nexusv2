@@ -44,7 +44,10 @@ import {
 } from "@/db/schema";
 import { type ProposedElections, getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
-import { projectFrozenInstructions } from "@/lib/commercial-recovery/frozen-instruction";
+import {
+  projectFrozenInstructions,
+  projectRecoveryInstructionsForRead,
+} from "@/lib/commercial-recovery/frozen-instruction";
 import { buildRecoveryWorkspace } from "@/lib/commercial-recovery/workspace-view";
 import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import type { RecoveryChargeKey } from "@/lib/commercial-recovery/registry";
@@ -101,8 +104,46 @@ export type ResolveCustomerViewResult =
        */
       commercial: import("./commercial-projection").CommercialProjection;
       /** Recovery workspace rows, from the same bundle read. */
-      /** The frozen recovery instruction, projected from the construction. */
+      /**
+       * Recovery instructions for RENDERING a draft — the read projection.
+       *
+       * An unplaced component charge produces no instruction here and does not
+       * fail the page. Before this split, `resolveCustomerView` ran the COMMIT
+       * projection on every load, so any quote carrying an unplaced charge
+       * returned 500 on the Quote surface — the page that hosts Commercial
+       * Recovery, which is where that charge would have been placed.
+       *
+       * NOT what gets frozen. See `freezeRecoveryInstructions` below.
+       */
       recoveryInstructions: import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
+      /**
+       * Charges this draft carries that nobody has placed yet.
+       *
+       * Named rather than silently omitted, so a caller that needs to know
+       * cannot fail to be told — the read projection drops them from the
+       * instruction list and this is where they go.
+       */
+      unplacedRecoveryCharges: {
+        chargeKey: string;
+        chargeInstanceId: string | null;
+        tierId: string;
+      }[];
+      /**
+       * The COMMIT projection, over the SAME construction — for the freeze.
+       *
+       * ── WHY A THUNK AND NOT A SECOND ARRAY ──────────────────────────────
+       *
+       * Two requirements meet here and both must hold. The freeze must project
+       * from the construction the customer document was built from, not from a
+       * second read — so it cannot re-resolve. And the freeze must still REFUSE
+       * an unplaced charge, as defence in depth behind send-readiness — so it
+       * cannot simply be handed the read list, which has already dropped them.
+       *
+       * A thunk closing over this resolution satisfies both: same construction,
+       * and the throw happens at the moment of freezing rather than at every
+       * page load. Calling it is the act of committing.
+       */
+      freezeRecoveryInstructions: () => import("./commercial-recovery/frozen-instruction").FrozenRecoveryInstruction[];
       /**
        * The footer's verdict — the SAME evaluation the send gate performs.
        *
@@ -326,6 +367,13 @@ export async function resolveCustomerView(args: {
     ((bundle.data.skus ?? []) as { id: string; skuRole?: string }[]).some(
       (s) => s.id === skuId && s.skuRole === "leaf",
     );
+
+  // Projected ONCE, here, so the rendering and the freeze below are two views
+  // of one construction rather than two constructions.
+  const readInstructions = projectRecoveryInstructionsForRead(
+    bundle.data.costing,
+    ownsItsCharges,
+  );
 
   const embeddedRecoveryByTier = (() => {
     const byTier = new Map<string, number | null>();
@@ -804,7 +852,15 @@ export async function resolveCustomerView(args: {
      * construction the customer document was built from, not an equivalent one
      * from a second read.
      */
-    recoveryInstructions: projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
+    // READ, not commit. An unplaced charge is a legitimate state on a draft,
+    // and this call happens on every page load — including the load of the
+    // page where that charge gets placed.
+    recoveryInstructions: readInstructions.instructions,
+    unplacedRecoveryCharges: readInstructions.unplaced,
+    // The freeze, over this same construction, refusing an unplaced charge as
+    // it always has. Nothing calls it until something commits.
+    freezeRecoveryInstructions: () =>
+      projectFrozenInstructions(bundle.data.costing, ownsItsCharges),
     belowFloor: belowFloorProjection,
     unbillableRecovery,
     // Live on a draft, frozen once sent - the same rule as every other quote

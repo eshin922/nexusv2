@@ -205,9 +205,25 @@ test("the send transaction writes the instruction, from the resolved projection"
   const src = codeOnly(await read("src/app/actions/quotes.ts"));
   const at = src.indexOf("tx.insert(quoteSnapshotRecoveryInstructions)");
   assert.ok(at > 0, "the send path does not freeze the recovery instruction");
-  // From the resolver's own output — not rebuilt at send, which would be a
-  // second projection of the same construction.
-  assert.match(src.slice(at, at + 400), /resolved\.recoveryInstructions\.map/);
+
+  // ── STILL THE RESOLVER'S OWN CONSTRUCTION, NOW THE COMMIT VIEW OF IT ────
+  //
+  // The property this test protects is unchanged: the freeze must project the
+  // construction the customer document was built from, never a second read.
+  // `freezeRecoveryInstructions` is a thunk closing over exactly that
+  // construction, so it still holds.
+  //
+  // What changed is WHICH view. `resolved.recoveryInstructions` is now the
+  // READ projection, which omits an unplaced charge so a draft's Quote page
+  // can render at all; freezing that list would silently drop a real cost from
+  // the record Accounting bills from. Both are `FrozenRecoveryInstruction[]`,
+  // so only this assertion distinguishes them.
+  assert.match(src.slice(at - 300, at + 400), /frozenInstructions\.map/);
+  assert.match(src, /const frozenInstructions = resolved\.freezeRecoveryInstructions\(\)/);
+  assert.ok(
+    !/resolved\.recoveryInstructions/.test(src),
+    "the send path must never freeze the draft-rendering list",
+  );
   assert.match(src.slice(at, at + 500), /quoteSnapshotId: snapshot\.id/);
 });
 
