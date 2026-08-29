@@ -5663,6 +5663,73 @@ it off an image whose scale you did not set.
 
 ---
 
+## Pattern 61 — "A population control is authoritative only for the dimensions it observes"
+
+**Standing certification rule — Edward's directive, 2026-08-29.** Banked from
+OD-028.
+
+> Before accepting a population or end-to-end gate, state explicitly what
+> dimensions it proves and what dimensions remain outside the capture. **Sample
+> size alone is not sufficient.**
+
+**Why breadth reads as depth.** A control over 53 quotes, or 500, feels
+exhaustive because the population is exhaustive. It is not: it is exhaustive in
+the dimensions it captures and silent in every other. The silence is
+indistinguishable from a pass, and the larger the population the more convincing
+the silence sounds.
+
+**OD-028 demonstrated it twice, on the same repair:**
+
+1. **Engine branch/main equivalence did not prove placement neutrality.** The
+   capture compared each quote at its CURRENT election. Placement neutrality is
+   a property of MOVING the election with the economics held fixed — a
+   comparison the population never performs. Two successive implementations
+   passed the population while placement moved the total by 1,400.
+2. **Engine-level capture did not prove customer-document reconciliation.** It
+   read `quoteRollup` and never asked what the document said. It certified a
+   quote whose customer document was economically short by 1,400 — the money was
+   in the engine and absent from the page a customer would receive.
+
+Both gaps were caught by UNIT FIXTURES, and specifically because those fixtures
+exercised **independent invariants** rather than re-running the population's
+comparison at smaller scale. A test that duplicates the control's dimensions
+adds confidence and no coverage.
+
+**The discipline, before a gate is accepted:**
+
+1. **Enumerate the dimensions the capture observes.** Name them. "53 quotes" is
+   not a dimension; `totalRevenue`, `totalCost`, `unitSubtotal`, `owner_kind`
+   are.
+2. **Enumerate what is outside it.** Anything the capture cannot express is
+   outside, not passing. A projection it never calls, a lever it never moves, a
+   boundary it never crosses.
+3. **For each governed boundary, name the evidence.** Engine, document, freeze,
+   external projection. A boundary with no evidence is not certified because the
+   population was green.
+4. **Prefer independent invariants to more samples.** The marginal 50 quotes
+   rarely add a dimension; one fixture that moves a lever usually does.
+
+**Corollary — a control that later gains a dimension has not retroactively
+proven it.** When the OD-028 capture was extended to compare document totals
+against governed engine revenue, the earlier green runs did not become evidence
+for that dimension. They were re-run. A strengthened control belongs to the
+shape it has now (Pattern 60: "a control changed after it passes must be
+re-run, not assumed to still hold").
+
+**Applies to:** every population capture, neutrality control, end-to-end
+certification and release gate — explicitly including the OD-032 NetSuite /
+end-to-end certification, whose dimensions are to be defined BEFORE a green
+population is treated as closure.
+
+**Cross-references.**
+- Pattern 60 (a control must distinguish absence from failure, and must capture
+  everything it claims to protect) — the same discipline at the level of one
+  harness; this is its population-scale form.
+- "Exact reconciliation is necessary but not sufficient" — the same shape again:
+  summing to the right total is one dimension, and attribution is another.
+- Pattern 56 (latency margins hide missing ordering contracts) — a property that
+  holds by coincidence reading as one that holds by construction.
+
 ## Migration impact analysis — two lessons banked from OD-017
 
 **Standing verification discipline — 2026-08-12.** Both were real misses in a
