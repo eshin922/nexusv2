@@ -106,17 +106,22 @@ test("the display fan-out keys Production by assembly", async () => {
   assert.doesNotMatch(src, /anchorLeafByAssembly/);
 });
 
-test("the costing adapter is untouched and still anchor-leaf", async () => {
-  // Deliberate. S-1 is structurally different but arithmetically exact, and
-  // the disposition was not to change it for tidiness. If this ever fails,
-  // someone refactored the math path inside a display slice.
-  // Asserted on CODE. An earlier version of this matched `production[]`,
-  // which appears in the adapter only in prose — the comment stripper removed
-  // it and the test failed on correct code. An assertion that cannot survive
-  // its own instrument is worse than none.
+test("the costing adapter carries Item-Group production at ASSEMBLY grain", async () => {
+  // WAS: "the costing adapter is untouched and still anchor-leaf", pinning the
+  // existence of `anchorLeafByAssembly`. That anchor was deleted by OD-028 —
+  // it put the Item Group's economics inside whichever member a tiebreak-free
+  // sort happened to return first, and an override on that member moved a
+  // production tier by $168.
+  //
+  // The guard is preserved in its intent — the adapter's ownership routing must
+  // not be quietly refactored — and pointed at the contract that replaced it.
+  // Asserted on CODE, for the reason the original gave: an assertion that
+  // cannot survive its own instrument is worse than none.
   const adapter = await code("lib/costing-adapter.ts");
-  assert.match(adapter, /const anchorLeafByAssembly = new Map<string, string>\(\);/);
-  assert.match(adapter, /anchorLeafByAssembly\.set\(/);
+  assert.doesNotMatch(adapter, /anchorLeafByAssembly/, "the member anchor is back");
+  assert.match(adapter, /const assemblyProduction: CostingAssemblyProductionInput/);
+  assert.match(adapter, /assemblyProduction[.]push[(]/);
+  assert.match(adapter, /assemblyId: api[.]assemblyId,/);
 });
 
 test("the server action and its storage contract are unchanged", async () => {

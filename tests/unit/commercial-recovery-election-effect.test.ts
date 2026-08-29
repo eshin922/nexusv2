@@ -71,9 +71,10 @@ function costingInput(
         unitCost: 1, qtyPerSellableUnit: 1, category: "Production", markupPct: 0,
       },
     ],
-    production: [
+    production: [],
+    assemblyProduction: [
       {
-        quoteSkuId: "leaf", tierId: TIER,
+        assemblyId: "asm", tierId: TIER,
         allocateServiceFeesToCost: allocate,
         setupFeeTotal: SETUP,
         toolingArtworkTotal: null, toolingTotal: null, artworkTotal: null,
@@ -95,6 +96,7 @@ function project(allocate: boolean, elections: ChargeElection[] = []) {
     markupDefaults: input.markupDefaults,
     skus: input.skus,
     production: input.production,
+    assemblyProduction: input.assemblyProduction,
     costing,
   } as unknown as HydrateSnapshot;
   return projectCommercial(bundle);
@@ -117,6 +119,7 @@ function totalAt(gpa: number, allocate: boolean, elections: ChargeElection[] = [
     markupDefaults: input.markupDefaults,
     skus: input.skus,
     production: input.production,
+    assemblyProduction: input.assemblyProduction,
     costing,
   } as unknown as HydrateSnapshot;
   return projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!
@@ -373,10 +376,25 @@ test("a TERMINAL override is the all-in price — recovery is not added on top",
       cellOverrides: [{ quoteSkuId: "leaf", tierId: TIER, sellPriceOverride: OVR }],
     } as QuoteCostingInput;
   };
-  const withOvr = computeQuoteCosting(overridden("included")).skuRollups[0].perTier[0];
-  const noOvr = computeQuoteCosting(
-    costingInput(false, [{ chargeKey: "project_setup", mode: "included" }]),
-  ).skuRollups[0].perTier[0];
+  // OD-028 - assert this of the CELL THAT CARRIES THE OVERRIDE.
+  //
+  // This read `skuRollups[0]`, the assembly. That equalled the member's sell
+  // only while the Item Group owned no economics of its own - the anchor era.
+  // An override is the all-in price for the CELL a person priced; it is not a
+  // price for the Item Group's separately-owned production, and treating it as
+  // one is exactly the coupling OD-028 removed, where an override on a single
+  // component annihilated the group's revenue.
+  //
+  // The property is unchanged and still asserted: the override IS the sell, and
+  // no recovery is stacked on top of it.
+  const leafOf = (c: ReturnType<typeof computeQuoteCosting>) =>
+    c.skuRollups.find((r) => r.skuId === "leaf")!.perTier[0];
+  const withOvr = leafOf(computeQuoteCosting(overridden("included")));
+  const noOvr = leafOf(
+    computeQuoteCosting(
+      costingInput(false, [{ chargeKey: "project_setup", mode: "included" }]),
+    ),
+  );
 
   // The override applied at all — otherwise everything below is vacuous.
   assert.notEqual(
@@ -464,10 +482,10 @@ test("an election never writes the per-assembly value it falls back to", () => {
   // restores" would hold within one process and fail across a reload — the
   // worst shape, because the test would pass.
   const input = costingInput(true, [{ chargeKey: "project_setup", mode: "included" }]);
-  const before = input.production[0].allocateServiceFeesToCost;
+  const before = input.assemblyProduction![0].allocateServiceFeesToCost;
   computeQuoteCosting(input);
   assert.equal(
-    input.production[0].allocateServiceFeesToCost,
+    input.assemblyProduction![0].allocateServiceFeesToCost,
     before,
     "resolution wrote through to allocate_service_fees_to_cost",
   );
@@ -505,7 +523,7 @@ test("relocating an ELECTED charge does not invalidate an approval", () => {
 
   // And the fingerprint is not simply inert: a real economic change moves it.
   const dearer = costingInput(false);
-  dearer.production[0].setupFeeTotal = SETUP * 2;
+  dearer.assemblyProduction![0].setupFeeTotal = SETUP * 2;
   const t = computeQuoteCosting(dearer).quoteRollup[0];
   assert.notEqual(
     fp(false),
@@ -540,8 +558,15 @@ test("relocating an ELECTED charge does not invalidate an approval", () => {
 
 function embedded(allocate: boolean, elections: ChargeElection[] = []) {
   const costing = computeQuoteCosting(costingInput(allocate, elections));
-  const leaf = costing.skuRollups.find((r) => r.skuId === "leaf");
-  return leaf?.perTier[0]?.embeddedRecoveryTotal ?? null;
+  // OD-028 - read the OWNER of the charge, which is the Item Group.
+  //
+  // This read the member. That was right only while the anchor put the Item
+  // Group's economics inside a member's cell; the charge was always the
+  // group's, and now it is embedded where it is owned. The property under test
+  // is unchanged - a unit-price charge embeds the governed amount, and both
+  // provenances agree on it - and it is asserted of the owner.
+  const asm = costing.skuRollups.find((r) => r.skuId === "asm");
+  return asm?.perTier[0]?.embeddedRecoveryTotal ?? null;
 }
 
 test("INVERSE REGRESSION · a LEGACY unit-price charge embeds the GOVERNED amount", () => {

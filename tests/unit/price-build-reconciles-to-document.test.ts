@@ -68,9 +68,10 @@ function input(args: {
         unitCost: 1.85, qtyPerSellableUnit: 1, category: "Production", markupPct: 0.4,
       },
     ],
-    production: [
+    production: [],
+    assemblyProduction: [
       {
-        quoteSkuId: "leaf", tierId: TIER,
+        assemblyId: "asm", tierId: TIER,
         allocateServiceFeesToCost: true,
         setupFeeTotal: 1200,
         toolingArtworkTotal: null, toolingTotal: null, artworkTotal: null,
@@ -91,7 +92,8 @@ function surfaces(args: Parameters<typeof input>[0]) {
   const costing = computeQuoteCosting(i);
   const bundle = {
     markupDefaults: i.markupDefaults, skus: i.skus,
-    production: i.production, costing,
+    production: i.production,
+    assemblyProduction: i.assemblyProduction, costing,
   } as unknown as HydrateSnapshot;
   const tier = projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!;
 
@@ -169,7 +171,11 @@ test("a charge inside the unit price is still DISCLOSED, on the row that holds i
 test("a quote with NO one-time charge gets no such note", () => {
   // The note is a fact about this quote, not decoration.
   const i = input({ elections: [] });
-  i.production = [{ ...i.production[0], setupFeeTotal: null }] as typeof i.production;
+  // OD-028 - clear the fee where it now lives. `production` is leaf-owned rows
+  // only; an Item Group's fee is on the assembly slot.
+  i.assemblyProduction = [
+    { ...i.assemblyProduction![0], setupFeeTotal: null },
+  ] as typeof i.assemblyProduction;
   const costing = computeQuoteCosting(i);
   const base = costing.graph.nodes
     .find((n) => n.key === `quote/${TIER}/per-unit/unit-price-sell`)!

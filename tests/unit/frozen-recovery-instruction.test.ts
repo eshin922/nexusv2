@@ -261,6 +261,7 @@ test("0101 adds only new types and a new table", async () => {
 const sample: FrozenRecoveryInstruction = {
   chargeKey: "project_setup",
   ownerRef: "leaf",
+  ownerKind: "assembly" as const,
   tierId: "t1",
   // NULL, and correctly so: this sample is a LEGACY placed charge, which has
   // no election and therefore no instance. The component case is asserted in

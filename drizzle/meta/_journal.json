@@ -778,6 +778,20 @@
       "when": 1788251520000,
       "tag": "0112_od_032_manual_all_in_sell_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1788337920000,
+      "tag": "0113_od_028_frozen_owner_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1788424320000,
+      "tag": "0114_od_028_item_group_commercial_line",
+      "breakpoints": true
     }
   ]
 }

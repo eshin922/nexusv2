@@ -87,6 +87,11 @@ function customerTiers(input: QuoteCostingInput) {
     markupDefaults: input.markupDefaults,
     skus: input.skus,
     production: input.production,
+    // OD-028 - Item-Group production travels at its own grain. Omitting it here
+    // made the customer total short by the group's unit-price recovery, which
+    // is exactly the movement this function exists to measure - so it would
+    // have reported a placement as moving money when it does not.
+    assemblyProduction: input.assemblyProduction,
     costing,
   } as unknown as HydrateSnapshot;
   const projected = projectCommercial(bundle);

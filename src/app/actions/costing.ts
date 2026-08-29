@@ -2034,6 +2034,11 @@ export async function getCostingBundle(
       markupPct: numOrNull(r.markupPct),
     }));
     const productionList = input.production;
+    // OD-028 - Item-Group production travels at its own grain now, so the
+    // snapshot carries it beside the leaf-owned rows rather than hidden inside
+    // them. The optimistic store recomputes from the same two arrays the server
+    // did, which is what keeps the two answers the same.
+    const assemblyProductionList = [...(input.assemblyProduction ?? [])];
     const cellOverrideList = input.cellOverrides;
     const cellTargetList = input.cellTargets;
 
@@ -2120,6 +2125,7 @@ export async function getCostingBundle(
       tiers: tierList,
       packaging: packagingList,
       production: productionList,
+      assemblyProduction: assemblyProductionList,
       freightLegGroups: freightLegGroupList,
       freightLegs: freightLegList,
       freightLegTiers: freightLegTierList,

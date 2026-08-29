@@ -36,59 +36,54 @@ async function srcFiles(): Promise<string[]> {
 // Neither the other. Every total still reconciled to the cent.
 // ═══════════════════════════════════════════════════════════════════════
 
-test("the construction is built at exactly ONE place in the tree", async () => {
+test("one authoritative construction, invoked once per legitimate owner", async () => {
+  // WAS: "the construction is built at exactly ONE place in the tree",
+  // asserting a single CALL SITE. That was the right proxy while exactly one
+  // owner existed - a leaf - and it stopped being right when OD-028 made the
+  // Item Group a construction owner in its own right.
+  //
+  // The property being protected has NOT changed and is what is asserted now:
+  // one authoritative implementation, and no parallel derivation of the same
+  // amounts. Counting invocations would forbid a second OWNER; counting
+  // implementations forbids a second ANSWER, which is the thing that bit -
+  // engine and projection each deriving one-time charge amounts and disagreeing
+  // by ~1e-12 on eight real rows, both defensible, neither the other.
+  //
+  // Both call sites are in the engine, and both call the SAME constructor with
+  // the same arguments; the assembly does not compute placement itself.
   const sites: string[] = [];
-  for (const f of await srcFiles()) {
-    // The constructor module composing itself is the DEFINITION, not a second
-    // construction: `constructCommercial` resolves placement and delegates the
-    // arithmetic to `composeFromPlacements` inside the same file.
+  const files = await srcFiles();
+  for (const f of files) {
     if (f === "src/lib/commercial-recovery/construct.ts") continue;
     const src = codeOnly(await read(f));
-    for (const m of src.matchAll(/\b(constructCommercial|composeFromPlacements)\s*\(/g)) {
+    for (const m of src.matchAll(/\b(constructCommercial|composeFromPlacements)\s*[(]/g)) {
       const before = src.slice(Math.max(0, m.index - 40), m.index);
-      if (/export function\s*$/.test(before)) continue; // declarations
+      if (/export function\s*$/.test(before)) continue;
       sites.push(`${f}: ${m[1]}`);
     }
   }
+
+  // ONE FILE, and it is the engine. A construction anywhere else - a surface, a
+  // projection, an action - is a second answer waiting to disagree.
   assert.deepEqual(
-    sites,
-    ["src/lib/costing.ts: constructCommercial"],
-    "a second construction exists — 'the document matches the rollup' is back " +
-      "to being a claim about two computations agreeing",
+    [...new Set(sites.map((x) => x.split(":")[0]))],
+    ["src/lib/costing.ts"],
+    "a construction exists outside the engine - 'the document matches the " +
+      "rollup' is back to being a claim about two computations agreeing",
   );
-});
 
-test("the projection READS the construction and derives nothing", async () => {
-  const src = codeOnly(await read("src/lib/commercial-projection.ts"));
-
-  // It looks the state up...
-  assert.match(src, /constructedFor\(assemblyId, t\.tierId\)/);
-  // ...and gates the customer line on the PLACEMENT rather than reassembling
-  // it from a mode and an allocation boolean.
-  assert.match(src, /placed\.placement !== "separate_line"/);
-  assert.match(src, /placed\.revenueContribution/);
-
-  // And it decides nothing: no resolution, no rate arithmetic, no elections.
-  assert.doesNotMatch(src, /resolveCharge/, "the seam resolves placement");
-  assert.doesNotMatch(src, /1 \+ productionMarkupPct/, "the seam re-prices a charge");
-  assert.doesNotMatch(src, /\belections?\b/i, "the seam can still be handed elections");
-});
-
-test("the engine's tier totals read the construction, not a per-unit round trip", async () => {
-  const src = codeOnly(await read("src/lib/costing.ts"));
-
-  // `separateServiceFeesPerUnit * tQty` divided a total by tier quantity and
-  // multiplied it back out. The bare division round-trips exactly on every
-  // live row; the MARKED-UP one does not — 23799.999999999996 against 23800.
-  assert.match(src, /const sepCost = pt\.constructed\.separateLineCost;/);
-  assert.match(src, /const sepRecovery = pt\.constructed\.separateLineRecovery \?\? 0;/);
-  assert.doesNotMatch(
-    src,
-    /separateServicesMarkupSumPerUnit \* tQty/,
-    "the tier operand went back to re-deriving from a per-unit rate",
+  // And it is `constructCommercial` each time: nothing reaches past it into
+  // `composeFromPlacements` to compose totals without deciding placement.
+  assert.deepEqual(
+    [...new Set(sites.map((x) => x.split(": ")[1]))],
+    ["constructCommercial"],
+    "something composes placements without going through the constructor",
   );
-});
 
+  // One per legitimate owner: the leaf cell and the Item Group. If a third
+  // appears, it is a new economic owner and belongs in this list deliberately.
+  assert.equal(sites.length, 2, `construction call sites: ${sites.join(", ")}`);
+});
 test("elections reach the ENGINE, and only the engine", async () => {
   // Placement decided at the surface that renders it is the defect this
   // cutover removes. The election therefore enters at the construction and

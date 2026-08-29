@@ -214,10 +214,19 @@ test("unequal quantities are preserved, so weighting is observable", () => {
   );
 });
 
-test("production data anchors to the lowest-position leaf, by canonical order", () => {
-  // Per-assembly production coerces onto an anchor leaf. The anchor must be
-  // chosen from the canonical population; picking it from the legacy set would
-  // reintroduce the dependency this change removes.
+test("Item-Group production goes out at ASSEMBLY grain — no member anchor", () => {
+  // WAS: "production data anchors to the lowest-position leaf, by canonical
+  // order", asserting the adapter put the Item Group's production onto
+  // `ql-grouped-1`.
+  //
+  // OD-028 deleted that anchor. It was never an identity needing a better
+  // tiebreak - the sort had none, so with members tied the winner was whichever
+  // row the database returned first, and a manual all-in override on that
+  // member moved a production tier by $168.
+  //
+  // The guard is kept and pointed at the replacement: the assembly's production
+  // leaves the adapter keyed by the ASSEMBLY, and no member carries any of it.
+  // A member id appearing here again would be the defect returning.
   const built = buildQuoteCostingInputFromNewModel(
     args({
       assemblyProductionInputs: [
@@ -243,10 +252,18 @@ test("production data anchors to the lowest-position leaf, by canonical order", 
       ],
     }),
   );
-  assert.equal(built.production.length, 1);
-  // OD-017 · same leaf, named canonically. `ql-grouped-1` IS the position-0
-  // attachment `al-1` used to stand for; the anchor did not move.
-  assert.equal(built.production[0].quoteSkuId, "ql-grouped-1"); // position 0
+  // `production` is leaf-owned rows only - a Direct Service's own economics.
+  // An Item Group's production is not one of those.
+  assert.equal(built.production.length, 0, "a member still carries Item-Group production");
+  assert.equal(built.assemblyProduction?.length, 1);
+  assert.equal(built.assemblyProduction![0].assemblyId, ASSEMBLY);
+  // And it is keyed by the assembly, so there is nothing for an ordering to
+  // decide.
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(built.assemblyProduction![0], "quoteSkuId"),
+    false,
+    "the assembly-grain row still names a member",
+  );
 });
 
 // ---------------------------------------------------------------------------

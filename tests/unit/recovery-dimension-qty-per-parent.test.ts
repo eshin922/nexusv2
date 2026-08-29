@@ -77,9 +77,10 @@ function input(args: {
         unitCost, qtyPerSellableUnit: 1, category: "Production", markupPct: 0.4,
       },
     ],
-    production: [
+    production: [],
+    assemblyProduction: [
       {
-        quoteSkuId: "leaf", tierId: TIER,
+        assemblyId: "asm", tierId: TIER,
         allocateServiceFeesToCost: true,
         setupFeeTotal: fee,
         toolingArtworkTotal: null, toolingTotal: null, artworkTotal: null,
@@ -100,7 +101,8 @@ function turnkey(args: Parameters<typeof input>[0]): number {
   const costing = computeQuoteCosting(i);
   const bundle = {
     markupDefaults: i.markupDefaults, skus: i.skus,
-    production: i.production, costing,
+    production: i.production,
+    assemblyProduction: i.assemblyProduction, costing,
   } as unknown as HydrateSnapshot;
   return projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!
     .tierCommercialTotal;

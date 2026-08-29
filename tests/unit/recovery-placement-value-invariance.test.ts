@@ -81,9 +81,10 @@ function input(args: {
         unitCost: 1.85, qtyPerSellableUnit: 1, category: "Production", markupPct: 0.4,
       },
     ],
-    production: [
+    production: [],
+    assemblyProduction: [
       {
-        quoteSkuId: "leaf", tierId: TIER,
+        assemblyId: "asm", tierId: TIER,
         allocateServiceFeesToCost: allocate,
         setupFeeTotal: SETUP,
         toolingArtworkTotal: null, toolingTotal: null, artworkTotal: null,
@@ -108,6 +109,7 @@ function turnkey(args: Parameters<typeof input>[0]): number {
     markupDefaults: i.markupDefaults,
     skus: i.skus,
     production: i.production,
+    assemblyProduction: i.assemblyProduction,
     costing,
   } as unknown as HydrateSnapshot;
   return projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!
@@ -206,7 +208,8 @@ test("CONTROL · the recovery amount itself does not respond to the lift", () =>
     const costing = computeQuoteCosting(i);
     const bundle = {
       markupDefaults: i.markupDefaults, skus: i.skus,
-      production: i.production, costing,
+      production: i.production,
+      assemblyProduction: i.assemblyProduction, costing,
     } as unknown as HydrateSnapshot;
     const tier = projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!;
     assert.equal(cents(tier.otcSubtotal), cents(RECOVERY), `lift ${lift} moved the separate line`);

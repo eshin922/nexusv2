@@ -98,6 +98,22 @@ export const projectCategory = pgEnum("project_category", [
 
 export const projectStatus = pgEnum("project_status", ["active", "archived"]);
 
+/**
+ * Which identity space a frozen instruction's `owner_ref` is in - OD-028.
+ *
+ * `quote_charge_instances.owner_ref` is CLOSED by a CHECK to '@quote' or a
+ * `quote_leaves` id. The freeze's identically-named column has always been
+ * documented as "assembly or quote-leaf id as text", and now that Item-Group
+ * production freezes against its assembly rather than an arbitrary member, the
+ * two really do differ. A pgEnum rather than text, so a fourth spelling fails
+ * at the database rather than in a report.
+ */
+export const recoveryOwnerKind = pgEnum("recovery_owner_kind", [
+  "assembly",
+  "component",
+  "direct_service",
+]);
+
 export const quoteStatus = pgEnum("quote_status", [
   "draft",
   "sent",
@@ -3987,6 +4003,10 @@ export const netsuiteServiceItemMap = pgTable(
 // ═══════════════════════════════════════════════════════════════════════
 
 export const commercialLineKind = pgEnum("commercial_line_kind", [
+  // OD-028 - the Item Group's own unit-priced line. Appended, never inserted:
+  // enum label order is stored, and reordering would rewrite what existing rows
+  // mean.
+  "item_group",
   "item_group_member",
   "direct_product",
   "direct_service",
@@ -4483,6 +4503,20 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
     /** Assembly or quote-leaf id as text — the two are different tables and a
      * single FK cannot address both. Traceability, not a join key. */
     ownerRef: text("owner_ref").notNull(),
+    /**
+     * Which identity space `ownerRef` is in - OD-028.
+     *
+     * NULLABLE ONLY FOR HISTORY. The 42 instructions frozen before this
+     * contract keep saying exactly what they froze; NULL means "pre-contract",
+     * never a fourth kind, and it is never inferred from the old coerced
+     * `owner_ref` - that named whichever member the anchor rule happened to
+     * pick, and guessing from it would dress an accident as a record.
+     *
+     * Every post-cutover write carries a governed value. Asserted in
+     * `tests/unit/od-028-frozen-owner-kind.test.ts` and by the OD-028 gate, so
+     * NULL can never become a runtime discriminator.
+     */
+    ownerKind: recoveryOwnerKind("owner_kind"),
     /**
      * The durable instance identity — OD-032 P-3.
      *
