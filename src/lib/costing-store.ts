@@ -13,6 +13,7 @@ import {
   type CostingLegCustoms,
   type CostingLift,
   type CostingPackagingInput,
+  type CostingAssemblyProductionInput,
   type CostingProductionInput,
   type CostingSku,
   type CostingTier,
@@ -96,6 +97,11 @@ export type StoredPackagingRow = CostingPackagingInput & {
   legacySupplier: string | null;
 };
 export type StoredProductionRow = CostingProductionInput; // keyed by (skuId, tierId)
+// OD-028 - Item-Group production, keyed by (assemblyId, tierId). Mirrors the
+// math type 1:1 like every other stored row. It is NOT editable from the store
+// today, so there is no mutator: the Costs surface writes it through the server
+// and the next snapshot carries it.
+export type StoredAssemblyProductionRow = CostingAssemblyProductionInput;
 
 // Slice R6.2 — freight is per-quote, not per-SKU. Stored rows mirror
 // the pure-math types 1:1; identity is by leg-group id, leg id,
@@ -134,6 +140,7 @@ export type CostingStoreState = {
   tiers: CostingTier[];
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
+  assemblyProduction: StoredAssemblyProductionRow[];
   // Slice R6.2 — multi-leg journey freight model. Three sparse arrays
   // (groups → legs → leg-tiers) + customer-arranges-meta. The store
   // mutates one array at a time on PM edit; recompute pipes through
@@ -389,6 +396,7 @@ export type HydrateSnapshot = {
   tiers: CostingTier[];
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
+  assemblyProduction: StoredAssemblyProductionRow[];
   freightLegGroups: StoredFreightLegGroup[];
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
@@ -609,6 +617,7 @@ export function costingInputFromSnapshot(
     tiers: s.tiers,
     packaging: s.packaging,
     production: s.production,
+    assemblyProduction: s.assemblyProduction,
     freightLegGroups: s.freightLegGroups,
     freightLegs: s.freightLegs,
     freightLegTiers: s.freightLegTiers,
@@ -647,6 +656,7 @@ export function buildCostingInput(
     tiers: s.tiers,
     packaging: s.packaging,
     production: s.production,
+    assemblyProduction: s.assemblyProduction,
     freightLegGroups: s.freightLegGroups,
     freightLegs: s.freightLegs,
     freightLegTiers: s.freightLegTiers,
@@ -685,6 +695,7 @@ function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
     tiers: snapshot.tiers,
     packaging: snapshot.packaging,
     production: snapshot.production,
+    assemblyProduction: snapshot.assemblyProduction,
     freightLegGroups: snapshot.freightLegGroups,
     freightLegs: snapshot.freightLegs,
     freightLegTiers: snapshot.freightLegTiers,
@@ -720,6 +731,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     tiers: initial.tiers,
     packaging: initial.packaging,
     production: initial.production,
+    assemblyProduction: initial.assemblyProduction,
     freightLegGroups: initial.freightLegGroups,
     freightLegs: initial.freightLegs,
     freightLegTiers: initial.freightLegTiers,
@@ -770,6 +782,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         tiers: snapshot.tiers,
         packaging: snapshot.packaging,
         production: snapshot.production,
+        assemblyProduction: snapshot.assemblyProduction,
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
@@ -826,6 +839,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         tiers: snapshot.tiers,
         packaging: snapshot.packaging,
         production: snapshot.production,
+        assemblyProduction: snapshot.assemblyProduction,
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,

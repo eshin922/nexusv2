@@ -1,0 +1,34 @@
+-- OD-028 · the Item Group can be a commercial line in its own right.
+--
+-- ── WHY A NEW KIND, NOT A REUSED ONE ────────────────────────────────────
+--
+-- The customer document built unit-price lines from LEAF rollups only. That was
+-- accidentally true while Item-Group production was anchored to a member: the
+-- group's economics rode inside one arbitrary member's printed unit price. With
+-- the anchor deleted the assumption is simply false, and the money went missing
+-- from the document while the engine still counted it — 1,400 on the traced
+-- subject, with the engine neutral at 2,000 cost / 2,400 revenue under both
+-- placements.
+--
+-- `item_group_member` is NOT the right home for it. A member line says what
+-- that component is; this says what the Item Group itself owns and places in
+-- the unit price. They are different economic owners, and collapsing them would
+-- print the group's economics under a component's name — the same attribution
+-- defect OD-028 removed one layer down, reappearing at the customer boundary.
+--
+-- ── WHAT IT DOES NOT CHANGE ─────────────────────────────────────────────
+--
+-- Separately-billed assembly recovery keeps travelling as `otc`, unchanged.
+-- Nothing is redistributed onto members. Changing placement alone still leaves
+-- governed tier economics identical; what changes is only which visible line
+-- carries the amount, and the visible lines now sum to the visible subtotal.
+--
+-- ADDITIVE, and additive in the safest direction: a new enum LABEL. No existing
+-- row's value changes, nothing is tightened, nothing is dropped. Every deployed
+-- reader handles the four existing labels exactly as before, and no writer emits
+-- the new one until the code that knows about it ships.
+--
+-- ADD VALUE IF NOT EXISTS is used so re-running is harmless. It cannot run
+-- inside a transaction block on older PostgreSQL; it is issued on its own here.
+
+ALTER TYPE "commercial_line_kind" ADD VALUE IF NOT EXISTS 'item_group';

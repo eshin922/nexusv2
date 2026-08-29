@@ -270,8 +270,14 @@ test("one row builder, so the two modes cannot drift field by field", () => {
   const f = codeOnly(read("src/lib/commercial-recovery/frozen-instruction.ts"));
   assert.match(f, /function instructionFor\(/);
   // Both paths go through it.
-  assert.match(f, /return instructionFor\(ownerRef, tierId, c, manualAllInSell\)/);
-  assert.match(f, /instructions\.push\(instructionFor\(ownerRef, tierId, charge, manualAllInSell\)\)/);
+  // OD-028 - `ownerKind` joined the signature so a frozen instruction says
+  // WHICH identity space its `owner_ref` is in. The architectural assertion is
+  // unchanged: both paths still go through the one builder.
+  assert.match(f, /return instructionFor\(ownerRef, ownerKind, tierId, c, manualAllInSell\)/);
+  assert.match(
+    f,
+    /instructions\.push\(\s*instructionFor\(ownerRef, ownerKind, tierId, charge, manualAllInSell\),?\s*\)/,
+  );
   // And the shape is built exactly once. Counted on a field the manual-all-in
   // repair does NOT branch on — `governedRecovery` and `amortizedPerUnit` now
   // each appear in a conditional, so counting those would be counting the

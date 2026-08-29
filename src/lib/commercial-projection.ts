@@ -56,6 +56,20 @@ export type OtherServiceSelection = {
 };
 
 export type CommercialLineKind =
+  /**
+   * The Item Group's OWN unit-priced line - OD-028.
+   *
+   * NOT an overload of `item_group_member`. A member line carries what that
+   * component is; this carries what the Item Group itself owns and places in
+   * the unit price, and the two are different economic owners. Collapsing them
+   * would put the group's economics under a component's name, which is the
+   * attribution defect OD-028 removed one layer down.
+   *
+   * It exists because the document's old rule - "unit-price economics come only
+   * from leaf rollups" - was accidentally true while Item-Group production was
+   * anchored to a member, and stopped being true when the anchor was deleted.
+   */
+  | "item_group"
   | "item_group_member"
   | "direct_product"
   | "direct_service"
@@ -391,14 +405,72 @@ export function projectCommercial(
   const constructedFor = (ownerId: string, tierId: string) =>
     constructedByOwnerTier.get(ownerId)?.get(tierId);
 
-  const prodByAssemblyTier = new Map<string, Map<string, (typeof bundle.production)[number]>>();
-  for (const p of bundle.production) {
-    const leaf = skuById.get(p.quoteSkuId);
-    const assemblyId = leaf?.parentSkuId ?? null;
-    if (!assemblyId) continue; // a Direct Service's production is its own unit line
-    const byTier = prodByAssemblyTier.get(assemblyId) ?? new Map();
+  // OD-028 - read at the grain it is authored at.
+  //
+  // This used to take `bundle.production`, look up the leaf the adapter had
+  // COERCED the assembly's production onto, and walk `parentSkuId` back up to
+  // recover the assembly - undoing the coercion to get at the grain it wanted
+  // all along. That round trip was the clearest evidence the anchor served no
+  // consumer. The anchor is gone and the assembly is read directly.
+  //
+  // A Direct Service's production is still absent from this map by
+  // construction: it is not in `assemblyProduction` at all, because that leaf
+  // owns its own economics and its production is its own unit line.
+  // ── the Item Group's own unit-priced line ──────────────────────────────
+  //
+  // Emitted ONLY when the group places something in the unit price. With the
+  // fees billed separately the amount travels as an OTC line instead, and this
+  // line correctly does not appear.
+  //
+  // The amount is read from `assemblyOwnUnitSellPerUnit`, which the engine
+  // recorded when it ran the construction. Nothing is recomputed here and
+  // nothing is redistributed onto members: a member line carries member-owned
+  // economics only, which is what makes the visible lines add up to the visible
+  // subtotal without any member's printed price absorbing the group's costs.
+  for (const rollup of costing.skuRollups) {
+    if (rollup.skuRole !== "assembly") continue;
+    const owns = tiers.some((t) => {
+      const pt = rollup.perTier.find((p) => p.tierId === t.tierId);
+      return (pt?.assemblyOwnUnitSellPerUnit ?? 0) !== 0;
+    });
+    if (!owns) continue;
+
+    const cells: CommercialCell[] = tiers.map((t) => {
+      const pt = rollup.perTier.find((p) => p.tierId === t.tierId);
+      const rate = pt?.assemblyOwnUnitSellPerUnit ?? 0;
+      const cost = pt?.assemblyOwnUnitCostPerUnit ?? 0;
+      // The same rule the member lines use: nothing priced AND nothing costed
+      // is UNPRICED, never a computed zero.
+      if (rate === 0 && cost === 0) return { state: "quote_on_request" };
+      const qty = t.qty ?? 0;
+      return { state: "priced", unitRate: rate, quantity: qty, lineAmount: rate * qty };
+    });
+
+    lines.push({
+      key: `unit:assembly:${rollup.skuId}`,
+      kind: "item_group",
+      owningAssemblyId: rollup.skuId,
+      quoteLeafId: null,
+      // The Item Group's own customer-facing identity. No internal fee
+      // vocabulary reaches the document: the customer sees the thing they are
+      // buying, named as it is named everywhere else.
+      displayName: rollup.productName,
+      displaySku: rollup.skuLabel || null,
+      cells,
+    } as CommercialLine);
+  }
+
+  const prodByAssemblyTier = new Map<
+    string,
+    Map<string, (typeof bundle.assemblyProduction)[number]>
+  >();
+  // `?? []` because this takes a bundle shape that many fixtures build by hand.
+  // A missing array means a caller that has no Item-Group production to declare,
+  // which is a legitimate state - not a reason to throw inside a projection.
+  for (const p of bundle.assemblyProduction ?? []) {
+    const byTier = prodByAssemblyTier.get(p.assemblyId) ?? new Map();
     byTier.set(p.tierId, p);
-    prodByAssemblyTier.set(assemblyId, byTier);
+    prodByAssemblyTier.set(p.assemblyId, byTier);
   }
 
   for (const [assemblyId, byTier] of prodByAssemblyTier) {

@@ -41,9 +41,10 @@ function input(opts: {
         unitCost: 1, qtyPerSellableUnit: 1, category: "Production", markupPct: 0,
       },
     ],
-    production: [
+    production: [],
+    assemblyProduction: [
       {
-        quoteSkuId: "leaf", tierId: TIER,
+        assemblyId: "asm", tierId: TIER,
         allocateServiceFeesToCost: opts.allocate ?? true,
         setupFeeTotal: opts.setup ?? SETUP,
         toolingArtworkTotal: null, toolingTotal: null, artworkTotal: null,
@@ -66,7 +67,8 @@ function total(i: QuoteCostingInput): number {
   const costing = computeQuoteCosting(i);
   const bundle = {
     markupDefaults: i.markupDefaults, skus: i.skus,
-    production: i.production, costing,
+    production: i.production,
+    assemblyProduction: i.assemblyProduction, costing,
   } as unknown as HydrateSnapshot;
   return projectCommercial(bundle).tiers.reduce(
     (a, t) => a + t.tierCommercialTotal,

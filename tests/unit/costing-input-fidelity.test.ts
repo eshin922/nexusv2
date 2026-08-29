@@ -124,6 +124,7 @@ function snapshot(): HydrateSnapshot {
     ],
     packaging: PACKAGING,
     production: [],
+  assemblyProduction: [],
     // EMPTY, deliberately. The worksheet is the authority on this quote.
     freightLegGroups: [],
     freightLegs: [],
@@ -150,6 +151,7 @@ function snapshot(): HydrateSnapshot {
     tiers: input.tiers,
     packaging: PACKAGING,
     production: input.production,
+    assemblyProduction: [...(input.assemblyProduction ?? [])],
     freightLegGroups: [],
     freightLegs: [],
     freightLegTiers: [],
@@ -181,6 +183,7 @@ function storeState(snap: HydrateSnapshot) {
     tiers: snap.tiers,
     packaging: snap.packaging,
     production: snap.production,
+    assemblyProduction: snap.assemblyProduction,
     freightLegGroups: snap.freightLegGroups,
     freightLegs: snap.freightLegs,
     freightLegTiers: snap.freightLegTiers,

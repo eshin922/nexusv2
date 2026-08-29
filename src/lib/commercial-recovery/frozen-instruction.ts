@@ -27,6 +27,17 @@ export type FrozenRecoveryInstruction = {
   chargeKey: RecoveryChargeKey;
   /** Assembly or quote-leaf id. Traceability, not a join key. */
   ownerRef: string;
+  /**
+   * Which identity space `ownerRef` is in - OD-028.
+   *
+   * NULL is impossible here and is impossible for any post-cutover write: the
+   * column is nullable ONLY so the 42 instructions frozen before this contract
+   * keep saying what they actually froze. NULL means "pre-contract", never a
+   * fourth kind, and it is never inferred from the old coerced owner_ref - that
+   * named a member the anchor rule happened to pick, and guessing from it would
+   * dress an accident as a record.
+   */
+  ownerKind: "assembly" | "direct_service" | "component";
   tierId: string;
   /**
    * The durable instance identity — OD-032 P-3, and the reason this field
@@ -153,7 +164,7 @@ export function projectRecoveryInstructionsForRead(
     chargeInstanceId: string | null;
     tierId: string;
   }[] = [];
-  for (const { ownerRef, tierId, charge, manualAllInSell } of ownedPlacedCharges(
+  for (const { ownerRef, ownerKind, tierId, charge, manualAllInSell } of ownedPlacedCharges(
     costing,
     isLeaf,
   )) {
@@ -165,7 +176,7 @@ export function projectRecoveryInstructionsForRead(
       });
       continue;
     }
-    instructions.push(instructionFor(ownerRef, tierId, charge, manualAllInSell));
+    instructions.push(instructionFor(ownerRef, ownerKind, tierId, charge, manualAllInSell));
   }
   return { instructions, unplaced };
 }
@@ -190,7 +201,7 @@ export function projectFrozenInstructions(
   // children already recorded. Recording both would double every amortized
   // charge in the instruction an accountant reads.
   return ownedPlacedCharges(costing, isLeaf).map(
-    ({ ownerRef, tierId, charge: c, manualAllInSell }) => {
+    ({ ownerRef, ownerKind, tierId, charge: c, manualAllInSell }) => {
     if (c.placement === "unplaced") {
       // REFUSED, LOUDLY. Reaching here means send-readiness let an undecided
       // charge through, and the alternatives are both worse than a throw:
@@ -208,7 +219,7 @@ export function projectFrozenInstructions(
           "Send readiness must refuse a quote carrying one.",
       );
       }
-      return instructionFor(ownerRef, tierId, c, manualAllInSell);
+      return instructionFor(ownerRef, ownerKind, tierId, c, manualAllInSell);
     },
   );
 }
@@ -228,6 +239,7 @@ export function projectFrozenInstructions(
  */
 function instructionFor(
   ownerRef: string,
+  ownerKind: "assembly" | "direct_service" | "component",
   tierId: string,
   c: PlacedCharge,
   manualAllInSell: boolean,
@@ -262,6 +274,7 @@ function instructionFor(
   return {
     chargeKey: c.chargeKey,
     ownerRef,
+    ownerKind,
     tierId,
     // Read from the field, never parsed from `sourceColumn`.
     chargeInstanceId: c.chargeInstanceId ?? null,

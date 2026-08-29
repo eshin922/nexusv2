@@ -148,9 +148,12 @@ function input(args: {
         markupPct: 0.4,
       })),
     ),
-    production: leaves.flatMap((l) =>
-      tiers.map((t) => ({
-        quoteSkuId: l.id,
+    // OD-028 - these leaves are Item Group members, so their production is the
+    // GROUP's and is declared at assembly grain. `production` carries leaf-owned
+    // rows only, of which this fixture has none.
+    production: [],
+    assemblyProduction: tiers.map((t) => ({
+        assemblyId: "asm",
         tierId: t.id,
         allocateServiceFeesToCost: true,
         setupFeeTotal: null,
@@ -165,7 +168,6 @@ function input(args: {
         bulkRawCost: null,
         actualUnitsProduced: null,
       })),
-    ),
     ...(lift === null
       ? {}
       : { lifts: [{ quoteLeafId: LEAF_QL, tierId: TIER, liftPct: lift }] }),
@@ -185,6 +187,7 @@ function turnkey(args: Parameters<typeof input>[0], tierId = TIER): number {
     markupDefaults: i.markupDefaults,
     skus: i.skus,
     production: i.production,
+    assemblyProduction: i.assemblyProduction,
     costing,
   } as unknown as HydrateSnapshot;
   return projectCommercial(bundle).tiers.find((t) => t.tierId === tierId)!
@@ -462,15 +465,16 @@ test("BOUNDARY CONTROL · a LEGACY charge is placement-invariant today", () => {
   const totalFor = (mode: "included" | "separate") => {
     const i = {
       ...input({ elections: [{ chargeKey: "project_setup", mode }] }),
-      production: (base.production as unknown as Record<string, unknown>[]).map(
-        (p, idx) => (idx === 0 ? { ...p, setupFeeTotal: 1200 } : p),
-      ),
+      assemblyProduction: (
+        base.assemblyProduction as unknown as Record<string, unknown>[]
+      ).map((p, idx) => (idx === 0 ? { ...p, setupFeeTotal: 1200 } : p)),
     } as unknown as QuoteCostingInput;
     const costing = computeQuoteCosting(i);
     const bundle = {
       markupDefaults: i.markupDefaults,
       skus: i.skus,
       production: i.production,
+      assemblyProduction: i.assemblyProduction,
       costing,
     } as unknown as HydrateSnapshot;
     return projectCommercial(bundle).tiers.find((t) => t.tierId === TIER)!
@@ -627,9 +631,10 @@ test("F6 · a legacy production charge still resolves through its own path", () 
   });
   const withFee = {
     ...base,
-    production: (base.production as unknown as Record<string, unknown>[]).map(
-      (p, idx) => (idx === 0 ? { ...p, setupFeeTotal: 1200 } : p),
-    ),
+    // OD-028 - the Item Group's fee is authored at assembly grain.
+    assemblyProduction: (
+      base.assemblyProduction as unknown as Record<string, unknown>[]
+    ).map((p, idx) => (idx === 0 ? { ...p, setupFeeTotal: 1200 } : p)),
   } as unknown as QuoteCostingInput;
 
   const legacy = computeQuoteCosting(withFee)
@@ -641,10 +646,21 @@ test("F6 · a legacy production charge still resolves through its own path", () 
 
   assert.equal(legacy.length, 1, "the legacy charge did not resolve");
   assert.equal(legacy[0]!.ownerKind, "assembly", "legacy ownership changed");
+  // OD-028 - it now names its owner, and the owner is the ITEM GROUP.
+  //
+  // This asserted `ownerRef === undefined`: "a legacy charge acquired a causal
+  // owner — it must stay engagement-owned". True while the alternative was a
+  // COERCED member, which is not ownership but an accident of sort order, and
+  // naming it would have made an accident look causal.
+  //
+  // The Item Group is not that. It is the thing that actually caused the fee,
+  // and the frozen instruction now records it as `owner_kind = assembly` with
+  // the assembly's id. Asserting the id here is what stops the anchor coming
+  // back: a member id in this field would be the defect returning.
   assert.equal(
     legacy[0]!.ownerRef,
-    undefined,
-    "a legacy charge acquired a causal owner — it must stay engagement-owned",
+    "asm",
+    "an Item-Group charge must name the Item Group — never a member",
   );
   assert.equal(
     legacy[0]!.ratePct,

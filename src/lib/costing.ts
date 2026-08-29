@@ -211,6 +211,31 @@ export type CostingPackagingInput = {
   markupPct: number | null;
 };
 
+/**
+ * One Item Group's production for one tier - OD-028.
+ *
+ * Deliberately keyed by `assemblyId`, not by a member. Same columns as
+ * `CostingProductionInput` minus `quoteSkuId` and `ownerKind`: the owner is the
+ * assembly by construction, so there is nothing to disambiguate and no member
+ * to name.
+ */
+export type CostingAssemblyProductionInput = {
+  assemblyId: string;
+  tierId: string;
+  allocateServiceFeesToCost: boolean;
+  fillingBlendingCost: number | null;
+  cmAssemblyTotal: number | null;
+  setupFeeTotal: number | null;
+  toolingArtworkTotal: number | null;
+  toolingTotal: number | null;
+  artworkTotal: number | null;
+  rdTotal: number | null;
+  testingMicrosTotal: number | null;
+  otherServiceTotal: number | null;
+  bulkRawCost: number | null;
+  actualUnitsProduced: number | null;
+};
+
 export type CostingProductionInput = {
   quoteSkuId: string;
   tierId: string;
@@ -553,6 +578,41 @@ export type QuoteCostingInput = {
   packaging: CostingPackagingInput[];
   production: CostingProductionInput[];
   /**
+   * Item-Group-owned production, at the grain BV-012 says it belongs to.
+   *
+   * WHY THIS SLOT EXISTS - OD-028.
+   *
+   * `assembly_production_inputs` is per-(assembly, tier). `production[]` above
+   * is keyed by leaf, so the adapter used to pick a member - the lowest
+   * `position` - and put the whole Item Group's production into that member's
+   * cell. The sort had no tiebreak, so with members tied the anchor was
+   * whichever row the database returned first.
+   *
+   * That is invisible while every member's sell tracks its own cost: the
+   * production term is the same wherever it sits and the assembly total is
+   * anchor-invariant. A MANUAL ALL-IN OVERRIDE breaks the identity, because the
+   * overridden member's sell stops tracking its cost. Production landing on
+   * that member contributes no revenue; landing on a computed sibling it
+   * contributes its marked-up amount. Re-ordering the members moved Tier 3 of a
+   * production quote by $168.
+   *
+   * The anchor was not an identity needing a better tiebreak. It was an
+   * attribution that should not have existed, and it is gone: nothing chooses a
+   * member, nothing distributes production across members, and no member cell
+   * carries Item-Group production at all.
+   *
+   * Consumed by `rollUpAssemblyPerTier` AFTER the children fold, so no
+   * member-cell lever - override, lift, per-cell adjustment - can reach it. The
+   * freight correction beside `requiredSell` is the same principle arrived at
+   * from the same failure.
+   *
+   * A Direct Service's production is NOT here: that leaf owns its own
+   * economics, has no mismatch to bridge, and stays in `production[]`.
+   *
+   * Optional so every existing caller and fixture stays valid unchanged.
+   */
+  assemblyProduction?: readonly CostingAssemblyProductionInput[];
+  /**
    * Component-owned one-time charges — OD-032 phase 2. One entry per
    * (charge instance, tier), already parsed and already attributed to the
    * `quote_leaves` id that CAUSED it.
@@ -657,6 +717,21 @@ export type SkuPerTierRollup = {
   freightDutyTariffMarkupSumPerUnit: number;
   separateServiceFeesPerUnit: number; // when allocate_service_fees=false
   separateServicesMarkupSumPerUnit: number; // marked-up version of above
+  /**
+   * What THIS assembly's own unit-price economics sell for, per unit - OD-028.
+   *
+   * Zero on every leaf and on any assembly that owns no production. It is not
+   * the assembly's rolled-up sell, which is mostly its children's; it is only
+   * the part the Item Group itself owns and places in the unit price.
+   *
+   * First-class rather than re-derived at the projection, because a second
+   * derivation of the same money is the failure this codebase keeps finding:
+   * the engine and the document would agree today and drift on the next change.
+   * The value is computed once, where the construction that decided it runs.
+   */
+  assemblyOwnUnitSellPerUnit: number;
+  /** The cost side of the same, for the document's margin-free reconciliation. */
+  assemblyOwnUnitCostPerUnit: number;
   /**
    * Per-charge economics — the EXPLICIT HANDOFF to commercial sell
    * construction. See docs/commercial-sell-construction-design.md §3.
@@ -3627,6 +3702,10 @@ function computeLeafPerTier(args: {
     // Slice RI.8 Option 2 — per-component marked-up sums.
     packagingMarkupSumPerUnit: packagingMarkupSum,
     productionMarkupSumPerUnit: productionMarkupSum,
+    // A leaf never owns Item-Group economics. Under the anchor it appeared to,
+    // which is the whole of OD-028.
+    assemblyOwnUnitSellPerUnit: 0,
+    assemblyOwnUnitCostPerUnit: 0,
     rawMarkupSumPerUnit: rawMarkupSum,
     freightContainerMarkupSumPerUnit: totalContainerWithMarkup,
     freightDutyTariffMarkupSumPerUnit: totalDutyTariffWithMarkup,
@@ -3722,6 +3801,8 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
     sellAfterLiftPerUnit: 0,
     amortizedRecoveryPerUnit: 0,
     amortizedCostPerUnit: 0,
+    assemblyOwnUnitSellPerUnit: 0,
+    assemblyOwnUnitCostPerUnit: 0,
     overrideDeltaPerUnit: 0,
     tierId: tier.id,
     packagingCostPerUnit: 0,
@@ -3774,6 +3855,39 @@ function rollUpAssemblyPerTier(
   children: Array<{ rollup: SkuPerTierRollup; qtyPerParent: number }>,
   effectiveTarget: number,
   floor: number,
+  /**
+   * This Item Group's OWN production for this tier - OD-028.
+   *
+   * Folded in AFTER the children, which is the whole repair. It used to travel
+   * inside one member's cell, chosen by a tiebreak-free sort, where that
+   * member's manual sell override could annihilate its revenue contribution and
+   * re-ordering the members moved the tier total.
+   *
+   * Here no member lever can reach it: the override, the lift and the position
+   * are all properties of a child cell, and this value is not in one.
+   */
+  ownProduction: CostingAssemblyProductionInput | null,
+  /** This assembly's own id - the owner of `ownProduction`, and of the charges
+   *  it produces. Named, never inferred from a member. */
+  assemblyId: string,
+  /**
+   * The SAME effective adjustment the member cells applied - `tier
+   * .tierPriceAdjPct ?? quote.globalPriceAdjPct`, resolved once by the caller.
+   *
+   * Passed in rather than escaped, deliberately. Disposition A, Edward
+   * 2026-08-28: OD-028 fixes ownership and arithmetic grain, it does not change
+   * the scope of the governed price-adjustment policy. Production was inside a
+   * member's ladder and therefore adjusted; it is adjusted here too, so a quote
+   * with no member-specific lever sees no movement at all.
+   *
+   * Whether a fixed one-time production fee SHOULD be exempt from the
+   * adjustment is a live pricing-policy question, recorded and deliberately not
+   * answered here.
+   */
+  effectiveAdj: number,
+  markupDefaults: Record<string, number>,
+  /** The quote's elections - the same list the leaf construction is given. */
+  chargeElections: readonly ChargeElection[],
 ): SkuPerTierRollup {
   const tierQty = num(tier.qty);
   // Charges carried up unscaled — see the note at the return. Collected here
@@ -3781,6 +3895,14 @@ function rollUpAssemblyPerTier(
   // assembled at the return site.
   const childCharges: ChargeEconomics[] = [];
   const childConstructed: ConstructedCommercialState[] = [];
+  // OD-028 - the construction this assembly ran for its OWN production, and the
+  // economics it was built from. Null when the assembly authored no production.
+  let ownConstructed: ConstructedCommercialState | null = null;
+  let ownEconomics: ChargeEconomics[] = [];
+  // OD-028 - the Item Group's OWN unit-price economics, for its own document
+  // line. Zero unless this assembly places something in the unit price.
+  let ownUnitSell = 0;
+  let ownUnitCost = 0;
   let contribution = 0;
   let requiredSell = 0;
   // Slice 9.3 — `computedSell` rolls up children's pure-markup values
@@ -3967,6 +4089,153 @@ function rollUpAssemblyPerTier(
     containerFreightMarkup += r.freightContainerMarkupSumPerUnit;
     dutyTariffMarkup += r.freightDutyTariffMarkupSumPerUnit;
   }
+  // ---- OD-028 - the Item Group as a FIRST-CLASS construction owner ----
+  //
+  // WHAT THE ANCHOR ACTUALLY WAS.
+  //
+  // Not "the member carrying production COGS". It was the SITE where the whole
+  // Item Group's commercial construction ran and was consumed. The zero-residual
+  // bridge on quote 4781e4bb Tier 1 named all of it:
+  //
+  //   COST     5,600 = 5,100 unit-price-placed fee cost + 500 separate-line
+  //   REVENUE  7,840 = 7,140 unit-price recovery        + 700 separate-line
+  //   member   6.30/unit = 0.20 production + 1.00 bulk raw + 5.10 amortized fee
+  //
+  // Production COGS was the SMALLEST of five flows. Two earlier attempts moved
+  // it and left the other four behind, and the 53-quote population control
+  // rejected both - correctly, and identically, which is what made the model
+  // gap visible.
+  //
+  // So the assembly runs the REAL constructor over its own charges and consumes
+  // every flow the anchor consumed. No reduced imitation, no synthetic member,
+  // and no reconstruction of any of it downstream from a member.
+  // THE CONSTRUCTION RUNS WHATEVER THE TIER QUANTITY IS.
+  //
+  // Only the per-unit amortization is guarded, which is the leaf's discipline:
+  // "the run TOTALS are formed unconditionally, because they are facts about
+  // what was entered and do not depend on the tier having a quantity." A
+  // zero-quantity tier still has charges; it just has nothing to spread them
+  // over.
+  if (ownProduction !== null) {
+    const prodResolution = resolveMarkupStrict({
+      defaults: markupDefaults,
+      category: PRODUCTION_MARKUP_CATEGORY,
+    });
+    const rawResolution = resolveMarkupStrict({
+      defaults: markupDefaults,
+      category: RAW_MARKUP_CATEGORY,
+    });
+    const prodRate = prodResolution.value ?? 0;
+    const rawRate = rawResolution.value ?? 0;
+
+    ownEconomics = chargeEconomicsFor(
+      {
+        ...ownProduction,
+        quoteSkuId: assemblyId,
+        tierId: tier.id,
+        ownerKind: "assembly",
+      } as CostingProductionInput,
+      prodResolution.value,
+    ).map((e) => ({ ...e, ownerRef: assemblyId }));
+
+    // THE constructor, not a copy of its rules. Placement is decided here for
+    // the assembly exactly as it is decided at a leaf for a leaf.
+    ownConstructed = constructCommercial(
+      ownEconomics,
+      chargeElections,
+      ownProduction.allocateServiceFeesToCost,
+      tierQty,
+    );
+
+    // ---- the six flows, read the way the leaf reads them ----
+    //
+    // Per-unit only. A zero-quantity tier has the charges above and nothing to
+    // spread them over, so every quotient here is guarded and the construction
+    // is not.
+    const per = (total: number) => (tierQty > 0 ? total / tierQty : 0);
+    const cogsPerUnit = per(
+      num(ownProduction.fillingBlendingCost) + num(ownProduction.cmAssemblyTotal),
+    );
+    const legacyFeeCostPerUnit = per(ownConstructed.unitPriceCostLegacy);
+    const productionCostSum = cogsPerUnit + legacyFeeCostPerUnit;
+    const rawPerUnit = per(num(ownProduction.bulkRawCost));
+    const separateFeeCostPerUnit = per(ownConstructed.separateLineCost);
+
+    // FULL marked-up values, not deltas: every sibling `*MarkupSumPerUnit` on
+    // this rollup is the marked-up value, and the child fold sums them as such.
+    const productionMarkupSum = productionCostSum * (1 + prodRate);
+    const rawMarkupSum = rawPerUnit * (1 + rawRate);
+    // From the construction. Re-marking-up the quotient here would reintroduce
+    // the round trip the leaf explicitly stopped doing.
+    const separateServicesMarkupSum =
+      per(ownConstructed.separateLineRecovery ?? 0);
+
+    // Cost side.
+    production += productionCostSum;
+    raw += rawPerUnit;
+    serviceFees += separateFeeCostPerUnit;
+    contribution += productionCostSum + rawPerUnit;
+    productionMarkup += productionMarkupSum;
+    rawMarkup += rawMarkupSum;
+    servicesMarkup += separateServicesMarkupSum;
+    // THE ELECTED HALF ENTERS COST AND SELL, not just its own field.
+    //
+    // With `allocateServiceFeesToCost = false` the constructor places the fees
+    // `unit_price` under source ELECTION, so `unitPriceCostLegacy` is 0 and the
+    // whole amount lands in the Elected fields. Reading only the Legacy fields
+    // saw nothing, which is exactly the residual the bridge named: 5,100 of
+    // cost and 7,140 of revenue on the subject tier.
+    //
+    // The leaf adds both into its own totals - `contribution` 9.175 = packaging
+    // 2.875 + production 0.20 + raw 1.00 + amortized 5.10, and `requiredSell`
+    // 12.745 = sellBefore 5.605 + amortizedRecovery 7.14 - so the assembly does
+    // too.
+    const electedCostPerUnit = per(ownConstructed.unitPriceCostElected);
+    const electedRecoveryPerUnit =
+      per(ownConstructed.unitPriceRecoveryElected ?? 0);
+    amortizedCost += electedCostPerUnit;
+    amortizedRecovery += electedRecoveryPerUnit;
+    contribution += electedCostPerUnit;
+
+    // ---- the sell ladder ----
+    //
+    // `sellBefore` is the assembly's own sections only - production and bulk
+    // raw. Packaging and freight belong to the members and are already folded.
+    const sellBefore = productionMarkupSum + rawMarkupSum;
+
+    // THE LEGACY RECOVERY IS LEVER-EXEMPT, exactly as at a leaf.
+    //
+    // Marking up `(cogs + legacyFeeCost)` IS how the legacy recovery is priced -
+    // 5.10 x 1.4 = 7.14 on the subject quote - so scaling the whole of
+    // `sellBefore` by the adjustment would scale that recovery a second time.
+    // The leaf subtracts it from the lever basis and adds it back after; so does
+    // this. Preserving that is Disposition A: OD-028 changes ownership and
+    // grain, not the scope of the price-adjustment policy.
+    const leverExempt = per(ownConstructed.unitPriceRecoveryLegacy ?? 0);
+    const leverBasis = sellBefore - leverExempt;
+    const adjusted = leverBasis * (1 + effectiveAdj) + leverExempt;
+
+    sellBeforeAdj += sellBefore;
+    adjDelta += adjusted - sellBefore;
+    sellAfterAdj += adjusted;
+    // NO LIFT. A lift is a per-member instrument, and this is not a member's
+    // value. Its absence here is what stops member ordering from ever moving
+    // Item-Group economics again.
+    sellAfterLift += adjusted;
+    // The elected recovery is HELD OUT OF THE LEVERS and added to the price
+    // itself, which is what the leaf does: its ladder rungs stop at
+    // `sellBefore` and `requiredSell` carries the recovery on top. Putting it
+    // in the rungs would scale a governed recovery by the adjustment.
+    requiredSell += adjusted + electedRecoveryPerUnit;
+    computedSell += adjusted + electedRecoveryPerUnit;
+
+    // What the customer's document must show as this Item Group's own line.
+    // Recorded here, from the same arithmetic that just produced it, so the
+    // document reads a value rather than recomputing one.
+    ownUnitSell = adjusted + electedRecoveryPerUnit;
+    ownUnitCost = productionCostSum + rawPerUnit + electedCostPerUnit;
+  }
+
   const marginPct: number | null =
     requiredSell > 0 ? (requiredSell - contribution) / requiredSell : null;
   return {
@@ -3977,11 +4246,19 @@ function rollUpAssemblyPerTier(
     // NULL if ANY child is unattributable. A parent that summed only its
     // attributable children would print a number that looks like the whole
     // and is not.
+    // OD-028 - the assembly's OWN unit-price recovery is embedded here too.
+    //
+    // This summed children only, which was complete while the anchor put the
+    // Item Group's recovery inside a member's cell. Now the group embeds its
+    // own, and a total that counted only its children would under-state what
+    // the unit price actually carries - the same omission as the document's,
+    // one field over, and it reaches the frozen record.
     embeddedRecoveryTotal: children.some(
       (c) => c.rollup.embeddedRecoveryTotal === null,
     )
       ? null
-      : children.reduce((a, c) => a + (c.rollup.embeddedRecoveryTotal ?? 0), 0),
+      : children.reduce((a, c) => a + (c.rollup.embeddedRecoveryTotal ?? 0), 0) +
+        (ownConstructed?.unitPriceRecovery ?? 0),
     // A fold, not a cell. See the field's note.
     sellNodeKey: null,
     sellBeforeAdjustmentPerUnit: sellBeforeAdj,
@@ -3991,6 +4268,8 @@ function rollUpAssemblyPerTier(
     sellAfterLiftPerUnit: sellAfterLift,
     amortizedRecoveryPerUnit: amortizedRecovery,
     amortizedCostPerUnit: amortizedCost,
+    assemblyOwnUnitSellPerUnit: ownUnitSell,
+    assemblyOwnUnitCostPerUnit: ownUnitCost,
     overrideDeltaPerUnit: overrideDelta,
     tierId: tier.id,
     packagingCostPerUnit: packaging,
@@ -4025,11 +4304,24 @@ function rollUpAssemblyPerTier(
     // Carried up because the tier rollup reads TOP-LEVEL records only, so a
     // charge that stopped at the leaf would be invisible to the layer that
     // needs it.
-    chargeEconomics: childCharges,
+    // Children's merged charges PLUS this assembly's own. `ownerRef` is what
+    // separates them: an own-charge names this assembly, a bubbled one names the
+    // leaf that caused it.
+    chargeEconomics: [...childCharges, ...ownEconomics],
     // MERGED, not rebuilt. Placement was decided where the owner's allocation
     // state was known; a parent has no standing to revisit it, and re-deriving
     // here would be a second authority for the same decision.
-    constructed: mergeConstructed(childConstructed),
+    // OD-028 - the assembly's OWN construction joins the merge.
+    //
+    // `mergeConstructed` concatenates placed charges and re-totals, so adding
+    // the assembly's own state here is what makes `ownedPlacedCharges`, the
+    // frozen instructions and the Customer Document all read ONE construction
+    // rather than rebuilding assembly identity from a member. Before this, the
+    // assembly's `constructed` was its children's and nothing downstream could
+    // see what the Item Group itself owned.
+    constructed: mergeConstructed(
+      ownConstructed === null ? childConstructed : [...childConstructed, ownConstructed],
+    ),
     contributionCostPerUnit: contribution,
     computedSellPerUnit: computedSell,
     requiredSellPerUnit: requiredSell,
@@ -4080,6 +4372,18 @@ export function computeQuoteCosting(input: QuoteCostingInput,
   // never re-traversed afterwards.
   const graphNodes: CostingNode[] = [];
   const globalAdj = num(quote.globalPriceAdjPct);
+  // OD-028 - Item-Group production, indexed by (assembly, tier).
+  //
+  // The index the deleted anchor used to stand in for. Keyed by the assembly
+  // itself, so there is no member to sort and nothing for a query order to
+  // decide.
+  const assemblyProductionByAssemblyTier = new Map<
+    string,
+    CostingAssemblyProductionInput
+  >();
+  for (const ap of input.assemblyProduction ?? []) {
+    assemblyProductionByAssemblyTier.set(`${ap.assemblyId}::${ap.tierId}`, ap);
+  }
   // Slice 9.2 — verdict bands use the per-quote target override when
   // set, otherwise firm-level target. Floor stays firm-level always
   // (admin only). See top-of-file comment for the effective-value
@@ -4404,11 +4708,24 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       }));
       // Slice 9.4b — assemblies don't read cellTargets (leaf-only
       // invariant; see rollUpAssemblyPerTier comment).
+      // OD-028 - the assembly's own production, looked up by ASSEMBLY id.
+      // No member is consulted, so no ordering can change the answer.
+      const ownProd =
+        assemblyProductionByAssemblyTier.get(`${sku.id}::${tier.id}`) ?? null;
+      const tierAdj =
+        tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined
+          ? num(tier.tierPriceAdjPct)
+          : globalAdj;
       return rollUpAssemblyPerTier(
         tier,
         childTierRollups,
         effectiveTarget,
         firmSettings.floorMarginPct,
+        ownProd,
+        sku.id,
+        tierAdj,
+        markupDefaults,
+        input.chargeElections ?? [],
       );
     });
     const rollup: SkuRollup = {

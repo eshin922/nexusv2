@@ -227,13 +227,23 @@ test("the Item Group table never renders a service-owned row", async () => {
 
 // ── readers survive the relaxation ────────────────────────────────────────
 
-test("the adapter routes each owner branch to the right math leaf", async () => {
+test("the adapter routes each owner branch to its own OWNER, not to a leaf", async () => {
+  // WAS: "...to the right math leaf", pinning
+  // `anchorLeafByAssembly.get(api.assemblyId)` — the coercion that put an
+  // Item Group's production into one of its members. OD-028 deleted it.
+  //
+  // The XOR this file exists to protect is UNCHANGED and still asserted: a
+  // service-owned row and an assembly-owned row take different branches. What
+  // changed is where the assembly branch lands — on the assembly itself.
   const adapter = await code("src/lib/costing-adapter.ts");
-  // A service maps DIRECTLY to its own leaf — no anchor coercion, because
-  // there is no per-assembly/per-leaf mismatch to bridge.
-  assert.match(adapter, /api\.quoteLeafId/);
-  assert.match(adapter, /anchorLeafByAssembly\.get\(api\.assemblyId\)/);
-  assert.match(adapter, /assemblyId: string \| null;/);
+  // A service maps DIRECTLY to its own leaf. Unchanged: it never needed an
+  // anchor, because it has no per-assembly/per-leaf mismatch to bridge.
+  assert.match(adapter, /api[.]quoteLeafId/);
+  assert.match(adapter, /quoteSkuId: api[.]quoteLeafId,/);
+  // An Item Group maps to ITSELF.
+  assert.match(adapter, /assemblyId: api[.]assemblyId,/);
+  assert.doesNotMatch(adapter, /anchorLeafByAssembly/, "the member anchor is back");
+  assert.match(adapter, /assemblyId: string [|] null;/);
 });
 
 test("the scenario clone covers BOTH owner branches", async () => {

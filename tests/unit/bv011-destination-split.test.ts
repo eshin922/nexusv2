@@ -38,7 +38,12 @@ function bundle(production: Array<Record<string, unknown>>): HydrateSnapshot {
       { id: "asm", parentSkuId: null, skuRole: "assembly", skuLabel: "IG", productName: "Group", canonicalQuoteLeafId: "asm", qtyPerParent: null, sortOrder: 0, retailBenchmark: null },
       { id: "leaf", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L", productName: "Leaf", canonicalQuoteLeafId: "leaf", qtyPerParent: "1", sortOrder: 0, retailBenchmark: null },
     ],
-    production,
+    // OD-028 - Item-Group production is declared at its own grain. The
+    // projection used to take a member row and walk `parentSkuId` back up to
+    // the assembly; it reads the assembly directly now, and `production` is
+    // leaf-owned (Direct Service) rows only.
+    production: [],
+    assemblyProduction: production,
     costing: {
       tiers,
       skuRollups: [
@@ -66,7 +71,7 @@ function bundle(production: Array<Record<string, unknown>>): HydrateSnapshot {
 }
 
 const prod = (tierId: string, extra: Record<string, unknown>) => ({
-  quoteSkuId: "leaf",
+  assemblyId: "asm",
   tierId,
   allocateServiceFeesToCost: false,
   ...extra,

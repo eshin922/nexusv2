@@ -87,6 +87,7 @@ import type {
   CostingFreightLegGroup,
   CostingFreightLegTier,
   CostingPackagingInput,
+  CostingAssemblyProductionInput,
   CostingProductionInput,
   CostingSku,
   CostingTier,
@@ -372,76 +373,33 @@ export function buildQuoteCostingInputFromNewModel(
     }),
   );
 
-  // ---- production[] : anchor-leaf-only fan-out ----
+  // ---- production[] : LEAF-OWNED ONLY.  assemblyProduction[] : the rest ----
   //
-  // assembly_production_inputs is per-(assembly, tier). Math layer
-  // expects production keyed by leaf id. Adapter picks the "anchor
-  // leaf" (lowest `position`) per assembly and emits production[]
-  // rows only on that leaf.
+  // OD-028 DELETED THE ANCHOR.
   //
-  // See header comment for the rationale on anchor-leaf vs
-  // fan-out + divide. Trace: one assembly_production_inputs row ↔
-  // one production[] entry; full values intact; math sum matches
-  // the source row's totals.
-  const anchorLeafByAssembly = new Map<string, string>();
-  // Iterate in (assemblyId, position) order so we deterministically
-  // pick the lowest-position leaf as the anchor. The input array
-  // order isn't guaranteed, so build the index ourselves.
-  const leavesByAssembly = new Map<string, AdapterQuoteLeafAttachmentRow[]>();
-  for (const al of args.quoteLeafAttachments) {
-    // A direct attachment has no assembly, so it anchors nothing.
-    if (al.assemblyId === null) continue;
-    const arr = leavesByAssembly.get(al.assemblyId) ?? [];
-    arr.push(al);
-    leavesByAssembly.set(al.assemblyId, arr);
-  }
-  for (const [assemblyId, leaves] of leavesByAssembly) {
-    const sorted = [...leaves].sort((a, b) => a.position - b.position);
-    if (sorted.length > 0) {
-      anchorLeafByAssembly.set(assemblyId, mathSkuId(sorted[0]));
-    }
-  }
-
-  // Stage 3 A · the leaf-owned branch needs no anchor at all.
+  // This block used to pick the lowest-`position` member of each assembly and
+  // emit the Item Group's entire production onto that member's math id. The
+  // sort had no tiebreak, so with members tied at the same position the anchor
+  // was whichever row the database happened to return first - and moving the
+  // members moved Tier 3 of a production quote by $168, because a manual all-in
+  // override on one member stops its sell tracking its cost.
   //
-  // A Direct Service IS a top-level quote leaf, so its production row maps
-  // straight onto that leaf's math id. The anchor-leaf coercion above exists
-  // only because an Item Group's production is per-ASSEMBLY while the math
-  // layer keys per-leaf; a service has no such mismatch to bridge.
+  // No member is chosen now. Nothing is distributed across members. Item-Group
+  // production goes out at the grain BV-012 says it belongs to, and the math
+  // layer folds it in above the member cells where no per-cell lever reaches
+  // it.
   //
-  // Which also means the service branch does not inherit the anchor pattern's
-  // known cost — the UI asymmetry where one of N sibling rows carries the
-  // value. There is one row, and it owns its own economics.
+  // A Direct Service is unaffected and always was: it IS a top-level quote
+  // leaf, so its production maps straight onto its own math id with no
+  // mismatch to bridge. That branch keeps `production[]`.
   const directLeafIds = new Set(
     args.quoteLeafAttachments.map((al) => mathSkuId(al)),
   );
 
   const production: CostingProductionInput[] = [];
+  const assemblyProduction: CostingAssemblyProductionInput[] = [];
   for (const api of args.assemblyProductionInputs) {
-    const targetLeafId = api.quoteLeafId
-      ? // Owned by a Direct Service. Present in the attachment set unless the
-        // leaf was removed in the same read window; skipping is correct then,
-        // for the same reason the assembly branch skips a leafless assembly.
-        (directLeafIds.has(api.quoteLeafId) ? api.quoteLeafId : undefined)
-      : api.assemblyId
-        ? anchorLeafByAssembly.get(api.assemblyId)
-        : undefined;
-
-    if (!targetLeafId) {
-      // Assembly has no leaves, or the owning leaf is gone — production row
-      // has nowhere to attach. Skip; this is a degenerate state and the cost
-      // contribution would be 0 anyway. Future v1.1+ may surface it as a
-      // quote warning.
-      continue;
-    }
-    production.push({
-      quoteSkuId: targetLeafId,
-      tierId: api.tierId,
-      // The XOR, carried rather than re-derived. `quoteLeafId` set means a
-      // Direct Service authored this row; `assemblyId` means an Item Group
-      // did. Downstream could not previously tell, and Card 1 summed a priced
-      // service line into an actionable fee because of it.
-      ownerKind: api.quoteLeafId ? "direct_service" : "assembly",
+    const columns = {
       allocateServiceFeesToCost: api.allocateServiceFeesToCost,
       fillingBlendingCost: numOrNull(api.fillingBlendingCost),
       cmAssemblyTotal: numOrNull(api.cmAssemblyTotal),
@@ -454,6 +412,29 @@ export function buildQuoteCostingInputFromNewModel(
       otherServiceTotal: numOrNull(api.otherServiceTotal),
       bulkRawCost: numOrNull(api.bulkRawCost),
       actualUnitsProduced: api.actualUnitsProduced,
+    };
+
+    if (api.quoteLeafId) {
+      // Owned by a Direct Service. Present in the attachment set unless the
+      // leaf was removed in the same read window; skipping is correct then.
+      if (!directLeafIds.has(api.quoteLeafId)) continue;
+      production.push({
+        quoteSkuId: api.quoteLeafId,
+        tierId: api.tierId,
+        // The XOR, carried rather than re-derived. Only the service branch can
+        // reach this now, so the value is no longer a discriminator between two
+        // shapes arriving here - it is a fact about the one shape that does.
+        ownerKind: "direct_service",
+        ...columns,
+      });
+      continue;
+    }
+
+    if (!api.assemblyId) continue;
+    assemblyProduction.push({
+      assemblyId: api.assemblyId,
+      tierId: api.tierId,
+      ...columns,
     });
   }
 
@@ -524,6 +505,7 @@ export function buildQuoteCostingInputFromNewModel(
     tiers: args.tiers,
     packaging,
     production,
+    assemblyProduction,
     freightLegGroups: args.freightLegGroups,
     freightLegs: args.freightLegs,
     freightLegTiers: args.freightLegTiers,

@@ -2159,6 +2159,7 @@ export async function sendQuote(
             quoteSnapshotId: snapshot.id,
             chargeKey: i.chargeKey,
             ownerRef: i.ownerRef,
+            ownerKind: i.ownerKind,
             // Carried from the projection, which carried it from the economics.
             // Never parsed from `sourceColumn` — see `ChargeEconomics`.
             chargeInstanceId: i.chargeInstanceId,

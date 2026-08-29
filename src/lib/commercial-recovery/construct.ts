@@ -243,6 +243,8 @@ export type ConstructedRollups = {
 /** One placed charge, with the owner and tier that placed it. */
 export type OwnedPlacedCharge = {
   ownerRef: string;
+  /** Which identity space `ownerRef` is in. See the note where it is set. */
+  ownerKind: "assembly" | "direct_service" | "component";
   tierId: string;
   charge: PlacedCharge;
   /**
@@ -292,9 +294,21 @@ export function ownedPlacedCharges(
 ): OwnedPlacedCharge[] {
   const out: OwnedPlacedCharge[] = [];
   for (const rollup of costing.skuRollups ?? []) {
-    if (!isLeaf(rollup.skuId)) continue;
+    // OD-028 - a NON-LEAF rollup now owns something.
+    //
+    // The rule was "leaves only", because a parent's construction is a merge of
+    // children already recorded and taking both would double every charge. That
+    // is still true of the merged ones - and an Item Group's own production now
+    // raises its charges HERE, at the assembly, because the member anchor that
+    // used to carry them is gone.
+    //
+    // So the filter moves from the rollup to the charge: on an assembly, take
+    // only what names this assembly as its owner. A bubbled child charge names
+    // the leaf that caused it and is skipped, exactly as before.
+    const assemblyOwned = !isLeaf(rollup.skuId);
     for (const pt of rollup.perTier ?? []) {
       for (const charge of pt.constructed?.charges ?? []) {
+        if (assemblyOwned && charge.ownerRef !== rollup.skuId) continue;
         // THE CAUSAL OWNER WINS WHERE THERE IS ONE — OD-032 phase 2.
         //
         // `rollup.skuId` is the math-leaf the charge was COERCED onto by the
@@ -308,6 +322,18 @@ export function ownedPlacedCharges(
         // causal by being written down — which is the rule this line keeps.
         out.push({
           ownerRef: charge.ownerRef ?? rollup.skuId,
+          // WHICH IDENTITY SPACE `ownerRef` IS IN - OD-028.
+          //
+          // Two sibling tables have a column called `owner_ref` and they do not
+          // mean the same thing: on `quote_charge_instances` a CHECK ties it to
+          // a `quote_leaves` id, while the freeze has always been documented as
+          // "assembly or quote-leaf id as text". Now that an assembly really can
+          // be the owner, leaving the distinction to convention is how the next
+          // reader gets it wrong.
+          //
+          // Retained, not invented: the domain already computes `ownerKind` on
+          // every charge and the freeze simply discarded it.
+          ownerKind: charge.ownerKind ?? "assembly",
           tierId: pt.tierId,
           charge,
           // Read from the cell the charge is priced in, not decided here.

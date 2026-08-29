@@ -59,7 +59,11 @@ function bundle(opts: {
       sortOrder: 0,
       retailBenchmark: null,
     })),
-    production: opts.production ?? [],
+    // OD-028 - the helper's `production` list IS Item-Group production, so it
+    // goes out at assembly grain. `production` stays for leaf-owned rows, of
+    // which these fixtures have none.
+    production: [],
+    assemblyProduction: opts.production ?? [],
     costing: {
       // `tierId`, the engine's real key. Spelling this `id` is what the
       // original fixture did, agreeing with a cast in the projection instead
@@ -75,8 +79,8 @@ function bundle(opts: {
         // are those of its children — mirroring the engine rather than
         // restating it.
         const owned = (opts.production ?? []).filter((row) => {
-          const leaf = skuById.get(row.quoteSkuId as string);
-          return row.quoteSkuId === r.skuId || leaf?.parentSkuId === r.skuId;
+          // Owned by the assembly named on the row - no member indirection.
+          return row.assemblyId === r.skuId;
         });
         const rate = (opts.markupDefaults ?? { Production: 0.4 }).Production ?? null;
         const construction = constructionRollup(r.skuId, owned as never, rate);
@@ -110,14 +114,14 @@ function bundle(opts: {
               s.skuRole === "assembly" &&
               !opts.rollups.some((r) => r.skuId === s.id) &&
               (opts.production ?? []).some(
-                (row) => skuById.get(row.quoteSkuId as string)?.parentSkuId === s.id,
+                (row) => row.assemblyId === s.id,
               ),
           )
           .map((s) =>
             constructionRollup(
               s.id,
               (opts.production ?? []).filter(
-                (row) => skuById.get(row.quoteSkuId as string)?.parentSkuId === s.id,
+                (row) => row.assemblyId === s.id,
               ) as never,
               (opts.markupDefaults ?? { Production: 0.4 }).Production ?? null,
             ),
@@ -269,13 +273,13 @@ test("3 · the tier total is exactly its unit subtotal plus its separately bille
       ],
       production: [
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_A,
           allocateServiceFeesToCost: false,
           setupFeeTotal: 1000,
         },
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_B,
           allocateServiceFeesToCost: false,
           setupFeeTotal: 1000,
@@ -321,7 +325,7 @@ test("3b · with no governed Production rate the OTC line is unpriced, never at 
       ],
       production: [
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_A,
           allocateServiceFeesToCost: false,
           setupFeeTotal: 1000,
@@ -364,13 +368,13 @@ test("4 · a fee entered at ONE tier is billed at that tier only (no MAX fold)",
       ],
       production: [
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_A,
           allocateServiceFeesToCost: false,
           setupFeeTotal: 1000,
         },
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_B,
           allocateServiceFeesToCost: false,
           setupFeeTotal: null,
@@ -412,13 +416,13 @@ test("4b · one ALLOCATED tier does not suppress the tiers that bill separately"
       production: [
         // Tier 1 folds the fee into unit cost; tier 2 bills it separately.
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_A,
           allocateServiceFeesToCost: true,
           setupFeeTotal: 1000,
         },
         {
-          quoteSkuId: "leaf",
+          assemblyId: "asm",
           tierId: TIER_B,
           allocateServiceFeesToCost: false,
           setupFeeTotal: 1000,
@@ -581,7 +585,7 @@ test("unitRate × quantity === lineAmount on every priced cell", () => {
       ],
       rollups: [{ skuId: "leaf", perTier: [priced(TIER_A, 3), priced(TIER_B, 2)] }],
       production: [
-        { quoteSkuId: "leaf", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
+        { assemblyId: "asm", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
       ],
     }),
   );
@@ -606,7 +610,7 @@ test("a one-time charge is quantity 1, not the tier's unit count", () => {
       ],
       rollups: [{ skuId: "leaf", perTier: [priced(TIER_A, 1), priced(TIER_B, 1)] }],
       production: [
-        { quoteSkuId: "leaf", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
+        { assemblyId: "asm", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
       ],
     }),
   );

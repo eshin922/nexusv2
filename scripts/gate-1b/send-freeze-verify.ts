@@ -67,7 +67,7 @@ if (snap.length === 0) {
   failures.push("the send produced no snapshot");
 } else {
   const rows = (await db.execute(sql`
-    select charge_key, owner_ref, tier_id::text as tier_id,
+    select charge_key, owner_ref, owner_kind, tier_id::text as tier_id,
            charge_instance_id::text as charge_instance_id,
            treatment, treatment_source,
            cost::float8 as cost,
@@ -79,7 +79,9 @@ if (snap.length === 0) {
      where quote_snapshot_id = ${snap[0].id}::uuid
      order by treatment_source desc, charge_key
   `)) as unknown as {
-    charge_key: string; owner_ref: string; tier_id: string;
+    charge_key: string; owner_ref: string;
+    owner_kind: "assembly" | "component" | "direct_service" | null;
+    tier_id: string;
     charge_instance_id: string | null;
     treatment: string; treatment_source: string;
     cost: number; governed_recovery: number | null;
@@ -93,6 +95,10 @@ if (snap.length === 0) {
   const asInstruction = (r: (typeof rows)[number]): FrozenRecoveryInstruction => ({
     chargeKey: r.charge_key as FrozenRecoveryInstruction["chargeKey"],
     ownerRef: r.owner_ref,
+    // NULL only on a pre-OD-028 snapshot. Coerced to `assembly` for the
+    // in-memory comparison shape ONLY - nothing writes it back, and the
+    // historical rows are never rewritten.
+    ownerKind: r.owner_kind ?? "assembly",
     manualAllInSell: r.manual_all_in_sell,
     // OD-032 P-3. NULL for a legacy placed charge, which has no election and
     // therefore no instance; non-null for every component-owned charge.
