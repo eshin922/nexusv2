@@ -12,9 +12,9 @@ that single value. **`hash` is written on insert and never read.** So the verdic
 the migrator's own rule, not a set-difference over the table.
 
 - journal entries: **114**
-- `__drizzle_migrations` rows: **110**
-- `max(created_at)`: **1788165120000**
-- would execute on a bare `db:migrate`: **4**
+- `__drizzle_migrations` rows: **114**
+- `max(created_at)`: **1788510720000**
+- would execute on a bare `db:migrate`: **0**
 
 ## Column meanings
 
@@ -139,10 +139,10 @@ the migrator's own rule, not a set-difference over the table.
 | `0109_od_032_phase_2_component_owned_charges` | idx 107 · when 1787992320000 · file ✓ · hand-authored | hash ✓ (LF) · id 111 · when ✓ | recorded row (migrator-written) | applied |
 | `0110_od_032_phase_2_drop_legacy_charge_unique` | idx 108 · when 1788078720000 · file ✓ · hand-authored | hash ✓ (LF) · id 112 · when ✓ | recorded row (migrator-written) | applied |
 | `0111_od_032_frozen_instruction_identity` | idx 109 · when 1788165120000 · file ✓ · hand-authored | hash ✓ (LF) · id 113 · when ✓ | recorded row (migrator-written) | applied |
-| `0112_od_032_manual_all_in_sell_provenance` | idx 110 · when 1788251520000 · file ✓ · hand-authored | **no row** | **probe:** `manual_all_in_sell` column present (1) | applied |
-| `0113_od_028_frozen_owner_kind` | idx 111 · when 1788337920000 · file ✓ · hand-authored | **no row** | **probe:** `recovery_owner_kind` type + `owner_kind` column present (1) | applied |
-| `0114_od_028_item_group_commercial_line` | idx 112 · when 1788424320000 · file ✓ · hand-authored | **no row** | **probe:** enum label `item_group` present (1) | applied |
-| `0115_component_charge_samples_key` | idx 113 · when 1788510720000 · file ✓ · hand-authored | **no row** | **probe:** enum label `samples` present (1) | applied |
+| `0112_od_032_manual_all_in_sell_provenance` | idx 110 · when 1788251520000 · file ✓ · hand-authored | hash ✓ (LF) · id 114 · when ✓ | **probe:** `manual_all_in_sell` column present (1) | applied |
+| `0113_od_028_frozen_owner_kind` | idx 111 · when 1788337920000 · file ✓ · hand-authored | hash ✓ (LF) · id 115 · when ✓ | **probe:** `recovery_owner_kind` type + `owner_kind` column present (1) | applied |
+| `0114_od_028_item_group_commercial_line` | idx 112 · when 1788424320000 · file ✓ · hand-authored | hash ✓ (LF) · id 116 · when ✓ | **probe:** enum label `item_group` present (1) | applied |
+| `0115_component_charge_samples_key` | idx 113 · when 1788510720000 · file ✓ · hand-authored | hash ✓ (LF) · id 117 · when ✓ | **probe:** enum label `samples` present (1) | applied |
 
 **Totals — applied 114 · pending 0 · ambiguous 0.**
 
@@ -157,8 +157,8 @@ journal was regenerated or hand-edited after the migration had already run.
 set-difference, and it is invisible to the migrator**, which reads `max(created_at)`
 and never matches rows to entries.
 
-- rows total: **110**
-- rows whose hash matches a file: **109**
+- rows total: **114**
+- rows whose hash matches a file: **113**
 - of those, `created_at` drifted from the journal `when`: **2**
 - rows whose hash matches NO file: **1**
 
