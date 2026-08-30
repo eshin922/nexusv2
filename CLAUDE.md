@@ -4840,13 +4840,25 @@ NULL" branches.
 > an item type. It supersedes the assumption that production / service-fee
 > inputs are one accounting class. It authorizes no implementation.
 >
-> Two things below are **not true of the live database**, verified 2026-08-17:
-> `markup_defaults` contains exactly seven rows — Freight, Manufacturing, Other,
-> Primary, Secondary, Soft Goods, Tooling. The twelve "hybrid workbook
-> additions" are not present, and neither is `Raw ingredients`, which
-> `RAW_MARKUP_CATEGORY` (`src/lib/costing.ts:904`) expects — bulk raw falls back
-> to `Other` at 30% today. Reconciling the vocabulary is in the bounded
+> The catalogue below is **not the live database**. Re-verified 2026-08-29:
+> `markup_defaults` contains **eight rows** — Freight 0.20, Manufacturing 0.30,
+> Other 0.30, Primary 0.45, Secondary 0.50, Soft Goods 0.35, Tooling 0.20, and
+> **Production 0.40** (added 2026-08-18). The twelve "hybrid workbook additions"
+> are still not present. Reconciling the vocabulary is in the bounded
 > Production / OTC workstream's scope; see BV-011 §4.6 and §4.7.
+>
+> **Superseded 2026-08-29 — this paragraph previously said there were seven
+> rows with no `Production`, and that bulk raw fell back to `Other` at 30%
+> because `RAW_MARKUP_CATEGORY` expected an absent `Raw ingredients`.** Both
+> statements were true on 2026-08-17 and are false now, and they went stale by
+> the same event. `RAW_MARKUP_CATEGORY` is today defined as
+> `PRODUCTION_MARKUP_CATEGORY` (`src/lib/costing.ts:1434-1439`, not the `:904`
+> the old text cited), so **bulk raw prices at `Production` 0.40**. The seven
+> legacy one-time-fee columns resolve through that same single category — which
+> is why a tooling charge prices at 0.40 while a `Tooling` category exists at
+> 0.20. That is an open attribution question for the Production / OTC
+> workstream, not a defect claim: it reconciles exactly, and reconciliation is
+> not evidence of correct attribution.
 >
 > The section is retained below as the Slice 9.1 record.
 
