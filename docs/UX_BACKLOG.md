@@ -287,6 +287,62 @@ operational pre-flight.)
 
 ## Open
 
+- **Cross-tier presentation in Commercial recovery and the Accounting agreement
+  card**
+
+  **Driver:** Edward, 2026-08-29. **Presentation finding. No implementation as
+  part of the OD-032 work.** Banked with a worked example so the class is
+  recognisable when it is picked up.
+
+  **The rule that governs it:** *tiers must not be aggregated together. They are
+  alternative quote tiers, not additive commercial revenue.* A customer buys one
+  tier. A figure summed across tiers is not a quantity anyone will ever pay, and
+  a tier-specific figure shown without naming its tier reads as quote-wide.
+
+  **Worked example — quote `2f29af72-805b-446c-866c-73e9b0991b1a`.** An operator
+  reported Commercial recovery showing elected one-time charges totalling
+  **$14,560** while the customer PDF beside it showed **One-time fees $0.00**,
+  and read it as a projection defect. It is not one. Reconciled per tier
+  (`scripts/gate-1b/od-032-otc-reconcile.ts`):
+
+  | tier | governed cost | engine revenue | doc unit | doc OTC | doc total | residual |
+  |---|---|---|---|---|---|---|
+  | Tier 1 | 10,400 | 164,944 | 150,384 | **14,560** | 164,944 | 0.0000 |
+  | Tier 2 | 0 | 214,920 | 214,920 | **0.00** | 214,920 | 0.0000 |
+  | Tier 3 | 200 | 714,768 | 714,488 | 280 | 714,768 | 0.0000 |
+  | Tier 4 | 0 | 1,248,000 | 1,248,000 | 0.00 | 1,248,000 | 0.0000 |
+
+  Engine and document agree exactly on every tier. The $14,560 is **Tier 1**
+  derived recovery (tooling `10,000 x 1.4 = 14,000`, plus `100 x 1.4 = 140`
+  four times); Tier 2 genuinely carries no one-time-charge economics, so `$0.00`
+  is correct. The operator was reading a Tier 1 figure against a Tier 2 column.
+  Nothing was wrong with the money — only with which tier each number belonged
+  to, and neither surface said.
+
+  **Two distinct code sites, one class:**
+
+  1. `src/components/quote/customer-view-rail.tsx:163` — the agreement card keys
+     on `${chargeKey}::${treatment}` and sums `governedRecovery`. Its own comment
+     states the frozen instruction is per **(charge, owner, tier)**; the key
+     drops the tier, so a charge priced at more than one tier adds across
+     alternatives. (Not verified as the arithmetic behind the observed $14,560 —
+     that figure equals Tier 1's OTC subtotal exactly — but the summation is
+     structurally present either way.)
+  2. `src/lib/commercial-recovery/impact.ts:180` — `customerTotalBefore` /
+     `customerTotalAfter` reduce `tierCommercialTotal` across every tier. On the
+     quote above that is ~2,342,632, a number no customer will ever pay.
+     **Currently unrendered** — no consumer outside the module — so this is
+     latent, not live. Any future consumer inherits a meaningless figure.
+
+  The per-tier breakdown already exists in `impact.ts` (`tiers[]`, with the
+  comment "so a multi-tier quote does not hide where the change lands"). The
+  model is right; the scalars beside it are not.
+
+  **Whoever picks this up should decide:** whether these surfaces name a tier,
+  show a per-tier breakdown, or scope to the recommended tier — and should
+  remove the cross-tier scalars rather than leave them for a later consumer.
+
+
 - **V1.1 — Final Quote artifact on the NetSuite Sales Order**
 
   **Driver:** Edward, 2026-08-17. **V1.1 enhancement. Explicitly NOT part of
