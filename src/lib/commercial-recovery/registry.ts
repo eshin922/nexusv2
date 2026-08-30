@@ -49,7 +49,7 @@ export type RecoveryChargeKey =
   | "tooling_artwork_legacy"
   // OD-032 phase 2 — component-owned. See COMPONENT_CHARGE_KEYS below.
   | "print_plates"
-  | "samples_proofs";
+  | "samples";
 
 /**
  * `landed` charges are quote-level: one freight bill, one customs assessment.
@@ -211,8 +211,8 @@ const CHARGE_SPECS: readonly ChargePolicySpec[] = [
     source: ["quote_charge_instance_tiers.cost_amount"],
   },
   {
-    key: "samples_proofs",
-    label: "Samples & proofs",
+    key: "samples",
+    label: "Samples & PPS",
     grain: "one_time",
     source: ["quote_charge_instance_tiers.cost_amount"],
   },
@@ -243,7 +243,7 @@ export const COMPONENT_CHARGE_KEYS = [
   "print_plates",
   "tooling",
   "artwork_plate",
-  "samples_proofs",
+  "samples",
   "other_service",
 ] as const satisfies readonly RecoveryChargeKey[];
 
@@ -254,9 +254,98 @@ export const COMPONENT_CHARGE_LABELS: Record<ComponentChargeKey, string> = {
   print_plates: "Print plates",
   tooling: "Tooling & dies",
   artwork_plate: "Artwork & prepress",
-  samples_proofs: "Samples & proofs",
+  samples: "Samples & PPS",
   other_service: "Other",
 };
+
+/**
+ * -- COMMERCIAL MARKUP AUTHORITY, BY CHARGE TYPE -------------------------
+ *
+ * Business disposition, Edward 2026-08-29:
+ *
+ *   "Use charge type as the commercial markup authority. Do not inherit
+ *    markup from the owning component and do not use Production as a blanket
+ *    fallback."
+ *
+ * The rate follows what the charge IS, not who caused it. Owner-inherited
+ * markup was rejected explicitly: it would make an economic value depend on
+ * which component a charge hangs from, so identical charges would price
+ * differently by owner -- the OD-028 class of defect one layer up.
+ *
+ * -- WHY THIS IS NOT THE ACCOUNTING DESTINATION -------------------------
+ *
+ * Commercial markup and accounting destination are SEPARATE AXES and are
+ * resolved separately. `print_plates` has its own BV-011 destination
+ * (`OTC - Print Plates`) and still prices as tooling, because a plate is
+ * commercially a tool. Reading a destination off this map, or a rate off the
+ * destination map, would fuse two decisions the model keeps apart.
+ *
+ * `artwork_plate` uses `Manufacturing` rather than `Other`. Both sit at 0.30
+ * today and the equal rates are INCIDENTAL -- the authority is prepress /
+ * process labour, not an unclassified miscellaneous service. A later rate
+ * change to either category must not silently reclassify the charge.
+ *
+ * -- `unclassified` IS A POLICY, NOT A HOLE -----------------------------
+ *
+ * `other_service` is deliberately unmapped, and the shape says so out loud:
+ * the union's second arm carries a REASON, so "this has no governed rate by
+ * decision" is a different value from "somebody forgot to add a row". A plain
+ * `string | null` map could not tell those apart. A MISSING key is a compile
+ * error rather than a silent default, because the map is
+ * `satisfies Record<ComponentChargeKey, ...>`.
+ *
+ * An unclassified charge therefore recovers NOTHING and cannot be sent --
+ * BV-013's "no governed rate, no price", reached deliberately. It must not
+ * acquire 0.30 merely because a category named `Other` exists.
+ */
+export type ComponentChargeMarkupAuthority =
+  | { kind: "governed"; category: string }
+  | { kind: "unclassified"; reason: string };
+
+export const COMPONENT_CHARGE_MARKUP_AUTHORITY = {
+  // A plate is commercially a tool. Its own accounting destination does not
+  // give it its own pricing policy -- that would need a separate disposition.
+  print_plates: { kind: "governed", category: "Tooling" },
+  tooling: { kind: "governed", category: "Tooling" },
+  // Prepress / process labour. Proofs live here too; see COMPONENT_CHARGE_KEYS.
+  artwork_plate: { kind: "governed", category: "Manufacturing" },
+  // Physical pre-production goods, produced on a manufacturing run.
+  samples: { kind: "governed", category: "Manufacturing" },
+  other_service: {
+    kind: "unclassified",
+    reason:
+      "Other is an operator-labelled catch-all, so no charge type governs its rate. Classify the charge as a specific type, or obtain a separate pricing disposition for it.",
+  },
+} as const satisfies Record<ComponentChargeKey, ComponentChargeMarkupAuthority>;
+
+/**
+ * The commercial markup authority for a component charge type.
+ *
+ * Total over `ComponentChargeKey`, so there is no undefined case to guess at.
+ */
+export function componentChargeMarkupAuthority(
+  key: ComponentChargeKey,
+): ComponentChargeMarkupAuthority {
+  return COMPONENT_CHARGE_MARKUP_AUTHORITY[key];
+}
+
+/**
+ * Narrows a charge key read from the DATABASE.
+ *
+ * The `recovery_charge` PG enum still carries `samples_proofs`, which the
+ * `RecoveryChargeKey` union dropped when the key was split (migration 0115).
+ * PostgreSQL cannot drop an enum label without a type rewrite, so the dead
+ * label outlives the type -- and the DB row type is therefore wider than the
+ * application type at exactly one value.
+ *
+ * The label is unreachable: zero rows carry it and no writer can emit it. This
+ * guard exists so the boundary NARROWS rather than casts, which keeps the fact
+ * checkable instead of asserted. Its accept-set is the registry itself, so a
+ * future key cannot be forgotten here.
+ */
+export function isRecoveryChargeKey(key: string): key is RecoveryChargeKey {
+  return LIVE_CHARGE_KEYS.has(key);
+}
 
 /** A type an operator may hang off a packaging component. */
 export function isComponentChargeKey(key: string): key is ComponentChargeKey {
@@ -267,6 +356,11 @@ export function isComponentChargeKey(key: string): key is ComponentChargeKey {
 export function labelRequiredFor(key: string): boolean {
   return key === "other_service";
 }
+
+/** Every key the registry governs. Backs `isRecoveryChargeKey`. */
+const LIVE_CHARGE_KEYS: ReadonlySet<string> = new Set(
+  CHARGE_SPECS.map((c) => c.key),
+);
 
 export const RECOVERY_CHARGES: readonly ChargePolicy[] = CHARGE_SPECS.map(
   (spec): ChargePolicy =>

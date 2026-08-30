@@ -62,7 +62,7 @@ const HINT: Record<ComponentChargeKey, string> = {
   print_plates: "plate or cylinder making for this artwork",
   tooling: "cutting die, mould or collar for this component",
   artwork_plate: "design, adaptation and proofing labour",
-  samples_proofs: "pre-production samples of this component",
+  samples: "pre-production samples of this component",
   other_service: "label required · e.g. “foil stamping die spec”",
 };
 
@@ -74,8 +74,8 @@ const HINT: Record<ComponentChargeKey, string> = {
  * prompt, selection is an act. The chips render; the boxes stay empty.
  */
 const SUGGESTED_BY_TYPE: Record<string, ComponentChargeKey[]> = {
-  "secondary packaging": ["print_plates", "tooling", "samples_proofs"],
-  "primary packaging": ["tooling", "samples_proofs"],
+  "secondary packaging": ["print_plates", "tooling", "samples"],
+  "primary packaging": ["tooling", "samples"],
 };
 
 export function AddComponentChargesSheet({

@@ -21,7 +21,6 @@ import {
 import type { ComponentChargeForCosts } from "@/lib/component-charges/read";
 import type { ComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import {
-  updateComponentChargeAsk,
   updateComponentChargeCost,
 } from "@/app/actions/component-charges";
 import { COMPONENT_CHARGE_LABELS } from "@/lib/commercial-recovery/registry";
@@ -1493,23 +1492,26 @@ function ComponentChargeRow({
         </span>
       </div>
 
-      {/* ── TWO FACTS PER TIER, AND THE SECOND ONE WAS MISSING ────────────
-          Cost is what DPS pays. Recovery is what the customer is charged. The
-          read layer has carried both since the phase shipped — `amounts` is
-          `{ tierId, cost, recoveryAsk }` — and the action to write the second
-          existed and was imported into this file. It was never called, so no
-          operator could price a charge.
+      {/* ── COST ONLY. THE RECOVERY FIELD WAS REMOVED ────────────────────
+          "Costs owns governed cost; Pricing derives recovery from charge-type
+          authority." (Edward, 2026-08-29.)
 
-          What that produced, measured on Production 2026-08-28: two charges
-          costing $2,700, both elected to bill SEPARATELY, reached a customer
-          document reading "One-time fees $0.00" on a quote whose Finalize
-          button said `ready`. The send gate now refuses that state, and the
-          readiness rail reports it, from one shared diagnostic. This is the
-          input that lets an operator resolve it.
+          A `recovery` input sat beside `cost` here and wrote
+          `quote_charge_instance_tiers.recovery_ask`, which the engine consumed
+          verbatim. It is gone, not disabled: an input the operator can still
+          fill while nothing reads it is worse than no input, because it looks
+          like the decision is theirs and silently is not.
 
-          Deliberately NOT derived from cost by a markup. V1 authority for the
-          ask is manual entry; a rate would be a different decision, made by a
-          different authority, and is out of scope here. */}
+          Recovery is now derived from the charge TYPE's governed markup
+          category — the rate follows what the charge IS, never who caused it.
+          A type with no governed category stays unpriced and unsendable rather
+          than defaulting (BV-013); `other_service` is deliberately in that
+          state, so an unclassified charge cannot acquire a rate by accident.
+
+          The Design Authority's Phase 2 language ("cost per tier, recovery
+          ask, fixed one-time basis") is superseded in the `recovery ask` half
+          only — recorded in `docs/design-prototypes/od-032/README.md` rather
+          than changed silently. */}
       <div className="od032-costs-charge-tiers">
         {tiers.map((t) => (
           <div key={t.id} className="od032-costs-charge-tier">
@@ -1525,20 +1527,6 @@ function ComponentChargeRow({
                 value={byTier.get(t.id)?.cost ?? null}
                 disabled={disabled}
                 ariaLabel={`Cost for ${chargeLabel} at ${t.label}`}
-                onError={setError}
-              />
-            </label>
-            <label className="od032-costs-charge-field">
-              <span className="od032-costs-charge-field-label">recovery</span>
-              <ChargeAmountInput
-                quoteId={quoteId}
-                chargeInstanceId={charge.chargeInstanceId}
-                tierId={t.id}
-                tierLabel={t.label}
-                field="ask"
-                value={byTier.get(t.id)?.recoveryAsk ?? null}
-                disabled={disabled}
-                ariaLabel={`Recovery for ${chargeLabel} at ${t.label}`}
                 onError={setError}
               />
             </label>
@@ -1595,7 +1583,13 @@ function ChargeAmountInput({
    * matters here — Pattern 47 commit discipline. The two differ only in which
    * writer they call and what they are called.
    */
-  field: "cost" | "ask";
+  /**
+   * Cost only. The `ask` variant was removed with the recovery field --
+   * "Costs owns governed cost; Pricing derives recovery from charge-type
+   * authority." Kept as a one-member union rather than dropped so the call
+   * site still names what it writes.
+   */
+  field: "cost";
   value: string | null;
   disabled: boolean;
   ariaLabel: string;
@@ -1620,20 +1614,12 @@ function ChargeAmountInput({
       // from position: two same-type charges on one component render adjacent
       // rows of identical inputs, and an index would be the one mistake that
       // silently writes A's number onto B.
-      const res =
-        field === "cost"
-          ? await updateComponentChargeCost({
-              quoteId,
-              chargeInstanceId,
-              tierId,
-              cost: next,
-            })
-          : await updateComponentChargeAsk({
-              quoteId,
-              chargeInstanceId,
-              tierId,
-              ask: next,
-            });
+      const res = await updateComponentChargeCost({
+        quoteId,
+        chargeInstanceId,
+        tierId,
+        cost: next,
+      });
       if (!res.ok) {
         // Restored, not left showing a value the database refused. A field
         // still displaying a rejected number reads as saved.
@@ -1645,7 +1631,7 @@ function ChargeAmountInput({
 
   return (
     <input
-      className={`od032-costs-charge-amt${field === "ask" ? " ask" : ""}`}
+      className="od032-costs-charge-amt"
       inputMode="decimal"
       // A BLANK IS ABSENCE, so the placeholder must not suggest otherwise:
       // "0.00" here would read as what the field holds when empty, and that is

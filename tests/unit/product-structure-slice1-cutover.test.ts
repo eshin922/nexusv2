@@ -390,6 +390,13 @@ const classifiedIdentityFiles = new Set([
   // record cannot contain one, because the freeze writes only the canonical id.
   "src/lib/netsuite/frozen-order-assembly.ts",
   "src/lib/netsuite/frozen-sales-order.ts",
+  // CLASSIFIED - canonical identity only, and used as a DISCRIMINATOR rather
+  // than a key. It reads `quoteLeafId` off the frozen line for one purpose:
+  // telling a component-owned OTC line from a legacy per-column one, because
+  // only the first has no governed accounting destination and only the second
+  // can be fixed by re-sending. It joins nothing on it and resolves no legacy
+  // junction; the freeze writes only the canonical id.
+  "src/lib/netsuite/projection-readiness.ts",
   // CLASSIFIED — read-only diagnostic, canonical identity only. It characterizes
   // what the V1 freight distribution policy moved across the S-7 basket before
   // any baseline is refreshed, so it reads `quote_leaf_id` as the shipment

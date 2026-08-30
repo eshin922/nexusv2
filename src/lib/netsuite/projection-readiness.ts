@@ -93,6 +93,25 @@ export type ProjectionBlocker =
       remediation: string;
     }
   | {
+      /**
+       * A component-owned charge, which has NO governed accounting destination
+       * yet -- the projection records `null` for every one of them, by
+       * construction rather than by omission.
+       *
+       * Distinct from `destination_not_recorded` because the remedies differ
+       * and only one of them exists. That blocker tells the operator to revise
+       * and re-send, which is correct for a line frozen before destinations
+       * were captured. For a component charge a re-send would record `null`
+       * again, so the same words would send the operator round a loop that
+       * cannot terminate. An instruction that cannot succeed is worse than
+       * none: it reads as a step they failed to perform.
+       */
+      kind: "component_destination_ungoverned";
+      lineId: string;
+      displayName: string;
+      remediation: string;
+    }
+  | {
       kind: "provisional_tier";
       tierLabel: string;
       remediation: string;
@@ -254,6 +273,9 @@ export async function assessProjectionReadiness(
       selectedItemId: quoteSnapshotLines.selectedNetsuiteItemId,
       selectedItemCode: quoteSnapshotLines.selectedNetsuiteItemCode,
       owningAssemblyId: quoteSnapshotLines.owningAssemblyId,
+      // Carried for the component-charge discriminator below, which needs to
+      // tell a component-owned OTC line from a legacy per-column one.
+      quoteLeafId: quoteSnapshotLines.quoteLeafId,
       serviceIdentity: quoteSnapshotLines.serviceIdentity,
       legacyUnresolved: quoteSnapshotLines.legacyUnresolved,
       amount: quoteSnapshotLineTiers.lineAmount,
@@ -323,6 +345,26 @@ export async function assessProjectionReadiness(
       (line.serviceIdentity
         ? SERVICE_IDENTITY_DESTINATION[line.serviceIdentity]
         : null);
+
+    // A component-owned charge. Checked BEFORE the generic null test, for the
+    // same reason the legacy combined charge is: a null destination alone
+    // describes several unrelated states, and only the narrowest true one
+    // yields an instruction the operator can act on.
+    //
+    // The discriminator is structural, not inferred. There are exactly two
+    // producers of an `otc` line: the legacy per-column loop sets
+    // `owningAssemblyId` and leaves `quoteLeafId` null; the component loop does
+    // the exact opposite. `component-otc-line-identity` asserts that they stay
+    // opposite, so this cannot quietly start reading the wrong lines.
+    if (line.kind === "otc" && line.quoteLeafId !== null) {
+      blockers.push({
+        kind: "component_destination_ungoverned",
+        lineId: line.id,
+        displayName: line.displayName,
+        remediation: `"${line.displayName}" is a component-owned one-time charge, and that charge type does not yet have a governed accounting destination. It cannot be sent to NetSuite yet, and re-sending the quote will not change that. Remove the charge from the accepted tier if this order must be pushed now, or wait for the destination model.`,
+      });
+      continue;
+    }
 
     if (destination === null) {
       // Frozen before destinations were recorded, with nothing on the row to

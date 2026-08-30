@@ -20,7 +20,6 @@ import {
   type CreateComponentChargesResult,
 } from "@/lib/component-charges/create";
 import {
-  updateComponentChargeAskAs,
   updateComponentChargeCostAs,
 } from "@/lib/component-charges/update";
 import type { ActionResult } from "@/lib/action-result";
@@ -62,12 +61,22 @@ export async function updateComponentChargeCost(input: {
   return updateComponentChargeCostAs(user.id, input);
 }
 
-export async function updateComponentChargeAsk(input: {
-  quoteId: string;
-  chargeInstanceId: string;
-  tierId: string;
-  ask: string | null;
-}) {
-  const user = await ensureUser();
-  return updateComponentChargeAskAs(user.id, input);
-}
+/*
+ * `updateComponentChargeAsk` STOOD HERE.
+ *
+ * It was the operator path for `quote_charge_instance_tiers.recovery_ask` --
+ * a number typed on Costs that the engine then consumed as the charge's
+ * recovery. Removed by the charge-type pricing-authority disposition (Edward,
+ * 2026-08-29): "Costs owns governed cost; Pricing derives recovery from
+ * charge-type authority."
+ *
+ * The action is DELETED rather than left unreachable. An exported server
+ * action with no caller is exactly the shape the reachability guard exists to
+ * catch -- and this codebase already shipped one (the ask writer itself, for a
+ * whole phase). Leaving a second would re-create the condition the guard was
+ * built for, in the same file.
+ *
+ * `updateComponentChargeAskAs` survives in `lib/component-charges/update.ts`
+ * as a GATE-FIXTURE writer only; see the note there. The column is retained
+ * and holds no non-null values.
+ */

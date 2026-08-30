@@ -38,13 +38,20 @@ const A1 = { id: "inst-a1", owner: LEAF_A, cost: 1450 };
 const A2 = { id: "inst-a2", owner: LEAF_A, cost: 325 };
 const B1 = { id: "inst-b1", owner: LEAF_B, cost: 600 };
 
+/**
+ * `print_plates` prices through `Tooling` — charge type is the authority.
+ * Non-zero so an implementation that echoed cost back as recovery would fail
+ * here rather than pass by coincidence.
+ */
+const TOOLING_RATE = 0.2;
+const rec = (cost: number) => cost * (1 + TOOLING_RATE);
+
 const charge = (c: { id: string; owner: string; cost: number }): ComponentChargeInput => ({
   chargeInstanceId: c.id,
   tierId: TIER,
   chargeKey: "print_plates",
   ownerRef: c.owner,
   cost: c.cost,
-  recoverableSell: c.cost,
 });
 
 const elect = (id: string, mode: ChargeElection["mode"]): ChargeElection => ({
@@ -62,7 +69,7 @@ function input(args: {
   return {
     quote: { id: "quote", globalPriceAdjPct: 0, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Production: 0.4 },
+    markupDefaults: { Production: 0.4, Tooling: TOOLING_RATE },
     chargeElections: elections,
     componentCharges,
     skus: [
@@ -176,9 +183,11 @@ test("two same-type charges on the SAME component can be placed differently", ()
   // Cost truth untouched on both.
   assert.equal(got.get(A1.id)?.cost, A1.cost);
   assert.equal(got.get(A2.id)?.cost, A2.cost);
-  // And each recovers its own amount, so the two are independently priced.
-  assert.equal(got.get(A1.id)?.revenue, A1.cost);
-  assert.equal(got.get(A2.id)?.revenue, A2.cost);
+  // And each recovers off its OWN cost, so the two are independently priced.
+  // They share a charge type and therefore a rate; what separates them is the
+  // cost it applies to, which is the instance's own.
+  assert.equal(got.get(A1.id)?.revenue, rec(A1.cost));
+  assert.equal(got.get(A2.id)?.revenue, rec(A2.cost));
   assert.notEqual(A1.cost, A2.cost, "the fixture cannot detect a swap");
 });
 
@@ -281,7 +290,7 @@ test("unplaced is distinguishable from every DECIDED placement", () => {
     // A decided charge states a recovery. An undecided one states none — the
     // difference between "the customer pays this much for it" and "nobody has
     // said yet", which a zero would erase.
-    assert.equal(decided.revenue, A1.cost);
+    assert.equal(decided.revenue, rec(A1.cost));
     assert.equal(un.revenue, null);
   }
 });
@@ -398,7 +407,7 @@ test("BOUNDARY · the customer TOTAL still moves, and that is the phase-4 gap", 
   });
 
   assert.ok(
-    Math.abs(inc - sep - A1.cost) < 0.005,
+    Math.abs(inc - sep - rec(A1.cost)) < 0.005,
     "the document boundary moved — if the projection now renders component " +
       "OTC lines, this test has done its job and should become an equality",
   );
