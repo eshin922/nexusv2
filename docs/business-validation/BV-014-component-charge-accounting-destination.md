@@ -142,7 +142,8 @@ eight, including print plates and samples, have none.
 
 ## 5. Unresolved Accounting / business authority — `tooling`
 
-**No destination disposition. Two independent questions, both open.**
+**No destination disposition. One governing question for Accounting (§5.1b)
+and one independent blocker (§5.2), both open.**
 
 **The §4 amendment does not reach `tooling`.** That disposition creates missing
 ITEMS; the tooling question is which DESTINATION the charge belongs to, and it
@@ -169,13 +170,58 @@ fact.
 **Must not be mapped by name, and must not be resolved by choosing one
 arbitrarily.**
 
-**The question for Accounting / the business:**
+### 5.1a The distinction has never existed operationally
 
-1. Must the operator distinguish Tooling from Dies at authoring time?
-2. If so, does the discriminator belong on the charge (a field), or does the
-   charge type split into two types?
-3. Or does Accounting govern **all** component tooling to a single destination,
-   making the label's "& dies" a description rather than a second authority?
+**Superseding the earlier framing of this section.** It offered a type split, a
+discriminator, and a single destination as three peer options. They are not
+peers, and presenting them that way invited a design decision where a factual
+question comes first. Evidence gathered 2026-08-29:
+
+- **`OTC - Dies` has no authoring surface, and never has.** BV-011 §1 records it
+  among seven destinations with none: *"Testing / Micros, **Dies**, Print
+  Plates, Samples / PPS, Processing Fee, Cartons, and Customs."*
+- **No separate Dies production input exists.** `VIRTUAL_LINES` defines six
+  production inputs; none is dies.
+- **Historical dies therefore necessarily entered through Tooling.** Live
+  counts: `tooling_total` 9 rows, `artwork_total` 8, `tooling_artwork_total`
+  (legacy combined) 14. Whatever dies the firm has bought are inside those
+  figures, already posting to `OTC - Tooling`.
+- **No latent distinction in free text.** All seven `tooling` /
+  `artwork_plate` / `tooling_artwork_legacy` charge instances carry
+  `label = NULL`. There is nothing to mine.
+- **The component label is accurate, not sloppy.** "Tooling & dies" describes
+  the commercial fact operators have always recorded as one.
+
+So **a single destination is the STATUS QUO, not a compromise between options**,
+and `OTC - Dies` is an aspirational destination in the map with no operational
+counterpart on either side of the system.
+
+### 5.1b The one governing question for Accounting
+
+> **Does Accounting require dies to be posted separately from tooling going
+> forward?**
+
+**If NO — govern V1:**
+
+- `tooling` ("Tooling & dies") → **`otc_tooling`**.
+- No new discriminator, no new charge type, no new input, no historical
+  migration.
+- `OTC - Dies` remains an **unused destination** unless and until the business
+  deliberately introduces separate die accounting.
+
+**If YES — stop. This is a new operational capability, not a mapping
+correction.** Return for design covering:
+
+1. how the operator identifies Tooling versus Dies;
+2. separate charge type versus a discriminator on the charge;
+3. storage;
+4. authoring;
+5. destination;
+6. treatment of historical amounts previously recorded as Tooling.
+
+**Do not infer or backfill the distinction from existing data.** No such data
+exists — an inference would be manufacturing a record of a decision nobody
+made, and it would be indistinguishable from a real one afterwards.
 
 ### 5.2 §5.6c remains open — do not route new charges to `otc_tooling`
 
@@ -196,8 +242,17 @@ introduce this; they made it visible. **Nothing enforces the declaration** —
 mismatch saves silently.
 
 **Component charges must not be routed to `otc_tooling` until this is
-resolved.** Doing so would consume an unsettled question and multiply the
-population affected by whichever answer lands.
+resolved — INCLUDING under a NO answer to §5.1b.** The two are independent: NO
+settles which destination the charge belongs to; §5.6c settles whether that
+destination's declared semantics or its mapped item is wrong. Approving the
+first does not release the second.
+
+Accounting must establish which authority is wrong, or whether BV-011's
+`itemType` field has a different intended meaning than a claim about the
+NetSuite record's type — the third possibility the UAT plan names.
+
+Routing before that resolves would consume an unsettled question and multiply
+the population affected by whichever answer lands.
 
 ---
 
