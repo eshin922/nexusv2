@@ -86,40 +86,95 @@ test("an operator action imported by the UI is actually invoked there", () => {
   );
 });
 
-test("the recovery-ask writer is reachable from the Costs surface", () => {
-  // The specific path the defect broke, asserted end to end rather than by the
-  // general rule alone — the general rule passes the moment someone deletes the
-  // unused import, which would "fix" the lint and leave operators with no way
-  // to price a charge.
+test("the cost writer is reachable from the Costs surface", () => {
+  // The specific path the original defect broke, asserted end to end rather
+  // than by the general rule alone — the general rule passes the moment someone
+  // deletes the unused import, which would "fix" the lint and leave operators
+  // with no way to enter a charge's economics at all.
+  //
+  // The SUBJECT changed with the charge-type pricing-authority disposition:
+  // "Costs owns governed cost; Pricing derives recovery from charge-type
+  // authority." There is one economics writer on this surface now, not two, so
+  // the guard follows the surviving one rather than being deleted with the
+  // other.
   const lib = read("src/lib/component-charges/update.ts");
-  assert.match(lib, /export async function updateComponentChargeAskAs\(/);
+  assert.match(lib, /export async function updateComponentChargeCostAs\(/);
 
   const action = read("src/app/actions/component-charges.ts");
-  assert.match(action, /export async function updateComponentChargeAsk\(/);
-  assert.match(action, /updateComponentChargeAskAs\(/);
+  assert.match(action, /export async function updateComponentChargeCost\(/);
+  assert.match(action, /updateComponentChargeCostAs\(/);
 
   const ui = read("src/components/costs/packaging-drilldown.tsx");
-  assert.match(ui, /updateComponentChargeAsk\(\{/, "Costs must CALL the ask action");
+  assert.match(ui, /updateComponentChargeCost\(\{/, "Costs must CALL the cost action");
   // Bound explicitly to the grain. Positional inference is the one mistake that
   // silently writes one charge's number onto its same-type sibling.
-  assert.match(ui, /field="ask"/);
+  assert.match(ui, /field="cost"/);
   assert.match(ui, /chargeInstanceId=\{charge\.chargeInstanceId\}/);
+});
+
+test("Costs offers no recovery input, and no door to one", () => {
+  // The inverse of the guard above, and the reason it is a test rather than a
+  // comment: a recovery field on Costs would take a number from the operator
+  // that the engine does not read, which reads as their decision and is not.
+  // That is worse than the original defect — the original was a capability the
+  // product claimed and could not perform; this would be one it performs
+  // visibly and ignores.
+  const action = read("src/app/actions/component-charges.ts");
+  assert.doesNotMatch(
+    action,
+    /export async function updateComponentChargeAsk\(/,
+    "the ask server action was removed by disposition",
+  );
+
+  const ui = read("src/components/costs/packaging-drilldown.tsx");
+  assert.doesNotMatch(ui, /updateComponentChargeAsk/, "Costs must not write a recovery ask");
+  assert.doesNotMatch(ui, /field="ask"/);
 });
 
 test("a gate script calling the library writer does not stand in for the UI", () => {
   // The bypass that hid this. Gate scripts SHOULD call the `*As` writers — they
   // have no session — but that must not be the only caller of a capability the
   // product claims to offer.
-  const gateUsers = walk("scripts")
-    .filter((f) => /updateComponentChargeAskAs/.test(read(f)));
-  const uiCallers = UI_FILES.filter((f) => /updateComponentChargeAsk\s*\(\{/.test(read(f)));
+  //
+  // WHAT THE PRODUCT CLAIMS is read from the action layer rather than listed
+  // here. A `*As` writer exercised only by scripts is a defect when a server
+  // action exposes it and no UI calls it; it is not a defect when no action
+  // exposes it, because then the product is not offering it at all.
+  //
+  // That distinction is now load-bearing. `updateComponentChargeAskAs` survives
+  // as a gate-fixture tool after the charge-type pricing-authority disposition
+  // deleted its action and its Costs field, and the OD-032 gate scripts that
+  // call it are certification evidence for closed phases — rewriting them to
+  // suit a later change would falsify the record. Deriving the rule keeps the
+  // guard honest without an exemption list that would go stale.
+  const actions = read("src/app/actions/component-charges.ts");
 
-  if (gateUsers.length > 0) {
-    assert.ok(
-      uiCallers.length > 0,
-      `${gateUsers.length} script(s) exercise updateComponentChargeAskAs while NO UI ` +
-        `calls updateComponentChargeAsk. The write is proven and unreachable — ` +
-        `which is the state that shipped: ${gateUsers.join(", ")}`,
+  for (const writer of ["updateComponentChargeCost", "updateComponentChargeAsk"]) {
+    const gateUsers = walk("scripts").filter((f) =>
+      new RegExp(`${writer}As`).test(read(f)),
     );
+    if (gateUsers.length === 0) continue;
+
+    const offered = new RegExp(`export async function ${writer}\\(`).test(actions);
+    const uiCallers = UI_FILES.filter((f) =>
+      new RegExp(`${writer}\\s*\\(\\{`).test(read(f)),
+    );
+
+    if (offered) {
+      assert.ok(
+        uiCallers.length > 0,
+        `${gateUsers.length} script(s) exercise ${writer}As and the product ` +
+          `exposes ${writer}, but NO UI calls it. The write is proven and ` +
+          `unreachable — which is the state that shipped: ${gateUsers.join(", ")}`,
+      );
+    } else {
+      // Not offered, so nothing may reach it. Catches the half-revival where a
+      // UI starts calling a writer whose door was deliberately removed.
+      assert.equal(
+        uiCallers.length,
+        0,
+        `${writer} has no server action, so no UI may call it: ${uiCallers.join(", ")}`,
+      );
+    }
   }
 });

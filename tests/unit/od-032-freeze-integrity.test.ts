@@ -41,7 +41,6 @@ function charge(over: Partial<ComponentChargeInput> = {}): ComponentChargeInput 
     chargeKey: "print_plates",
     ownerRef: LEAF_QL,
     cost: COST_A,
-    recoverableSell: COST_A,
     ...over,
   };
 }
@@ -117,8 +116,8 @@ const SETUP_INCLUDED: ChargeElection[] = [{ chargeKey: "project_setup", mode: "i
 test("two same-type charges on ONE component stay distinguishable after freeze", () => {
   const rows = freeze({
     componentCharges: [
-      charge({ chargeInstanceId: INST_A, cost: COST_A, recoverableSell: COST_A }),
-      charge({ chargeInstanceId: INST_B, cost: COST_B, recoverableSell: COST_B }),
+      charge({ chargeInstanceId: INST_A, cost: COST_A }),
+      charge({ chargeInstanceId: INST_B, cost: COST_B }),
     ],
     elections: INCLUDED,
   });

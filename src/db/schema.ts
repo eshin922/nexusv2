@@ -4290,6 +4290,12 @@ export const recoveryCharge = pgEnum("recovery_charge", [
   // renamed: it appears in frozen instructions, which are the record of what
   // Accounting was told.
   "print_plates",
+  // `samples_proofs` (below) split into `samples` by the charge-type pricing
+  // authority disposition -- one key cannot carry two markup authorities. It
+  // is retained because PostgreSQL cannot drop an enum label without a type
+  // rewrite; it is inert, carries zero rows, and no writer can emit it since
+  // `RecoveryChargeKey` dropped it. Migration 0115.
+  "samples",
   "samples_proofs",
 ]);
 

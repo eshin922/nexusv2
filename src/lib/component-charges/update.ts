@@ -254,6 +254,27 @@ export async function updateComponentChargeCostAs(
  * from a governed markup category the way every other charge's recovery is, is
  * a real question and a separate disposition. It is not decided by moving the
  * field to the surface that owns economics.
+ *
+ * ── THAT DISPOSITION HAPPENED. THIS IS NO LONGER AN OPERATOR PATH ───────
+ *
+ * Edward, 2026-08-29: "Costs owns governed cost; Pricing derives recovery from
+ * charge-type authority." The question above is answered — derived, from the
+ * charge TYPE's governed markup category, never typed.
+ *
+ * So `updateComponentChargeAsk` (the server action) is GONE and the Costs
+ * recovery field with it. What this writer still does is write a column the
+ * engine no longer reads: `componentChargeEconomics` derives recovery from
+ * cost and rate and never looks at `recovery_ask`.
+ *
+ * It survives for ONE reason: the OD-032 gate scripts
+ * (`od-032-costs-economics-proof`, `od-032-document-invariant`) call it, and
+ * they are certification evidence for phases already closed. Rewriting a
+ * passed gate to suit a later change would falsify the record it exists to
+ * keep. They are untouched; this writer is the fixture tool they use.
+ *
+ * DO NOT wire this to a surface. A value written here has no commercial effect
+ * and would read to an operator as though it did — which is the failure this
+ * disposition removed, not one to reintroduce behind a different door.
  */
 export async function updateComponentChargeAskAs(
   userId: string,

@@ -33,6 +33,7 @@ import type { HydrateSnapshot } from "../../src/lib/costing-store.ts";
 import type { ChargeElection } from "../../src/lib/commercial-recovery/resolve.ts";
 import {
   COMPONENT_CHARGE_KEYS,
+  componentChargeMarkupAuthority,
   isComponentChargeKey,
   labelRequiredFor,
 } from "../../src/lib/commercial-recovery/registry.ts";
@@ -46,8 +47,22 @@ const QTY_PER_PARENT = 3;
 const TIER_QTY = 1000;
 const UNIT_COST = 2;
 
-/** What the operator entered against the carton. Not derived from anything. */
+/** What the operator entered against the carton. COST ONLY; nothing derived. */
 const PLATES = 1450;
+
+/**
+ * `print_plates` prices through the `Tooling` category — charge type is the
+ * commercial markup authority, so the rate follows what the charge IS.
+ *
+ * Deliberately NOT zero. A zero rate would keep every expectation below at the
+ * bare cost and pass identically against an implementation that ignored the
+ * authority and echoed the cost back, which is exactly the regression this
+ * fixture now has to be able to see.
+ */
+const TOOLING_RATE = 0.2;
+
+/** What a cost RECOVERS. Derived, never typed. */
+const rec = (cost: number) => cost * (1 + TOOLING_RATE);
 
 function charge(over: Partial<ComponentChargeInput> = {}): ComponentChargeInput {
   return {
@@ -56,7 +71,6 @@ function charge(over: Partial<ComponentChargeInput> = {}): ComponentChargeInput 
     chargeKey: "print_plates",
     ownerRef: LEAF_QL,
     cost: PLATES,
-    recoverableSell: PLATES,
     ...over,
   };
 }
@@ -114,7 +128,7 @@ function input(args: {
   return {
     quote: { id: "quote", globalPriceAdjPct: gpa, targetMarginPct: null },
     firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-    markupDefaults: { Production: 0.4 },
+    markupDefaults: { Production: 0.4, Tooling: TOOLING_RATE },
     chargeElections: elections,
     componentCharges,
     skus: [
@@ -265,8 +279,9 @@ test("F7 · a component charge contributes EXACTLY its stated amount, once", () 
 
   sameMoney(
     withCharge - without,
-    PLATES,
-    `contributed ${cents(withCharge - without)} where the operator entered ${PLATES}`,
+    rec(PLATES),
+    `contributed ${cents(withCharge - without)} where ${PLATES} at the governed ` +
+      `Tooling rate recovers ${cents(rec(PLATES))}`,
   );
 
   // NON-VACUOUS, twice over. A filter that never matches would make the
@@ -278,8 +293,8 @@ test("F7 · a component charge contributes EXACTLY its stated amount, once", () 
       "would contribute nothing while every surface reported it as elected",
   );
   assert.notEqual(
-    cents(PLATES),
-    cents(PLATES * QTY_PER_PARENT),
+    cents(rec(PLATES)),
+    cents(rec(PLATES) * QTY_PER_PARENT),
     "the fixture cannot express the failure — is qtyPerParent 1?",
   );
 });
@@ -290,12 +305,12 @@ test("F7 · not multiplied by qtyPerParent — stated directly", () => {
     turnkey({ componentCharges: [], elections: INCLUDED });
 
   assert.ok(
-    Math.abs(contributed - PLATES * QTY_PER_PARENT) > 1,
-    `scaled by qtyPerParent: ${cents(contributed)} = ${PLATES} x ${QTY_PER_PARENT}`,
+    Math.abs(contributed - rec(PLATES) * QTY_PER_PARENT) > 1,
+    `scaled by qtyPerParent: ${cents(contributed)} = ${cents(rec(PLATES))} x ${QTY_PER_PARENT}`,
   );
   assert.ok(
-    Math.abs(contributed - PLATES * TIER_QTY) > 1,
-    `scaled by tier quantity: ${cents(contributed)} = ${PLATES} x ${TIER_QTY}`,
+    Math.abs(contributed - rec(PLATES) * TIER_QTY) > 1,
+    `scaled by tier quantity: ${cents(contributed)} = ${cents(rec(PLATES))} x ${TIER_QTY}`,
   );
 });
 
@@ -318,16 +333,12 @@ test("F7 · per-tier economics are independent, not shared", () => {
     { id: TIER, qty: TIER_QTY },
     { id: TIER_B, qty: TIER_QTY * 5 },
   ];
-  // The operator entered a DIFFERENT amount for tier 2. Nothing derives one
-  // from the other: division is the operator's statement, not a calculation.
+  // The operator entered a DIFFERENT COST for tier 2. Nothing derives one from
+  // the other: the per-tier cost is the operator's statement, and each tier's
+  // recovery derives from its own cost at the same governed rate.
   const charges = [
     charge({ chargeInstanceId: "ci", tierId: TIER }),
-    charge({
-      chargeInstanceId: "ci",
-      tierId: TIER_B,
-      cost: 900,
-      recoverableSell: 900,
-    }),
+    charge({ chargeInstanceId: "ci", tierId: TIER_B, cost: 900 }),
   ];
 
   // This charge's instance is "ci", not the default — so it needs its own
@@ -340,8 +351,8 @@ test("F7 · per-tier economics are independent, not shared", () => {
     turnkey({ componentCharges: charges, elections, tiers }, TIER_B) -
     turnkey({ componentCharges: [], elections, tiers }, TIER_B);
 
-  sameMoney(t1, PLATES, "tier 1 did not receive its own entered amount");
-  sameMoney(t2, 900, "tier 2 did not receive its own entered amount");
+  sameMoney(t1, rec(PLATES), "tier 1 did not receive its own entered amount");
+  sameMoney(t2, rec(900), "tier 2 did not receive its own entered amount");
   assert.notEqual(cents(t1), cents(t2), "the two tiers cannot be distinguished");
 });
 
@@ -371,8 +382,8 @@ for (const [name, lever] of LEVERS) {
     );
     sameMoney(
       plain,
-      PLATES,
-      "the baseline contribution is not the stated amount",
+      rec(PLATES),
+      "the baseline contribution is not the governed recovery",
     );
   });
 
@@ -448,7 +459,7 @@ test("BOUNDARY · a separately-placed component charge has no document line yet"
 
   sameMoney(
     included - separate,
-    PLATES,
+    rec(PLATES),
     "the document boundary moved — if the projection now renders component " +
       "OTC lines, this test has done its job and should become the " +
       "placement-invariance assertion described above",
@@ -496,12 +507,7 @@ test("BOUNDARY CONTROL · a LEGACY charge is placement-invariant today", () => {
 test("F1 · two components on one quote each own the same charge type", () => {
   const both = [
     charge({ chargeInstanceId: "ci-a", ownerRef: LEAF_QL }),
-    charge({
-      chargeInstanceId: "ci-b",
-      ownerRef: LEAF_QL_2,
-      cost: 600,
-      recoverableSell: 600,
-    }),
+    charge({ chargeInstanceId: "ci-b", ownerRef: LEAF_QL_2, cost: 600 }),
   ];
   const elections = electing("included", "ci-a", "ci-b");
   const contributed =
@@ -513,7 +519,7 @@ test("F1 · two components on one quote each own the same charge type", () => {
   // two amounts differ so it cannot pass by picking either.
   sameMoney(
     contributed,
-    PLATES + 600,
+    rec(PLATES) + rec(600),
     "only one of two same-type component charges reached the engine",
   );
   assert.notEqual(
@@ -527,12 +533,7 @@ test("F1 · each contribution lands on the component that caused it", () => {
   const rows = componentEconomics({
     componentCharges: [
       charge({ chargeInstanceId: "ci-a", ownerRef: LEAF_QL }),
-      charge({
-        chargeInstanceId: "ci-b",
-        ownerRef: LEAF_QL_2,
-        cost: 600,
-        recoverableSell: 600,
-      }),
+      charge({ chargeInstanceId: "ci-b", ownerRef: LEAF_QL_2, cost: 600 }),
     ],
     elections: INCLUDED,
     secondLeaf: true,
@@ -553,7 +554,7 @@ test("F1 · each contribution lands on the component that caused it", () => {
 test("F2 · one component owns two instances of the same type", () => {
   const two = [
     charge({ chargeInstanceId: "ci-a" }),
-    charge({ chargeInstanceId: "ci-b", cost: 325, recoverableSell: 325 }),
+    charge({ chargeInstanceId: "ci-b", cost: 325 }),
   ];
   const elections = electing("included", "ci-a", "ci-b");
   const contributed =
@@ -562,7 +563,7 @@ test("F2 · one component owns two instances of the same type", () => {
 
   sameMoney(
     contributed,
-    PLATES + 325,
+    rec(PLATES) + rec(325),
     "two instances of one type on one component did not both contribute",
   );
 });
@@ -573,7 +574,7 @@ test("F2 · the two instances stay separately identified", () => {
   const rows = componentEconomics({
     componentCharges: [
       charge({ chargeInstanceId: "ci-a" }),
-      charge({ chargeInstanceId: "ci-b", cost: 325, recoverableSell: 325 }),
+      charge({ chargeInstanceId: "ci-b", cost: 325 }),
     ],
     elections: INCLUDED,
   });
@@ -670,30 +671,76 @@ test("F6 · a legacy production charge still resolves through its own path", () 
   assert.equal(legacy[0]!.rateCategory, "Production");
 });
 
-test("F6 · a component charge asserts no governed rate", () => {
+test("F6 · a component charge records the governed rate that priced it", () => {
+  // SUBJECT INVERTED by the charge-type pricing-authority disposition. This
+  // asserted that a component charge names NO category, which was true while
+  // the amount was an operator's ask: naming one would have claimed a
+  // governed rate resolved it, and none had.
+  //
+  // One now does. The category is recorded BECAUSE it resolved — the same rule
+  // the production columns follow, and the reason the record is auditable
+  // rather than a bare number.
   const rows = componentEconomics({
     componentCharges: [charge()],
     elections: INCLUDED,
   });
 
   assert.equal(rows.length, 1);
-  // Recording a category here would claim a governed rate resolved it, and
-  // none did — the amount is the operator's, entered directly.
+  assert.equal(rows[0]!.rateCategory, "Tooling", "charge type is the authority");
+  assert.equal(rows[0]!.ratePct, TOOLING_RATE);
+  assert.equal(rows[0]!.cost, PLATES, "cost truth is the operator's figure");
+  sameMoney(rows[0]!.recoverableSell ?? NaN, rec(PLATES), "cost was not priced at the governed rate");
+});
+
+test("F6 · an UNCLASSIFIED charge type recovers nothing, and says so", () => {
+  // `other_service` is deliberately unmapped: an operator-labelled catch-all
+  // has no charge type to govern its rate. It must reach BV-013's unpriced
+  // state rather than acquire 0.30 because a category named `Other` exists.
+  const rows = componentEconomics({
+    componentCharges: [charge({ chargeKey: "other_service" })],
+    elections: INCLUDED,
+  });
+
+  assert.equal(rows.length, 1, "an unpriced charge is still a cost fact");
+  assert.equal(rows[0]!.cost, PLATES, "cost survives the missing authority");
+  assert.equal(
+    rows[0]!.recoverableSell,
+    null,
+    "an unclassified charge acquired a rate",
+  );
+  // No category is named, because none answered. Naming one beside a null rate
+  // would claim an authority that refused.
   assert.equal(rows[0]!.rateCategory, null);
   assert.equal(rows[0]!.ratePct, null);
-  assert.equal(rows[0]!.cost, PLATES, "cost truth is not the operator's figure");
+});
+
+test("F6 · CONTROL · the unclassified state is not how every charge behaves", () => {
+  // Without this, the test above passes against an implementation that prices
+  // NOTHING — the failure it is meant to exclude.
+  const priced = componentEconomics({
+    componentCharges: [charge()],
+    elections: INCLUDED,
+  });
+  assert.notEqual(priced[0]!.recoverableSell, null);
 });
 
 // ══════════════════════════════════════════════════════════════════════
 // FALSIFICATION 4 · an unelected charge is still a valid charge
 // ══════════════════════════════════════════════════════════════════════
 
-test("F4 · a charge with no election is a cost fact and not a recovery", () => {
+test("F4 · a charge with no election is still a cost fact", () => {
   // Deleting an election must leave the instance valid and simply unplaced:
   // DPS still paid for the plates, and the customer is not being asked for
-  // them. Cost is unchanged; there is no governed recovery.
+  // them.
+  //
+  // The old form also asserted a NULL recovery here, which held only because
+  // the fixture set the ask to null. Election and pricing are different
+  // questions — what a charge RECOVERS is a property of its type, and it does
+  // not become unknown because nobody has decided where to put it. The null
+  // case moved to `other_service`, where it is reached by policy rather than
+  // by an absent input.
   const rows = componentEconomics({
-    componentCharges: [charge({ recoverableSell: null })],
+    componentCharges: [charge()],
     elections: [],
   });
 
@@ -703,18 +750,16 @@ test("F4 · a charge with no election is a cost fact and not a recovery", () => 
     "the charge vanished when its election was removed",
   );
   assert.equal(rows[0]!.cost, PLATES, "cost truth moved with the election");
-  // NULL survives as NULL. Coercing it to 0 would convert "nothing governs
-  // what this recovers" into "this recovers nothing" — a different claim.
-  assert.equal(
-    rows[0]!.recoverableSell,
-    null,
-    "an ungoverned recovery was coerced to zero",
+  sameMoney(
+    rows[0]!.recoverableSell ?? NaN,
+    rec(PLATES),
+    "the governed recovery moved with the election",
   );
 });
 
 test("F4 · an instance with no economics entered yet is not a cost fact", () => {
   const rows = componentEconomics({
-    componentCharges: [charge({ cost: 0, recoverableSell: null })],
+    componentCharges: [charge({ cost: 0 })],
     elections: INCLUDED,
   });
   assert.equal(rows.length, 0, "a zero-cost charge was emitted as a cost fact");
@@ -753,9 +798,59 @@ test("the component vocabulary is exactly the dispositioned five", () => {
       "artwork_plate",
       "other_service",
       "print_plates",
-      "samples_proofs",
+      // `samples_proofs` split: one key cannot carry two markup authorities.
+      // Samples are physical pre-production goods (Manufacturing); proofs are
+      // prepress labour and fold into `artwork_plate`, which already prices at
+      // the same authority and posts to the same BV-011 destination.
+      "samples",
       "tooling",
     ],
+  );
+});
+
+test("every component charge type has an explicit pricing authority", () => {
+  // Totality is enforced by `satisfies Record<ComponentChargeKey, ...>`, so a
+  // new key cannot be added without answering this. Asserted anyway because
+  // the ANSWERS are business dispositions, not implementation detail, and a
+  // silent edit to one is a repricing.
+  assert.deepEqual(
+    Object.fromEntries(
+      [...COMPONENT_CHARGE_KEYS].sort().map((k) => {
+        const a = componentChargeMarkupAuthority(k);
+        return [k, a.kind === "governed" ? a.category : "UNCLASSIFIED"];
+      }),
+    ),
+    {
+      artwork_plate: "Manufacturing",
+      other_service: "UNCLASSIFIED",
+      print_plates: "Tooling",
+      samples: "Manufacturing",
+      tooling: "Tooling",
+    },
+  );
+});
+
+test("no component charge inherits its rate from an owner", () => {
+  // The rejected alternative, asserted so it cannot return quietly. Two
+  // identical charges on DIFFERENT components must price identically; an
+  // owner-inherited rate is precisely what would make them diverge.
+  const a = componentEconomics({
+    componentCharges: [charge({ chargeInstanceId: "ci-a", ownerRef: LEAF_QL })],
+    elections: electing("included", "ci-a"),
+  });
+  const b = componentEconomics({
+    componentCharges: [
+      charge({ chargeInstanceId: "ci-a", ownerRef: LEAF_QL_2 }),
+    ],
+    elections: electing("included", "ci-a"),
+    secondLeaf: true,
+  });
+  assert.equal(a[0]!.rateCategory, b[0]!.rateCategory);
+  assert.equal(a[0]!.ratePct, b[0]!.ratePct);
+  sameMoney(
+    a[0]!.recoverableSell ?? NaN,
+    b[0]!.recoverableSell ?? NaN,
+    "the owner moved the recovery",
   );
 });
 

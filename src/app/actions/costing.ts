@@ -47,6 +47,7 @@ import {
   quoteChargeRecovery,
 } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
+import { isRecoveryChargeKey } from "@/lib/commercial-recovery/registry";
 import type {
   RecoveryChargeKey,
   RecoveryMode,
@@ -797,7 +798,23 @@ async function loadChargeElections(quoteId: string): Promise<
     )
     .where(eq(quoteChargeRecovery.quoteId, quoteId));
 
-  return rows.map((r) => ({
+  return rows.flatMap((r) => {
+    // The DB enum is wider than the union by one dead label (see
+    // `isRecoveryChargeKey`). Narrowing here rather than casting keeps that a
+    // checked fact; the label carries zero rows and no writer can emit it.
+    if (!isRecoveryChargeKey(r.chargeKey)) return [];
+    // Spreading re-widens the property, so the narrowed key is restated.
+    return [buildElection({ ...r, chargeKey: r.chargeKey })];
+  });
+}
+
+function buildElection(r: {
+  chargeKey: RecoveryChargeKey;
+  chargeInstanceId: string | null;
+  mode: RecoveryMode;
+  ownerQuoteLeafId: string | null;
+}): { chargeKey: RecoveryChargeKey; chargeInstanceId?: string; mode: RecoveryMode } {
+  return ({
     chargeKey: r.chargeKey,
     // ── THE INSTANCE ID IS SUPPLIED ONLY WHERE IT IS CAUSAL ───────────────
     //
@@ -822,7 +839,7 @@ async function loadChargeElections(quoteId: string): Promise<
       ? { chargeInstanceId: r.chargeInstanceId }
       : {}),
     mode: r.mode,
-  }));
+  });
 }
 
 /**
@@ -853,7 +870,6 @@ async function loadComponentCharges(
       chargeKey: quoteChargeInstances.chargeKey,
       ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       costAmount: quoteChargeInstanceTiers.costAmount,
-      recoveryAsk: quoteChargeInstanceTiers.recoveryAsk,
     })
     .from(quoteChargeInstanceTiers)
     .innerJoin(
@@ -867,19 +883,21 @@ async function loadComponentCharges(
       ),
     );
 
-  return rows.map((r) => ({
-    chargeInstanceId: r.chargeInstanceId,
-    tierId: r.tierId,
-    chargeKey: r.chargeKey,
-    // Non-null by the WHERE above; the narrowing is for the compiler, which
-    // cannot see a predicate expressed in SQL.
-    ownerRef: r.ownerQuoteLeafId as string,
-    cost: num(r.costAmount),
-    // NULL survives as NULL. Coercing it to 0 here would convert "nothing
-    // governs what this recovers" into "this recovers nothing", which is a
-    // different commercial claim (BV-013).
-    recoverableSell: numOrNull(r.recoveryAsk),
-  }));
+  return rows.flatMap((r) => {
+    // Same narrowing as the elections loader; see `isRecoveryChargeKey`.
+    if (!isRecoveryChargeKey(r.chargeKey)) return [];
+    return [
+      {
+        chargeInstanceId: r.chargeInstanceId,
+        tierId: r.tierId,
+        chargeKey: r.chargeKey,
+        // Non-null by the WHERE above; the narrowing is for the compiler,
+        // which cannot see a predicate expressed in SQL.
+        ownerRef: r.ownerQuoteLeafId as string,
+        cost: num(r.costAmount),
+      },
+    ];
+  });
 }
 
 /**

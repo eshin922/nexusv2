@@ -12,6 +12,8 @@ import {
 import {
   OTC_COLUMN_TO_CHARGE,
   chargePolicy,
+  componentChargeMarkupAuthority,
+  isComponentChargeKey,
   type RecoveryChargeKey,
 } from "./commercial-recovery/registry";
 import {
@@ -1368,13 +1370,18 @@ export type ComponentChargeInput = {
   ownerRef: string;
   /** What DPS pays, for THIS tier. Operator-entered; nothing is derived. */
   cost: number;
-  /**
-   * What DPS intends to recover, for this tier. NULL is not zero — zero says
-   * the charge recovers nothing; NULL says nothing governs what it recovers
-   * (BV-013), and the constructor already treats an unknown total as unknown.
-   */
-  recoverableSell: number | null;
 };
+
+/*
+ * `recoverableSell` USED TO LIVE HERE, carrying `quote_charge_instance_tiers.
+ * recovery_ask` -- a number the operator typed on Costs.
+ *
+ * Removed by the charge-type pricing-authority disposition (Edward,
+ * 2026-08-29): "Costs owns governed cost; Pricing derives recovery from
+ * charge-type authority." The field is gone rather than defaulted, so a caller
+ * that still supplies a manual recovery fails to compile instead of quietly
+ * having it ignored.
+ */
 
 /**
  * Component-owned charges, as `ChargeEconomics`.
@@ -1393,22 +1400,58 @@ export type ComponentChargeInput = {
  * OD-025 shape, avoided by construction rather than by arithmetic that happens
  * to cancel.
  *
+ * ── THE RATE COMES FROM THE CHARGE TYPE ─────────────────────────────────
+ *
+ * Recovery is DERIVED here from the charge type's governed markup category,
+ * not read from an operator's ask. Charge type is the authority: the rate
+ * follows what the charge IS, never who caused it, so two identical plates on
+ * different components price identically.
+ *
+ * `resolveMarkupStrict` is the same resolver the production columns use, and
+ * it is strict on purpose — a category absent from `markup_defaults` yields
+ * NULL, never a fallback rate. Combined with the registry's `unclassified`
+ * arm, there are exactly two ways to reach an unpriced charge, both
+ * deliberate: no category is mapped to the type, or the mapped category has
+ * no governed default. Neither invents a number (BV-013).
+ *
  * ── NO LEVER REACHES IT ─────────────────────────────────────────────────
  *
- * `recoverableSell` is the governed recovery the operator asked for. It is
- * consumed verbatim by the constructor, which imports no markup and contains
- * no `1 + rate` — and the SKU lift / GPA / tier levers act on the priceable
- * sell base, which excludes elected recovery. A charge recovers what it was
- * priced at, wherever it is placed.
+ * The derived figure is consumed verbatim by the constructor, which imports
+ * no markup and contains no second `1 + rate` — and the SKU lift / GPA / tier
+ * levers act on the priceable sell base, which excludes elected recovery. A
+ * charge recovers what its type prices it at, wherever it is placed.
  */
 export function componentChargeEconomics(
   charges: readonly ComponentChargeInput[],
+  markupDefaults: Record<string, number>,
 ): ChargeEconomics[] {
   const out: ChargeEconomics[] = [];
   for (const c of charges) {
     // A zero-cost charge is not a charge, the same rule the production columns
     // use. An instance with no economics entered yet is not yet a cost fact.
-    if (c.cost === 0 && (c.recoverableSell ?? 0) === 0) continue;
+    //
+    // The old test also asked whether a recovery had been entered. With the
+    // recovery derived from cost that question no longer adds anything: a
+    // zero cost recovers zero at every rate.
+    if (c.cost === 0) continue;
+
+    // Total over `ComponentChargeKey`, so `unclassified` is the only way to
+    // miss -- and it is a decision, not an absent row.
+    const authority = isComponentChargeKey(c.chargeKey)
+      ? componentChargeMarkupAuthority(c.chargeKey)
+      : ({
+          kind: "unclassified",
+          reason: `${c.chargeKey} is not a component charge type.`,
+        } as const);
+
+    const ratePct =
+      authority.kind === "governed"
+        ? resolveMarkupStrict({
+            defaults: markupDefaults,
+            category: authority.category,
+          }).value
+        : null;
+
     out.push({
       chargeKey: c.chargeKey,
       // Traceable to a row rather than a column, which is the whole point of
@@ -1421,11 +1464,15 @@ export function componentChargeEconomics(
       ownerKind: "component",
       ownerRef: c.ownerRef,
       cost: c.cost,
-      recoverableSell: c.recoverableSell,
-      // The rate is the operator's ask, not a category default. Recording a
-      // category here would claim a governed rate resolved it, and none did.
-      rateCategory: null,
-      ratePct: null,
+      // NULL survives as NULL. Coercing to 0 would turn "nothing governs what
+      // this recovers" into "this recovers nothing" -- a different commercial
+      // claim, and the one BV-013 exists to keep apart.
+      recoverableSell: ratePct === null ? null : c.cost * (1 + ratePct),
+      // Recorded only when a rate actually resolved, matching
+      // `chargeEconomicsFor`. Naming a category beside a null rate would
+      // claim an authority that did not answer.
+      rateCategory: ratePct === null ? null : (authority as { category?: string }).category ?? null,
+      ratePct,
     });
   }
   return out;
@@ -2370,7 +2417,7 @@ function computeLeafPerTier(args: {
   // tooling AND a plate set its own carton caused.
   const chargeEconomics = [
     ...chargeEconomicsFor(production, productionMarkupResolution.value),
-    ...componentChargeEconomics(args.componentCharges),
+    ...componentChargeEconomics(args.componentCharges, markupDefaults),
   ];
 
   // ── THE CONSTRUCTION, AT THE ONLY PLACE THAT CAN DO IT ─────────────────

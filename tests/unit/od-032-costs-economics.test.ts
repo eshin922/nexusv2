@@ -191,7 +191,10 @@ test("every Costs door resolves the operator", () => {
   const guarded = (door.match(/await ensureUser\(\)/g) ?? []).length;
   assert.equal(guarded, exported, "a door without a guard is not a door");
   assert.match(door, /updateComponentChargeCostAs\(user\.id, input\)/);
-  assert.match(door, /updateComponentChargeAskAs\(user\.id, input\)/);
+  // The ask door was REMOVED, not left unguarded: Costs owns governed cost and
+  // Pricing derives recovery from charge-type authority. Asserted as absence so
+  // re-adding it has to argue with this line.
+  assert.doesNotMatch(door, /updateComponentChargeAskAs/);
 });
 
 // ══════════════════════════════════════════════════════════════════════

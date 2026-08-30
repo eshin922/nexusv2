@@ -1,0 +1,41 @@
+-- Charge-type pricing authority · `samples_proofs` becomes `samples`.
+--
+-- ── WHY THE KEY IS SPLIT AT ALL ─────────────────────────────────────────
+--
+-- `samples_proofs` carried two commercial authorities under one key. A sample
+-- is physical pre-production goods produced on a manufacturing run; a proof is
+-- prepress labour. Assigning one markup category to the pair would have
+-- misattributed whichever half lost, and reconciled perfectly either way --
+-- which is exactly the failure mode that is invisible after the fact.
+--
+-- Disposition (Edward, 2026-08-29): keep `samples` as its own type, and fold
+-- proofs into the existing `artwork_plate`, whose approved authority is
+-- Manufacturing 0.30 -- the same authority proofs would have taken. A separate
+-- `proofs` key would have carried an identical markup category AND an
+-- identical BV-011 destination to `artwork_plate`: a distinction with no
+-- consequence on either axis, and it would have needed a BV-011 amendment for
+-- a destination that does not exist.
+--
+-- ── WHY THIS IS SAFE AHEAD OF CODE ──────────────────────────────────────
+--
+-- ADDITIVE, in the safest direction: a new enum LABEL. No existing row's value
+-- changes, nothing is tightened, nothing is dropped. Every deployed reader
+-- handles the existing labels exactly as before, and no writer emits the new
+-- one until the code that knows about it ships.
+--
+-- Verified against the live database 2026-08-29: `samples_proofs` has ZERO
+-- rows in `quote_charge_instances`, so no migration or backfill of data is
+-- required and no historical row moves.
+--
+-- ── WHY `samples_proofs` IS NOT REMOVED ─────────────────────────────────
+--
+-- PostgreSQL cannot drop an enum label without rewriting the type and every
+-- column that uses it. It is left in place deliberately, and it is inert: the
+-- TypeScript `RecoveryChargeKey` union no longer contains it, so no writer in
+-- the application can emit it, and no row carries it. A future type rewrite
+-- may remove it; nothing depends on that happening.
+--
+-- ADD VALUE IF NOT EXISTS is used so re-running is harmless. It cannot run
+-- inside a transaction block on older PostgreSQL; it is issued on its own here.
+
+ALTER TYPE "recovery_charge" ADD VALUE IF NOT EXISTS 'samples';
