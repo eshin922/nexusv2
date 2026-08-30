@@ -2,7 +2,8 @@
 
 ## Status
 
-**Partial disposition. Recorded 2026-08-29 (Edward).**
+**Partial disposition. Recorded 2026-08-29 (Edward). Amended same day —
+see §4.**
 
 This document **authorizes no implementation.** It records which
 component-owned charge types have a governed BV-011 accounting destination,
@@ -41,8 +42,8 @@ the wrong account. Correct totals are not evidence of correct attribution.
 | Charge type | Markup authority | BV-011 destination | Status |
 |---|---|---|---|
 | `artwork_plate` | Manufacturing 0.30 | **`OTC - Artwork`** (`otc_artwork`, Non-inv) | **Code-ready.** Item `OTC-0001` / `11012` mapped 2026-08-19. |
-| `print_plates` | Tooling 0.20 | **`OTC - Print Plates`** (`otc_print_plates`, Non-inv) | **Governed; Accounting configuration missing.** No mapped item. |
-| `samples` | Manufacturing 0.30 | **`OTC - Samples`** (`otc_samples`, Non-inv) | **Governed; Accounting configuration missing.** No mapped item. |
+| `print_plates` | Tooling 0.20 | **`OTC - Print Plates`** (`otc_print_plates`, Non-inv) | **Accounting execution task** — create and map the item. §4. |
+| `samples` | Manufacturing 0.30 | **`OTC - Samples`** (`otc_samples`, Non-inv) | **Accounting execution task** — create and map the item. §4. |
 | `tooling` | Tooling 0.20 | **UNDECIDED** | **Accounting/business authority unresolved.** Two questions, §5. |
 | `other_service` | **UNCLASSIFIED** | **UNGOVERNED** | **Deliberately unsupported in V1**, both axes. §6. |
 
@@ -68,19 +69,69 @@ correct outcome, not a partial success to be reported as progress.
 
 ---
 
-## 4. Missing Accounting configuration
+## 4. Accounting configuration — create the missing items
 
-**`print_plates` → `otc_print_plates`** and **`samples` → `otc_samples`.**
+**AMENDED 2026-08-29 (Edward). These are no longer open Accounting decisions.
+They are configuration / execution tasks.**
 
-The semantic authority exists in BV-011 §1.b for both; the enum values exist in
-the destination catalogue. What is missing is the NetSuite record. Verified
+**`print_plates` → `otc_print_plates`** and **`samples` → `otc_samples`.** The
+semantic authority exists in BV-011 §1.b for both and the enum values exist in
+the destination catalogue; what is missing is the NetSuite record. Verified
 against `netsuite_destination_item_map` on 2026-08-29: **neither destination has
 a row.**
 
-**This is an Accounting configuration dependency, not a code inference.**
-Accounting supplies and approves the item. Nothing in the codebase may choose
-one, and no fallback may stand in for one — an unmapped destination must
-continue to block the send.
+**The disposition is to CREATE the required NetSuite items.**
+
+### 4.1 Do not substitute an existing item to avoid creating one
+
+The governed destination semantics recorded in §2 and §3 stand. Mapping either
+destination to some already-existing item because one is to hand would put the
+charge in an account that does not mean what the charge means — and it would
+reconcile perfectly, which is why it would not be noticed. A near-enough item is
+not a shortcut to the same outcome; it is a different outcome that looks
+identical on the total.
+
+### 4.2 Capture, per new item, before implementation or certification
+
+| Field | Source |
+|---|---|
+| NetSuite internal ID | resolved by the mapping surface, not typed |
+| Item / SKU name (`itemid`) | as created in NetSuite |
+| Item type | returned by the resolver; see §4.4 |
+| Destination mapping | `otc_print_plates` / `otc_samples` |
+| Accounting approval / evidence | who approved, when, against what |
+
+### 4.3 Map through the governed surface, never in code
+
+Use **`/admin/netsuite`** → `saveDestinationMapping`. The admin enters the
+**item code**; the action calls `netsuite.resolveItem` and writes the
+authoritative internal id itself, refusing `not_found` and refusing `ambiguous`
+rather than taking a first match. It writes a `destination_item_mapping_set`
+audit row carrying the destination, its governed item type, and the before /
+after mapping.
+
+**No ad-hoc code mapping to an item ID.** An internal id pasted into a source
+file is a second copy of a mapping the admin table already owns, free to drift,
+and it skips both the resolution and the audit row that make the mapping
+evidence rather than an assertion.
+
+### 4.4 Item type — get it right at creation
+
+BV-011 governs **both** destinations as **Non-inventory**, and `resolveItem`
+already returns the real `itemtype`, so the value is available at mapping time.
+
+**Nothing compares it to the governed expectation** — that is the §5.6c gap in
+§5.2, where `governed_item_type` is written to an audit `diff_json` and never
+checked. Both existing mismatches (`otc_tooling`, `otc_filling`) arose from
+mapping **pre-existing** items whose type nobody chose. These two items do not
+exist yet, so their type can be correct by construction rather than reconciled
+afterwards. Create them as Non-inventory and record the resolved `itemtype` as
+evidence that they are.
+
+### 4.5 Until then
+
+An unmapped destination must continue to block the send. Nothing in the codebase
+may choose an item, and no fallback may stand in for one.
 
 For reference, the destinations that ARE mapped: `otc_filling`, `otc_packout`,
 `otc_setup`, `otc_artwork`, `otc_tooling`, `otc_formulation`. `otc_testing` and
@@ -92,6 +143,12 @@ eight, including print plates and samples, have none.
 ## 5. Unresolved Accounting / business authority — `tooling`
 
 **No destination disposition. Two independent questions, both open.**
+
+**The §4 amendment does not reach `tooling`.** That disposition creates missing
+ITEMS; the tooling question is which DESTINATION the charge belongs to, and it
+stays open whether or not any item exists. Creating an item cannot answer it —
+there are already two destinations, both real, and nothing on the charge says
+which one an amount is.
 
 ### 5.1 The charge type spans two BV-011 authorities
 
@@ -188,6 +245,11 @@ reason.
 **One of five types being configured is not a destination axis.** Any status
 report on this work states the four unfinished categories explicitly rather than
 leading with `artwork_plate`.
+
+Under the §4 amendment the count becomes **one configured, two in execution, one
+undecided, one deliberately unsupported** — which is progress on the axis and
+still not a complete axis. The two items do not exist until they exist; a
+disposition to create them is not a mapping.
 
 ---
 
