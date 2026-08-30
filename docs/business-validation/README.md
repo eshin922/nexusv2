@@ -36,6 +36,7 @@ the business contract.
 - [BV-011 — Production / OTC Accounting Map](BV-011-production-otc-accounting-map.md) — classification only; authorizes no implementation
 - [BV-012 — Production Cost Ownership](BV-012-production-cost-ownership.md) — where Production economics belong; distinct from BV-011's destinations
 - [BV-013 — Production Markup Authority](BV-013-production-markup-authority.md) — one shared `Production` rate; pricing policy, not accounting destination
+- [BV-014 - Component-Charge Accounting Destination](BV-014-component-charge-accounting-destination.md) - partial disposition; 1 of 5 component charge types configured, destination axis NOT complete
 - [Production Readiness Register](PRODUCTION_READINESS_REGISTER.md)
 
 BV-006 is the [Product Structure Contract](BV-006-product-structure-contract.md).
