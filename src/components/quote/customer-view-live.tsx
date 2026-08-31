@@ -314,6 +314,15 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                             <span className="code">{s.label}</span>
                             {/* Suppressed entirely when null — never a placeholder. */}
                             {s.pack ? ` · ${s.pack}` : ""}
+                            {/* Why this line's quantity exceeds the finished-good
+                                quantity. The PDF table renders the same qualifier
+                                from the same field; both are customer-facing views
+                                of one document and must not disagree. Above 1 only
+                                — "×1 per unit" is noise on every ordinary line. */}
+                            {typeof s.multiplicityPerUnit === "number" &&
+                            s.multiplicityPerUnit > 1
+                              ? ` · ×${s.multiplicityPerUnit} per unit`
+                              : ""}
                           </div>
                         </div>
                         {cols.map(({ ti, tier, rec }) => {
