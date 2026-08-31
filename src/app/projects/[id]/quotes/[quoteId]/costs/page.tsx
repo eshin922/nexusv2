@@ -35,6 +35,7 @@ import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { CostStackHeader } from "@/components/costs/cost-stack-header";
 import { CostBuildAccordion } from "@/components/costs/costs-accordion";
+import { DIRECT_PRODUCT_CARD_ID, freightSelectableComponents } from "@/lib/freight-selectable-components";
 import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
 import { ClientTargetContext } from "@/components/costs/client-target-context";
 import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown";
@@ -839,13 +840,35 @@ export default async function CostBuildPage({
               tiers={tiers}
               editable={editable}
               workbook={freightWorkbook}
-              products={newAssemblyRows.map((row) => ({ id: row.id, label: row.name || row.sku }))}
-              components={newAssemblyLeafJoinRows.map((row) => ({
-                id: row.assembly_leaves.id,
-                assemblyId: row.assembly_leaves.assemblyId,
-                label: row.leaves.name,
-                sku: row.leaves.sku,
-              }))}
+              // A card per Finished Product, plus ONE card for Direct
+              // Products when the quote has any. Their shipments are keyed
+              // `assemblyId = null` — a quote-level fact, not a per-product
+              // one — so they share a card rather than each showing the same
+              // shipments back. `assemblyId` is what the surface groups BY;
+              // `id` is only the React key and open-modal token.
+              products={[
+                ...newAssemblyRows.map((row) => ({
+                  id: row.id,
+                  label: row.name || row.sku,
+                  assemblyId: row.id,
+                })),
+                ...(newDirectProductRows.length
+                  ? [{
+                      id: DIRECT_PRODUCT_CARD_ID,
+                      label: "Direct Products",
+                      assemblyId: null,
+                    }]
+                  : []),
+              ]}
+              // ONE canonical model, consumed by Create Shipment and Edit
+              // Contents alike. This call site produced `assembly_leaves.id`
+              // from OD-017 until 2026-08-31 and refused every operator
+              // shipment; the builder exists so the identity is named and
+              // tested rather than re-derived per surface.
+              components={freightSelectableComponents(
+                newAssemblyLeafJoinRows,
+                newDirectProductRows,
+              )}
             />
           </SectionWithDrilldown>
         </CostBuildAccordion>

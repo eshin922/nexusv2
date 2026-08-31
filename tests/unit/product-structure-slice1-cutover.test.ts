@@ -183,6 +183,24 @@ const classifiedIdentityFiles = new Set([
   // chip is recoverable, a chip naming the wrong SKU beside a price change is
   // not.
   "src/components/pricing-surface/pricing-surface-shell.tsx",
+  // CLASSIFIED - canonical identity only, and the reason it exists is that a
+  // producer once emitted the other one.
+  //
+  // It builds the single collection of components an operator may place in a
+  // shipment, consumed by Create Shipment and Edit Contents alike. Grouped
+  // members resolve through `assembly_leaves.quote_leaf_id`; Direct Products,
+  // which have no junction row and were therefore invisible to the previous
+  // producer, resolve through `quote_leaves.id` directly. Both arrive as one
+  // NAMED field, `quoteLeafId` rather than `id`, so a future producer that
+  // substitutes the junction id has to say so in the line it writes.
+  //
+  // The legacy identity is READ here — `assembly_leaves.id` is in the input
+  // row type — and deliberately never emitted. That is the classification:
+  // the junction appears as the shape of what the caller hands over, never as
+  // a value that leaves. Its unit test asserts the absence directly, and
+  // carries the defective producer written out so the assertion is shown to
+  // discriminate rather than to pass vacuously.
+  "src/lib/freight-selectable-components.ts",
   "src/lib/freight-workbook.ts", "src/lib/leaf-spec-loader.ts",
   "src/lib/commercial-settings.ts",
   "src/lib/library-browse-loader.ts", "src/lib/nav/home-queries.ts", "src/lib/netsuite/item-resolver.ts",

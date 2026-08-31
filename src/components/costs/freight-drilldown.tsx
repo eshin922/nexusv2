@@ -37,10 +37,22 @@ import { selectGraph } from "@/lib/costing-store";
 import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
 import { useCostingStore, useCostingStoreApi } from "@/components/costing-store-provider";
+import type { FreightSelectableComponent } from "@/lib/freight-selectable-components";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
-type Product = { id: string; label: string };
-type Component = { id: string; assemblyId: string; label: string; sku: string | null };
+/**
+ * A card on the surface. `assemblyId` is what shipments and components are
+ * grouped BY; `id` is only the React key and the open-modal token, because a
+ * Direct-Product card has no assembly to be identified by.
+ */
+type Product = { id: string; label: string; assemblyId: string | null };
+/**
+ * The canonical selectable-component model — see
+ * `src/lib/freight-selectable-components.ts` for why the identity is named
+ * `quoteLeafId` rather than `id`, and what shipped for nineteen days when it
+ * was not.
+ */
+type Component = FreightSelectableComponent;
 type Result = { ok: boolean; data?: Record<string, unknown>; error?: { message: string } };
 
 import {
@@ -92,8 +104,10 @@ function shipmentCoverage(
       .filter((m) => shipmentIds.has(m.freightSubcategoryId))
       .map((m) => m.quoteLeafId),
   );
-  const assigned = productComponents.filter((c) => assignedIds.has(c.id));
-  const unassigned = productComponents.filter((c) => !assignedIds.has(c.id));
+  // Both sides are the canonical component identity. They were not, and
+  // coverage silently reported every component unassigned.
+  const assigned = productComponents.filter((c) => assignedIds.has(c.quoteLeafId));
+  const unassigned = productComponents.filter((c) => !assignedIds.has(c.quoteLeafId));
   return {
     assigned,
     unassigned,
@@ -222,14 +236,16 @@ export function FreightDrilldown(props: {
     {message && <div className="fr-lost" role="alert"><span className="mk">!</span><span>{message}</span></div>}
 
     {products.map((product) => {
-      const productComponents = components.filter((item) => item.assemblyId === product.id);
-      const shipments = workbook.subcategories.filter((item) => item.assemblyId === product.id);
+      // Grouped BY assemblyId, not by card id: a Direct-Product card carries
+      // `null`, which is exactly how its shipments are keyed on the row.
+      const productComponents = components.filter((item) => item.assemblyId === product.assemblyId);
+      const shipments = workbook.subcategories.filter((item) => item.assemblyId === product.assemblyId);
       const coverage = shipmentCoverage(productComponents, shipments, workbook.memberships);
       return <div className={`fr-product-group${products.length === 1 ? " single" : ""}`} key={product.id}>
         {/* Components carry their coverage state, so "what still needs a
             shipment" is readable from the product head rather than
             reconstructed by opening each shipment in turn. */}
-        <div className="fr-product-head"><div className="identity"><strong className="product-name">{product.label}</strong><span className="source">Commercial structure from Setup</span></div><div className="fr-product-components"><span className="k">Components</span>{productComponents.map((item) => <span className={`fr-chip${coverage.assigned.some((c) => c.id === item.id) ? " on" : ""}`} key={item.id} title={coverage.unassigned.some((c) => c.id === item.id) ? "Not yet in any shipment" : "Assigned to a shipment"}>{item.label}</span>)}</div>{editable && <button className="fr-addbtn" onClick={() => setCreateProductId(product.id)}>{shipments.length ? "+ Record shipment" : products.length === 1 ? "+ What ships" : "+ Record shipment"}</button>}</div>
+        <div className="fr-product-head"><div className="identity"><strong className="product-name">{product.label}</strong><span className="source">Commercial structure from Setup</span></div><div className="fr-product-components"><span className="k">Components</span>{productComponents.map((item) => <span className={`fr-chip${coverage.assigned.some((c) => c.quoteLeafId === item.quoteLeafId) ? " on" : ""}`} key={item.quoteLeafId} title={coverage.unassigned.some((c) => c.quoteLeafId === item.quoteLeafId) ? "Not yet in any shipment" : "Assigned to a shipment"}>{item.label}</span>)}</div>{editable && <button className="fr-addbtn" onClick={() => setCreateProductId(product.id)}>{shipments.length ? "+ Record shipment" : products.length === 1 ? "+ What ships" : "+ Record shipment"}</button>}</div>
         {shipments.length > 0 && (
           <div className={`fr-coverage${coverage.complete ? " complete" : ""}`} role="status">
             <span className="k">coverage</span>
@@ -256,8 +272,10 @@ export function FreightDrilldown(props: {
     })}
     {workbook.subcategories.length > 0 && <TotalStrip graph={graph} tiers={tiers} workbook={workbook}/>}
     {createProductId && (() => {
-      const modalComponents = components.filter((item) => item.assemblyId === createProductId);
-      const modalShipments = workbook.subcategories.filter((item) => item.assemblyId === createProductId);
+      const createProduct = products.find((item) => item.id === createProductId);
+      const createAssemblyId = createProduct?.assemblyId ?? null;
+      const modalComponents = components.filter((item) => item.assemblyId === createAssemblyId);
+      const modalShipments = workbook.subcategories.filter((item) => item.assemblyId === createAssemblyId);
       const modalCoverage = shipmentCoverage(modalComponents, modalShipments, workbook.memberships);
       // First shipment for a product: default to everything — the common case
       // is one shipment carrying the whole product. Subsequent shipments:
@@ -267,8 +285,8 @@ export function FreightDrilldown(props: {
       // legitimate and would otherwise open with nothing selected.
       const defaultSelected = (modalShipments.length === 0 || modalCoverage.unassigned.length === 0
         ? modalComponents
-        : modalCoverage.unassigned).map((item) => item.id);
-      return <CreateShipmentModal quoteId={quoteId} product={products.find((item) => item.id === createProductId)} components={modalComponents} defaultSelected={defaultSelected} remaining={modalShipments.length > 0 && modalCoverage.unassigned.length > 0} pending={busy(`createShipment:${createProductId}`)} close={() => setCreateProductId(null)} submit={submit(createFreightSubcategory, `createShipment:${createProductId}`, () => setCreateProductId(null))}/>;
+        : modalCoverage.unassigned).map((item) => item.quoteLeafId);
+      return <CreateShipmentModal quoteId={quoteId} product={createProduct} components={modalComponents} defaultSelected={defaultSelected} remaining={modalShipments.length > 0 && modalCoverage.unassigned.length > 0} pending={busy(`createShipment:${createProductId}`)} close={() => setCreateProductId(null)} submit={submit(createFreightSubcategory, `createShipment:${createProductId}`, () => setCreateProductId(null))}/>;
     })()}
   </div>;
 }
@@ -287,7 +305,7 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
     <div className="fr-schead">
       <div className="fr-eyebrow"><span className="num">{index + 1} of {count}</span><span>what ships</span><span className={shipment.crossesInternationalBorder ? "kind" : undefined}>· {shipment.crossesInternationalBorder ? "import · clears customs" : "domestic · no border"}</span></div>
       <div className="fr-scname"><span className="ships">{shipment.label}</span><span className="from">from {shipment.origin || "not set"}</span>{destinations.length > 1 && <span className={`count${shipment.selectedDestinationId ? "" : " undecided"}`}>{destinations.length} destinations priced</span>}</div>
-      <div className="fr-skus"><span className="k">for</span>{memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length && <span className="fr-chip all">all {memberships.length} SKUs</span>}{memberships.map((membership: any) => { const item = components.find((component: Component) => component.id === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.id} title={item.label}>{item.sku || item.label}</span> : null; })}</div>
+      <div className="fr-skus"><span className="k">for</span>{memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length && <span className="fr-chip all">all {memberships.length} SKUs</span>}{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</div>
       <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/><Fact label="treatment" value={shipment.treatment === "pass_through" ? "pass-through" : "bundled · amortised across units"}/></div>
       {destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
       {editable && <ShipmentEdit shipment={shipment} memberships={memberships} components={components} pending={busy(`editShipment:${shipment.id}`)} submit={submit(updateFreightSubcategory, `editShipment:${shipment.id}`)}/>}
@@ -454,7 +472,7 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
 // would admit values the column rejects. Journey, treatment and transit are
 // governed schema columns surfaced at creation. Recorded as an approved
 // deviation in docs/phase-2-freight-dom-parity-audit.md (F-G).
-function CreateShipmentModal({ quoteId, product, components, defaultSelected, remaining, pending, close, submit }: any) { return <div className="fr-scrim" onMouseDown={(event) => event.target === event.currentTarget && close()}><form className="fr-modal" action={submit}><div className="fr-mhead"><div className="t">What shipment am I recording?</div><div className="s"><strong>{product?.label}</strong> and its commercial structure come from Setup. Record only the Logistics decision here.</div></div><div className="fr-mbody"><input type="hidden" name="quoteId" value={quoteId}/><input type="hidden" name="assemblyId" value={product?.id ?? ""}/><ShipmentContentsPicker components={components} defaultSelected={defaultSelected} remaining={remaining}/><div className="full"><label className="fr-lbl" htmlFor="freight-label">what ships</label><input id="freight-label" className="fr-tin" required name="label" placeholder="Packaging from overseas — bottles + sprayers"/></div><div><label className="fr-lbl" htmlFor="freight-origin">from</label><input id="freight-origin" className="fr-tin" name="origin" placeholder="Ningbo, China"/></div><div><label className="fr-lbl" htmlFor="freight-carrier">forwarder or carrier</label><input id="freight-carrier" className="fr-tin" name="carrierForwarder" placeholder="Straight Forwarding, Inc."/></div><div><label className="fr-lbl" htmlFor="freight-incoterm">incoterm</label><select id="freight-incoterm" className="fr-tin" name="incoterm"><option value="">Choose</option>{["DDP","DAP","FOB","EXW","FCA","CIF"].map((item) => <option key={item}>{item}</option>)}</select></div><div><label className="fr-lbl" htmlFor="freight-journey">journey</label><input id="freight-journey" className="fr-tin" name="journeyLabel" placeholder="Outbound · journey 1"/></div><div><label className="fr-lbl" htmlFor="freight-ready">cargo ready</label><input id="freight-ready" className="fr-tin date" name="cargoReadyDate" type="date"/></div>{/* OD-001 V1 (2026-08-11) — the treatment CHOICE is removed, not the field.
+function CreateShipmentModal({ quoteId, product, components, defaultSelected, remaining, pending, close, submit }: any) { return <div className="fr-scrim" onMouseDown={(event) => event.target === event.currentTarget && close()}><form className="fr-modal" action={submit}><div className="fr-mhead"><div className="t">What shipment am I recording?</div><div className="s"><strong>{product?.label}</strong> and its commercial structure come from Setup. Record only the Logistics decision here.</div></div><div className="fr-mbody"><input type="hidden" name="quoteId" value={quoteId}/><input type="hidden" name="assemblyId" value={product?.assemblyId ?? ""}/><ShipmentContentsPicker components={components} defaultSelected={defaultSelected} remaining={remaining}/><div className="full"><label className="fr-lbl" htmlFor="freight-label">what ships</label><input id="freight-label" className="fr-tin" required name="label" placeholder="Packaging from overseas — bottles + sprayers"/></div><div><label className="fr-lbl" htmlFor="freight-origin">from</label><input id="freight-origin" className="fr-tin" name="origin" placeholder="Ningbo, China"/></div><div><label className="fr-lbl" htmlFor="freight-carrier">forwarder or carrier</label><input id="freight-carrier" className="fr-tin" name="carrierForwarder" placeholder="Straight Forwarding, Inc."/></div><div><label className="fr-lbl" htmlFor="freight-incoterm">incoterm</label><select id="freight-incoterm" className="fr-tin" name="incoterm"><option value="">Choose</option>{["DDP","DAP","FOB","EXW","FCA","CIF"].map((item) => <option key={item}>{item}</option>)}</select></div><div><label className="fr-lbl" htmlFor="freight-journey">journey</label><input id="freight-journey" className="fr-tin" name="journeyLabel" placeholder="Outbound · journey 1"/></div><div><label className="fr-lbl" htmlFor="freight-ready">cargo ready</label><input id="freight-ready" className="fr-tin date" name="cargoReadyDate" type="date"/></div>{/* OD-001 V1 (2026-08-11) — the treatment CHOICE is removed, not the field.
     Freight has one governed customer presentation in V1: bundled into the
     unit price. The customer-view resolver never read `treatment`, so
     selecting Pass-through changed nothing a customer saw — the surface was
@@ -482,6 +500,11 @@ function CreateShipmentModal({ quoteId, product, components, defaultSelected, re
  * which models assignment as `<button className={"fr-chip" + (on ? " on" : "")}
  * onClick={() => onToggle(id)}>`. Selected ids post as `assemblyLeafId`, the
  * same field `updateFreightSubcategory` already consumes.
+ *
+ * The field NAME is legacy; what it carries is the canonical component
+ * identity supplied by `freightSelectableComponents`. Sending anything else
+ * is refused. See that module for which identity, and for what shipped when
+ * this surface sent the other one.
  */
 function ShipmentContentsPicker({
   components,
@@ -493,7 +516,7 @@ function ShipmentContentsPicker({
   remaining?: boolean;
 }) {
   const [selected, setSelected] = useState<string[]>(
-    () => defaultSelected ?? components.map((item) => item.id),
+    () => defaultSelected ?? components.map((item) => item.quoteLeafId),
   );
   const all = selected.length === components.length;
   const toggle = (id: string) =>
@@ -514,11 +537,11 @@ function ShipmentContentsPicker({
         {components.map((item) => (
           <button
             type="button"
-            key={item.id}
-            className={"fr-chip" + (selected.includes(item.id) ? " on" : "")}
+            key={item.quoteLeafId}
+            className={"fr-chip" + (selected.includes(item.quoteLeafId) ? " on" : "")}
             title={item.label}
-            aria-pressed={selected.includes(item.id)}
-            onClick={() => toggle(item.id)}
+            aria-pressed={selected.includes(item.quoteLeafId)}
+            onClick={() => toggle(item.quoteLeafId)}
           >
             {item.sku || item.label}
           </button>
@@ -585,7 +608,7 @@ function ShipmentDelete({ shipment, destinationCount, pending, submit }: any) {
 function ShipmentEdit({ shipment, memberships, components, pending, submit }: any) {
   const own = components.filter((item: Component) => item.assemblyId === shipment.assemblyId);
   const selectedCount = own.filter((item: Component) =>
-    memberships.some((row: any) => row.quoteLeafId === item.id)).length;
+    memberships.some((row: any) => row.quoteLeafId === item.quoteLeafId)).length;
   // Names what is still unrecorded, so completion is readable rather than
   // inferred from which boxes happen to look empty.
   const missing = [
@@ -611,7 +634,7 @@ function ShipmentEdit({ shipment, memberships, components, pending, submit }: an
 <input type="hidden" name="treatment" value={shipment.treatment}/>
       <div className="fr-field check"><label><input type="checkbox" name="crossesInternationalBorder" value="true" defaultChecked={shipment.crossesInternationalBorder}/> crosses a border — it clears customs</label></div>
       <fieldset className="fr-shipment-contents"><legend>Shipment contents <span className="req">at least one</span></legend>
-        {own.map((item: Component) => <label key={item.id}><input type="checkbox" name="assemblyLeafId" value={item.id} defaultChecked={memberships.some((row: any) => row.quoteLeafId === item.id)}/> {item.label}</label>)}
+        {own.map((item: Component) => <label key={item.quoteLeafId}><input type="checkbox" name="assemblyLeafId" value={item.quoteLeafId} defaultChecked={memberships.some((row: any) => row.quoteLeafId === item.quoteLeafId)}/> {item.label}</label>)}
         <span className="fr-hint">{selectedCount} of {own.length} selected. Assignment says which SKUs the freight is for. It does not divide the cost.</span>
       </fieldset>
       <div className="fr-editfoot">

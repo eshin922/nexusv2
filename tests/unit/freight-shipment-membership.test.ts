@@ -63,7 +63,7 @@ test("create writes exactly the selected membership, not every component", () =>
 test("all components are selected by default, and that is shown explicitly", () => {
   assert.match(
     drilldown,
-    /defaultSelected \?\? components\.map\(\(item\) => item\.id\)/,
+    /defaultSelected \?\? components\.map\(\(item\) => item\.quoteLeafId\)/,
     "picker falls back to every eligible component when no default is supplied",
   );
   // First shipment for a product defaults to everything; later shipments
@@ -79,13 +79,13 @@ test("all components are selected by default, and that is shown explicitly", () 
   assert.match(drilldown, /all \{components\.length\} SKUs/);
   assert.match(
     drilldown,
-    /aria-pressed=\{selected\.includes\(item\.id\)\}/,
+    /aria-pressed=\{selected\.includes\(item\.quoteLeafId\)\}/,
     "each chip must expose its selected state",
   );
 });
 
 test("deselecting is possible and posts only the remaining members", () => {
-  assert.match(drilldown, /onClick=\{\(\) => toggle\(item\.id\)\}/);
+  assert.match(drilldown, /onClick=\{\(\) => toggle\(item\.quoteLeafId\)\}/);
   assert.match(
     drilldown,
     /rows\.includes\(id\) \? rows\.filter\(\(row\) => row !== id\) : \[\.\.\.rows, id\]/,
