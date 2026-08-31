@@ -5120,3 +5120,60 @@ settled and correct; this is the explanatory clause beside them.
 
 Found in the BV-013 operator walk, 2026-08-18. Edward's disposition: bank as a
 bounded Settings-copy repair.
+
+
+## The visible Cost Stack does not represent the complete governed cost basis
+
+**Measured 2026-08-31** on quote `2f29af72` (SPJ - Primary), immediately after
+#517, with component charges in the `unplaced` state that exposed the original
+defect. Recorded as a finding, not a design.
+
+Per tier, governed total cost against the sum of every cost the five rendered
+rows can represent (PKG, PROD, RAW, FRT, D+T -- `cost-stack-header.tsx:82-86`):
+
+| tier | governed | sum of stack rows | residual |
+|---|---|---|---|
+| T1 | 100,208.00 | 89,800.00 | **10,408.00** |
+| T2 | 131,026.00 | 131,000.00 | **26.00** |
+| T3 | 424,312.00 | 424,100.00 | **212.00** |
+| T4 | 800,016.00 | 800,000.00 | **16.00** |
+
+Every cent is explained, on every tier, by
+`separateLineCost + absorbedCost + unplacedCost`:
+
+| tier | separateLine | absorbed | unplaced | total |
+|---|---|---|---|---|
+| T1 | 10,400.00 | 0.00 | 8.00 | 10,408.00 |
+| T2 | 0.00 | 0.00 | 26.00 | 26.00 |
+| T3 | 200.00 | 0.00 | 12.00 | 212.00 |
+| T4 | 0.00 | 0.00 | 16.00 | 16.00 |
+
+**Two distinct causes, to be preserved as distinct.**
+
+1. **`separateLineCost` -- presentation only.** The amount already reaches
+   `costBreakdown.serviceFees` (10,400 at T1, 200 at T3) and has been in the
+   governed tier total all along. The stack simply has no row for it. **This
+   residual predates #517** and is a rendering gap over data that exists.
+
+2. **`unplacedCost` / `absorbedCost` -- no representation yet.** Neither has a
+   `costBreakdown` field, so the stack could not draw them even given a row.
+   T2 shows it cleanly: `serviceFees` is 0 while `unplacedCost` is 26.
+
+Nothing is double-counted and neither figure is wrong. The stack and the tier
+total are each internally sound; they describe different sets, and only the
+total is the governed basis.
+
+**Governing acceptance when this is taken up:**
+
+> The visible Cost Stack reconciles exactly to governed tier total cost, or
+> explicitly and quantitatively identifies the costs intentionally outside it.
+
+The row/section structure is deliberately NOT designed here -- Edward's
+direction during the Order-1 certification hold. Cause 1 is a row over existing
+data; cause 2 needs `costBreakdown` extended first. Different changes,
+different owners.
+
+Related: Pattern 57 (a financial stack contains only independently governed
+quantities) governs what may become a row; "Exact reconciliation is necessary
+but not sufficient" governs the second question this raises -- whether each
+displayed figure is attributed to the authority that priced it.
