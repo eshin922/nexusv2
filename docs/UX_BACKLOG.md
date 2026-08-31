@@ -5120,3 +5120,52 @@ settled and correct; this is the explanatory clause beside them.
 
 Found in the BV-013 operator walk, 2026-08-18. Edward's disposition: bank as a
 bounded Settings-copy repair.
+
+## Costs — expanding a section returns the viewport to the top mid-scroll
+
+Expand any major Costs section — Packaging, Production or Freight — and begin
+scrolling immediately. Shortly afterwards the page repeatedly jumps back to the
+top. Observed across more than one section, so **do not assume it is
+section-specific**; treat the shared shell as the likelier subject.
+
+**Acceptance.** Expanding a section must not change the operator's viewport
+once they have begun scrolling. Opening a section may increase page height —
+that is expected — but it must not subsequently return the page to the top.
+
+**Establish the event sequence before proposing a cause:**
+
+```
+expand section → operator scrolls → ??? → scroll position resets to top
+```
+
+The `???` is the finding. Generic "React re-rendered" is not it: a re-render
+that preserves the DOM does not move the scroll position, so something more
+specific is doing this. Candidates to rule in or out, each individually:
+
+- a `router.refresh()` or navigation fired after expansion;
+- URL / search-param mutation (the section and active tier are both in the
+  query string, and `ActiveTierUrlSync` writes to it);
+- a form action completing and triggering a refresh;
+- focus restoration or autofocus inside the newly-opened section;
+- a keyed remount of the Costs page or shell;
+- an explicit `scrollIntoView` / `scrollTo`, or browser scroll restoration;
+- a delayed loader or revalidation landing after the section opens — note the
+  store's wait-for-quiet reconcile can arrive seconds later, which matches
+  "shortly afterward" and "repeatedly".
+
+**Instrument, do not infer.** Record `scrollY`, pathname and search params,
+render and remount counts, and `document.activeElement` from the moment of
+expansion through the jump. The requirement is to identify the event that
+actually resets the position — an instrument that cannot distinguish a
+navigation from a re-render cannot settle this.
+
+Two prior findings in this file are relevant and should not be re-derived:
+Pattern 55 (refresh amplification — a burst of `router.refresh()` calls on this
+exact surface) and Pattern 41 (RSC snapshot props vs store). Both concern the
+Costs page and both involve reconciliation arriving later than the interaction
+that caused it.
+
+Reported by Edward 2026-08-31 during the Order 2 walk. Banked deliberately
+rather than investigated inline: the Freight operator-reachability blocker was
+in flight and is the higher-order defect. Trace this separately once Order 2
+certification is clear.
