@@ -145,6 +145,7 @@ export function customerViewToCpdf(
     code: s.label,
     name: s.name,
     pack: s.pack,
+    multiplicity_per_unit: s.multiplicityPerUnit,
     tier_prices: s.tierPrices,
     tier_line_totals: s.tierLineTotals,
     shape: s.shape,

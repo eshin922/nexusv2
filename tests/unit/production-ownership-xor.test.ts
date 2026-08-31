@@ -376,6 +376,7 @@ test("a top-level service prices at cost x the governed Production markup", asyn
         skuLabel: "SVC-FORMULATION",
         productName: "Formulation",
         unitsPerPack: 1,
+    multiplicityPerUnit: null,
         cbmPerUnit: null,
         dutyPct: null,
         tariffPct: null,

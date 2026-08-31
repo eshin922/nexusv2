@@ -515,6 +515,9 @@ export async function resolveCustomerView(args: {
       name: line.displayName,
       pack: null,
       unitsPerPack: 1,
+      // Threaded from the projection's structural field. The resolver does not
+      // decide multiplicity and does not compute it.
+      multiplicityPerUnit: line.memberMultiplicity,
       tierPrices,
       // THE GOVERNED EXTENSION, CONSUMED -- never recomposed here.
       //
