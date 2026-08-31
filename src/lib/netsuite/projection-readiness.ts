@@ -16,6 +16,7 @@ import {
   isPerLineDestination,
 } from "@/lib/netsuite/bv011-destinations";
 import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
+import { resolvesBySku } from "@/lib/netsuite/line-kind-resolution";
 
 /**
  * Can the accepted tier's frozen line set be projected to a Sales Order?
@@ -319,7 +320,15 @@ export async function assessProjectionReadiness(
   for (const line of lines) {
     // Products resolve by SKU through the existing item resolver, not through
     // a destination. They are not this check's concern.
-    if (line.kind === "item_group_member" || line.kind === "direct_product") {
+    //
+    // FROM THE SHARED CLASSIFICATION, not a literal list. This was
+    // `item_group_member || direct_product`, written when those were the only
+    // product kinds. OD-028 added `item_group` and the literal did not grow
+    // with it, so the Item Group header -- whose NULL destination is correct
+    // and permanent -- was reported as "frozen before accounting destinations
+    // were recorded", with a remediation that cannot be followed: a re-send
+    // freezes NULL again, because NULL is the right value.
+    if (resolvesBySku(line.kind)) {
       continue;
     }
 
