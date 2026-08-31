@@ -754,3 +754,196 @@ test("no line is constructed behind a type assertion", async () => {
     "a line pushed through `as CommercialLine` can omit required fields silently",
   );
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE PUBLICATION BOUNDARY — one governed monetary representation.
+//
+// DPS-1072 Tier 2 was frozen with a stated total of 54,843.09 and seven line
+// rows summing to 54,843.08. Neither number was wrong on its own. The
+// customer document summed full-precision amounts and rounded the sum; the
+// freeze rounded each amount and persisted it, then persisted the rounded sum
+// beside them. Σ round(x) ≠ round(Σ x), and two consumers rounding
+// independently is two monetary authorities.
+//
+// `verifyProjectionTotals` did not catch it because it compared the
+// PRE-rounding figures, with a half-cent tolerance, to each other. It was
+// measuring the representation that was never persisted.
+//
+// The fixture below reproduces the arithmetic exactly: four lines whose
+// amounts each carry a fraction of a cent that rounds DOWN, so the sum of the
+// published amounts is a cent below the published sum of the unpublished
+// amounts. Against the pre-boundary implementation these fail.
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Four members priced so that every extended amount lands a quarter-cent
+ * above a cent boundary — each rounds down, and four of them lose a cent
+ * together. Quantity 2,500 and a rate ending .0001 is the shape Tier 2 of
+ * Order 1 actually had, arrived at through its +2.5% adjustment.
+ */
+function centDivergenceFixture() {
+  return projectCommercial(
+    bundle({
+      skus: [
+        { id: "asm", parentSkuId: null, skuRole: "assembly", skuLabel: "IG", productName: "G" },
+        { id: "l1", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L1", productName: "One", qtyPerParent: "1" },
+        { id: "l2", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L2", productName: "Two", qtyPerParent: "1" },
+        { id: "l3", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L3", productName: "Three", qtyPerParent: "1" },
+        { id: "l4", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L4", productName: "Four", qtyPerParent: "1" },
+      ],
+      // 2500 × 1.00001 = 2500.025 → publishes 2500.02, losing half a cent
+      // each. Four lines lose two cents against the unrounded sum.
+      rollups: [
+        { skuId: "l1", perTier: [priced(TIER_A, 1.00001), priced(TIER_B, 1.00001)] },
+        { skuId: "l2", perTier: [priced(TIER_A, 1.00001), priced(TIER_B, 1.00001)] },
+        { skuId: "l3", perTier: [priced(TIER_A, 1.00001), priced(TIER_B, 1.00001)] },
+        { skuId: "l4", perTier: [priced(TIER_A, 1.00001), priced(TIER_B, 1.00001)] },
+      ],
+      tierQty: [2500, 2500],
+    }),
+  );
+}
+
+test("the fixture actually produces sub-cent amounts", () => {
+  // Non-vacuity. If the arithmetic ever stops landing off a cent boundary,
+  // the proofs below would pass against any implementation at all and this
+  // says so first.
+  const raw = 2500 * 1.00001;
+  assert.notEqual(raw, Number(raw.toFixed(2)), "fixture no longer exercises rounding");
+});
+
+test("every published line amount is a whole number of cents", () => {
+  const p = centDivergenceFixture();
+  for (const line of p.lines) {
+    for (const cell of line.cells) {
+      if (cell.state !== "priced") continue;
+      assert.equal(
+        cell.lineAmount,
+        Number(cell.lineAmount.toFixed(2)),
+        `${line.displayName}: ${cell.lineAmount} is not a published cent value`,
+      );
+    }
+  }
+});
+
+test("a tier total is EXACTLY the sum of its own published lines", () => {
+  const p = centDivergenceFixture();
+  p.tiers.forEach((t, i) => {
+    // Integer cents: the two sides sum in different orders and float addition
+    // is not associative, so this asserts the money rather than the order.
+    let summed = 0;
+    for (const line of p.lines) {
+      const cell = line.cells[i];
+      if (cell.state === "priced") summed += cell.lineAmount;
+    }
+    assert.equal(
+      Math.round(summed * 100),
+      Math.round(t.tierCommercialTotal * 100),
+      `${t.tierLabel}: stated ${t.tierCommercialTotal} vs its own lines ${summed}`,
+    );
+  });
+});
+
+test("the freeze invariant is exact — no tolerance survives at publication", () => {
+  const p = centDivergenceFixture();
+  assert.deepEqual(
+    verifyProjectionTotals(p),
+    [],
+    "a published matrix must satisfy its own identity exactly",
+  );
+
+  // And the check must be able to REPORT a failure, not merely never see one.
+  // A tolerance-shaped check would pass the mutation below, which is the
+  // whole reason DPS-1072 was persisted.
+  const tampered = {
+    ...p,
+    tiers: p.tiers.map((t, i) =>
+      i === 0 ? { ...t, tierCommercialTotal: t.tierCommercialTotal + 0.01 } : t,
+    ),
+  };
+  assert.equal(
+    verifyProjectionTotals(tampered).length,
+    1,
+    "a one-cent divergence must be reported, not tolerated",
+  );
+});
+
+test("the PERSISTED lines sum to the PERSISTED total — the DPS-1072 shape", () => {
+  // THE PROOF THAT MATCHES THE PRODUCTION DEFECT. The two proofs above compare
+  // the in-memory matrix, and before this repair the in-memory matrix was
+  // self-consistent — every figure was full precision, so both sides agreed.
+  // The divergence only appeared once the values were WRITTEN: the freeze
+  // rounds each amount and persists it, and separately rounds the total and
+  // persists that beside them.
+  //
+  // This reproduces exactly what `commercial-freeze` writes, and asserts the
+  // record agrees with itself as stored. It is the assertion whose absence
+  // let DPS-1072 Tier 2 be frozen stating 54,843.09 over lines summing to
+  // 54,843.08.
+  const p = centDivergenceFixture();
+  p.tiers.forEach((t, i) => {
+    let persistedLines = 0;
+    for (const line of p.lines) {
+      const cell = line.cells[i];
+      // `toFixed(2)` is literally what commercial-freeze.ts:125 persists.
+      if (cell.state === "priced") persistedLines += Number(cell.lineAmount.toFixed(2));
+    }
+    // And commercial-freeze.ts:51 for the stated total.
+    const persistedTotal = Number(t.tierCommercialTotal.toFixed(2));
+    assert.equal(
+      Math.round(persistedLines * 100),
+      Math.round(persistedTotal * 100),
+      `${t.tierLabel}: the frozen record would state ${persistedTotal.toFixed(2)} ` +
+        `over lines summing to ${persistedLines.toFixed(2)}`,
+    );
+  });
+});
+
+test("unit and OTC subtotals are themselves sums of published lines", () => {
+  const p = centDivergenceFixture();
+  p.tiers.forEach((t, i) => {
+    let unit = 0;
+    let otc = 0;
+    for (const line of p.lines) {
+      const cell = line.cells[i];
+      if (cell.state !== "priced") continue;
+      if (line.kind === "otc") otc += cell.lineAmount;
+      else unit += cell.lineAmount;
+    }
+    assert.equal(Math.round(unit * 100), Math.round(t.unitSubtotal * 100), `${t.tierLabel} unit subtotal`);
+    assert.equal(Math.round(otc * 100), Math.round(t.otcSubtotal * 100), `${t.tierLabel} OTC subtotal`);
+  });
+});
+
+test("the customer document and the freeze read the same published amounts", () => {
+  // The two consumers that used to round independently. Neither computes
+  // money: the document sums `cells[].lineAmount` through `composeTierMoney`,
+  // the freeze persists the same values with `toFixed(2)`. This asserts the
+  // property that makes both safe — the value is ALREADY published, so
+  // `toFixed(2)` is an identity and the document's sum is the same sum.
+  const p = centDivergenceFixture();
+  for (const line of p.lines) {
+    for (const cell of line.cells) {
+      if (cell.state !== "priced") continue;
+      assert.equal(
+        cell.lineAmount.toFixed(2),
+        Number(cell.lineAmount).toFixed(2),
+        "persistence must not be a second rounding",
+      );
+      assert.equal(Number(cell.lineAmount.toFixed(2)), cell.lineAmount);
+    }
+  }
+});
+
+test("publication does not touch the rate, only the amount", () => {
+  // Bounded: this repair governs the amount at which money becomes
+  // customer-facing and frozen. It does not change how anything is priced,
+  // and `unitRate` must still carry the full-precision figure the ladder
+  // produced — the postable rate is derived from the frozen AMOUNT at freeze
+  // time, which is where cent-exactness is required and asserted.
+  const p = centDivergenceFixture();
+  const member = p.lines.find((l) => l.kind === "item_group_member")!;
+  const cell = member.cells[0];
+  if (cell.state !== "priced") throw new Error("expected priced");
+  assert.equal(cell.unitRate, 1.00001, "the rate is not rounded by publication");
+});

@@ -779,7 +779,43 @@ export function projectCommercial(
     });
   }
 
+  // ══ PUBLICATION BOUNDARY ═════════════════════════════════════════════
+  //
+  // Money becomes cents HERE, once, for every line of every kind — and
+  // everything downstream is derived from the result rather than from the
+  // full-precision figures that produced it.
+  //
+  // WHAT THIS FIXES. The projection used to hand full-precision amounts to
+  // two consumers that rounded independently. The customer document summed
+  // them and rounded the sum; the freeze rounded each one and persisted it,
+  // then persisted the rounded sum beside them as the stated total. Both are
+  // defensible and they are not the same number: Σ round(x) ≠ round(Σ x). On
+  // DPS-1072 Tier 2 the stated total was 54,843.09 and its own seven lines
+  // summed to 54,843.08. The record disagreed with itself, and `reg4`'s Link
+  // A would have refused to post it.
+  //
+  // WHY HERE. This is the last point at which one representation still
+  // exists. Normalising at either consumer would leave the other computing
+  // its own; normalising per construction site would leave a future line kind
+  // out. A single pass over the finished matrix covers every kind by
+  // construction, including ones not yet written.
+  //
+  // WHAT IT IS NOT. Not a change to how anything is PRICED. Rates, markups,
+  // the ladder and the costing engine are untouched and still full precision;
+  // `unitRate` below stays exactly as computed. This governs only the amount
+  // at which commercial money becomes customer-facing and frozen.
+  for (const line of lines) {
+    line.cells = line.cells.map((c) =>
+      c.state === "priced" ? { ...c, lineAmount: publishedCents(c.lineAmount) } : c,
+    );
+  }
+
   // ── per-tier totals ────────────────────────────────────────────────────
+  //
+  // Unchanged, deliberately. This summation was already the only place tier
+  // figures were computed; it now sums governed cents because its inputs are
+  // governed cents. Deriving the totals somewhere new would have created the
+  // third authority this repair exists to prevent.
   const tierTotals: CommercialTierTotal[] = tiers.map((t, i) => {
     let unitSubtotal = 0;
     let otcSubtotal = 0;
@@ -811,6 +847,25 @@ export function projectCommercial(
 }
 
 /**
+ * The one rounding in the commercial path, and the definition of a published
+ * amount.
+ *
+ * Written as `toFixed(2)` rather than as arithmetic on purpose: `toFixed(2)`
+ * is what `commercial-freeze` has always used to persist these amounts, so
+ * defining publication in the same terms makes that persistence a provable
+ * identity rather than a second rounding that happens to agree. If one is ever
+ * changed, both change together or the invariant below fails loudly.
+ */
+export function publishedCents(amount: number): number {
+  return Number(amount.toFixed(2));
+}
+
+/** Integer cents, for comparisons that must not depend on IEEE association. */
+function cents(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+/**
  * The identity the frozen matrix must satisfy, checkable rather than assumed.
  *
  * Returns the tiers that fail. Empty means the projection is internally
@@ -826,9 +881,21 @@ export function verifyProjectionTotals(
       const cell = line.cells[i];
       if (cell.state === "priced") summed += cell.lineAmount;
     }
-    // Cent tolerance: the parts are IEEE 754 sums of per-unit rates times
-    // quantities, so exact bit equality would fail on representation alone.
-    if (Math.abs(summed - t.tierCommercialTotal) > 0.005) {
+    // EXACT, IN CENTS. This carried a half-cent tolerance because the parts
+    // were IEEE sums of rates times quantities and bit equality would have
+    // failed on representation alone. That is no longer true: past the
+    // publication boundary every part is a governed cent value, so the
+    // identity holds exactly and a tolerance would only hide the one failure
+    // this check exists to catch — a stated total that is not the sum of its
+    // own lines. DPS-1072 Tier 2 passed the old tolerance while being a cent
+    // adrift, and was persisted.
+    //
+    // Compared as integers because the two sides sum in different orders --
+    // this one walks every line, the projection adds a unit subtotal to an OTC
+    // subtotal -- and float addition is not associative. Integer cents makes
+    // the comparison about the money rather than about the order it was added
+    // in.
+    if (cents(summed) !== cents(t.tierCommercialTotal)) {
       bad.push({ tierId: t.tierId, stated: t.tierCommercialTotal, summed });
     }
   });
