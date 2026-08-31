@@ -59,7 +59,11 @@ test("shipment and customs evidence remain editable through business-language co
 test("Freight inherits commercial-product ownership from its product-group entry point", () => {
   assert.match(source, /products\.map\(\(product\)/);
   assert.match(source, /setCreateProductId\(product\.id\)/);
-  assert.match(source, /type="hidden" name="assemblyId" value=\{product\?\.id/);
+  // 2026-08-31: the posted value is the card's ASSEMBLY, not its card id.
+  // A Direct Products card has no assembly and posts empty, which the action
+  // reads as "no owning product" — the case OD-017 opened and which the
+  // surface previously could not express.
+  assert.match(source, /type="hidden" name="assemblyId" value=\{product\?\.assemblyId/);
   // SUPERSEDED 2026-08-05: the create modal listed contents read-only under
   // "Shipment contents from Setup". It now carries the Design Authority's own
   // interactive assignment control (`SkuChips`, 1a.jsx:114), whose label is
