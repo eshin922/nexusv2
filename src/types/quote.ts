@@ -119,14 +119,29 @@ export type CustomerViewSku = {
   pack: string | null;
   unitsPerPack: number;
   /**
+   * How many of this component one finished unit consumes, when that is more
+   * than one. NULL when there is no multiplicity to explain — a Direct Product,
+   * or a member at 1.
+   *
+   * Presentation-only. It explains a quantity the customer can already see; it
+   * never participates in the arithmetic that produced it.
+   */
+  multiplicityPerUnit: number | null;
+  /**
    * Per-tier unit prices in tier-sort order.
    * NULL element = "quote on request" (NOT $0.00, NOT em-dash).
    */
   tierPrices: ReadonlyArray<number | null>;
   /**
-   * The extended amount per tier — `tierPrices[i] × tiers[i].quantity`,
-   * composed once here rather than in each renderer. NULL where the unit price
-   * is null, and never 0: an unpriced line is not a free one.
+   * The extended amount per tier, consumed from the governed projection —
+   * `CommercialLine.cells[i].lineAmount`, which is the line's own quantity
+   * (`tierQty × qtyPerParent`) times its rate.
+   *
+   * This previously read "`tierPrices[i] × tiers[i].quantity`", and the code
+   * matched it. That is the TIER's quantity, correct only while every member
+   * carries multiplicity 1, and it under-billed the first member that did not.
+   * NULL where the unit price is null, and never 0: an unpriced line is not a
+   * free one.
    */
   tierLineTotals: ReadonlyArray<number | null>;
   /** "step↓" | "flat" | "partial" | other shape descriptor. Drives flat-row treatment. */

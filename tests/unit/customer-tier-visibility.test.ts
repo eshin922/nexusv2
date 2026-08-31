@@ -45,10 +45,12 @@ const view = (): CustomerView =>
     skus: [
       {
         label: "A", name: "A", pack: null, unitsPerPack: 1,
+    multiplicityPerUnit: null,
         tierPrices: [1, 2, 3], tierLineTotals: [10, 20, 30], shape: "step↓",
       },
       {
         label: "B", name: "B", pack: null, unitsPerPack: 1,
+    multiplicityPerUnit: null,
         tierPrices: [4, null, 6], tierLineTotals: [40, null, 60], shape: "partial",
       },
     ],

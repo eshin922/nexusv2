@@ -129,6 +129,24 @@ export type CommercialLine = {
   displaySub: string | null;
   /** Customer-facing quantity copy, e.g. "1 (setup)". Null on unit lines. */
   displayQtyLabel: string | null;
+  /**
+   * How many of this component one finished unit consumes — the governed
+   * membership quantity, carried as a NUMBER rather than as copy.
+   *
+   * NOT `displayQtyLabel`. That field is documented "null on unit lines" and
+   * its only consumer is the OTC fee mapper, so widening it to mean two things
+   * on two line kinds would make one field's meaning depend on where it is
+   * read. This is a structural fact; the wording is the renderer's business.
+   *
+   * Null on anything that has no membership multiplicity — Direct Products,
+   * Direct Services, OTC lines and the Item Group parent itself. `1` is a real
+   * value and stays 1; the renderer decides that ×1 is not worth saying.
+   *
+   * The customer document needs this because after the line-quantity repair a
+   * member at q=2 correctly bills 2,000 against a finished-good quantity of
+   * 1,000, and nothing on the page explained the difference.
+   */
+  memberMultiplicity: number | null;
   serviceIdentity: DirectServiceIdentity | null;
   /**
    * The governed BV-011 destination, or null.
@@ -354,6 +372,13 @@ export function projectCommercial(
       displaySku: rollup.skuLabel || null,
       displaySub: null,
       displayQtyLabel: null,
+      // Read from the SAME governed fact the quantity above is computed from,
+      // one line apart. Never `qty / t.qty`: reverse-engineering multiplicity
+      // out of the commercial output would make the caption a consequence of
+      // the money rather than a statement about the bill of materials, and it
+      // would divide by zero on a zero-quantity tier.
+      memberMultiplicity:
+        kind === "item_group_member" ? Number(rollup.qtyPerParent ?? 1) : null,
       serviceIdentity,
       // A product resolves by SKU and has no BV-011 destination; a service's
       // destination is governed by its identity.
@@ -561,6 +586,8 @@ export function projectCommercial(
         displaySku: assembly.skuLabel || null,
         displaySub: fee.sub,
         displayQtyLabel: fee.qtyLabel,
+      // A one-time charge has no bill-of-materials multiplicity.
+      memberMultiplicity: null,
         serviceIdentity: null,
         // Undefined for the legacy combined column, and that is the point —
         // BV-011 governs its two halves as different destinations with
@@ -709,6 +736,8 @@ export function projectCommercial(
       displaySku: skuById.get(meta.quoteLeafId)?.skuLabel ?? null,
       displaySub: "One-time charge caused by this component.",
       displayQtyLabel: "1",
+      // A one-time charge has no bill-of-materials multiplicity.
+      memberMultiplicity: null,
       serviceIdentity: null,
       bv011Destination: null,
       legacyUnresolved: false,

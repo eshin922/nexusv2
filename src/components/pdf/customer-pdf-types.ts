@@ -112,6 +112,12 @@ export type CpdfSku = {
   code: string;
   name: string;
   pack: string | null;
+  /**
+   * Components consumed per finished unit, when greater than one. NULL when
+   * there is nothing to explain. Rendered as a caption qualifier; never used
+   * in arithmetic.
+   */
+  multiplicity_per_unit?: number | null;
   /** Per-tier unit prices in tier-sort order.
    * NULL element = "quote on request" (NOT $0.00). */
   tier_prices: ReadonlyArray<number | null>;

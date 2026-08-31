@@ -127,6 +127,14 @@ export function PricingTable({
                 <Text style={styles.prodMeta}>
                   <Text style={styles.prodMetaCode}>{sku.code}</Text>
                   {sku.pack != null && sku.pack.length > 0 ? ` · ${sku.pack}` : ""}
+                  {/* Why the member quantity exceeds the finished-good
+                      quantity. Shown ONLY above 1 — "×1 per unit" is noise on
+                      every ordinary line, and the absence of a qualifier is
+                      itself the statement that one unit takes one. */}
+                  {typeof sku.multiplicity_per_unit === "number" &&
+                  sku.multiplicity_per_unit > 1
+                    ? ` · ×${sku.multiplicity_per_unit} per unit`
+                    : ""}
                 </Text>
                 {isFlat && (
                   <Text style={styles.prodFlat}>
