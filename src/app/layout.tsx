@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Newsreader, Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LifecycleTraceShell } from "@/components/diagnostics/lifecycle-trace-probe";
 import { ApplicationAuthProvider } from "@/components/application-auth-provider";
 import { RealtimeCompositionProvider } from "@/lib/integrations/realtime-composition";
 import "./globals.css";
@@ -100,6 +102,17 @@ export default function RootLayout({
           />
         </head>
         <body>
+          {/* TEMPORARY DIAGNOSTIC — installs the lifecycle trace and records
+              shell mount/unmount and route changes. Investigating two reports
+              that may be one defect: the Costs viewport returning to the top
+              mid-scroll, and Nexus intermittently appearing to refresh itself
+              during normal use. Suspense-wrapped because it reads
+              useSearchParams, which opts its subtree out of static rendering.
+              Remove with the rest of src/lib/diagnostics/lifecycle-trace.ts
+              once the event is classified. */}
+          <Suspense fallback={null}>
+            <LifecycleTraceShell />
+          </Suspense>
           {/* Slice 8.5 — single per-session subscription to admin-managed
               reference tables (firm_settings, markup_defaults). Dispatches
               a window CustomEvent on changes; CostingStoreProvider folds

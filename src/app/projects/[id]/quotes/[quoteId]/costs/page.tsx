@@ -35,6 +35,8 @@ import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { CostStackHeader } from "@/components/costs/cost-stack-header";
 import { CostBuildAccordion } from "@/components/costs/costs-accordion";
+// TEMPORARY DIAGNOSTIC — see src/lib/diagnostics/lifecycle-trace.ts
+import { LifecycleTracePage } from "@/components/diagnostics/lifecycle-trace-probe";
 import { DIRECT_PRODUCT_CARD_ID, freightSelectableComponents } from "@/lib/freight-selectable-components";
 import { ScenarioContextStrip } from "@/components/costs/scenario-context-strip";
 import { ClientTargetContext } from "@/components/costs/client-target-context";
@@ -661,6 +663,9 @@ export default async function CostBuildPage({
       quoteId={quoteId}
       activeScenarioLabel={quote.scenarioLabel}
     >
+    {/* TEMPORARY DIAGNOSTIC — records whether the Costs page itself
+        remounts while the shell stays mounted. */}
+    <LifecycleTracePage name="costs" />
     <CostingStoreProvider
       snapshot={bundle.data}
       realtimeEnabled={isProductionRealtimeConfigured()}
