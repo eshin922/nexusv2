@@ -264,8 +264,12 @@ test("every line kind has exactly one resolver, and the sets are disjoint", asyn
   assert.doesNotMatch(builder, /netsuiteDestinationItemMap/);
   assert.doesNotMatch(readiness, /resolveSku|resolveItem/);
 
-  // Readiness skips products explicitly rather than by omission.
-  assert.match(readiness, /line\.kind === "item_group_member" \|\| line\.kind === "direct_product"/);
+  // Readiness skips products explicitly rather than by omission -- now through
+  // the shared classification rather than a literal. The literal listed only
+  // the two kinds that existed when it was written, and did not grow when
+  // OD-028 added `item_group`; see `netsuite-line-kind-resolution` for the
+  // blocker that caused and the guard that prevents a third instance.
+  assert.match(readiness, /if \(resolvesBySku\(line\.kind\)\) \{/);
 });
 
 test("the emitted order is in frozen position order", async () => {
