@@ -4166,6 +4166,19 @@ on action-name namespacing.
 'assembly_leaf_attach'      -- leaf added to an ASY. entity_id =
                             -- assembly_leaf.id; diff_json carries
                             -- {assembly_id, leaf_id, quantity, position}.
+'assembly_leaf_quantity_updated' -- qty/parent changed on an EXISTING
+                            -- membership. entity_id = quote_leaf.id; diff_json
+                            -- carries {assembly_leaf_id, assembly_id, leaf_id,
+                            -- quote_leaf_id, position, quantity:{from,to}}.
+                            --
+                            -- A DISTINCT action, never a detach/attach pair:
+                            -- reattaching mints a new junction and a new
+                            -- quote_leaf, orphaning every per-(leaf,tier) cost
+                            -- row keyed to the old identity, and records two
+                            -- lifecycle events for one edit. Junction and
+                            -- position are preserved, which is why the audit
+                            -- carries both -- a later reader can prove identity
+                            -- did not move.
 'assembly_leaf_detach'      -- leaf removed from an ASY; the library
                             -- leaf itself stays (library/quote-tree
                             -- separation per brief §3.4). entity_id =

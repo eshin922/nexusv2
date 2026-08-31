@@ -25,12 +25,14 @@ import { materializePackagingRows } from "@/lib/packaging-materialization";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 import { moveStructuralMembership } from "@/lib/product-structure/structural-move";
+import { assertMembershipQuantity } from "@/lib/product-structure/membership-quantity";
 import {
   attachGroupedMembership,
   detachGroupedMembership,
   detachGroupedMembershipsForAssembly,
   GroupedMembershipConflictError,
   reorderGroupedMemberships,
+  updateGroupedMembershipQuantity,
 } from "@/lib/product-structure/grouped-membership-compatibility";
 
 // Phase A.1 v2 impl-2 — server actions for the assemblies table.
@@ -379,7 +381,10 @@ export async function attachAssemblyLeaf(
           quoteId: asm.quoteId,
           assemblyId,
           leafId,
-          quantity: quantityRaw === "" ? "1" : quantityRaw,
+          // Same validator the update path uses. Attach previously accepted
+          // whatever arrived; a quantity that update would refuse must not be
+          // reachable by attaching instead.
+          quantity: assertMembershipQuantity(quantityRaw === "" ? "1" : quantityRaw),
           position: nextPosition,
         });
         await writeAuditEntry({
@@ -420,6 +425,112 @@ export async function attachAssemblyLeaf(
       quoteLeafId: membership.quoteLeafId,
       junctionId: membership.assemblyLeafId,
     };
+  });
+}
+
+/**
+ * Set an Item Group member's `qty / parent` — how many of this component go
+ * into one sellable unit of the parent.
+ *
+ * ── WHY THIS EXISTS ─────────────────────────────────────────────────────
+ *
+ * `assembly_leaves.quantity` has always been the canonical composition fact.
+ * Every draft consumer reads it live — the adapter (`costing-adapter.ts:348`),
+ * the amortisation basis (`costing.ts:3244`), the parent fold
+ * (`costing.ts:4042`) and the customer document (`commercial-projection.ts`) —
+ * and it is materialised only at freeze. What was missing was any operator path
+ * to author it: it could be set once at attach and never changed.
+ *
+ * That gap is why no `assembly_leaves` row in the estate carries a quantity
+ * other than 1, which `costing.ts:3238` records as the coincidence that let two
+ * repaired defects survive unexercised: one-time recovery amortising over
+ * `tierQty` alone, and freight doubling when a member's quantity doubles.
+ *
+ * ── KEYED BY JUNCTION, NEVER BY POSITION ────────────────────────────────
+ *
+ * The junction id addresses one membership row. Position is display order and
+ * is reorderable, so keying on it would write the wrong member's composition
+ * the moment someone dragged a row — silently, and with money attached.
+ *
+ * ── EDIT IN PLACE, NEVER DETACH-AND-REATTACH ────────────────────────────
+ *
+ * Reattaching would mint a new junction and a new `quote_leaf`, orphaning every
+ * per-(leaf, tier) cost row keyed to the old identity, and it would fabricate a
+ * detach/attach pair in the audit timeline for what is one edit. The junction
+ * and its position are preserved.
+ */
+export async function updateAssemblyLeafQuantity(
+  formData: FormData,
+): Promise<ActionResult<{ junctionId: string; quantity: string }>> {
+  return runAction(async () => {
+    const junctionId = String(formData.get("junctionId") ?? "").trim();
+    if (!junctionId)
+      throw new ActionGuardError(ERR.VALIDATION, "junctionId required");
+
+    // Validated BEFORE any load, so a malformed quantity is refused without a
+    // round trip and without the caller learning whether the junction exists.
+    const quantity = assertMembershipQuantity(formData.get("quantity"));
+
+    const user = await ensureUser();
+
+    const rows = await db
+      .select({
+        junctionId: assemblyLeaves.id,
+        assemblyId: assemblyLeaves.assemblyId,
+        leafId: assemblyLeaves.leafId,
+        quoteLeafId: assemblyLeaves.quoteLeafId,
+        position: assemblyLeaves.position,
+        quantity: assemblyLeaves.quantity,
+        quoteId: assemblies.quoteId,
+      })
+      .from(assemblyLeaves)
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .where(eq(assemblyLeaves.id, junctionId))
+      .limit(1);
+    if (rows.length === 0)
+      throw new ActionGuardError(ERR.NOT_FOUND, "Membership not found");
+    const before = rows[0];
+
+    const quote = await loadQuoteOrThrow(before.quoteId);
+    // Composition is structure, and structure is draft-only. Post-send the
+    // freeze is the record of what was sold.
+    assertDraft(quote);
+
+    if (String(before.quantity) === quantity) {
+      return { junctionId, quantity };
+    }
+
+    await db.transaction(async (tx) => {
+      // THROUGH THE GOVERNED BOUNDARY, not a direct write. Quantity is
+      // dual-written -- canonical `quote_leaves` first, then legacy
+      // `assembly_leaves` -- and updating only the legacy side would leave the
+      // canonical row stale, which the attachment-identity parity check
+      // (`canonical-attachment-identity.ts:73`) compares on exactly this field.
+      await updateGroupedMembershipQuantity(tx, {
+        assemblyLeafId: junctionId,
+        quantity,
+      });
+
+      // Enough identity to reconstruct the fact without joining back to a row
+      // that may since have moved.
+      await writeAuditEntry({
+        userId: user.id,
+        entityType: "quote_leaf",
+        entityId: before.quoteLeafId,
+        action: "assembly_leaf_quantity_updated",
+        diffJson: {
+          assembly_leaf_id: before.junctionId,
+          assembly_id: before.assemblyId,
+          leaf_id: before.leafId,
+          quote_leaf_id: before.quoteLeafId,
+          position: before.position,
+          quantity: { from: String(before.quantity), to: quantity },
+        },
+      }, tx);
+    });
+
+    revalidateQuoteTree(quote.projectId, before.quoteId);
+    return { junctionId, quantity };
   });
 }
 
