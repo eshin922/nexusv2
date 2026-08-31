@@ -1,6 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useState } from "react";
+// TEMPORARY DIAGNOSTIC — see src/lib/diagnostics/lifecycle-trace.ts
+import { trace } from "@/lib/diagnostics/lifecycle-trace";
 
 // Slice RI.4 — Client-side accordion state holder for cost-build
 // sections. Replaces URL-driven section toggle (was causing full
@@ -43,6 +45,10 @@ export function CostBuildAccordion({
   const setOpenId = useCallback(
     (id: string | null) => {
       setOpenIdState(id);
+      // TEMPORARY DIAGNOSTIC — records the expand/collapse that immediately
+      // precedes the reported viewport jump, so the trace can say whether it
+      // preceded the reset or caused it. Those are different claims.
+      trace("costs:section", { open: id, previous: openId });
       // Update URL without triggering Next.js navigation (avoids
       // server re-render). Deep-link survives page refresh.
       if (typeof window !== "undefined") {
@@ -51,7 +57,7 @@ export function CostBuildAccordion({
         window.history.replaceState({}, "", url);
       }
     },
-    [projectId, quoteId],
+    [projectId, quoteId, openId],
   );
 
   return (
