@@ -144,6 +144,60 @@ tier, recovery ask, fixed `one-time` basis. Recovery placement is **not** asked 
 arrive in Commercial Recovery as `unplaced` and the send checklist holds until each has a
 placement. Asking here would fuse the two decisions the model keeps apart.
 
+> ### ⚠️ SUPERSEDED IN PART — `recovery ask` is removed from Costs (Edward, 2026-08-29)
+>
+> **`cost per tier` and the fixed `one-time` basis stand. The operator-authored
+> `recovery ask` does not.** Costs captures **cost only**; recovery is derived in
+> Pricing from the charge type's governed markup category.
+>
+> **The governing rule.** Pricing authority follows **charge type**. The owner does
+> not determine markup. A charge type with no governed category remains **unpriced
+> and unsendable** rather than silently defaulting — BV-013, unchanged.
+>
+> **Why the ask could not stay.** It was a manually typed number that the model
+> nonetheless carried in a field named `governedRecovery`
+> (`commercial-recovery/frozen-instruction.ts`). The name asserted a governance the
+> value did not have. `componentChargeEconomics` recorded this honestly —
+> `rateCategory: null, ratePct: null`, with the comment *"the rate is the operator's
+> ask, not a category default"* — which states the gap rather than closing it.
+>
+> **Nothing installed is being taken away.** Verified against the live database
+> 2026-08-29: **zero** `quote_charge_instance_tiers` rows carry a non-null
+> `recovery_ask`; the two component-owned charge instances that exist are both on one
+> **draft** quote; **zero** frozen recovery instructions are component-owned. An
+> interim that preserved the field would have preserved a behaviour no quote uses.
+>
+> **This note exists so the change is not silent.** The Phase 2 language above is the
+> Design Authority (tier 3) and a tier-1 business disposition outranks it — the same
+> relationship, and the same way of recording it, as the BV-011 supersession in
+> `commercial-recovery/registry.ts`. The prototype's own screens are unchanged and
+> still show the ask; read this note, not the pixels, for the Phase 2 economics
+> contract.
+>
+> **The commercial half SHIPPED** (PR #501, `58a83ef`). Charge type is the markup
+> authority, and the full mapping is governed:
+>
+> | charge type | markup authority |
+> |---|---|
+> | `tooling` | Tooling 0.20 |
+> | `print_plates` | Tooling 0.20 |
+> | `artwork_plate` *(prepress labour, and proofs)* | Manufacturing 0.30 |
+> | `samples` *(was `samples_proofs`)* | Manufacturing 0.30 |
+> | `other_service` | **deliberately unmapped** — unpriced and unsendable |
+>
+> `samples_proofs` was split rather than mapped: one key cannot carry two markup
+> authorities, since samples are physical pre-production goods and proofs are prepress
+> labour. Proofs fold into `artwork_plate`, which already carries that authority and the
+> same accounting destination. Migration `0115`.
+>
+> **What still blocks implementation is the OTHER axis.** Component charges carry **no
+> BV-011 accounting destination** — the projection records `null` for every one of them,
+> so they are unsendable to NetSuite regardless of being priced. That axis is governed by
+> [`BV-014`](../../business-validation/BV-014-component-charge-accounting-destination.md)
+> and is **externally blocked on Accounting**: two NetSuite items to create and map, the
+> Tooling-versus-Dies question, and the `otc_tooling` item-type question. Markup authority
+> and accounting destination are separate axes and neither may be inferred from the other.
+
 **After.** Ordinary rows nested under the component, edited in place, no return to the sheet.
 
 **Guards.** Selecting a type the component already owns warns and offers a second instance with
