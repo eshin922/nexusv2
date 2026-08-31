@@ -630,6 +630,25 @@ export const quotes = pgTable(
     // sendQuote action assigns; partial unique index enforces uniqueness
     // among assigned numbers. Single-tenant v1 — sequence is global.
     quoteNumber: text("quote_number"),
+    /**
+     * Transient publication ownership. NOT lifecycle state.
+     *
+     * `quote_number` says a number is GOVERNED. These say a caller currently
+     * OWNS publishing it. They are separate facts and must never be inferred
+     * from one another -- a draft carrying a number is "claimed but
+     * unpublished", which is not Sent and must not be presented as Sent.
+     *
+     * The token exists so cleanup is ownership-safe: a publisher that fails
+     * slowly can finish after a newer one has legitimately acquired the claim,
+     * and every release is scoped to the releaser's own token so a late
+     * finisher can only clear its own.
+     *
+     * NULL on every quote that is not mid-publication, which is nearly always.
+     */
+    publicationClaimToken: text("publication_claim_token"),
+    publicationClaimedAt: timestamp("publication_claimed_at", {
+      withTimezone: true,
+    }),
     // DEC-7: send-time snapshots of firm_settings commercial defaults.
     // Snapshot at sendQuote so past sent quotes never silently update if
     // firm settings change post-send. Drafts read firm_settings live.

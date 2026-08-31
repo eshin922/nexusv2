@@ -38,7 +38,7 @@ export function PricingTable({
   recommendedTierIdx: number | null;
   layout: CpdfPdfLayout;
   /** Required when `continued` true — used in the continuation eyebrow. */
-  quoteNumber: string;
+  quoteNumber: string | null;
   continued?: boolean;
 }) {
   // SINGLE-TIER LAYOUT picks which tier to SHOW. With no recommendation it
@@ -54,7 +54,9 @@ export function PricingTable({
     <View style={styles.table}>
       {continued && (
         <Text style={[styles.eyebrow, { marginBottom: 8 }]}>
-          Tiered pricing · continued — {quoteNumber}
+          {/* The number qualifies the eyebrow; with none, the eyebrow still
+              has its job to do and simply says less. */}
+          Tiered pricing · continued{quoteNumber ? ` — ${quoteNumber}` : ""}
         </Text>
       )}
 

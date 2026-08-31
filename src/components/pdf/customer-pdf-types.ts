@@ -37,7 +37,20 @@ export type CpdfCustomer = {
 };
 
 export type CpdfQuote = {
-  quote_number: string;
+  /**
+   * NULL until publication governs one. Not `""`.
+   *
+   * This was `string`, which is a claim the document could not honour: a
+   * draft has no number, so absence was coerced to an empty string at the
+   * adapter and the masthead rendered a blank where a number belongs. The
+   * type asserted a fact rather than describing one, and the render was
+   * silent about it -- the same shape as a cast that stops the compiler
+   * asking.
+   *
+   * Every consumer now decides explicitly what absence looks like, using the
+   * grammar already in this tree: the line is omitted rather than emptied.
+   */
+  quote_number: string | null;
   /**
    * What the quote is *for* — projected from `projects.deal_name`
    * (adapter, Step 4). Renders under `quote_number` in the masthead.

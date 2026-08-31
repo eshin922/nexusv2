@@ -68,6 +68,20 @@ export function customerViewToCpdf(
   opts: {
     /** ISO date the render is happening. Used for `issued_date` when quote.sentDate is null (draft preview). */
     todayIso: string;
+    /**
+     * The governed quote number for THIS render, when publication has
+     * established one.
+     *
+     * `view.quote.quoteNumber` cannot supply it at send time: the resolver
+     * gates that field on `isSent`, and the artifact is deliberately rendered
+     * while the quote is still a draft so that a rejected send leaves no
+     * external file. The number is allocated by the publication claim before
+     * the render, and threaded here so the document carries the number that
+     * is about to be persisted beside it.
+     *
+     * Omitted for previews, which correctly show no number.
+     */
+    quoteNumber?: string | null;
   },
 ): CpdfTranslationResult {
   const vendor: CpdfVendor = {
@@ -90,7 +104,11 @@ export function customerViewToCpdf(
   };
 
   const quote: CpdfQuote = {
-    quote_number: view.quote.quoteNumber ?? "",
+    // The publication's number when one governs this render, else whatever the
+    // view resolved (a number for a re-render of a sent quote, null for a
+    // draft). Never coerced: null means "not yet governed" and the document
+    // says so by omission.
+    quote_number: opts.quoteNumber ?? view.quote.quoteNumber ?? null,
     project_title: view.quote.projectTitle,
     // TODO(bounded-cleanup, Gate B cutover 2026-08-24): a draft has NOT been
     // issued, and this prints today's date as its issue date. Edward's

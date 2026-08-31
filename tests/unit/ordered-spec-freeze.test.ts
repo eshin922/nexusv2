@@ -277,7 +277,7 @@ test("the freeze module exposes the read the packet is meant to use", async () =
 
 test("snapshot, ordered specs and commercial state share ONE transaction", async () => {
   const src = codeOnly(await SEND());
-  const txStart = src.indexOf("const result = await db.transaction(async (tx) => {");
+  const txStart = src.indexOf("result = await db.transaction(async (tx) => {");
   assert.ok(txStart > 0, "the send transaction must be identifiable");
   const snapshot = src.indexOf("insert(quoteSnapshots)", txStart);
   const specs = src.indexOf("freezeOrderedSpecs(tx,", txStart);
@@ -305,7 +305,7 @@ test("the freeze cannot escape the caller's transaction", async () => {
 
 test("pdf_url is persisted only inside the transaction", async () => {
   const src = codeOnly(await SEND());
-  const txStart = src.indexOf("const result = await db.transaction(async (tx) => {");
+  const txStart = src.indexOf("result = await db.transaction(async (tx) => {");
   // The bytes are uploaded before the transaction — the signed URL cannot be
   // minted for an object that does not exist yet. What matters is that NOTHING
   // references the artifact unless the governed snapshot commits: on rollback

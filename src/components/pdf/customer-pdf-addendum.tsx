@@ -177,14 +177,17 @@ function AddendumPageFooter({
   quoteNumber,
 }: {
   vendorName: string;
-  quoteNumber: string;
+  quoteNumber: string | null;
 }): ReactNode {
   return (
     <View style={addendumStyles.pageFooter} fixed>
       <Text
         style={addendumStyles.pageFooterText}
         render={({ pageNumber, totalPages }) =>
-          `${vendorName} · ${quoteNumber} · Page ${pageNumber} of ${totalPages}`.toUpperCase()
+          [vendorName, quoteNumber, `Page ${pageNumber} of ${totalPages}`]
+            .filter((part): part is string => part !== null)
+            .join(" · ")
+            .toUpperCase()
         }
       />
     </View>

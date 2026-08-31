@@ -31,7 +31,14 @@ export function Masthead({
       </View>
       {/* .v-meta (CD `pdf-render.jsx:48`) */}
       <View style={styles.vMeta}>
-        <Text style={styles.vMetaQnum}>{quote.quote_number}</Text>
+        {/* Omitted rather than emptied when publication has not governed a
+            number -- the same grammar the project-title line below already
+            uses, and the same answer `CustomerViewLive` gives on the HTML
+            twin: "absence is rendered as absence. No invented number or
+            date." The masthead is a flex column, so the line collapses. */}
+        {quote.quote_number !== null && quote.quote_number.length > 0 && (
+          <Text style={styles.vMetaQnum}>{quote.quote_number}</Text>
+        )}
         {/* Nexus extension per Pattern 39 — project title line.
             Null-safe: absent → line drops cleanly, hierarchy
             reverts to CD canonical. */}

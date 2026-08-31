@@ -102,6 +102,10 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import {
+  claimPublication,
+  releasePublicationClaim,
+} from "@/lib/publication-claim";
+import {
   loadCopySourceProjects,
   loadScenarioCopyPicker,
   type CopySourceProject,
@@ -1930,15 +1934,61 @@ export async function sendQuote(
     // uses, so a Direct Component is present in both representations or in
     // neither. It cannot be priced in one and missing from the other, which is
     // what the legacy junction allowed.
-    const snapshotRepresentation = buildSnapshotRepresentation({
-      view: resolved.view,
-      addendumData: resolved.addendumData,
-      structure: await loadQuoteProductStructure(quoteId),
-      todayIso,
+    // ══ PUBLICATION CLAIM ════════════════════════════════════════════════
+    //
+    // One caller owns this transition, and it gets the governed number, in a
+    // single statement. Placed HERE — after every refusal above, immediately
+    // before the first irreversible external act — so a quote that is going to
+    // be refused never holds a claim and never consumes a number.
+    //
+    // WHY BEFORE THE RENDER. The number has to be ON the artifact. It used to
+    // be allocated inside the transaction, 54 lines after `renderToBuffer`,
+    // so every finalized document was rendered before its own number existed
+    // and DPS-1072's PDF carries a blank where its number belongs.
+    //
+    // WHY NOT INSIDE THE TRANSACTION. Render and upload stay outside it, so a
+    // rejected send leaves no external artifact — that rule is unchanged. The
+    // claim is what makes the number available to a render that happens
+    // before the transaction opens.
+    const claim = await claimPublication(db, {
+      quoteId,
+      quoteNumberPrefix: firm.quoteNumberPrefix,
     });
-    const buffer = await renderToBuffer(
-      renderRepresentation(snapshotRepresentation),
-    );
+    if (claim.kind === "held") {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "This quote is being finalized right now, in another window or by " +
+          "another person. Nothing was sent from here. Reload to see where it got to.",
+      );
+    }
+    if (claim.kind === "not_publishable") {
+      throw new ActionGuardError(
+        ERR.QUOTE_NOT_DRAFT,
+        "This quote is no longer a draft, so it cannot be finalized again. " +
+          "Reload to see its current state.",
+      );
+    }
+    const quoteNumber = claim.quoteNumber;
+
+    // From here the claim is HELD, and every exit must release it. A failure
+    // that left the claim standing would lock the quote for the whole lease,
+    // and the operator's retry — the thing they will certainly do — is the
+    // case that must keep working.
+    let result: { quoteNumber: string; sentAt: Date };
+    try {
+      const snapshotRepresentation = buildSnapshotRepresentation({
+        view: resolved.view,
+        addendumData: resolved.addendumData,
+        structure: await loadQuoteProductStructure(quoteId),
+        todayIso,
+        // The number this send is about to persist, on the document this send
+        // is about to freeze. The view cannot supply it: it gates the field on
+        // `isSent`, and this quote is still a draft by design.
+        quoteNumber,
+      });
+      const buffer = await renderToBuffer(
+        renderRepresentation(snapshotRepresentation),
+      );
 
     const { artifacts } = await getApplicationDependencies();
     const storagePath = buildQuotePdfStoragePath(quoteId, sendUuid);
@@ -1974,29 +2024,17 @@ export async function sendQuote(
       );
     }
 
-    const result = await db.transaction(async (tx) => {
-      // Pull next quote number from the sequence inside the transaction
-      // so the audit + UPDATE see the same value.
+    result = await db.transaction(async (tx) => {
+      // NO ALLOCATION HERE. `quoteNumber` came from the publication claim
+      // above, which is the only place `nextval` is reached and the only place
+      // an owner is elected — the two being one statement is what makes them
+      // agree. A second `nextval` here would mint a number the rendered
+      // artifact does not carry, which is the defect this replaces.
       //
-      // Hotfix (2026-07-27) — sequence-backed customer identifier
-      // continuity. Guard on existing quote.quoteNumber so re-invocation
-      // (Slice 12 revise-in-place → re-send the SAME quote, incrementing
-      // version_number) reuses the prior number. Without this, a second
-      // send fractures customer identity: consumes a fresh sequence value
-      // AND overwrites the prior quoteNumber column, so the same quote
-      // ends up with two different customer-facing numbers. Sequence is
-      // consumed exactly once per quote. §0.5 pattern: sequence-backed
-      // identifiers must guard on existing-value before pulling a new one.
-      let quoteNumber: string;
-      if (quote.quoteNumber === null) {
-        const seqResult = (await tx.execute(
-          sql`SELECT nextval('quote_number_seq') AS next`,
-        )) as unknown as Array<{ next: string | number }>;
-        const next = String(seqResult[0].next);
-        quoteNumber = `${firm.quoteNumberPrefix}-${next}`;
-      } else {
-        quoteNumber = quote.quoteNumber;
-      }
+      // The continuity the old comment protected still holds and now holds
+      // earlier: the claim's `COALESCE` reuses an existing number, so a retry
+      // after a failed publication and a revise-in-place re-send both keep the
+      // number the customer has already seen.
 
       // Slice 11 blocking bug fix (2026-07-27) — snapshot axes source
       // is the RESOLVED VIEW, not the DB row. The resolver's draft
@@ -2242,6 +2280,12 @@ export async function sendQuote(
       const [updated] = await tx
         .update(quotes)
         .set({
+          // The claim is released by the very statement that makes it
+          // unnecessary. In the same transaction as the snapshot, so a quote
+          // cannot end up published while still advertising a live publisher,
+          // and a rollback restores the claim along with everything else.
+          publicationClaimToken: null,
+          publicationClaimedAt: null,
           status: "sent",
           sentAt,
           quoteNumber,
@@ -2376,6 +2420,19 @@ export async function sendQuote(
 
       return { quoteNumber, sentAt };
     });
+    } catch (error) {
+      // EXPLICIT STALE RECOVERY, which is why the lease is only a backstop.
+      // Anything failing after the claim -- a render error, a failed upload, a
+      // rolled-back transaction, a refusal raised inside it -- hands the quote
+      // straight back, so the operator's retry works immediately rather than
+      // after a lease expires.
+      //
+      // Scoped to this caller's token, so a slow failure landing after someone
+      // else has legitimately claimed the quote clears nothing. The NUMBER is
+      // deliberately left in place: it is governed, and the retry reuses it.
+      await releasePublicationClaim(db, { quoteId, token: claim.token });
+      throw error;
+    }
 
     // SendQuoteFlow owns the post-send refresh: it first renders the success
     // receipt, then calls router.refresh() when the PM closes that dialog.

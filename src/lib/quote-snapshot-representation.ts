@@ -86,9 +86,18 @@ export function buildSnapshotRepresentation(args: {
   addendumData: QuoteAddendumData | null;
   structure: QuoteProductRow[];
   todayIso: string;
+  /**
+   * The governed number for this publication, when there is one.
+   *
+   * Passed in rather than read off the view because the artifact is rendered
+   * before the quote leaves `draft`, and the view correctly reports no number
+   * for a draft. This is what puts the number the send is about to persist
+   * onto the document the send is about to freeze.
+   */
+  quoteNumber?: string | null;
 }): QuoteSnapshotRepresentation {
-  const { view, addendumData, structure, todayIso } = args;
-  const { data } = customerViewToCpdf(view, { todayIso });
+  const { view, addendumData, structure, todayIso, quoteNumber } = args;
+  const { data } = customerViewToCpdf(view, { todayIso, quoteNumber });
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     cpdfData: data,
