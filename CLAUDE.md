@@ -6123,15 +6123,72 @@ attempted.
 
 **Adjacent discipline, same application.** `drizzle-kit migrate` applies EVERY
 pending migration, not the one being discussed. "Apply 0064" and "run the
-migrator" are the same action only when the journal says so. Verify the pending
-set before applying to a shared database:
+migrator" are the same action only when the journal says so.
+
+### Pending-set verification is MANDATORY before every shared-database migration
+
+**Use the migrator's own semantics. It reads `max(created_at)` and nothing
+else.** `drizzle-kit migrate` delegates to drizzle-orm's `migrate()`, which
+issues `select id, hash, created_at ... order by created_at desc limit 1` and
+then executes every journal entry whose `when` exceeds that single value.
+**`hash` is written on insert and never read.** So the pending set is:
+
+1. Read `max(created_at)` from `drizzle.__drizzle_migrations`.
+2. Read the governed entries from `drizzle/meta/_journal.json`.
+3. Enumerate every entry whose `when` > `max(created_at)`.
+4. Require that **exact set** to equal the migration(s) intentionally being
+   applied.
+5. **Refuse the cutover** if any unexpected entry sits above the high-water
+   mark.
 
 ```sql
-SELECT count(*) FROM drizzle.__drizzle_migrations;   -- vs entries in drizzle/meta/_journal.json
+SELECT max(created_at) FROM drizzle.__drizzle_migrations;
+-- then, against drizzle/meta/_journal.json:
+--   pending = every entry whose `when` is strictly greater than that value
 ```
 
-62 against 63 meant exactly one pending. Had it been 60 against 63, running the
-migrator would have applied two migrations nobody authorized.
+`scripts/gate-1b/migration-history-trace.ts` prints exactly this and is the
+cheapest way to run the check.
+
+### Counting rows against journal entries does NOT establish the pending set
+
+**It is a coarse consistency signal only.** This section previously offered
+`SELECT count(*) FROM drizzle.__drizzle_migrations` versus the journal entry
+count as the verification, and that guidance was wrong:
+
+- **Equal counts can hide divergent identities.** A row whose `created_at`
+  drifted from its journal `when` still counts as one row; the totals agree
+  while the identities do not.
+- **Unequal counts do not establish which migrations Drizzle will execute.**
+  They give a number, not a set — and the difference can sit anywhere in the
+  history, including entirely below the high-water mark where nothing is
+  reachable.
+
+Reference: the 2026-08-30 incident. The counts were 110 against 114, and a
+set-difference over `created_at` reported SIX entries pending — including
+`0021_quote_number_backfill`, a historical data migration. The true pending set
+was FOUR, and `0021` sat roughly 9.6 billion milliseconds below the high-water
+mark, structurally unreachable. **A count told the truth about a number and
+nothing about the risk.**
+
+### When metadata and expected database state disagree
+
+**Do not infer from metadata alone. Establish application through schema/data
+evidence before executing OR recording anything.**
+
+Metadata silence is not evidence a migration did not run, and a metadata row is
+not evidence that one did. In the same incident, `0021` carried no hash and no
+matching timestamp, and **39 quotes held a non-null `quote_number`** — the data
+settled what the metadata could not. Four other migrations (`0112`–`0115`) had
+no row at all and were proven applied by catalog probes.
+
+That ordering is the whole protection for backfills: **a metadata mismatch must
+never be sufficient reason to execute a historical data migration again.**
+
+When a repair is warranted, the metadata row records a fact established
+elsewhere — it must never BE the evidence. Recording a migration that did not
+run hides it from the migrator permanently, which is the same hazard in the
+opposite direction.
 
 **Cross-references.**
 - "Single Supabase project — dev and prod share one DB" — why any migration is a
