@@ -1,0 +1,46 @@
+-- The seventeenth BV-011 destination: Item Group-owned production economics.
+--
+-- ── WHY IT EXISTS ───────────────────────────────────────────────────────
+--
+-- A NetSuite Group header carries a quantity and NO sell value: `rate` and
+-- `netamount` are NULL on the Group line at the database level, while every
+-- member carries both, and the order's subtotal is the sum of the MEMBER
+-- amounts. So an Item Group's OWN economics cannot ride the header and need a
+-- line of their own.
+--
+-- None of the sixteen existing destinations means what that line means. Each
+-- names a specific one-time charge, or an input that BV-011 §1.a says
+-- explicitly "does not become a separate OTC or service line". Reusing one --
+-- Setup, Formulation, Packout -- would post two economically different things
+-- to one item, and on DPS-1072 would double-attribute the Setup and Artwork
+-- recovery that is already INSIDE the Item Group amount.
+--
+-- Found by REG-4 refusing a fully repaired, accepted quote: emitted lines
+-- 42,668.50 against a frozen accepted total of 66,556.00, short by exactly the
+-- Item Group's 23,887.50.
+--
+-- ── WHY IT IS NOT `otc_*` ───────────────────────────────────────────────
+--
+-- An `otc_*` destination is a ONE-TIME charge. This is recurring Item
+-- Group-owned economics that scale with the accepted tier quantity and recur on
+-- every order of that group. The namespace is the statement of that difference,
+-- which is why the label sits outside it.
+--
+-- ── WHY THIS IS SAFE AHEAD OF CODE ──────────────────────────────────────
+--
+-- ADDITIVE, in the safest direction: a new enum LABEL, APPENDED. No existing
+-- row's value changes, nothing is tightened, nothing is dropped, and enum label
+-- ORDER is stored -- appending rather than inserting means no existing row's
+-- meaning moves. Every deployed reader handles the sixteen existing labels
+-- exactly as before, and no deployed writer can emit the new one until the code
+-- that knows about it ships.
+--
+-- `netsuite_destination_item_map` has no CHECK constraint (verified against the
+-- live catalog), so the new label is immediately mappable once an Accounting-
+-- approved item exists. Nothing maps it here: a destination with no item is the
+-- correct state until Accounting approves one.
+--
+-- ADD VALUE IF NOT EXISTS so re-running is harmless. It cannot run inside a
+-- transaction block on older PostgreSQL; it is issued on its own here.
+
+ALTER TYPE "bv011_destination" ADD VALUE IF NOT EXISTS 'item_group_production';

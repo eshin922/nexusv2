@@ -238,6 +238,10 @@ export const bv011Destination = pgEnum("bv011_destination", [
   "otc_samples",
   "otc_processing_fee",
   "otc_cartons",
+  // Appended, never inserted: enum label order is stored, and reordering would
+  // rewrite what existing rows mean. Outside the `otc_*` namespace by design —
+  // see `bv011-destinations.ts` and the BV-011 amendment of 2026-08-31.
+  "item_group_production",
 ]);
 
 export const directServiceIdentity = pgEnum("direct_service_identity", [

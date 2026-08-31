@@ -8,6 +8,7 @@ import {
   OTC_COLUMN_DESTINATION,
   SERVICE_IDENTITY_DESTINATION,
   bv011ItemType,
+  bv011Label,
   isPerLineDestination,
 } from "../../src/lib/netsuite/bv011-destinations.ts";
 import { projectCommercial } from "../../src/lib/commercial-projection.ts";
@@ -80,15 +81,22 @@ const prod = (tierId: string, extra: Record<string, unknown>) => ({
 // ── the catalogue ────────────────────────────────────────────────────────
 
 test("BV-011 catalogue is complete and matches the document's own count", () => {
-  assert.equal(BV011_DESTINATIONS.length, 16);
+  assert.equal(BV011_DESTINATIONS.length, 17);
   const inventory = BV011_DESTINATIONS.filter((d) => d.itemType === "inventory");
-  // BV-011 states the split explicitly: "5 Inventory Item, 11 Non-inventory".
-  // Was 6/10 until 2026-08-20, when Accounting governed Pack-out / Assembly as
-  // a non-inventory SERVICE item. The count is mirrored here on purpose: it is
-  // how a silent drift between the document and the catalogue gets caught.
+  // The count is mirrored here on purpose: it is how a silent drift between the
+  // document and the catalogue gets caught, and it has now caught two
+  // deliberate changes rather than any drift.
+  //
+  //   6/10 → 5/11  2026-08-20  Pack-out / Assembly governed non-inventory
+  //   5/11 → 5/12  2026-08-31  `item_group_production` added
+  //
+  // The seventeenth is Item Group-owned economics, outside the `otc_*`
+  // namespace because it is recurring rather than a one-time charge. It exists
+  // because a NetSuite Group header carries a quantity and no sell value, so an
+  // Item Group's own economics need a line of their own.
   assert.equal(inventory.length, 5, "five Inventory destinations");
-  assert.equal(BV011_DESTINATIONS.length - inventory.length, 11);
-  assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 16, "keys unique");
+  assert.equal(BV011_DESTINATIONS.length - inventory.length, 12);
+  assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 17, "keys unique");
 });
 
 test("Tooling and Artwork are separate destinations with DIFFERENT item types", () => {
@@ -454,4 +462,53 @@ test("the picker is NOT generalized to destinations that cannot originate a line
   for (const d of unreachable) {
     assert.equal(isPerLineDestination(d), false, `${d} became per-line without quote-line economics`);
   }
+});
+
+// ── THE SEVENTEENTH · Item Group-owned production economics ──────────────
+
+test("item_group_production is deliberately OUTSIDE the otc_ namespace", () => {
+  // Not cosmetic. An `otc_*` destination is a ONE-TIME charge; this is
+  // recurring Item Group-owned economics that scale with the accepted tier
+  // quantity. The key is where that difference is stated, so a future rename
+  // into the namespace would erase the distinction silently.
+  assert.ok(!("item_group_production" as string).startsWith("otc_"));
+
+  const otcKeys = BV011_DESTINATIONS.filter((d) => d.key.startsWith("otc_"));
+  assert.equal(otcKeys.length, 16, "the sixteen one-time destinations are unchanged");
+  assert.equal(
+    BV011_DESTINATIONS.length - otcKeys.length,
+    1,
+    "and exactly one destination sits outside that namespace",
+  );
+});
+
+test("it is governed Non-inventory, by census rather than assumption", () => {
+  // Every existing sell-side destination item in the sandbox — BLD-FILL,
+  // OTC-0049, OTC-0024, OTC-0001, OTC-0005, OTC-0050 — is NonInvtPart /
+  // Resale. Recorded as an assertion so an admin mapping an Inventory record
+  // to it is a catchable accounting error, which is the reason the itemType
+  // field exists at all.
+  assert.equal(bv011ItemType("item_group_production"), "non_inventory");
+});
+
+test("it does not collide with, or duplicate, any charge destination", () => {
+  // The failure this guards: quietly reusing Setup or Formulation, which on
+  // DPS-1072 would double-attribute the Included recovery already inside the
+  // Item Group amount.
+  for (const key of ["otc_setup", "otc_formulation", "otc_packout", "otc_filling"] as const) {
+    assert.notEqual(bv011Label(key), bv011Label("item_group_production"));
+  }
+  assert.equal(bv011Label("item_group_production"), "Item Group Production / Conversion");
+});
+
+test("the database enum carries it, appended not inserted", async () => {
+  const schema = await readFile("src/db/schema.ts", "utf8");
+  const start = schema.indexOf('pgEnum("bv011_destination"');
+  const block = schema.slice(start, schema.indexOf("]);", start));
+  // Enum label ORDER is stored. Appending keeps every existing row meaning
+  // what it meant; inserting would rewrite them.
+  assert.ok(
+    block.indexOf('"item_group_production"') > block.indexOf('"otc_cartons"'),
+    "must be appended after the existing sixteen",
+  );
 });
