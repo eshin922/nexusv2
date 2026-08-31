@@ -53,7 +53,12 @@ separate OTC or service lines.
 | Processing Fee | `OTC - Processing Fee` | Non-inventory Item |
 | Cartons (Master / Inner) | `OTC - Cartons` | Non-inventory Item |
 
-**16 destinations.** 5 Inventory Item, 11 Non-inventory Item. *(Amended 2026-08-20: `OTC - Packout` moved Inventory → Non-inventory; was 6/10.)*
+**17 destinations** since 2026-08-31. The seventeenth,
+`item_group_production`, sits deliberately OUTSIDE the `otc_*` namespace and is
+defined in the amendment at the foot of this document: recurring Item
+Group-owned economics, not a one-time charge.
+
+**16 destinations** as originally recorded. 5 Inventory Item, 11 Non-inventory Item. *(Amended 2026-08-20: `OTC - Packout` moved Inventory → Non-inventory; was 6/10.)*
 
 ---
 
@@ -180,3 +185,99 @@ written and false as soon as it was checked.
 **The Nexus destination key is unchanged: `otc_packout`.** No `otc_assembly` key
 is introduced; `packout_assembly -> otc_packout` continues to route the service
 identity.
+
+
+## Amendment — 2026-08-31 · Item Group-owned production economics
+
+**A seventeenth destination is added: `item_group_production` — "Item Group
+Production / Conversion".** It is deliberately **outside the `otc_*`
+namespace.**
+
+### Why a new destination was required
+
+The sixteen destinations above all name a specific ONE-TIME charge type, or an
+input that folds into component economics (§1.a: *"They do not become separate
+OTC or service lines"*). Neither shape fits what an Item Group owns.
+
+The gap was found by evidence, not by review. `DPS-1072` — a fully repaired,
+cent-exact, accepted quote — was refused at the Sales Order boundary by REG-4:
+
+    emitted Sales Order lines   $42,668.50
+    frozen accepted total       $66,556.00
+    difference                 −$23,887.50
+
+The shortfall was exactly the Item Group's own line. A NetSuite trace against
+real sandbox orders (`SO2715`, `SO2716`) then established why it could not
+simply be emitted as the Group header: **a NetSuite Group header carries a
+quantity and no sell value.** `rate` and `netamount` are NULL on the Group line
+at the database level, while every member carries both, and the subtotal is the
+sum of the MEMBER amounts. A Group is a span, not a priced line.
+
+So the Item Group's economics need a line of their own, and no existing
+destination means what that line means.
+
+### What the destination carries
+
+    assemblyOwnUnitSellPerUnit × accepted tier quantity
+
+which comprises:
+
+- Item Group production / conversion **cost**;
+- its **governed production markup**;
+- recovery of charges explicitly elected **Included**, and therefore already
+  incorporated into Item Group unit-price economics.
+
+For `DPS-1072` Tier 3: `3.98125 × 6,000 = $23,887.50`, of which `$6,265` is the
+Included recovery of Project Setup and Artwork.
+
+**Those Included charges stay inside this amount.** They are not emitted
+separately, not allocated into member rates, and their Recovery election is not
+reinterpreted to suit the ERP. The operator decided how they are recovered; the
+projection reports that decision, it does not revisit it.
+
+### Why it is not OTC
+
+An `otc_*` destination is a one-time charge. This is **recurring Item Group-owned
+commercial economics** — it scales with the accepted tier quantity and recurs on
+every order of that Item Group. Filing it under `otc_*` would misclassify a
+recurring conversion economic as a one-time fee, and the namespace is the
+statement of that difference.
+
+### Why allocation into members was rejected
+
+Bottle, Pump, Label and Carton already carry their own packaging economics.
+Distributing the group-owned amount across their rates would change what a
+component rate MEANS, attribute production economics to packaging components,
+make the allocation method commercially significant, and destroy the direct
+reconciliation between Nexus's economic grains and NetSuite's lines.
+
+### Governed item type
+
+**Non-inventory Item, subtype Resale** — the configuration every existing
+sell-side governed destination item uses, established by census rather than
+assumed:
+
+| item | destination | type | subtype | income | expense |
+|---|---|---|---|---|---|
+| `BLD-FILL` | `otc_filling` | NonInvtPart | Resale | 218 | 212 |
+| `OTC-0049` | `otc_packout` | NonInvtPart | Resale | 218 | 212 |
+| `OTC-0024` | `otc_setup` | NonInvtPart | Resale | 218 | 212 |
+| `OTC-0001` | `otc_artwork` | NonInvtPart | Resale | 218 | 212 |
+| `OTC-0005` | `otc_tooling` | NonInvtPart | Resale | 218 | 212 |
+| `OTC-0050` | `otc_formulation` | NonInvtPart | Resale | 218 | 212 |
+
+All six are `NonInvtPart` / `Resale`, subsidiary 2, income 218, expense 212.
+Of the account's 230 NonInvtPart items, 224 are subtype `Resale`.
+
+Note this makes the destination Non-inventory while `OTC - Tooling` is recorded
+as Inventory in §1.b — a discrepancy between the map and the sandbox that
+predates this amendment and is left to the Production / OTC workstream (§4).
+
+### Scope
+
+This amendment states what the destination MEANS and what item type governs it.
+Like the rest of BV-011 it authorizes no implementation: the NetSuite Group
+span, the emitted production line, and the item mapping are built under their
+own dispositions, and §3's boundary is unchanged.
+
+**Recorded 2026-08-31 (Edward, Accounting / Design Authority disposition).**
