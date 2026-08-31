@@ -35,7 +35,12 @@ export type Bv011Destination =
   | "otc_print_plates"
   | "otc_samples"
   | "otc_processing_fee"
-  | "otc_cartons";
+  | "otc_cartons"
+  // §amendment 2026-08-31 — Item Group-owned economics. OUTSIDE the `otc_*`
+  // namespace on purpose: an `otc_*` destination is a one-time charge, and
+  // this is recurring economics that scale with the accepted tier quantity.
+  // The namespace is the statement of that difference.
+  | "item_group_production";
 
 /**
  * The item type BV-011 governs for each destination.
@@ -78,6 +83,35 @@ export const BV011_DESTINATIONS: ReadonlyArray<{
   { key: "otc_samples", label: "OTC - Samples", itemType: "non_inventory", section: "1.b" },
   { key: "otc_processing_fee", label: "OTC - Processing Fee", itemType: "non_inventory", section: "1.b" },
   { key: "otc_cartons", label: "OTC - Cartons", itemType: "non_inventory", section: "1.b" },
+  // ── THE SEVENTEENTH ───────────────────────────────────────────────────
+  //
+  // What a NetSuite Group cannot say. A Group header carries a quantity and no
+  // sell value — `rate` and `netamount` are NULL on it at the database level
+  // while every member carries both, and the subtotal is the sum of the MEMBER
+  // amounts. So an Item Group's OWN economics need a line, and none of the
+  // sixteen above means what that line means: each names a specific one-time
+  // charge, or an input that §1.a says explicitly "does not become a separate
+  // OTC or service line".
+  //
+  // It carries `assemblyOwnUnitSellPerUnit × accepted tier quantity`:
+  // production cost, its governed markup, and the recovery of charges the
+  // operator elected Included. Those stay INSIDE it — not emitted separately,
+  // not allocated into member rates, and their Recovery election is not
+  // reinterpreted to suit the ERP.
+  //
+  // Section "1.b" because it IS a distinct line rather than a fold into
+  // component economics; the section field only distinguishes those two
+  // shapes, and there is no third. The `otc_*` question is answered by the
+  // KEY, which is where it belongs.
+  //
+  // Non-inventory by census, not by assumption: all six existing sell-side
+  // destination items are NonInvtPart / Resale. See the BV-011 amendment.
+  {
+    key: "item_group_production",
+    label: "Item Group Production / Conversion",
+    itemType: "non_inventory",
+    section: "1.b",
+  },
 ];
 
 const BY_KEY = new Map(BV011_DESTINATIONS.map((d) => [d.key, d] as const));
