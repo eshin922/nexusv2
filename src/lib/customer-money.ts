@@ -93,14 +93,16 @@ export function composeTierMoney(input: {
   };
 }
 
-/**
- * Extended amounts for one SKU across the tiers.
+/*
+ * `composeLineTotals` STOOD HERE and is deliberately gone.
  *
- * NULL in, NULL out — never 0. The distinction is customer-visible.
+ * It extended a unit price by the TIER's quantity, which is only the line's
+ * quantity while every Item Group member carries `qtyPerParent = 1`. The one
+ * production caller now consumes `CommercialLine.cells[].lineAmount`, which
+ * `projectCommercial` already resolved at `tierQty x qtyPerParent`.
+ *
+ * Deleted rather than corrected: a helper whose purpose is re-deriving a fact
+ * the governed projection already owns is an invitation to the same defect,
+ * and a second correct-looking formula is how two surfaces start disagreeing
+ * about one number.
  */
-export function composeLineTotals(
-  unitPrices: ReadonlyArray<number | null>,
-  tierQuantities: ReadonlyArray<number>,
-): ReadonlyArray<number | null> {
-  return unitPrices.map((p, ti) => (p === null ? null : p * tierQuantities[ti]));
-}
