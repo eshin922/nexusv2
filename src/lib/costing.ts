@@ -5000,6 +5000,58 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         });
       }
 
+      // ── COST RECOGNITION DOES NOT DEPEND ON RECOVERY PLACEMENT ──────────
+      //
+      // A charge with a cost at tier T is money DPS is paying at tier T.
+      // Whether an operator has decided how to recover it, or decided to
+      // recover nothing, answers a different question — and the answer to that
+      // question must not be able to delete the cost.
+      //
+      // It could. `unitPriceCost*` reaches the tier through the per-unit
+      // build-up and `separateLineCost` through the operand above, but
+      // `absorbedCost` had no consumer anywhere and `unplacedCost` had no
+      // bucket at all. So an unplaced charge's cost stopped at
+      // `totalChargeCost`: on the fixture that surfaced this, moving a stored
+      // charge from $2 to $20 moved the tier's governed cost by nothing.
+      //
+      // COST-ONLY, AND ONE OPERAND EACH. They join here, at tier grain, for
+      // the same dimensional reason the separately-billed charge does: a fixed
+      // charge is billed once and amortising it into a unit rate to multiply
+      // it back out is the round trip that already cost this codebase a
+      // reconciliation. No revenue operand accompanies them — an absorbed
+      // charge recovers zero by decision, an unplaced one recovers nothing yet
+      // by omission, and inventing revenue for either would state a commercial
+      // fact nobody has decided.
+      //
+      // NO DOUBLE COUNT, BY CONSTRUCTION. `totalsOf` asserts the five buckets
+      // partition `totalChargeCost` exactly, and this reads two buckets that
+      // no other consumer reads. `included` and `separate` are untouched.
+      const absorbedCost = pt.constructed.absorbedCost;
+      if (absorbedCost !== 0) {
+        costOperands.push({
+          key: nodeKey("quote", tier.id, "cost-total", top.id, "otc-absorbed"),
+          kind: "origin",
+          label: top.skuLabel + " — one-time charges, absorbed",
+          value: absorbedCost,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      }
+      const unplacedCost = pt.constructed.unplacedCost;
+      if (unplacedCost !== 0) {
+        costOperands.push({
+          key: nodeKey("quote", tier.id, "cost-total", top.id, "otc-unplaced"),
+          kind: "origin",
+          // Named for what it is. An operator reading a tier total is entitled
+          // to see that it contains a cost whose recovery is still undecided,
+          // rather than finding the number moved for no stated reason.
+          label: top.skuLabel + " — one-time charges, recovery not yet decided",
+          value: unplacedCost,
+          unit: "usd",
+          origin: { grade: "thin", actor: null, when: null, doc: null },
+        });
+      }
+
       breakdown.packaging += pt.packagingCostPerUnit * tQty;
       // raw bulk cost folds into "production" for breakdown purposes
       // (see QuoteCostBreakdown comment).

@@ -372,6 +372,23 @@ export type ConstructedCommercialState = {
   separateLineCost: number;
   absorbedCost: number;
   /**
+   * Cost of charges nobody has placed yet.
+   *
+   * COST TRUTH IS INVARIANT UNDER PLACEMENT. A charge with a cost for tier T
+   * is money DPS is paying at tier T, and whether an operator has decided how
+   * to recover it is a different question with a different answer. Before this
+   * bucket existed, an unplaced charge had no cost bucket at all, so its cost
+   * reached `totalChargeCost` and then nothing — the tier's governed cost
+   * simply did not contain it. On the fixture that surfaced this, moving a
+   * stored charge from $2 to $20 moved the tier total by nothing.
+   *
+   * A BUCKET, NOT A PLACEMENT. `unplaced` remains unplaced: no treatment is
+   * invented, no revenue is contributed (`revenueContribution` stays NULL, the
+   * BV-013 shape), and the send stays blocked until someone decides. What
+   * changes is only that the cost is now somewhere a consumer can read it.
+   */
+  unplacedCost: number;
+  /**
    * The unit-price bucket, SPLIT BY PROVENANCE.
    *
    * A legacy-placed charge enters the unit rate as cost and is marked up and
@@ -498,6 +515,30 @@ function totalsOf(charges: PlacedCharge[]): ConstructedCommercialState {
     return sum;
   };
 
+  // ── THE PARTITION IS EXHAUSTIVE, AND THAT IS CHECKED ───────────────────
+  //
+  // Every charge is in exactly one placement, so the five cost buckets must
+  // reconstruct the total exactly. Asserted rather than trusted because the
+  // failure it guards is silent in both directions: a placement with no bucket
+  // loses a cost (what `unplaced` did), and a cost counted in two buckets
+  // would be recognised twice by consumers that read them independently.
+  //
+  // Compared in cents. The buckets sum in placement order and the total sums
+  // in input order; float addition is not associative, so exact equality would
+  // fail on ordering rather than on money.
+  const buckets =
+    costIn("unit_price") +
+    costIn("separate_line") +
+    costIn("absorbed") +
+    costIn("unplaced");
+  if (Math.round(buckets * 100) !== Math.round(totalChargeCost * 100)) {
+    throw new Error(
+      `Charge cost partition is not exhaustive: buckets sum to ${buckets} ` +
+        `but the charges total ${totalChargeCost}. Every placement must have ` +
+        `exactly one bucket, and every cost must be in exactly one of them.`,
+    );
+  }
+
   return {
     charges,
     totalChargeCost,
@@ -508,6 +549,7 @@ function totalsOf(charges: PlacedCharge[]): ConstructedCommercialState {
     unitPriceCost: costIn("unit_price"),
     separateLineCost: costIn("separate_line"),
     absorbedCost: costIn("absorbed"),
+    unplacedCost: costIn("unplaced"),
     unitPriceCostLegacy: costInBySource("unit_price", "legacy"),
     unitPriceCostElected: costInBySource("unit_price", "election"),
     unitPriceRecoveryElected: recoveryInBySource("unit_price", "election"),
