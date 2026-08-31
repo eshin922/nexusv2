@@ -1,0 +1,40 @@
+-- Transient publication ownership on `quotes`.
+--
+-- ── THE MISSING DISTINCTION ─────────────────────────────────────────────
+--
+-- "This quote has a governed number" and "a caller currently owns publishing
+-- it" are separate facts, and until now the schema could only express the
+-- first. So they were inferred from one another, and three different states
+-- all presented identically as `draft` with a number:
+--
+--   · another Finalize is publishing this quote right now
+--   · my own earlier publication failed after allocating the number
+--   · revise-in-place returned a sent quote to draft
+--
+-- The first must refuse a second publisher. The other two must proceed and
+-- reuse the number. No predicate over the existing columns can tell them
+-- apart, which is why DPS-1072's four failed attempts each minted a fresh
+-- number and why two concurrent Finalizes would each have rendered, uploaded
+-- and frozen an independently numbered artifact for one quote.
+--
+-- ── WHY A TOKEN AND NOT ONLY A TIMESTAMP ────────────────────────────────
+--
+-- Cleanup must be ownership-safe. A publisher that fails slowly can finish
+-- AFTER a newer publisher has legitimately acquired the claim, and a release
+-- written as "clear the claim on this quote" would then clear a live one.
+-- Every release is scoped `WHERE publication_claim_token = <my token>`, so a
+-- late finisher can only ever clear its own.
+--
+-- ── WHY THIS IS SAFE AHEAD OF CODE ──────────────────────────────────────
+--
+-- ADDITIVE and nullable, with no backfill and no constraint. Every deployed
+-- reader is unaffected: the columns do not exist in any current query, NULL is
+-- the correct value for every existing row (no publication is in flight), and
+-- no deployed writer can populate them. Nothing is tightened and nothing is
+-- dropped, so the compatibility proof a tightening migration would need does
+-- not arise.
+--
+-- `IF NOT EXISTS` so re-running is harmless.
+
+ALTER TABLE "quotes" ADD COLUMN IF NOT EXISTS "publication_claim_token" text;
+ALTER TABLE "quotes" ADD COLUMN IF NOT EXISTS "publication_claimed_at" timestamp with time zone;

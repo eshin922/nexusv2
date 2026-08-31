@@ -34,7 +34,7 @@ test("sent costing consumes immutable worksheet context instead of live freight 
 
 test("workbook snapshot is transactionally inseparable from the Quote snapshot", async () => {
   const action = await readFile(new URL("../../src/app/actions/quotes.ts", import.meta.url), "utf8");
-  const transactionStart = action.indexOf("const result = await db.transaction(async (tx) =>", action.indexOf("export async function sendQuote"));
+  const transactionStart = action.indexOf("result = await db.transaction(async (tx) =>", action.indexOf("export async function sendQuote"));
   const snapshotWrite = action.indexOf("tx.insert(quoteSnapshots)", transactionStart);
   const workbookRead = action.indexOf("loadFreightWorkbook(quoteId, tx)", snapshotWrite);
   const workbookWrite = action.indexOf("tx.insert(quoteSnapshotFreightWorkbooks)", workbookRead);

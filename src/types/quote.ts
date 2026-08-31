@@ -59,9 +59,19 @@ export type CustomerViewCustomer = {
 
 export type CustomerViewQuote = {
   /**
-   * Customer-facing friendly id (`DPS-1042`). Assigned at sendQuote
-   * from `quote_number_seq` with `firm_settings.quote_number_prefix`.
-   * Null for drafts — PdfHeader renders `.pdf-stub` placeholder.
+   * Customer-facing friendly id (`DPS-1042`). Governed by the publication
+   * claim in `sendQuote`, from `quote_number_seq` with
+   * `firm_settings.quote_number_prefix`, BEFORE the artifact is rendered --
+   * so the document carries the number that is persisted beside it.
+   *
+   * Null for drafts, and the document renders that absence by OMITTING the
+   * line. This previously said `PdfHeader renders a .pdf-stub placeholder`,
+   * which was not true of the react-pdf tree: no `PdfHeader` participates in
+   * it and no stub is rendered there. `.pdf-stub` belongs to the earlier DOM
+   * lineage in `quote-fixtures.ts`. Omission is this tree's own grammar for
+   * absence -- what the sibling project-title line does, and what
+   * `CustomerViewLive` does on the HTML twin.
+   *
    * NEVER renders versionNumber or scenarioLabel.
    */
   quoteNumber: string | null;
