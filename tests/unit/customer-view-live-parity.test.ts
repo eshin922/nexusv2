@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import { codeOnly } from "../support/code-only.ts";
 
-import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
+import { composeTierMoney } from "@/lib/customer-money";
 import {
   lineTotal,
   serviceFeesTotal,
@@ -56,7 +56,13 @@ const FEE_AMOUNTS: ReadonlyArray<ReadonlyArray<number | null>> = [
   [700, 700, 700, 700],
 ];
 
-const lineTotalsBySku = PRICES.map((p) => composeLineTotals(p, QTYS));
+// Fixture extensions, computed here rather than through a shared helper.
+// This test builds synthetic parity data at TIER grain, where rate x tierQty
+// is the right arithmetic; the production resolver consumes the governed
+// per-line extension instead, and must not share a formula with a fixture.
+const lineTotalsBySku = PRICES.map((p) =>
+  p.map((v, ti) => (v === null ? null : v * QTYS[ti])),
+);
 
 const TIERS: CpdfTier[] = TIER_DEFS.map((t, ti) => ({
   ...t,

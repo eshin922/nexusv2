@@ -23,7 +23,7 @@
 
 import "server-only";
 
-import { composeLineTotals, composeTierMoney } from "@/lib/customer-money";
+import { composeTierMoney } from "@/lib/customer-money";
 import { composeAddress } from "@/lib/customer-address-display";
 import { applyTierVisibility } from "@/lib/customer-tier-visibility";
 import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
@@ -516,10 +516,26 @@ export async function resolveCustomerView(args: {
       pack: null,
       unitsPerPack: 1,
       tierPrices,
-      // Composed once, by the one function that composes it.
-      tierLineTotals: composeLineTotals(
-        tierPrices,
-        tierBase.map((t) => t.quantity),
+      // THE GOVERNED EXTENSION, CONSUMED -- never recomposed here.
+      //
+      // This called `composeLineTotals(tierPrices, tierQuantities)`, which
+      // multiplied the rate by the TIER's quantity. That is the tier's fact,
+      // not the line's: a member consumed q times per finished unit bills at
+      // `tierQty x qtyPerParent`, and `projectCommercial` already resolved
+      // that into `cell.quantity` and `cell.lineAmount`.
+      //
+      // The substitution was invisible for as long as every member carried
+      // qtyPerParent = 1, which made `tierQty === cell.quantity` and the two
+      // constructions agree by coincidence (Pattern 56). The first member in
+      // the estate to carry 2 shorted its line -- and the tier total -- by
+      // exactly one multiple of the rate, UNDER-billing the customer against
+      // a Sales Order that books the correct quantity from the freeze.
+      //
+      // The comment above says sharing the producer makes the agreement
+      // structural. It only does if this consumes what that produced. Rate is
+      // still read for presentation; the money is read, not rebuilt.
+      tierLineTotals: line.cells.map((c) =>
+        c.state === "priced" ? c.lineAmount : null,
       ),
       shape,
     };
