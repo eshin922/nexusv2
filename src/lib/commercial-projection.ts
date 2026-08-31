@@ -481,8 +481,38 @@ export function projectCommercial(
       // buying, named as it is named everywhere else.
       displayName: rollup.productName,
       displaySku: rollup.skuLabel || null,
+      // ── EVERY FIELD, DECLARED ────────────────────────────────────────
+      //
+      // These seven were absent, and `as CommercialLine` is why nobody knew.
+      // The assertion told the compiler the object already had the shape, so
+      // the one check that could have reported the omission was the thing
+      // suppressing it. `allocationByTier` then reached `commercial-freeze`
+      // as `undefined`, where `line.allocationByTier[i]` threw and took the
+      // whole send transaction with it -- so a quote containing an Item
+      // Group could not be finalized at all, with the operator told only
+      // that the server could not be reached.
+      //
+      // The values are the honest ones for a header line and each preserves
+      // the behaviour the absent property already produced (null and false
+      // are falsy where `undefined` was), so nothing on the customer
+      // document moves. The cast is gone: the contract is enforced here now,
+      // not asserted.
+      displaySub: null,
+      displayQtyLabel: null,
+      // A header is not a member of anything, so it has no bill-of-materials
+      // multiplicity of its own.
+      memberMultiplicity: null,
+      serviceIdentity: null,
+      // "Product lines have no destination -- they resolve by SKU", per the
+      // field's own contract. An Item Group is a product.
+      bv011Destination: null,
+      legacyUnresolved: false,
+      selectedNetsuiteItem: null,
       cells,
-    } as CommercialLine);
+      // Not a production row and not a charge -- the same answer the member
+      // lines and the component charges give, for the same reason.
+      allocationByTier: tiers.map(() => null),
+    });
   }
 
   const prodByAssemblyTier = new Map<

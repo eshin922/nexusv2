@@ -647,3 +647,110 @@ test("the freeze writes the line quantity, not the tier's", async () => {
   const src = await readFile("src/lib/commercial-freeze.ts", "utf8");
   assert.match(src, /quantity: cell\.state === "priced" \? cell\.quantity : tier\.quantity/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// THE ITEM GROUP HEADER LINE — the kind no test had ever emitted.
+//
+// `kind: "item_group"` was added by OD-028 (#497) and pushed through an
+// `as CommercialLine` assertion, which told the compiler the object already
+// had the shape and thereby suppressed the one check that could have
+// reported that EIGHT required properties were absent from it. One of them
+// was `allocationByTier`, which `commercial-freeze` reads as
+// `line.allocationByTier[i]`, so the send transaction threw a TypeError on
+// index 0 of undefined and rolled back.
+//
+// A quote containing an Item Group could not be finalized at all, and the
+// operator was told only that the server could not be reached. Nothing
+// failed earlier because no fixture in this suite produced this line kind,
+// and no type error could be raised about the one that did.
+//
+// These assert the CONTRACT over every line the projection emits, so a
+// ninth field or a tenth line kind is covered by construction rather than
+// by someone remembering to extend a list.
+// ═══════════════════════════════════════════════════════════════════════
+
+const REQUIRED_LINE_FIELDS = [
+  "key", "kind", "owningAssemblyId", "quoteLeafId", "displayName", "displaySku",
+  "displaySub", "displayQtyLabel", "memberMultiplicity", "serviceIdentity",
+  "bv011Destination", "legacyUnresolved", "selectedNetsuiteItem", "cells",
+  "allocationByTier",
+] as const;
+
+/** A quote whose Item Group owns economics of its own, so the header emits. */
+function withOwningItemGroup() {
+  const snap = bundle({
+    skus: [
+      { id: "asm", parentSkuId: null, skuRole: "assembly", skuLabel: "IG", productName: "G" },
+      { id: "leaf", parentSkuId: "asm", skuRole: "leaf", skuLabel: "L", productName: "Leaf", qtyPerParent: "2" },
+    ],
+    rollups: [{ skuId: "leaf", perTier: [priced(TIER_A, 3), priced(TIER_B, 2)] }],
+    production: [
+      { assemblyId: "asm", tierId: TIER_A, allocateServiceFeesToCost: false, setupFeeTotal: 100 },
+    ],
+  });
+  // The assembly's OWN sell — what makes `projectCommercial` emit the header
+  // line rather than skip the assembly as owning nothing.
+  for (const r of snap.costing.skuRollups) {
+    if (r.skuId !== "asm") continue;
+    for (const pt of r.perTier as unknown as Array<Record<string, unknown>>) {
+      pt.assemblyOwnUnitSellPerUnit = 5;
+      pt.assemblyOwnUnitCostPerUnit = 2;
+    }
+  }
+  return projectCommercial(snap);
+}
+
+test("the projection emits an Item Group header line at all", () => {
+  // Guards the two proofs below: if this stops holding they would pass
+  // vacuously, having nothing of the failing kind to inspect.
+  const p = withOwningItemGroup();
+  assert.ok(
+    p.lines.some((l) => l.kind === "item_group"),
+    "no header line emitted — the fixture no longer exercises the branch these proofs exist for",
+  );
+});
+
+test("every projected line declares every required field, header included", () => {
+  const p = withOwningItemGroup();
+  for (const line of p.lines) {
+    const present = line as unknown as Record<string, unknown>;
+    for (const field of REQUIRED_LINE_FIELDS) {
+      // `in`, not a truthiness or nullish check: the defect was an ABSENT
+      // property, and an absent property reads as undefined. A test asserting
+      // `!= null` would have passed against the broken line.
+      assert.ok(
+        field in present,
+        `${line.kind} line "${line.displayName}" is missing "${field}" — ` +
+          `commercial-freeze reads these and an absent one throws`,
+      );
+    }
+  }
+});
+
+test("every line's allocationByTier is aligned to the tiers, index for index", () => {
+  const p = withOwningItemGroup();
+  for (const line of p.lines) {
+    assert.ok(
+      Array.isArray(line.allocationByTier),
+      `${line.kind} line "${line.displayName}": allocationByTier must be an array — ` +
+        `commercial-freeze indexes it per tier`,
+    );
+    assert.equal(
+      line.allocationByTier.length,
+      p.tiers.length,
+      `${line.kind} line "${line.displayName}": one allocation per tier`,
+    );
+  }
+});
+
+test("no line is constructed behind a type assertion", async () => {
+  // The assertion IS the defect. `as CommercialLine` did not make the object
+  // conform; it made the compiler stop asking. Banning it keeps the contract
+  // above enforced where the lines are built, not only where they are read.
+  const src = await readFile("src/lib/commercial-projection.ts", "utf8");
+  assert.doesNotMatch(
+    src,
+    /as CommercialLine\)/,
+    "a line pushed through `as CommercialLine` can omit required fields silently",
+  );
+});
