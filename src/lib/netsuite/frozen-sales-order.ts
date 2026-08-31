@@ -64,7 +64,15 @@ type Exec = Pick<typeof db, "select">;
 export type SkuResolver = (sku: string) => Promise<ResolveResult>;
 
 export type FrozenSalesOrderLine = Reg4Line & {
-  kind: "item_group_member" | "direct_product" | "direct_service" | "otc";
+  kind:
+    | "item_group_member"
+    | "direct_product"
+    | "direct_service"
+    | "otc"
+    // The Item Group COMMERCIAL line -- that group's own economics, posted to
+    // IGP-0001. Not the structural Group header, which is unpriced and is not a
+    // line in this set at all.
+    | "item_group";
   netsuiteItemId: string;
   /** The Nexus SKU, for the round-trip breadcrumb. Null on a fee line. */
   sku: string | null;
@@ -260,9 +268,12 @@ export async function buildFrozenSalesOrder(
   const accounting: FrozenSalesOrderLine[] = emitAccountingLines(readiness.lines).map(
     (l) => ({
       sourceLineId: l.sourceLineId,
-      kind: (byId.get(l.sourceLineId)?.kind === "direct_service"
-        ? "direct_service"
-        : "otc") as "direct_service" | "otc",
+      // CARRIED from the frozen row. Collapsing `item_group` into `otc` here
+      // would lose the distinction the emitter just used to shape it.
+      kind: (byId.get(l.sourceLineId)?.kind ?? "otc") as
+        | "direct_service"
+        | "otc"
+        | "item_group",
       description: l.description,
       sku: byId.get(l.sourceLineId)?.sku ?? null,
       quoteLeafId: byId.get(l.sourceLineId)?.quoteLeafId ?? null,

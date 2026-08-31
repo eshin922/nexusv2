@@ -60,7 +60,22 @@ export const LINE_KIND_RESOLUTION = {
   // A product line. The Item Group header posts as the NetSuite Group of the
   // same code; its members post as their own items. Neither carries, or should
   // carry, an accounting destination.
-  item_group: "by_sku",
+  // ── CORRECTED 2026-08-31, AND NOT A REVERSAL ──────────────────────────
+  //
+  // This read `by_sku` for one commit, because at that moment it was true in
+  // the only sense available: the header's `bv011_destination` is NULL and
+  // there was no destination it could have meant. The governing facts then
+  // changed — `item_group_production` became an approved destination with a
+  // governed item — and the honest classification changed with them.
+  //
+  // The Item Group's COMMERCIAL line does not resolve by SKU: `TRN-SERUM-30`
+  // is never posted as a priced line. It resolves by destination, to IGP-0001,
+  // through `LINE_KIND_DESTINATION`.
+  //
+  // The Item Group's STRUCTURAL identity still resolves by its SKU — but not
+  // here and not as a line: it goes through the composition hash to a NetSuite
+  // Group that opens a span. This map governs PRICED LINES only.
+  item_group: "by_destination",
   item_group_member: "by_sku",
   direct_product: "by_sku",
   // Not products. A service's destination comes from its governed identity, a

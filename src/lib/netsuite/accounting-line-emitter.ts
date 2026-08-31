@@ -121,8 +121,16 @@ export function emitAccountingLines(
       owningAssemblyId: line.owningAssemblyId,
     };
 
-    if (line.kind === "direct_service") {
-      // A unit-priced service posts at ITS OWN quantity and rate.
+    // UNIT-PRICED, not "is it a service". Two kinds post this shape: a Direct
+    // Service, and the Item Group commercial line carrying that group's own
+    // economics at the accepted tier quantity. Both have a real quantity and a
+    // real rate; a one-time charge has neither and is 1 x its amount.
+    //
+    // Named for the SHAPE rather than for one of the kinds that takes it,
+    // because the next kind to need it would otherwise be added as a second
+    // condition on a name that had stopped describing the set.
+    if (line.kind === "direct_service" || line.kind === "item_group") {
+      // A unit-priced line posts at ITS OWN quantity and rate.
       //
       // Refused rather than defaulted when either is missing. Falling back to
       // the charge shape is precisely the silent mis-shaping this split
@@ -133,7 +141,7 @@ export function emitAccountingLines(
       // response is to stop, not to guess.
       if (line.quantity === null || line.unitRate === null) {
         throw new Error(
-          `[accounting-line-emitter] Direct Service line ${line.sourceLineId} ` +
+          `[accounting-line-emitter] Unit-priced ${line.kind} line ${line.sourceLineId} ` +
             `("${line.displayName}") is missing its frozen quantity or unit rate ` +
             `(quantity=${String(line.quantity)}, unitRate=${String(line.unitRate)}). ` +
             `Refusing to emit it as a quantity-1 charge — that would post a ` +
@@ -146,7 +154,7 @@ export function emitAccountingLines(
       );
       if (!posted.ok) {
         throw new Error(
-          `[accounting-line-emitter] Direct Service line ${line.sourceLineId} ` +
+          `[accounting-line-emitter] Unit-priced ${line.kind} line ${line.sourceLineId} ` +
             `("${line.displayName}") cannot be posted at a rate that reproduces ` +
             `its accepted amount: ${posted.reason} Refusing rather than posting ` +
             `a different commercial statement than the one that was accepted.`,

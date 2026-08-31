@@ -7,6 +7,7 @@ import {
   LINE_KIND_RESOLUTION,
   resolvesBySku,
 } from "../../src/lib/netsuite/line-kind-resolution.ts";
+import { LINE_KIND_DESTINATION } from "../../src/lib/netsuite/bv011-destinations.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // EVERY PRODUCT LINE KIND IS EXEMPT FROM THE DESTINATION CHECK.
@@ -44,10 +45,20 @@ test("the classification is total over the line-kind enum", () => {
   );
 });
 
-test("the three product kinds resolve by SKU", () => {
-  for (const kind of ["item_group", "item_group_member", "direct_product"] as const) {
+test("the product kinds resolve by SKU", () => {
+  // TWO, not three. `item_group` was here for one commit and moved to
+  // `by_destination` when `item_group_production` became an approved
+  // destination with a governed item -- see the note in the module. The Item
+  // Group's COMMERCIAL line posts to IGP-0001; its SKU never becomes a priced
+  // line.
+  for (const kind of ["item_group_member", "direct_product"] as const) {
     assert.equal(resolvesBySku(kind), true, `${kind} is a product line`);
   }
+  assert.equal(
+    resolvesBySku("item_group"),
+    false,
+    "the Item Group commercial line resolves by destination, not by SKU",
+  );
 });
 
 test("services and one-time charges stay OUTSIDE the exemption", () => {
@@ -79,14 +90,20 @@ test("a NULL destination blocks only the kinds that resolve by destination", () 
   const blocksOnNullDestination = (kind: (typeof commercialLineKind.enumValues)[number]) =>
     !resolvesBySku(kind);
 
-  // Products: NULL is correct and permanent. None may block.
+  // Products: NULL is correct and permanent. Neither may block.
   assert.equal(blocksOnNullDestination("direct_product"), false);
   assert.equal(blocksOnNullDestination("item_group_member"), false);
-  assert.equal(blocksOnNullDestination("item_group"), false, "the Order-1 defect");
 
   // Charges and services: NULL is a genuine gap. Both must still block.
   assert.equal(blocksOnNullDestination("otc"), true);
   assert.equal(blocksOnNullDestination("direct_service"), true);
+
+  // `item_group` is destination-resolved and therefore IN this set -- but its
+  // destination is never NULL in practice, because readiness derives it from
+  // the kind. That derivation, not an exemption, is what stopped it being
+  // reported as "frozen before accounting destinations were recorded".
+  assert.equal(blocksOnNullDestination("item_group"), true);
+  assert.equal(LINE_KIND_DESTINATION.item_group, "item_group_production");
 });
 
 test("a governed destination is unaffected by the exemption", () => {
@@ -98,25 +115,29 @@ test("a governed destination is unaffected by the exemption", () => {
   // charge lines, which passed readiness both before and after this repair.
 });
 
-test("reintroducing the literal reproduces the Order-1 blocker", () => {
-  // The falsification. This is the predicate as it stood, applied to the
-  // frozen line set of DPS-1072 v2 — four members, one Item Group header, two
-  // charges — and it blocks the header on a NULL that is correct.
-  const oldPredicate = (kind: string) =>
-    kind === "item_group_member" || kind === "direct_product";
-
+test("every frozen kind on DPS-1072 v2 resolves somewhere", () => {
+  // The frozen line set of the accepted quote: four members, the Item Group
+  // commercial line, two separately elected charges. Each must have exactly one
+  // route to a NetSuite item -- by SKU, or by a destination that is governed.
+  //
+  // The original defect was a kind with NEITHER: exempt from the destination
+  // check by omission and unresolvable by SKU, so it fell through to a blocker
+  // whose remediation could not be followed.
   const frozenKinds = [
     "item_group_member", "item_group_member", "item_group_member", "item_group_member",
     "item_group", "otc", "otc",
   ] as const;
 
-  const blockedByOld = frozenKinds.filter(
-    (k) => !oldPredicate(k) && (k === "item_group"),
-  );
-  assert.deepEqual(blockedByOld, ["item_group"], "the old literal blocks the header");
-
-  const blockedByNew = frozenKinds.filter(
-    (k) => !resolvesBySku(k) && (k === "item_group"),
-  );
-  assert.deepEqual(blockedByNew, [], "the repair does not");
+  for (const kind of frozenKinds) {
+    const bySku = resolvesBySku(kind);
+    const byDestination =
+      !bySku &&
+      ((kind as string) === "otc" ||
+        (kind as string) === "direct_service" ||
+        kind in LINE_KIND_DESTINATION);
+    assert.ok(
+      bySku !== byDestination,
+      `${kind} must resolve by exactly one route, not both and not neither`,
+    );
+  }
 });

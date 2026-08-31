@@ -11,6 +11,7 @@ import {
 import { db } from "@/db";
 import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
 import {
+  LINE_KIND_DESTINATION,
   SERVICE_IDENTITY_DESTINATION,
   bv011Label,
   isPerLineDestination,
@@ -127,9 +128,22 @@ export type ProjectionBlocker =
  * and the resolved NetSuite record IS what it is; an emitter carrying a third
  * opinion could disagree with both.
  */
+/**
+ * The frozen line kind, narrowed to the kinds an accounting line can be.
+ *
+ * `item_group` is carried through rather than folded into `otc` because the
+ * two post differently: an Item Group commercial line has its own quantity and
+ * rate, an OTC charge is 1 x its amount.
+ */
+function resolvedKindOf(kind: string): "direct_service" | "otc" | "item_group" {
+  if (kind === "direct_service") return "direct_service";
+  if (kind === "item_group") return "item_group";
+  return "otc";
+}
+
 export type ResolvedAccountingLine = {
   sourceLineId: string;
-  kind: "direct_service" | "otc";
+  kind: "direct_service" | "otc" | "item_group";
   /** OD-006 — the owning Item Group, or null for a top-level Direct Service. */
   owningAssemblyId: string | null;
   displayName: string;
@@ -353,7 +367,14 @@ export async function assessProjectionReadiness(
       line.destination ??
       (line.serviceIdentity
         ? SERVICE_IDENTITY_DESTINATION[line.serviceIdentity]
-        : null);
+        : null) ??
+      // Governed by KIND, for the Item Group commercial line. Read from the
+      // same map the freeze would have used, exactly as the identity-derived
+      // service destination above — one lookup, no special case in this loop.
+      (LINE_KIND_DESTINATION as Record<string, Bv011Destination | undefined>)[
+        line.kind
+      ] ??
+      null;
 
     // A component-owned charge. Checked BEFORE the generic null test, for the
     // same reason the legacy combined charge is: a null destination alone
@@ -411,7 +432,11 @@ export async function assessProjectionReadiness(
       }
       resolved.push({
         sourceLineId: line.id,
-        kind: line.kind === "direct_service" ? "direct_service" : "otc",
+        // CARRIED, not collapsed. The emitter shapes a line by kind, and an Item
+        // Group commercial line posts at its own quantity and rate like a
+        // Direct Service -- flattening it to "otc" here would post 1 x the
+        // amount and state a different commercial fact than the accepted one.
+        kind: resolvedKindOf(line.kind),
         owningAssemblyId: line.owningAssemblyId,
         displayName: line.displayName,
         destination,
@@ -441,7 +466,11 @@ export async function assessProjectionReadiness(
 
     resolved.push({
       sourceLineId: line.id,
-      kind: line.kind === "direct_service" ? "direct_service" : "otc",
+      // CARRIED, not collapsed. The emitter shapes a line by kind, and an Item
+        // Group commercial line posts at its own quantity and rate like a
+        // Direct Service -- flattening it to "otc" here would post 1 x the
+        // amount and state a different commercial fact than the accepted one.
+        kind: resolvedKindOf(line.kind),
       // OD-006 — an Item Group OTC line is emitted in association with its
       // group. A Direct Service is top-level and carries null.
       owningAssemblyId: line.owningAssemblyId,

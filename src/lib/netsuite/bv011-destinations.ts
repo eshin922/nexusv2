@@ -166,6 +166,37 @@ export const SERVICE_IDENTITY_DESTINATION = {
 } as const satisfies Record<DirectServiceIdentity, Bv011Destination>;
 
 /**
+ * Line KIND → destination, for the one kind whose destination is implied by
+ * what it is rather than recorded on the row.
+ *
+ * The sibling of `SERVICE_IDENTITY_DESTINATION` above, and governed the same
+ * way: a Direct Service's destination follows from its identity, and an Item
+ * Group commercial line's follows from its kind. Neither is frozen on the row,
+ * and deriving either is reading the governed map the freeze would have used —
+ * not a guess and not a string match.
+ *
+ * ── TWO ITEM GROUP IDENTITIES, KEPT APART ───────────────────────────────
+ *
+ * This is the COMMERCIAL line: the Item Group's own economics — production,
+ * its governed markup, and the recovery of charges elected Included — posted to
+ * `IGP-0001` at the accepted tier quantity. It is priced.
+ *
+ * It is NOT the Group header. The STRUCTURAL Item Group is a different object
+ * with a different resolution path: frozen composition → composition hash →
+ * `findOrCreateItemGroup` → a NetSuite Group internal id, which opens a span
+ * of member lines and carries no sell value at all. One is a priced line; the
+ * other is punctuation around lines. Conflating them is how an amount ends up
+ * attributed to a thing that cannot hold one.
+ *
+ * ONE ENTRY, and it belongs here rather than as a branch inside readiness: a
+ * special case in the resolver would be a second authority for a question this
+ * map already answers.
+ */
+export const LINE_KIND_DESTINATION = {
+  item_group: "item_group_production",
+} as const satisfies Partial<Record<string, Bv011Destination>>;
+
+/**
  * Destinations whose NetSuite record is chosen PER LINE rather than per firm.
  *
  * `otc_other_service` is per-line because it is the catch-all — two quotes can
