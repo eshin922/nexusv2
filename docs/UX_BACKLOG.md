@@ -5120,3 +5120,41 @@ settled and correct; this is the explanatory clause beside them.
 
 Found in the BV-013 operator walk, 2026-08-18. Edward's disposition: bank as a
 bounded Settings-copy repair.
+
+## Finalize can look available while Send will refuse unresolved recovery
+
+**Observed 2026-08-31**, on quote `2f29af72` (SPJ · Primary), during the
+component-charge cost-recognition trace. Banked deliberately rather than folded
+into that repair (#517), which is arithmetic and does not touch this.
+
+The Quote surface rendered **Finalize quote** enabled, not disabled, with no
+notice, on a quote carrying **four component charges whose recovery is
+undecided**. The refusal is real and correct, but it lives server-side:
+`quotes.ts:1883` throws
+
+> "Recovery is undecided for N one-time charges: … Choose how each is recovered
+> in Commercial Recovery before sending."
+
+only once the operator has clicked and the action has run.
+
+**Why this is worth fixing rather than tolerating.** The same button already
+PREDICTS the below-floor refusal from the shared projection the gate uses, and
+`finalize-quote-button.tsx` says why in its own header: a surface predicate that
+substituted for the gate was a defect, and the button agrees with the gate
+because "they read one evaluation". Unresolved recovery is the one refusal that
+does not get that treatment, so an operator learns it after acting rather than
+before — and the work it names is on a different surface, so the click is a
+round trip to nowhere.
+
+`resolveCustomerView` already returns `unplacedRecoveryCharges`, so the
+prediction needs no new query and no second authority — the same list the gate
+refuses on.
+
+**Not decided here:** whether the right shape is a disabled button with a
+`title`, or an enabled button plus the `UnresolvedCostsNotice` work-list the
+UNRESOLVED_COSTS refusal already renders (`action-result.ts` calls that the one
+refusal the UI must render "as a work list rather than a sentence"). The second
+is probably better — it names the charges — but it is a design call.
+
+Adjacent, same family: Pattern 47(f), a disabled operator control must
+communicate why.
