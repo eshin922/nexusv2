@@ -1001,3 +1001,33 @@
 .r4-action-menu .menu .item:hover { background: var(--paper-2); }
 .r4-action-menu .menu .item .name { font-size: 13px; color: var(--ink); font-weight: 500; }
 .r4-action-menu .menu .item .desc { font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
+
+/* ── Refresh from HubSpot · project detail ─────────────────────────────────
+ *
+ * Workflow gap: `refreshFromHubspot` was the governed re-sync writer with no
+ * operator caller, because `/import` was believed to be the refresh path and
+ * early-returns for an existing project. Rendered beside the "deal context
+ * refreshed" timestamp so the staleness and its remedy read as one thought.
+ *
+ * Deliberately quiet — a link register, not a primary action. Refreshing is
+ * maintenance, and a prominent button here would compete with the surfaces
+ * that actually move the quote forward.
+ */
+.proj-refresh { margin-left: 0.75rem; }
+
+.proj-refresh-btn {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.proj-refresh-btn:hover:not(:disabled) { text-decoration-style: solid; }
+.proj-refresh-btn:disabled { color: var(--ink-3); cursor: default; text-decoration: none; }
+
+.proj-refresh-ok { color: var(--ink-3); font-style: italic; }
+.proj-refresh-err { color: var(--danger, #b3261e); }

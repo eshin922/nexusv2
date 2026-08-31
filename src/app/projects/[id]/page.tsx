@@ -25,6 +25,7 @@ import { NewScenarioTrigger } from "@/components/scenario-create/new-scenario-tr
 import { EditableScenarioLabel } from "@/components/scenario-actions/editable-scenario-label";
 import { ScenarioActionsMenu } from "@/components/scenario-actions/scenario-actions-menu";
 import { CategorySelect } from "./category-select";
+import { RefreshProjectButton } from "./refresh-project-button";
 
 // Slice RI.8 — state-aware default surface for version-row clicks.
 // Brand-new quotes (no SKUs/tiers) land on Setup instead of an
@@ -265,11 +266,16 @@ export default async function ProjectDetailPage({
                * refreshed on its own schedule. THIS is
                * `projects.last_hubspot_refresh_at` — when this project's own
                * snapshot of the deal name, client, stage and owner was last
-               * pulled. Only the import and re-sync actions in
-               * `src/app/actions/projects.ts` write it, and V1 exposes no
-               * control on this page that does (asserted by
-               * `project-v1-action-surface.test.ts`), so four months is a real
-               * fact about those fields and not a prompt to press something.
+               * pulled.
+               *
+               * IT IS NOW A PROMPT TO PRESS SOMETHING. This said V1 exposed no
+               * control that writes it, which was true and rested on `/import`
+               * being the re-sync path. It is not: `importDeal` resolves an
+               * existing project by deal id and returns BEFORE `syncDealById`,
+               * so re-importing refreshes nothing. A deal re-associated in
+               * HubSpot stayed stale with no operator way to correct it — and
+               * that lineage is what resolves the customer's governed payment
+               * terms and the Sales Order's customer.
                *
                * Past a month the relative form is also the least useful it ever
                * is, and the consequence of ignoring it the highest, so the date
@@ -281,6 +287,9 @@ export default async function ProjectDetailPage({
                   : fmtRelative(project.lastHubspotRefreshAt)}
               </span>
             )}
+            {/* Beside the timestamp it qualifies, so the staleness and the
+                remedy are one thought rather than two places to look. */}
+            <RefreshProjectButton projectId={project.id} />
           </div>
         </div>
         {(hubspotUrl || project.status === "archived") && (
