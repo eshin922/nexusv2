@@ -190,6 +190,32 @@ test("displayQtyLabel was not widened to carry this", () => {
   assert.match(memberBlock.slice(0, 700), /displayQtyLabel: null/);
 });
 
+test("BOTH customer-facing renderers show the qualifier, from the same field", () => {
+  // There are two views of one customer document: the live HTML preview on the
+  // Quote surface and the react-pdf table. Wiring only one shipped a document
+  // that said different things depending on which one the reader opened -- and
+  // the PDF-only version was invisible on the surface an operator actually
+  // checks, so nothing would have surfaced it.
+  //
+  // Both must consume `multiplicityPerUnit`; neither may compute it.
+  const pdf = readFileSync(
+    path.join(process.cwd(), "src/components/pdf/customer-pdf-pricing-table.tsx"), "utf8");
+  const html = readFileSync(
+    path.join(process.cwd(), "src/components/quote/customer-view-live.tsx"), "utf8");
+
+  for (const [name, src, field] of [
+    ["pdf", pdf, "multiplicity_per_unit"],
+    ["html preview", html, "multiplicityPerUnit"],
+  ] as const) {
+    assert.ok(src.includes(field), `${name} does not read the multiplicity field`);
+    assert.match(src, new RegExp(`${field} > 1`), `${name} must gate on > 1`);
+    assert.match(src, /per unit`/, `${name} must render the qualifier`);
+    // Neither may reverse-engineer it from the money.
+    assert.doesNotMatch(src, /tierLineTotals\[[^\]]*\]\s*\/|quantity\s*\/\s*tier/i,
+      `${name} must not derive multiplicity from output`);
+  }
+});
+
 test("the renderer shows the qualifier only above 1, and does not touch identity", () => {
   const src = readFileSync(
     path.join(process.cwd(), "src/components/pdf/customer-pdf-pricing-table.tsx"), "utf8");
