@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type { UnitTargets } from "@/lib/client-target";
 import { ClientTargetCell, type TargetTier } from "./client-target";
 import type {
@@ -14,7 +14,10 @@ import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
 import { assemblyDisplaySku } from "@/lib/product-structure/assembly-display-sku";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
-import { reorderAssemblyLeaves } from "@/app/actions/assemblies";
+import {
+  reorderAssemblyLeaves,
+  updateAssemblyLeafQuantity,
+} from "@/app/actions/assemblies";
 import { DragGrip } from "./drag-grip";
 import { leafCostDisplay, leafCostTitle } from "@/lib/leaf-cost-display";
 
@@ -336,6 +339,131 @@ export function AsyRow({
   );
 }
 
+/**
+ * `qty / parent` — how many of this component go into one unit of the parent.
+ *
+ * ── WHY IT IS NOT LABELLED "QUANTITY" ───────────────────────────────────
+ *
+ * The tier table on this same surface has a `Quantity` field meaning how many
+ * units the customer buys. These are different facts at different grains, and
+ * an operator reading two controls both called "Quantity" has no way to tell
+ * which one they are changing. `Qty / parent` names the composition grain.
+ *
+ * ── READ, THEN EDIT (Pattern 29) ────────────────────────────────────────
+ *
+ * The row is scanned far more often than it is edited, so the resting state is
+ * the value as text. A permanent input in a dense tree reads as a form.
+ *
+ * ── COMMIT ON BLUR OR ENTER, NEVER PER KEYSTROKE ────────────────────────
+ *
+ * A partially-typed integer is a different composition claim than the finished
+ * one — "12" passes through "1", which is a valid quantity that would recompute
+ * the whole quote. So the write happens once, on explicit commit.
+ *
+ * Escape reverts. An invalid entry is restored rather than sent, so the server
+ * refusal is reserved for what the field cannot catch locally.
+ *
+ * ── PATTERN 47(e) ───────────────────────────────────────────────────────
+ *
+ * `disabled` carries `!editable` and NEVER `pending`. Disabling an input while
+ * its own save is in flight drops focus mid-edit; the prebuild verifier fails
+ * the build on it. The pending state shows as a caption instead.
+ */
+function QtyPerParentCell({
+  junctionId,
+  value,
+  editable,
+}: {
+  junctionId: string;
+  value: string;
+  editable: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // The stored fact is authoritative between edits: a reconcile or a refusal
+  // must not leave the cell showing a number the database does not hold.
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  function commit() {
+    setEditing(false);
+    const next = draft.trim();
+    if (next === value) return;
+    if (!/^\d+$/.test(next) || Number(next) < 1) {
+      setDraft(value);
+      setError("Whole number, 1 or more.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      // EXPLICIT junction identity. Position is reorderable, so keying this
+      // write on anything positional would edit the wrong member's composition
+      // the moment a row was dragged.
+      fd.set("junctionId", junctionId);
+      fd.set("quantity", next);
+      const res = await updateAssemblyLeafQuantity(fd);
+      if (!res.ok) {
+        setDraft(value);
+        setError(res.error.message);
+      }
+    });
+  }
+
+  if (!editable) return <>qty/parent {value}</>;
+
+  return (
+    <>
+      qty/parent{" "}
+      {editing ? (
+        <input
+          className="qty-per-parent-input"
+          aria-label="Qty / parent — components per unit of the parent"
+          inputMode="numeric"
+          autoFocus
+          value={draft}
+          disabled={!editable}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setDraft(value);
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="qty-per-parent-read"
+          aria-label={`Qty / parent for this component: ${value}. Click to edit.`}
+          onClick={() => {
+            setError(null);
+            setEditing(true);
+          }}
+        >
+          {value}
+        </button>
+      )}
+      {pending ? <span className="qty-per-parent-note"> saving…</span> : null}
+      {error ? (
+        <span className="qty-per-parent-error" role="alert">
+          {" "}
+          {error}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function LeafRow({
   leaf,
   editable,
@@ -408,7 +536,12 @@ function LeafRow({
       <div className="leaf-name-cell">
         <div className="name">{leaf.name}</div>
         <div className="meta">
-          qty {qtyDisplay} · <span title={costTitle}>{costDisplay}</span>
+          <QtyPerParentCell
+            junctionId={leaf.junctionId}
+            value={qtyDisplay}
+            editable={editable}
+          />{" "}
+          · <span title={costTitle}>{costDisplay}</span>
         </div>
       </div>
       {/* §1 presentation closeout · the redundant UNTYPED state is gone.

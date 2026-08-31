@@ -11,6 +11,7 @@ import {
   quoteLeaves,
 } from "../../db/schema.ts";
 import { orderAfterMove } from "./drop-plan.ts";
+import { assertMembershipQuantity } from "@/lib/product-structure/membership-quantity";
 
 /**
  * Structural movement of an attached product. One primitive, four transitions.
@@ -192,7 +193,11 @@ export async function moveStructuralMembership(
       .values({
         assemblyId: args.target.assemblyId,
         leafId: canonical.leafId,
-        quantity: canonical.quantity,
+        // The SAME rule the update path enforces. A move PRESERVES the
+        // composition fact rather than setting it, but preserving an invalid
+        // value would make Direct -> Group a way around the rule that setting
+        // it directly refuses -- one governed quantity, two write paths.
+        quantity: assertMembershipQuantity(canonical.quantity),
         position: args.target.position,
         parentAssemblyLeafId: null,
         quoteLeafId: canonical.id,

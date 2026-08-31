@@ -1196,3 +1196,51 @@
   font-size: 11px;
   color: var(--ink-2, var(--ink));
 }
+
+/* ── qty / parent · Item Group membership composition ──────────────────────
+ *
+ * Nexus extension (Pattern 39), documented as a delta from canon: the meta line
+ * was read-only text, and `assembly_leaves.quantity` had no operator path at
+ * all. The read state keeps the meta line's exact register so the row still
+ * scans as data; only the affordance is new.
+ *
+ * The read control is a <button> for keyboard reachability, stripped back to
+ * inherited type rather than given button chrome — a styled control here would
+ * turn a dense tree into a row of widgets.
+ */
+.qty-per-parent-read {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--rule);
+  padding: 0;
+  cursor: text;
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-per-parent-read:hover,
+.qty-per-parent-read:focus-visible {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+
+.qty-per-parent-input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 0 2px;
+  width: 3.5em;
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-per-parent-note {
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.qty-per-parent-error {
+  color: var(--danger, #b3261e);
+}
