@@ -99,16 +99,53 @@ recommended **6,000**.
 
 Four members, one at qty 2 → exposes attribution order **and** rule 4.
 
-Production (allocate to cost = **true**): filling/blending **3,180.00**, CM
-assembly **1,455.00**, bulk raw **7,240.00**, setup **2,600.00**, tooling
-**11,450.00**, artwork **1,875.00**, R&D **4,320.00**. All distinct; none a
-multiple of another.
+Production (allocate to cost = **true**), authored on the **Item Group
+production columns** — `assembly_production_inputs`:
+
+| column | value | class |
+|---|---|---|
+| `filling_blending_cost` | 3,180.00 | per-unit COGS |
+| `cm_assembly_total` | 1,455.00 | per-unit COGS |
+| `bulk_raw_cost` | 7,240.00 | per-unit COGS, RAW authority |
+| `setup_fee_total` | 2,600.00 | **assembly production one-time charge** |
+| `tooling_total` | **11,450.00** | **assembly production one-time charge** |
+| `artwork_total` | 1,875.00 | **assembly production one-time charge** |
+| `rd_total` | 4,320.00 | **assembly production one-time charge** |
+
+All distinct; none a multiple of another.
+
+> #### ⚠️ Terminology — two different things are called "tooling"
+>
+> Order 1's 11,450.00 is **assembly production tooling**: the legacy governed
+> column `assembly_production_inputs.tooling_total`, which resolves its
+> destination through `OTC_COLUMN_DESTINATION` → **`otc_tooling`**, and prices
+> through the `Production` markup category (0.40).
+>
+> It is **NOT** a **component-owned tooling charge** — a
+> `quote_charge_instances` row of type `tooling`, owned by a `quote_leaves`
+> component, priced through the `Tooling` category (0.20), whose destination is
+> **ungoverned and blocked by BV-014**.
+>
+> **These two never mix in this design.** Order 1 carries only the assembly
+> production path, which is why it can complete. Component-owned charges appear
+> only in **Order 2**, which stops at Accepted.
+>
+> **Consequently: a successful Order 1 NetSuite tooling result certifies the
+> ASSEMBLY PRODUCTION tooling path and nothing else.** It must never be read as
+> certifying component-owned tooling, whose destination does not exist yet. The
+> two are written distinctly everywhere below for exactly this reason.
 
 Pricing: global adjustment **+6%**, per-tier adjustment **+2.5%** on the 2,500
 tier only, quote target margin **38%**.
 
-Recovery: setup **included**, tooling **separate**, R&D **separate**, artwork
-**included**. Both placements exercised, on charges of different magnitude.
+Recovery on the four **assembly production one-time charges**: setup
+**included**, assembly-production tooling **separate**, R&D **separate**,
+artwork **included**. Both placements exercised, on charges of different
+magnitude. All four price through `Production` 0.40.
+
+Pre-computed governed recoveries: setup **3,640.00**, tooling **16,030.00**,
+artwork **2,625.00**, R&D **6,048.00**. Only the two **separate** ones become
+their own SO lines; the two **included** ones land inside the unit price.
 
 → **Accepted, then Complete against NetSuite sandbox.**
 
@@ -258,6 +295,68 @@ the projection reads `skuRollups`.*
 | Destination where governed | 1 | `otc_setup`, `otc_tooling`, `otc_formulation`, `otc_artwork` | **A** exact |
 | No draft fact substituted | 1 | post-accept edit attempt refused; frozen values unmoved | **A** |
 
+### Predeclared NetSuite line schedule — Order 1, accepted tier **6,000**
+
+**Fixed before Nexus runs.** Destination semantics are declared here; only the
+NetSuite *internal id* is resolved at execution, from the governed mapping
+table, and recorded separately in §4.1.
+
+Line shapes follow `accounting-line-emitter.ts`: a separately-billed one-time
+charge posts at **quantity 1** with the rate carrying the whole amount; an Item
+Group member resolves **by SKU at its own quantity**; a Direct Service posts at
+its **frozen quantity and rate**.
+
+| # | governing Nexus source | expected BV-011 destination | expected NetSuite semantic item | expected qty | rate / amount derivation | grouping |
+|---|---|---|---|---|---|---|
+| 1 | Item Group `TRN-SERUM-30` | — *(resolves by SKU, no destination)* | Item Group record | — | group header | **group parent** |
+| 1a | member · TRN Bottle 30ml | — | product item by SKU | **6,000** | frozen `unit_rate` × qty | member of #1 |
+| 1b | member · TRN Pump closure | — | product item by SKU | **6,000** | frozen `unit_rate` × qty | member of #1 |
+| 1c | member · TRN Label set | — | product item by SKU | **12,000** *(6,000 × qty/parent 2)* | frozen `unit_rate` × qty | member of #1 |
+| 1d | member · TRN Unit carton | — | product item by SKU | **6,000** | frozen `unit_rate` × qty | member of #1 |
+| 2 | `assembly_production_inputs.tooling_total`, elected **separate** | **`otc_tooling`** | mapped OTC item | **1** | rate = **16,030.00** = 11,450.00 × 1.40 | top-level |
+| 3 | `assembly_production_inputs.rd_total`, elected **separate** | **`otc_formulation`** | mapped OTC item | **1** | rate = **6,048.00** = 4,320.00 × 1.40 | top-level |
+
+**Not expected as lines**, and their absence is itself an assertion: setup
+(3,640.00) and artwork (2,625.00) are elected **included**, so they belong
+inside the unit price and must produce **no** SO line. Filling/blending, CM
+assembly and bulk raw are per-unit COGS and never produce a line.
+
+**No component-owned OTC line is expected on Order 1.** If one appears, that is
+a failure.
+
+#### 4.1 · Mapping resolved at execution, recorded separately
+
+| destination | governed item type | mapping source | recorded at execution |
+|---|---|---|---|
+| `otc_tooling` | Inventory *(BV-011)* | `netsuite_destination_item_map` | internal id + item code |
+| `otc_formulation` | Non-inventory | `netsuite_destination_item_map` | internal id + item code |
+
+The reconciliation must **prove the actual SO line used the mapped item**, by
+reading the mapping row and the posted line and comparing internal ids — not by
+observing that a plausible item appeared.
+
+> **§5.6c caveat, carried explicitly.** `otc_tooling` is declared **Inventory**
+> by BV-011 while its mapped item `OTC-0005` is **NonInvtPart**, an Accounting
+> question open since 2026-08-19 and untouched. Order 1 will post to that item.
+> **Order 1 can certify that the line reached the mapped destination; it cannot
+> certify that the item type is correct.** That remains Accounting's to settle
+> and is explicitly outside what this population proves.
+
+### The three proofs a NetSuite line must pass
+
+**Nexus projection == NetSuite SO is not certification.** A faithfully
+transmitted Nexus mistake would pass it. Each line must clear all three:
+
+| Proof | Question | Compared against | Class |
+|---|---|---|---|
+| **1 · Arithmetic** | is the commercial amount right? | independently pre-computed source facts (§3) | **A** |
+| **2 · Projection** | did the right amount reach the right place? | the predeclared schedule above — destination, item, quantity, rate, grouping | **A** |
+| **3 · ERP fidelity** | did NetSuite receive and compute it faithfully? | actual sandbox line + **NetSuite's own** amount / subtotal / total | **A** |
+
+A line passing 3 but failing 1 is a correctly transmitted wrong number. A line
+passing 1 and 3 but failing 2 is a right number in the wrong account. Both are
+FAIL.
+
 ### Order / NetSuite sandbox — Order 1 only
 
 | Check | Expected | Class |
@@ -283,6 +382,33 @@ the projection reads `skuRollups`.*
 | **HubSpot deal-stage** write | **Not exercised.** Suppressed at source; this is environment isolation, not a parallel path. |
 | HubSpot **product creation** | **Excluded by instruction.** Any field reachable only by creating a production HubSpot product is marked unavailable under the training constraint. |
 | `otc_dies` / Tooling-vs-Dies | **Not certifiable.** No authoring surface exists. |
+
+### 5.1 · What the NetSuite result does and does not certify
+
+**Order 1 certifies only the line types it actually contains.** Stated as a
+list so the boundary cannot be widened by implication:
+
+**Certified by Order 1 (if it passes all three proofs):**
+
+- Item Group grouping and member lines resolving by SKU at member quantity,
+  including a member at quantity ≠ 1;
+- `otc_tooling` and `otc_formulation` as destinations for **assembly production
+  one-time charges** elected *separate*;
+- quantity-1 OTC line shape with the rate carrying the amount;
+- included-charge absence — no line for an included charge;
+- Nexus frozen commercial total against NetSuite's own total.
+
+**NOT certified by Order 1, and not to be implied:**
+
+- **Component-owned OTC destinations** — ungoverned, BV-014 blocked, and
+  deliberately absent from Order 1;
+- **`otc_tooling` item type** — §5.6c open; the line reaches the mapped item,
+  and whether that item is the right *type* is unproven;
+- `otc_artwork`, `otc_setup` as SO lines — those charges are *included* here, so
+  their destinations are not exercised as lines;
+- `otc_print_plates`, `otc_samples`, `otc_dies` — no mapped item exists;
+- Direct Service line shape — Order 3 carries Direct Service and stops at
+  Accepted, so **no Direct Service line is certified against NetSuite at all**.
 
 ---
 
