@@ -7,7 +7,7 @@ import {
   quoteSnapshots,
   quotes,
 } from "@/db/schema";
-import { verifyProjectionTotals } from "@/lib/commercial-projection";
+import { publishedCents, verifyProjectionTotals } from "@/lib/commercial-projection";
 import { derivePostedRate } from "@/lib/commercial-rate";
 import type { CommercialProjection } from "@/lib/commercial-projection";
 import type { db as Db } from "@/db";
@@ -27,9 +27,35 @@ export async function freezeCommercialLineSet(
   quoteSnapshotId: string,
   projection: CommercialProjection,
 ): Promise<void> {
+  // EVERY AMOUNT ARRIVES ALREADY PUBLISHED.
+  //
+  // `projectCommercial` normalises the matrix to cents at its publication
+  // boundary, which is what makes the `toFixed(2)` calls below an identity
+  // rather than a second, independent rounding. Asserted rather than assumed:
+  // an amount that is not already its own published value means something
+  // reached this function without crossing that boundary, and the record it
+  // would persist is the one whose totals cannot be trusted.
+  for (const line of projection.lines) {
+    for (const cell of line.cells) {
+      if (cell.state !== "priced") continue;
+      if (cell.lineAmount !== publishedCents(cell.lineAmount)) {
+        throw new Error(
+          `Commercial freeze aborted — "${line.displayName}" carries an ` +
+            `unpublished amount ${cell.lineAmount}. Amounts must be governed ` +
+            `cents before they are frozen. Nothing was frozen.`,
+        );
+      }
+    }
+  }
+
   // Self-consistency before persistence. A matrix whose stated totals do not
   // equal the sum of its own cells is not a record of anything, and it is
   // cheaper to refuse the send than to discover it at Sales Order time.
+  //
+  // Exact to the cent since the publication boundary; see
+  // `verifyProjectionTotals` for why the tolerance it used to carry was the
+  // thing that let DPS-1072 Tier 2 persist a stated total a cent away from
+  // its own lines.
   const bad = verifyProjectionTotals(projection);
   if (bad.length > 0) {
     throw new Error(
