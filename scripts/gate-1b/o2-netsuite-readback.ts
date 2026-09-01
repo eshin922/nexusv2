@@ -18,6 +18,19 @@
  * Three readers, because one can be wrong about what is stored: the REST
  * record's header total, SuiteQL over `transactionline` for the stored rows,
  * and the transaction's own foreign total.
+ *
+ * ── TAX ──────────────────────────────────────────────────────────────────
+ *
+ * Asserted here rather than measured separately, because "the total equals the
+ * frozen amount" is only true while tax is zero — and NetSuite defaults this
+ * customer's lines to CA_CA at 6%.
+ *
+ * `tax-policy.ts` is the governing rule: every Sales Order Nexus creates is
+ * NON-TAXABLE. Nexus sends no tax authority; `markComplete` patches every line
+ * to `-8` after NetSuite has built the order, and fails closed if any taxable
+ * line remains. This checks the OUTCOME of that policy on the real record, so
+ * a silent regression in the patch would surface as a certification failure
+ * rather than as a grand total nobody re-read.
  */
 
 import { sql } from "drizzle-orm";
@@ -166,6 +179,37 @@ check(
   Math.round(Number(rec.total) * 100) === frozenSum,
   "REST record total === frozen accepted sum",
   `${Number(rec.total).toFixed(2)}`,
+);
+
+// ── tax · the governed rule, checked on the real record ─────────────────
+console.log("\n── TAX (tax-policy.ts: every Nexus SO is NON-TAXABLE) ─────");
+const taxTotal = Number(rec.taxTotal ?? 0);
+check(Math.abs(taxTotal) < 0.005, "taxTotal is 0.00", taxTotal.toFixed(2));
+check(
+  Math.round(Number(rec.total) * 100) === Math.round(Number(rec.subtotal) * 100),
+  "total === subtotal — no tax rides on the grand total",
+  `${Number(rec.total).toFixed(2)} vs ${Number(rec.subtotal).toFixed(2)}`,
+);
+check(
+  Math.round(Number(rec.subtotal) * 100) === frozenSum,
+  "subtotal === frozen accepted consideration",
+  `${Number(rec.subtotal).toFixed(2)}`,
+);
+
+// Line codes read from NetSuite, not inferred from the totals being zero: a
+// zero tax total with a taxable code present would be a different, worse
+// state than a zero total with every line governed.
+const codes = rows<{ c: string | null }>(
+  await suiteQL(
+    `select distinct tl.taxcode c from transactionline tl
+      where tl.transaction = ${SO} and tl.mainline = 'F'`,
+  ).then((r) => r.items),
+).map((r) => String(r.c ?? "null"));
+const GOVERNED_NON_TAXABLE = new Set(["-8", "-7"]);
+check(
+  codes.every((c) => GOVERNED_NON_TAXABLE.has(c)),
+  "every line carries a governed non-taxable code",
+  codes.sort().join(",") + "  (-8 Not Taxable, -7 non-taxable; -519 would be CA_CA 6%)",
 );
 
 // ── structure ───────────────────────────────────────────────────────────
