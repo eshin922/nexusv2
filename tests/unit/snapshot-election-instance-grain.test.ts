@@ -65,9 +65,11 @@ function snapshotElectionTable(src: string): string {
 // ══════════════════════════════════════════════════════════════════════
 
 test("the frozen election carries the instance it froze", () => {
+  // The COLUMN is the claim. 0118 also gave it a foreign key; 0119 removed
+  // that, so this asserts the column and the sibling test below asserts the
+  // absence of any referential action.
   const t = snapshotElectionTable(code(SCHEMA));
   assert.match(t, /chargeInstanceId: uuid\("charge_instance_id"\)/);
-  assert.match(t, /references\(\s*\(\) => quoteChargeInstances\.id/);
 });
 
 test("the old charge-key primary key is gone", () => {
@@ -103,14 +105,67 @@ test("the instance is nullable, and only for history", () => {
   assert.doesNotMatch(t, /charge_instance_id"\)[\s\S]{0,80}\.notNull\(\)/);
 });
 
-test("a frozen election outlives the charge it came from", () => {
+test("the frozen instance has NO foreign key at all", () => {
+  // 0118 shipped `ON DELETE SET NULL`, copied from the precedent on
+  // `quote_snapshot_recovery_instructions`. The precedent does not transfer,
+  // and the difference is specific to this table.
+  //
+  // There NULL is inert: uniqueness is `(snapshot, key, owner, tier)` either
+  // way. HERE NULL SELECTS WHICH UNIQUENESS RULE APPLIES, so nulling a modern
+  // row migrates it into the legacy namespace and binds it to a rule it was
+  // never written under.
+  //
+  // Measured pre-0119 against Postgres, on O3's exact shape — two print_plates
+  // elections in one snapshot — by
+  // `scripts/gate-1b/snapshot-election-grain-falsify.ts`:
+  //
+  //   23505  duplicate key value violates unique constraint
+  //          "quote_snapshot_charge_recovery_legacy_uq"
+  //
+  // raised by DELETING A CHARGE. Two failures in one: the collision 0118 was
+  // written to remove, reintroduced by a delete rather than a send; and a
+  // frozen snapshot forbidding ordinary draft-side editing, which is the
+  // RESTRICT behaviour the disposition rules out. Absent the collision it would
+  // instead have silently erased the provenance.
+  //
+  // All three referential actions fail the same way, so there is no constraint.
+  // SCOPED TO THE FIELD, not the table. `snapshot_id` cascades on purpose —
+  // deleting a snapshot should delete its frozen rows — and a table-wide
+  // `doesNotMatch(/onDelete: "cascade"/)` flagged that correct declaration as
+  // a defect on the first run here. The claim is about ONE column.
   const t = snapshotElectionTable(code(SCHEMA));
-  assert.match(t, /onDelete: "set null"/);
-  assert.doesNotMatch(
-    t,
-    /chargeInstanceId[\s\S]{0,200}onDelete: "cascade"/,
-    "deleting a draft-side charge must not delete the record of what was quoted",
-  );
+  const field = t.slice(t.indexOf("chargeInstanceId:"), t.indexOf("},"));
+  assert.ok(field.length > 0, "the field must be findable");
+  assert.doesNotMatch(field, /references\(/, "frozen provenance is not a live dependency");
+  assert.doesNotMatch(field, /onDelete/);
+  // The column itself stays.
+  assert.match(field, /chargeInstanceId: uuid\("charge_instance_id"\)/);
+  // And the snapshot FK is untouched — this repair narrows one column, not the
+  // table's relationship to the snapshot that owns it.
+  assert.match(t, /snapshotId: uuid\("snapshot_id"\)[\s\S]{0,120}onDelete: "cascade"/);
+});
+
+test("0119 drops the constraint and changes nothing else", () => {
+  const m = read("drizzle/0119_snapshot_election_frozen_provenance.sql");
+  assert.match(m, /DROP CONSTRAINT "quote_snapshot_charge_recovery_instance_fk"/);
+  // No backfill: a pre-0118 row carries NULL because nothing recorded its
+  // instance, and deriving one from `charge_key` would dress a guess as a
+  // record. Both partial uniques stay exactly as 0118 left them.
+  assert.doesNotMatch(m, /UPDATE /i, "history must not be backfilled");
+  assert.doesNotMatch(m, /DROP INDEX/i, "both partial uniques survive");
+  assert.doesNotMatch(m, /DROP COLUMN/i);
+});
+
+test("the behavioural proof runs against Postgres, and keeps nothing", () => {
+  // Uniqueness and delete behaviour are properties of the DATABASE. A test
+  // asserting the schema text says `set null` cannot say what a delete does —
+  // so the four cases are exercised for real, in a transaction that always
+  // rolls back, each in its own savepoint.
+  const h = read("scripts/gate-1b/snapshot-election-grain-falsify.ts");
+  assert.match(h, /savepoint s/);
+  assert.match(h, /throw new Rollback\(\)/);
+  // And it proves it left nothing, rather than asserting it did.
+  assert.match(h, /the harness left nothing behind/);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -159,27 +214,39 @@ test("the migration is RELAXING, so it is safe ahead of the code", () => {
   assert.match(m, /WHERE "charge_instance_id" IS NULL/);
 });
 
-test("the migration is registered in the journal at the resolved index", () => {
+test("both migrations are registered in the journal, in order", () => {
   // Resolved against `_journal.json`, never from prose — a brief's implicit
   // counter drifts, and a duplicated index is a migration nobody runs.
+  //
+  // TWO entries now: 0118 corrected the grain, 0119 removed the foreign key it
+  // had given the new column. 0119 must follow 0118, because dropping a
+  // constraint that does not exist yet is not a migration.
   const j = JSON.parse(read("drizzle/meta/_journal.json"));
   const entry = j.entries.find(
     (e: { tag: string }) => e.tag === "0118_snapshot_election_instance_grain",
   );
-  assert.ok(entry, "the migration must be journalled");
+  const follow = j.entries.find(
+    (e: { tag: string }) => e.tag === "0119_snapshot_election_frozen_provenance",
+  );
+  assert.ok(entry, "0118 must be journalled");
+  assert.ok(follow, "0119 must be journalled");
+  assert.ok(follow.when > entry.when, "0119 must follow 0118");
+  assert.ok(follow.idx > entry.idx, "and hold the later index");
   const idxs = j.entries.map((e: { idx: number }) => e.idx);
   assert.equal(new Set(idxs).size, idxs.length, "indices must be unique");
   // ABOVE THE HIGH-WATER MARK, which is the property that decides whether the
   // migrator will run it. drizzle-orm reads `max(created_at)` from the journal
   // table and executes every entry whose `when` exceeds it; an entry below the
   // mark is structurally unreachable and would never apply.
-  const others = j.entries.filter(
-    (e: { tag: string }) => e.tag !== "0118_snapshot_election_instance_grain",
+  const before = j.entries.filter(
+    (e: { tag: string }) =>
+      e.tag !== "0118_snapshot_election_instance_grain" &&
+      e.tag !== "0119_snapshot_election_frozen_provenance",
   );
-  const previousMax = Math.max(...others.map((e: { when: number }) => e.when));
+  const previousMax = Math.max(...before.map((e: { when: number }) => e.when));
   assert.ok(
     entry.when > previousMax,
-    `the entry must sit above the previous high-water mark (${entry.when} vs ${previousMax})`,
+    `0118 must sit above the pre-existing high-water mark (${entry.when} vs ${previousMax})`,
   );
 
   // NOT asserted: that the whole journal is ordered by `when`. It is not, and

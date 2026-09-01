@@ -4650,15 +4650,33 @@ export const quoteSnapshotChargeRecovery = pgTable(
      * present, `(snapshot_id, charge_key)` where it is not — the old key,
      * preserved exactly for the rows written under it.
      *
-     * ON DELETE SET NULL, never CASCADE. A frozen election outlives the
-     * draft-side charge it was projected from: deleting a charge on a later
-     * revision must not delete the record of what a customer was already
-     * quoted.
+     * NO FOREIGN KEY, deliberately — 0119.
+     *
+     * 0118 shipped this as `ON DELETE SET NULL`, copied from the precedent on
+     * `quote_snapshot_recovery_instructions`. That precedent does not transfer.
+     * There NULL is inert: uniqueness is `(snapshot, key, owner, tier)` either
+     * way, so nulling the instance loses provenance and changes nothing else.
+     *
+     * HERE NULL IS LOAD-BEARING — it selects which uniqueness rule applies. So
+     * SET NULL silently migrated a modern row into the LEGACY namespace, where
+     * it was then bound by a rule it was never written under. O3 falsifies it:
+     * one snapshot, two `print_plates` elections, two instance ids. Delete both
+     * live instances and the first nulls cleanly while the second collides on
+     * `(snapshot_id, print_plates)` — the same 23505 class this table was
+     * repaired to remove, reintroduced by a delete rather than by a send.
+     *
+     * And before any collision it has already lost what it existed to record:
+     * WHICH election was frozen. A row answering "what did we commit to" must
+     * not be editable by a draft-side deletion months later.
+     *
+     * All three referential actions fail the same way — CASCADE deletes the
+     * record, SET NULL rewrites its namespace, RESTRICT makes a historical
+     * snapshot forbid ordinary editing of a later revision. So there is no
+     * constraint: referential integrity is traded for immutability on purpose.
+     * A dangling UUID is CORRECT here. It names an election that genuinely
+     * existed at send, and that is the whole claim the row makes.
      */
-    chargeInstanceId: uuid("charge_instance_id").references(
-      () => quoteChargeInstances.id,
-      { onDelete: "set null" },
-    ),
+    chargeInstanceId: uuid("charge_instance_id"),
   },
   (t) => [
     uniqueIndex("quote_snapshot_charge_recovery_instance_uq")
