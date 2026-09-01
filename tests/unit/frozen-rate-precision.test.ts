@@ -121,18 +121,37 @@ test("a one-cent miss is still a refusal, not a tolerance", () => {
   assert.equal(failures[0].kind, "rate_times_quantity_inexact");
 });
 
-test("a fraction-of-a-cent product is refused, never rounded away", () => {
-  // 3 × 0.005 = 0.015 — half a cent. Rounding it either way is a decision this
-  // code is not entitled to make on the accepted amount's behalf.
+test("a fraction-of-a-cent product posts as the provider rounds it", () => {
+  // CORRECTED 2026-09-01. This asserted that 3 × 0.005 = 0.015 must be
+  // REFUSED, on the reasoning that "rounding it either way is a decision this
+  // code is not entitled to make".
+  //
+  // The reasoning was right about the entitlement and wrong about the effect:
+  // refusing does not stop the rounding, it only stops the send. The sandbox
+  // showed NetSuite rounds half-up regardless, and ignores any amount sent
+  // alongside. So the honest question is not "is there a remainder" but "does
+  // the provider land on the accepted cents" — and 0.015 lands on 0.02.
   const product = exactRateTimesQuantity("0.00500000", 3);
-  assert.equal(product.exact, false);
+  assert.equal(product.exact, true, "the rate is readable at the posted scale");
+  assert.equal(product.cents, 2, "half a cent rounds UP, as measured");
+
+  // Which means a line ACCEPTED at 0.01 is still refused — the provider would
+  // store 0.02, and that is a real disagreement rather than an absorbed residue.
+  assert.notEqual(product.cents, 1);
 });
 
-test("derivePostedRate refuses rather than returning an unverified rate", () => {
-  // 1/3 of a cent per unit at a quantity that cannot recover it.
+test("derivePostedRate returns only a rate it has verified against the provider", () => {
+  // CORRECTED 2026-09-01. This expected a refusal for 0.01 at quantity 3 under
+  // the old zero-residue rule: the derived rate is 0.00333333 and
+  // 3 × 0.00333333 = 0.00999999, one hundred-thousandth short.
+  //
+  // NetSuite posts that as 0.01 — the accepted amount — so the refusal blocked
+  // a send that would have been correct. What the function still guarantees is
+  // unchanged: it never returns a rate whose posted result it has not checked.
   const r = derivePostedRate("0.01", 3);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.match(r.reason, /cannot represent/);
+  assert.equal(r.ok, true, r.ok ? "" : r.reason);
+  assert.equal(r.ok && r.rate, "0.00333333");
+  assert.equal(exactRateTimesQuantity("0.00333333", 3).cents, 1);
 });
 
 test("quantity 0 is refused — a per-unit rate is not defined there", () => {

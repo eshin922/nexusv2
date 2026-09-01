@@ -1,5 +1,6 @@
 import { POSTED_RATE_SCALE } from "@/lib/commercial-rate";
 import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
+import { postedAmountCents, centsToDecimal } from "@/lib/netsuite/posted-amount";
 
 /**
  * REG-4 — the emitted Sales Order sums exactly to the frozen accepted total.
@@ -17,7 +18,12 @@ import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
  * ── THE HAZARD LINK B ACTUALLY GUARDS ────────────────────────────────────
  *
  * `SalesOrderLine` sends `quantity` and `rate`. It does NOT send `amount` —
- * NetSuite computes that itself, as `quantity × rate`.
+ * NetSuite computes that itself, as `ROUND_HALF_UP(quantity × rate, 2)`.
+ *
+ * The rounding half of that sentence was missing until 2026-09-01, and its
+ * absence is what made this gate stricter than the thing it models. Sending an
+ * `amount` would not help either: the sandbox showed a supplied amount is
+ * IGNORED. See `posted-amount.ts` for the measurement.
  *
  * So "never recompute rate × qty" cannot be enforced by refusing to do the
  * multiplication: NetSuite does it regardless, on the other side of the wire.
@@ -32,9 +38,15 @@ import { centsFromFrozen } from "@/lib/netsuite/frozen-cents";
  * what refused those sends.
  *
  * The rate is now DERIVED from the frozen amount at `POSTED_RATE_SCALE` (see
- * commercial-rate.ts), so the multiplication is exact by construction. This
- * check is still not redundant: it verifies the construction held, on the
- * numbers actually about to be transmitted, rather than trusting that it did.
+ * commercial-rate.ts), so the multiplication reproduces the accepted cents by
+ * construction. This check is still not redundant: it verifies the
+ * construction held, on the numbers actually about to be transmitted, rather
+ * than trusting that it did.
+ *
+ * Both gates now call the SAME `postedAmountCents`. They must: if the freeze
+ * and this check implement the provider rule separately they can drift apart,
+ * and the failure mode is the worst available — a line admitted at freeze and
+ * refused at push, leaving a quote un-sendable after it was frozen and shown.
  */
 
 export type Reg4Line = {
@@ -71,12 +83,17 @@ const RATE_UNIT = 10n ** BigInt(POSTED_RATE_SCALE);
 const RATE_PER_CENT = RATE_UNIT / 100n;
 
 /**
- * `quantity × rate` in exact decimal arithmetic, returned in cents.
+ * What NetSuite will store for this line, in cents.
  *
  * BigInt throughout. The rate's decimals are held as an integer scaled by
  * 10^POSTED_RATE_SCALE, multiplied by the integer quantity, then reduced to
- * cents — so nothing passes through a float, and a result that is NOT a whole
- * number of cents is reported rather than rounded away.
+ * cents by the PROVIDER's own rule — half-up — rather than by this module's
+ * opinion of what a sub-cent remainder ought to mean.
+ *
+ * `exact` no longer means "no remainder". It means the rate could be READ at
+ * the posted scale at all; a rate finer than the scale is still refused,
+ * because reshaping a caller's input and then testifying about the reshaped
+ * value is what a checker must never do.
  *
  * The scale is READ FROM the posted-rate module rather than repeated here. It
  * was previously hardcoded to 4, which silently TRUNCATED anything finer: given
@@ -97,10 +114,8 @@ export function exactRateTimesQuantity(
   const padded = (frac + "0".repeat(POSTED_RATE_SCALE)).slice(0, POSTED_RATE_SCALE);
   const scaled = BigInt(whole || "0") * RATE_UNIT + BigInt(padded || "0");
   const product = scaled * BigInt(Math.trunc(quantity)); // scaled by 10^SCALE
-  const cents = product / RATE_PER_CENT;
-  const remainder = product % RATE_PER_CENT;
-  const signed = negative ? -cents : cents;
-  return { cents: Number(signed), exact: remainder === 0n };
+  const signed = postedAmountCents(negative ? -scaled : scaled, BigInt(Math.trunc(quantity)));
+  return { cents: Number(signed), exact: true };
 }
 
 /** Link A. Empty result means it holds. */
@@ -143,9 +158,11 @@ export function checkLinkB(
         sourceLineId: line.sourceLineId,
         description: line.description,
         detail:
-          `"${line.description}": NetSuite computes amount as quantity × rate, ` +
-          `and ${line.quantity} × ${line.rate} gives ${
-            product.exact ? fmt(product.cents) : "a fraction of a cent"
+          `"${line.description}": NetSuite computes amount as quantity × rate ` +
+          `rounded to cents, and ${line.quantity} × ${line.rate} would post as ${
+            product.exact
+              ? centsToDecimal(BigInt(product.cents))
+              : "an unreadable rate"
           }, not the frozen ${fmt(amountCents)}. Posting it would put the order ` +
           `out of step with the total the customer was quoted.`,
       });
