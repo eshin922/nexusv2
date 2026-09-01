@@ -402,6 +402,7 @@ export function QuoteHost({
             recoveryInstructions={recoveryInstructions}
             rollups={quoteRollup}
             governed={governed}
+            landedLogistics={view.landedLogistics ?? null}
             pdfLayout={pdfLayout}
             onPdfLayoutChange={setPdfLayout}
             detailLevel={detailLevel}
