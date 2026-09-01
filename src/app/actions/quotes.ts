@@ -125,7 +125,7 @@ import {
   readComponentChargeReadiness,
 } from "@/lib/component-charges/readiness";
 import { readChargeRecoveryPricingGaps } from "@/lib/component-charges/recovery-pricing";
-import { describeMissingAsk } from "@/lib/component-charges/recovery-pricing-rule";
+import { describeRecoveryGap } from "@/lib/component-charges/recovery-pricing-rule";
 
 // ---------- tier presets (internal — "use server" disallows non-async exports) ----------
 
@@ -1900,23 +1900,30 @@ export async function sendQuote(
     // have not yet decided to bill has been sent to the wrong screen.
     //
     // Measured on Production 2026-08-28 — cost complete at four tiers, both
-    // charges elected `separate`, no ask anywhere. The recovery workspace said
-    // "not priced" and was right; the customer document said "One-time fees
-    // $0.00" and the Finalize button said `ready`. $2,700 the operator elected
-    // to bill separately, stated to the customer as zero, with nothing
+    // charges elected `separate`, nothing pricing them. The recovery workspace
+    // said "not priced" and was right; the customer document said "One-time
+    // fees $0.00" and the Finalize button said `ready`. $2,700 the operator
+    // elected to bill separately, stated to the customer as zero, with nothing
     // refusing. The cost gate covers cost, the placement gate covers placement,
     // and `isUnbillablePlacement` is scoped to Direct Services: this condition
     // had no gate at all.
     //
+    // The invariant is unchanged; the AUTHORITY moved. #501 made charge type
+    // the pricing authority the day after #496 shipped this as
+    // `recovery_ask IS NOT NULL`, and deleted the only input that wrote that
+    // column — leaving a gate demanding a value nothing could supply and
+    // nothing consumed. It now asks whether the governed derivation produces
+    // an amount, and each refusal names the surface that can actually resolve
+    // it rather than sending every case to a field that no longer exists.
+    //
     // The SAME diagnostic drives the Finalize button, so the operator learns it
     // before clicking rather than after, and the two can never disagree.
-    const askGaps = await readChargeRecoveryPricingGaps(quoteId);
-    if (askGaps.length > 0) {
+    const recoveryGaps = await readChargeRecoveryPricingGaps(quoteId);
+    if (recoveryGaps.length > 0) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        `${askGaps.length} one-time charge${askGaps.length === 1 ? " is" : "s are"} ` +
-          `elected for recovery but not priced: ${askGaps.map(describeMissingAsk).join("; ")}. ` +
-          "Enter what the customer is charged for each quoted tier on Costs before sending.",
+        `${recoveryGaps.length} one-time charge${recoveryGaps.length === 1 ? " has" : "s have"} ` +
+          `unresolved recovery: ${recoveryGaps.map(describeRecoveryGap).join("; ")}.`,
       );
     }
 
