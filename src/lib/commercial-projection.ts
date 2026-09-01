@@ -552,8 +552,38 @@ export function projectCommercial(
         //
         // Placement and amount are now decided ONCE, in the engine's
         // constructed state, and read here. The projection decides nothing.
+        // ── THE OWNER, NOT ONLY THE KEY ────────────────────────────────
+        //
+        // This is the LEGACY COLUMN loop. It is the authority for charges that
+        // came from a production column, and for nothing else. Matching on
+        // `chargeKey` alone made it the authority for anything sharing that
+        // key — and three component charge types share one:
+        //
+        //   tooling         <- toolingTotal
+        //   artwork_plate   <- artworkTotal
+        //   other_service   <- otherServiceTotal
+        //
+        // O3 measured it. One component-owned Tooling on a leaf, every legacy
+        // production column NULL, and the customer document billed $16,848 of
+        // one-time fees where the governed instructions said $9,168 — the same
+        // charge emitted twice, once here attributed to the ASSEMBLY and once
+        // by the component loop below. The NULL column never gated it, because
+        // the amount is read from the constructed charge rather than from the
+        // column.
+        //
+        // The block at "WHY A SEPARATE PROJECTION" already names this `.find`
+        // as unfit for component charges. It assumed they could not be REACHED
+        // here, because the loop iterates assemblies with production rows. An
+        // assembly with a production row whose columns are all NULL is the gap
+        // in that assumption, and it is the ordinary state of an Item Group
+        // that carries no production.
+        //
+        // Stated positively: this loop consumes assembly-owned charges. A
+        // component-owned one is the component loop's, and a Direct Service's
+        // is neither's. Filtering after the fact — on label, amount, SKU or
+        // key — would leave the wrong producer producing.
         const placed = constructedFor(assemblyId, t.tierId)?.charges.find(
-          (c) => c.chargeKey === chargeKey,
+          (c) => c.chargeKey === chargeKey && c.ownerKind === "assembly",
         );
 
         // The tier's allocation LABEL is about the tier, not this charge — a
