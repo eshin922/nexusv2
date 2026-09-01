@@ -182,10 +182,28 @@ test("a copy gets its own instances, never the source's", () => {
   // Sharing an id across a copy would make two quotes' elections one row, so
   // re-electing on the copy would silently move the source.
   assert.match(quotes, /quoteId: newQuoteId,\s*\n?\s*chargeKey: (e|src)\.chargeKey/);
+
+  // SCOPED TO THE COPY PATH, not the file.
+  //
+  // This read `!/chargeInstanceId: e\.chargeInstanceId/.test(quotes)` over the
+  // whole module, and the rule it protects is real: a copy inheriting the
+  // source's instance id would make two quotes share one election row.
+  //
+  // But the same literal is CORRECT elsewhere. The send freeze records which
+  // election it froze, and carrying the source instance is the entire point --
+  // without it the frozen election collapses two charges of one type into a
+  // single key and the send fails with 23505. A file-wide grep cannot tell the
+  // wrong inheritance from the right record, so it forbade both.
+  //
+  // Bounded to the copy's election block, which is where the rule applies.
+  const copyStart = quotes.indexOf("const targetInstanceId");
+  assert.ok(copyStart > 0, "the copy path's election block must be findable");
+  const copyBlock = quotes.slice(copyStart - 600, copyStart + 600);
   assert.ok(
-    !/chargeInstanceId: e\.chargeInstanceId/.test(quotes),
+    !/chargeInstanceId: e\.chargeInstanceId/.test(copyBlock),
     "the copy must not inherit the source's instance id",
   );
+  assert.match(copyBlock, /chargeInstanceId: targetInstanceId/);
 });
 
 // ── identity is not the natural key ────────────────────────────────────────

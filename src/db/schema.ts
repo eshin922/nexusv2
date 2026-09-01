@@ -4622,13 +4622,70 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
 export const quoteSnapshotChargeRecovery = pgTable(
   "quote_snapshot_charge_recovery",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     snapshotId: uuid("snapshot_id")
       .notNull()
       .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
     chargeKey: recoveryCharge("charge_key").notNull(),
     mode: recoveryMode("mode").notNull(),
+    /**
+     * WHICH ELECTION THIS FROZE — the grain the live table has always had.
+     *
+     * The primary key used to be `(snapshot_id, charge_key)`, one row per
+     * charge TYPE per snapshot. `quote_charge_recovery` is keyed on
+     * `charge_instance_id`, so a quote electing the same type on two different
+     * components holds two elections — and freezing them collapsed to one,
+     * raising 23505 and rolling the whole send back. Every quote in that shape
+     * was unsendable until O3 became the first one to exist.
+     *
+     * NULLABLE ONLY FOR HISTORY, exactly as `owner_kind` is on
+     * `quote_snapshot_recovery_instructions`: rows frozen before the grain was
+     * corrected cannot be given an instance retroactively, because the election
+     * they froze may since have been superseded and inventing an id would dress
+     * a guess as a record. NULL means "pre-contract", never a fourth state, and
+     * is never inferred from `charge_key`.
+     *
+     * Two partial uniques rather than one key, so each era keeps its own
+     * guarantee: `(snapshot_id, charge_instance_id)` where the instance is
+     * present, `(snapshot_id, charge_key)` where it is not — the old key,
+     * preserved exactly for the rows written under it.
+     *
+     * NO FOREIGN KEY, deliberately — 0119.
+     *
+     * 0118 shipped this as `ON DELETE SET NULL`, copied from the precedent on
+     * `quote_snapshot_recovery_instructions`. That precedent does not transfer.
+     * There NULL is inert: uniqueness is `(snapshot, key, owner, tier)` either
+     * way, so nulling the instance loses provenance and changes nothing else.
+     *
+     * HERE NULL IS LOAD-BEARING — it selects which uniqueness rule applies. So
+     * SET NULL silently migrated a modern row into the LEGACY namespace, where
+     * it was then bound by a rule it was never written under. O3 falsifies it:
+     * one snapshot, two `print_plates` elections, two instance ids. Delete both
+     * live instances and the first nulls cleanly while the second collides on
+     * `(snapshot_id, print_plates)` — the same 23505 class this table was
+     * repaired to remove, reintroduced by a delete rather than by a send.
+     *
+     * And before any collision it has already lost what it existed to record:
+     * WHICH election was frozen. A row answering "what did we commit to" must
+     * not be editable by a draft-side deletion months later.
+     *
+     * All three referential actions fail the same way — CASCADE deletes the
+     * record, SET NULL rewrites its namespace, RESTRICT makes a historical
+     * snapshot forbid ordinary editing of a later revision. So there is no
+     * constraint: referential integrity is traded for immutability on purpose.
+     * A dangling UUID is CORRECT here. It names an election that genuinely
+     * existed at send, and that is the whole claim the row makes.
+     */
+    chargeInstanceId: uuid("charge_instance_id"),
   },
-  (t) => [primaryKey({ columns: [t.snapshotId, t.chargeKey] })],
+  (t) => [
+    uniqueIndex("quote_snapshot_charge_recovery_instance_uq")
+      .on(t.snapshotId, t.chargeInstanceId)
+      .where(sql`${t.chargeInstanceId} is not null`),
+    uniqueIndex("quote_snapshot_charge_recovery_legacy_uq")
+      .on(t.snapshotId, t.chargeKey)
+      .where(sql`${t.chargeInstanceId} is null`),
+  ],
 );
 
 // ─── G4 · Customer presentation profile ─────────────────────────────────────

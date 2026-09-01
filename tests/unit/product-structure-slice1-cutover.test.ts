@@ -832,6 +832,27 @@ const classifiedIdentityFiles = new Set([
   // file whose only match is a comment is exactly the case a narrower regex
   // would start silently dropping.
   "scripts/gate-1b/o3-expected.ts",
+  // CLASSIFIED - canonical identity, read-only, and it writes nothing.
+  //
+  // The O3 end-to-end certifier. It joins `quote_leaves` to reach a component's
+  // SKU for the charge matrix and reads `assembly_leaves` nowhere; the grouped
+  // structure it certifies is read back from the ERP, not from either identity.
+  //
+  // Read-only by construction, which is the stronger position for an
+  // instrument: it decides whether O3 passed, so it must not be able to change
+  // what it is measuring.
+  "scripts/gate-1b/o3-certify.ts",
+  // CLASSIFIED - canonical identity only, and every row it writes is removed.
+  //
+  // The frozen-election grain falsifier. It reads `quote_leaves.id` to pick a
+  // real owner for the two temporary charge instances it creates, and touches
+  // `assembly_leaves` only to reach that leaf through the quote's assembly.
+  //
+  // It WRITES, deliberately: uniqueness and delete behaviour are properties of
+  // Postgres, and the only honest way to observe a constraint violation is to
+  // attempt one. Everything happens inside a transaction that ALWAYS rolls
+  // back, and the harness verifies population-wide that it left nothing.
+  "scripts/gate-1b/snapshot-election-grain-falsify.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

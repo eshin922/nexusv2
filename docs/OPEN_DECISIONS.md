@@ -829,6 +829,77 @@ a kind whose advertised operation it does not perform.
 
 ## Open — needed before the relevant work starts
 
+### OD-033 · What "Return to computed baseline" is allowed to clear
+
+**Owner:** Edward · **Blocks:** nothing today — the control WORKS as of #538;
+this is about what it should MEAN · **Raised:** 2026-08-31, during O3.
+
+The control currently clears **four** authorities:
+
+| authority | cleared today | Edward's stated contract |
+|---|---|---|
+| surgical leaf lifts | yes | **remove** |
+| direct price overrides | yes | **remove** |
+| tier adjustments | yes | **preserve** |
+| quote-wide adjustment | yes | **preserve** |
+
+`baseline` is `{ lifts: {}, overrides: {}, tierAdj: {}, globalAdj: 0 }`
+(`pricing-staging-context.tsx`), and the module reads "the computed baseline:
+every lever at rest". So today the name is honest about what it does, and what
+it does is broader than the operator meaning we want.
+
+**The contract to build.**
+
+> Return to computed baseline removes the temporary leaf-level lift and
+> direct-price interventions created by this workflow, while preserving
+> independent quote-wide and tier-scoped pricing decisions.
+
+**Why this is a separate change from #538.** #538 repaired a defect: the client
+and server addressed the same cell in two key namespaces one character apart,
+so the guard refused every removal on any quote that carried a lift. Narrowing
+what the control clears is a deliberate change to operator-facing behaviour on
+quotes that carry a global or tier adjustment. Folding the two together would
+have made a behaviour change look like a bug fix, and would have left no single
+commit that either could be reverted from.
+
+**Why it did not block O3.** O3 carries `global_price_adj_pct = 0.0000` and
+`tier_price_adj_pct = NULL` on all three tiers, so both readings do exactly the
+same thing on it. Verified before and after the restoration: the quote row and
+all three tier rows were byte-identical across the act.
+
+**Falsification the change must carry.** A fixture holding all four authorities
+at once — global adjustment, a tier override, a leaf lift and a direct
+override — then Return to baseline:
+
+- global adjustment **preserved**
+- tier override **preserved**
+- leaf lift **removed**
+- direct override **removed**
+- a second click is a **no-op**
+- another quote's lifts, overrides and adjustments are **untouched**
+
+**Two things to decide while doing it**, because the current copy assumes the
+current scope:
+
+1. The staging bar counts and names ALL applied adjustments ("3 pricing
+   adjustments in effect on this quote... remove them and the quote returns
+   exactly to where it started"). Under the narrower contract that sentence is
+   false whenever a global or tier adjustment is in effect. Either the count
+   narrows to what the control will actually remove, or the copy stops
+   promising a full return.
+2. The control's NAME. "Computed baseline" reads as *every* lever at rest. If
+   it will preserve two of them, it is no longer returning to the computed
+   baseline — it is discarding leaf-level interventions, and should probably
+   say so.
+
+**Prior art to respect.** OD-003 records that the pre-Phase-3 runtime ignores
+applied lifts, so a rollback needs `DELETE FROM quote_leaf_lifts` first. A
+narrowed control that no longer clears global/tier adjustments does not change
+that, but the rollback note should not start reading as though this control is
+the rollback path.
+
+---
+
 ### CS-1 · Client Send unresolved-category enrichment
 
 **Owner:** Edward · **Blocks:** nothing — the Client Send repair shipped without

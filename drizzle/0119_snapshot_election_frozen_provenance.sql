@@ -1,0 +1,50 @@
+-- Frozen provenance must not depend on later draft editing.
+--
+-- 0118 added `quote_snapshot_charge_recovery.charge_instance_id` with
+-- `ON DELETE SET NULL`, copied from the precedent on
+-- `quote_snapshot_recovery_instructions`. That precedent does not transfer,
+-- and the reason is specific to this table.
+--
+-- ── WHY SET NULL IS SAFE THERE AND WRONG HERE ────────────────────────────
+--
+-- On the instructions table NULL is inert: uniqueness is
+-- `(snapshot, charge_key, owner_ref, tier_id)` whether the instance is present
+-- or not, so nulling it loses provenance and changes nothing else.
+--
+-- Here NULL is LOAD-BEARING. It selects which uniqueness rule applies:
+--
+--   charge_instance_id IS NOT NULL  ->  unique (snapshot_id, charge_instance_id)
+--   charge_instance_id IS NULL      ->  unique (snapshot_id, charge_key)
+--
+-- So SET NULL silently migrates a modern row into the LEGACY namespace, where
+-- it is then bound by a rule it was never written under. O3 is the
+-- falsification: one snapshot, two `print_plates` elections, two instance ids.
+-- Delete both live instances and the first nulls cleanly while the second
+-- collides on `(snapshot_id, print_plates)` -- the same 23505 class 0118 was
+-- written to remove, reintroduced by a delete rather than by a send.
+--
+-- And before any collision, the row has already lost the thing it existed to
+-- record: WHICH election was frozen at send. A frozen record answering "what
+-- did we commit to" cannot be edited by a draft-side deletion months later.
+--
+-- ── THE DISPOSITION ──────────────────────────────────────────────────────
+--
+-- The column is FROZEN PROVENANCE, not a live relational dependency. The UUID
+-- is preserved verbatim even when the draft-side instance is gone, so the
+-- constraint is dropped rather than swapped: CASCADE would delete the record,
+-- SET NULL rewrites its namespace, and RESTRICT would make a historical
+-- snapshot forbid ordinary editing of a later revision. All three let live
+-- editing reach a frozen fact.
+--
+-- Referential integrity is deliberately traded for immutability. A dangling
+-- UUID here is CORRECT: it names an election that genuinely existed at send,
+-- and that is the whole claim the row makes.
+--
+-- ── NOT DONE, DELIBERATELY ───────────────────────────────────────────────
+--
+-- No backfill. Rows written before 0118 carry NULL because nothing recorded
+-- their instance, and inventing one from `charge_key` would dress a guess as a
+-- record. Both partial uniques stay exactly as 0118 left them.
+
+ALTER TABLE "quote_snapshot_charge_recovery"
+  DROP CONSTRAINT "quote_snapshot_charge_recovery_instance_fk";
