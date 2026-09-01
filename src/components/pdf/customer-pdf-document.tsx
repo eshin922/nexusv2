@@ -46,6 +46,14 @@ import type { ReactNode } from "react";
 import { Document, Page, Text, View } from "@react-pdf/renderer";
 
 import { registerPdfFonts } from "@/lib/pdf-fonts";
+// The sentence lives with the fact it states, NOT here.
+//
+// An earlier revision defined it in this file and asserted that the HTML
+// preview and the PDF "share one render path". That was route-level reasoning
+// and it was WRONG: `customer-view-live.tsx` is a SECOND renderer over the same
+// CustomerView, and it is barred from importing anything under
+// `components/pdf/`. A constant here could never have reached it.
+import { FREIGHT_INCLUDED_SENTENCE } from "@/lib/landed-logistics";
 
 import { ChargesBlock } from "./customer-pdf-charges-block";
 import { PageFooter, PageRunHead } from "./customer-pdf-chrome";
@@ -97,22 +105,6 @@ function PageChrome({
 // PartialItemizedHead. Composes the lede from four fragments
 // per the four flag combinations; eyebrow / h2 track the
 // single-tier axis.
-
-/**
- * The governed inclusion sentence. ONE definition, consumed by both branches.
- *
- * The HTML preview and the generated PDF already share this component tree —
- * the preview route streams it (`api/quotes/[id]/customer-pdf`) and `sendQuote`
- * buffers it, both through `renderRepresentation`. So a single constant here IS
- * the single copy source; there is no second renderer to keep in step.
- *
- * Deliberately NOT "all-in". Separate one-time charges can still exist on an
- * itemized quote — O2 carries tooling and R&D as their own lines — and "all-in"
- * beside an itemized fee table would be a claim the document contradicts three
- * inches lower.
- */
-const FREIGHT_INCLUDED_SENTENCE =
-  "The unit prices shown include applicable freight, duty, and tariffs.";
 
 function ItemizedHead({
   isSingle,

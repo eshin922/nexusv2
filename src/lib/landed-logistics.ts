@@ -46,6 +46,30 @@
  * that boundary should have.
  */
 
+/**
+ * The governed customer-facing sentence, defined HERE rather than inside
+ * either renderer.
+ *
+ * There are TWO renderers of the customer artifact over the same
+ * `CustomerView`: `components/pdf/customer-pdf-document.tsx` and
+ * `components/quote/customer-view-live.tsx`. The live one is explicitly
+ * forbidden from importing anything under `components/pdf/`, so a constant
+ * living in the PDF component could not be shared -- the live renderer would
+ * have needed its own copy of the words, and two copies of a customer-facing
+ * sentence drift. That is the #511 / #512 failure mode: the PDF saying one
+ * thing while the operator's live preview says another.
+ *
+ * It sits beside the fact it states, so the claim and the evidence for it are
+ * one module.
+ *
+ * Deliberately NOT "all-in". Separate one-time charges can still exist on an
+ * itemized quote -- O2 carries tooling and R&D as their own lines -- and
+ * "all-in" beside an itemized fee table would be a claim the document
+ * contradicts three inches lower.
+ */
+export const FREIGHT_INCLUDED_SENTENCE =
+  "The unit prices shown include applicable freight, duty, and tariffs.";
+
 /** The costing-rollup fields this reads. Nothing else is needed or taken. */
 export type LandedLogisticsSource = {
   costBreakdown: {

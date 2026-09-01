@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { CustomerView } from "@/types/quote";
 import { extendedAmount, unitPrice } from "@/lib/money-display";
 import { longDate } from "@/lib/customer-dates";
+// The governed sentence, from the module that also derives the fact. NOT a
+// second copy of the words, and NOT a second derivation of inclusion -- this
+// renderer reads `view.landedLogistics.included` and states it.
+import { FREIGHT_INCLUDED_SENTENCE } from "@/lib/landed-logistics";
 import "@/styles/pp-customer-document.css";
 import "@/styles/pp-customer-document-fit.css";
 
@@ -146,6 +150,10 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
   // `hasCharges`, and gating freight prose on it told the customer freight was
   // billed separately at cost when there was no freight line at all.
   const hasSeparateFreight = freightLines.length > 0;
+  // Governed, from the projection. NOT derived here — `verify:boundaries`
+  // forbids arithmetic in a renderer, and inclusion is a commercial fact
+  // rather than a display choice.
+  const freightIncluded = view.landedLogistics?.included === true;
   const allInUnit = !hasCharges;
 
   // Deliberately the PDF's exact predicate — any SKU with a null price at any
@@ -259,6 +267,11 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
               <div className="pp-h2">{h2}</div>
               <p className="pp-lede">
                 Pricing per the terms below across volume tiers.
+                {/* Same governed fact and same words as the PDF renderer.
+                    Mutually exclusive with the separate-freight sentence by
+                    construction: `included` is false whenever a separate
+                    freight line exists. */}
+                {freightIncluded && ` ${FREIGHT_INCLUDED_SENTENCE}`}
                 {hasSeparateFreight &&
                   " Outbound freight is billed separately at cost."}
                 {hasCharges && " One-time charges are itemized below."}

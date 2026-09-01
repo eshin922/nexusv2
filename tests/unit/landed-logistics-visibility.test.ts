@@ -16,7 +16,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { landedLogisticsForTier } from "../../src/lib/landed-logistics.ts";
+import {
+  landedLogisticsForTier,
+  FREIGHT_INCLUDED_SENTENCE,
+} from "../../src/lib/landed-logistics.ts";
+
+/** The two renderers of the customer artifact, over the same CustomerView. */
+const RENDERERS = [
+  ["PDF", "src/components/pdf/customer-pdf-document.tsx"],
+  ["live HTML", "src/components/quote/customer-view-live.tsx"],
+] as const;
 
 /** DPS-1073 Tier 2, the certified figures. */
 const O2_TIER_2 = {
@@ -113,33 +122,141 @@ test("a sub-cent artifact is not treated as freight", () => {
 
 // ── the copy: one source, exact words, governed gate ────────────────────
 
-test("the sentence is defined ONCE and is exactly the approved copy", async () => {
-  const doc = await readFile("src/components/pdf/customer-pdf-document.tsx", "utf8");
-  const approved = "The unit prices shown include applicable freight, duty, and tariffs.";
-  const literals = [...doc.matchAll(new RegExp(approved.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))];
-  assert.equal(literals.length, 1, "the copy must exist exactly once, as one constant");
-  assert.match(doc, /const FREIGHT_INCLUDED_SENTENCE =/);
+test("the approved copy is exactly these words", () => {
+  assert.equal(
+    FREIGHT_INCLUDED_SENTENCE,
+    "The unit prices shown include applicable freight, duty, and tariffs.",
+  );
 });
 
-test("HTML preview and PDF cannot diverge — they are one render path", async () => {
-  // Asserted rather than assumed. Both go through `renderRepresentation`, so
-  // there is no second renderer that could carry different words.
-  const route = await readFile("src/app/api/quotes/[quoteId]/customer-pdf/route.tsx", "utf8");
-  const send = await readFile("src/app/actions/quotes.ts", "utf8");
-  assert.match(route, /renderRepresentation/, "preview streams the shared document");
-  assert.match(send, /renderRepresentation/, "send buffers the shared document");
+test("the words are defined ONCE, outside both renderers", async () => {
+  // CORRECTED. An earlier version asserted this against the PDF component
+  // alone and separately claimed preview and PDF "are one render path",
+  // evidenced by both routes calling `renderRepresentation`.
+  //
+  // That was route-level reasoning and it was WRONG. `customer-view-live.tsx`
+  // is a SECOND renderer over the same CustomerView, reached by neither route,
+  // and the assertion could not have detected it — a grep over two routes
+  // cannot see a component neither route mentions. It is the #511 / #512
+  // failure mode and the test would have shipped it.
+  const escaped = FREIGHT_INCLUDED_SENTENCE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const [label, path] of RENDERERS) {
+    const src = await readFile(path, "utf8");
+    assert.equal(
+      [...src.matchAll(new RegExp(escaped, "g"))].length,
+      0,
+      `${label} must not carry its own copy of the sentence`,
+    );
+    assert.match(
+      src,
+      /FREIGHT_INCLUDED_SENTENCE/,
+      `${label} must consume the shared constant`,
+    );
+    assert.match(
+      src,
+      /import \{[^}]*FREIGHT_INCLUDED_SENTENCE[^}]*\} from "@\/lib\/landed-logistics"/,
+      `${label} must import it from the governing module`,
+    );
+  }
 });
 
-test("the sentence is gated on the governed flag, never on operator text", async () => {
-  const doc = await readFile("src/components/pdf/customer-pdf-document.tsx", "utf8");
-  // Rendered from the governed flag...
-  assert.match(doc, /freightIncluded && ` \$\{FREIGHT_INCLUDED_SENTENCE\}`/);
-  assert.match(doc, /data\.freightIncludedInUnitPrice === true/);
+test("BOTH renderers consume the governed fact, and NEITHER derives it", async () => {
+  for (const [label, path] of RENDERERS) {
+    const src = await readFile(path, "utf8");
+    // consumes the fact
+    assert.match(
+      src,
+      /freightIncluded/,
+      `${label} must gate on the governed inclusion fact`,
+    );
+    // ...and does not compute it. `landedLogisticsForTier` is the only place
+    // inclusion is decided; a renderer calling it would be a second decision
+    // point even though it would agree today.
+    assert.doesNotMatch(
+      src,
+      /landedLogisticsForTier/,
+      `${label} must not derive inclusion itself`,
+    );
+    assert.doesNotMatch(
+      src,
+      /freightContainerMarkupSum|dutyAndTariffMarkupSum/,
+      `${label} must not reach the raw rollup figures`,
+    );
+  }
+});
 
-  // ...and the adapter feeds that flag from the governed reading only. If this
-  // ever reads a note field, the document starts quoting whatever a PM typed.
+test("each renderer reads inclusion from the projection, by its own route in", async () => {
+  // The two consume the same FACT through different shapes -- the PDF via the
+  // cpdf adapter, the live renderer straight off CustomerView -- so each is
+  // asserted against the shape it actually receives rather than a shared one.
+  const pdf = await readFile("src/components/pdf/customer-pdf-document.tsx", "utf8");
+  assert.match(pdf, /data\.freightIncludedInUnitPrice === true/);
+
+  const live = await readFile("src/components/quote/customer-view-live.tsx", "utf8");
+  assert.match(live, /view\.landedLogistics\?\.included === true/);
+
+  // ...and the adapter that feeds the PDF gets it from the same projection
+  // field the live renderer reads, so the two cannot diverge upstream either.
   const adapter = await readFile("src/lib/customer-view-to-cpdf.ts", "utf8");
   assert.match(adapter, /freightIncludedInUnitPrice: view\.landedLogistics\?\.included === true/);
+});
+
+test("bundled shows it in BOTH; no-freight shows it in NEITHER", () => {
+  // The gate is one value, so proving the value proves both renderers -- each
+  // is asserted above to render on exactly this flag and nothing else.
+  const bundled = landedLogisticsForTier({
+    rollup: O2_TIER_2,
+    separateFreightLineCount: 0,
+  });
+  assert.equal(bundled.included, true, "O2 bundled — sentence in both");
+
+  const noFreight = landedLogisticsForTier({
+    rollup: {
+      costBreakdown: {
+        freightContainer: 0,
+        dutyAndTariff: 0,
+        freightContainerMarkupSum: 0,
+        dutyAndTariffMarkupSum: 0,
+      },
+    },
+    separateFreightLineCount: 0,
+  });
+  assert.equal(noFreight.included, false, "no freight — sentence in neither");
+});
+
+test("separate freight gets the non-inclusion state, not this sentence", async () => {
+  const separate = landedLogisticsForTier({
+    rollup: O2_TIER_2,
+    separateFreightLineCount: 1,
+  });
+  assert.equal(separate.included, false, "a broken-out freight line is not inclusion");
+
+  // And both renderers already carry the correct alternative for that case,
+  // gated on the separate-line count rather than on this flag. The two
+  // sentences are mutually exclusive by construction.
+  for (const [label, path] of RENDERERS) {
+    const src = await readFile(path, "utf8");
+    assert.match(
+      src,
+      /Outbound freight is billed separately at cost/,
+      `${label} must carry the non-inclusion sentence`,
+    );
+    assert.match(src, /hasSeparateFreight/, `${label} gates it on the separate-line count`);
+  }
+});
+
+test("operator free text cannot control its presence, in either renderer", async () => {
+  for (const [label, path] of RENDERERS) {
+    const src = await readFile(path, "utf8");
+    assert.match(
+      src,
+      /freightIncluded && ` \$\{FREIGHT_INCLUDED_SENTENCE\}`/,
+      `${label} renders the sentence from the governed flag alone`,
+    );
+  }
+  // The flag itself comes from the governed reading only. If the adapter ever
+  // reads a note field, the document starts quoting whatever a PM typed.
+  const adapter = await readFile("src/lib/customer-view-to-cpdf.ts", "utf8");
   assert.doesNotMatch(
     adapter,
     /freightIncludedInUnitPrice:[^\n]*(note|Note|customerFacing)/,
@@ -148,10 +265,9 @@ test("the sentence is gated on the governed flag, never on operator text", async
 });
 
 test("it does not say all-in — separate one-time charges can still exist", async () => {
-  const doc = await readFile("src/components/pdf/customer-pdf-document.tsx", "utf8");
-  const sentence = "The unit prices shown include applicable freight, duty, and tariffs.";
-  assert.doesNotMatch(sentence, /all-in/i);
+  assert.doesNotMatch(FREIGHT_INCLUDED_SENTENCE, /all-in/i);
   // And the pre-existing all-in turnkey copy is left alone rather than reused.
+  const doc = await readFile("src/components/pdf/customer-pdf-document.tsx", "utf8");
   assert.match(doc, /Pricing is landed and all-in/);
 });
 
@@ -173,6 +289,8 @@ test("nothing here recomputes freight", async () => {
   assert.equal(
     [...src.matchAll(/^import /gm)].length,
     0,
-    "a pure selector over already-computed values needs no imports",
+    "a pure selector over already-computed values needs no imports — which is " +
+      "also what lets BOTH renderers consume it, including the live one that " +
+      "may not import from components/pdf/",
   );
 });
