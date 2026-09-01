@@ -9,34 +9,83 @@ claim.
 
 ---
 
-## ⚠ THE ONE THING THAT MUST NOT GO WRONG
+## ⚠ CORRECTED 2026-08-31 — read this before anything else
 
-**Do not merge #523 on its own.**
+**An earlier version of this document opened by warning that merging #523 alone
+would make Order 1 structurally false, and that a structural Group-span
+implementation had to ship in the same cutover. That was wrong, and #523 has
+since been merged on its own with approval.**
 
-#523 is accepted and correct. But merging it alone moves the system from
-**fail-closed** to **economically reconciled and structurally wrong**:
+### What was wrong
+
+The warning rested on reading
 
 ```
-flat members + IGP + OTC = $66,556.00
+/* const itemGroupOutcomes … */  // ← intentionally not built
 ```
 
-satisfies REG-4 exactly while failing to represent the **Item Group the customer
-accepted**. Four loose product lines and a group of four are the same arithmetic
-and a different commercial statement, and the arithmetic cannot tell them apart.
+in `mark-complete.ts` as evidence that the **grouping machinery** was disabled.
+It is not. That comment governs only the **outcomes reporting array**. The
+grouping implementation is built, live, and has produced **seven real Sales
+Orders** — SO2704, SO2707, SO2708, SO2709, SO2714, SO2715, SO2716, each recorded
+as `netsuite_so_id` on quotes DPS-1047 through DPS-1054.
 
-> **REG-4 is necessary but not sufficient for Item Groups.** (Edward,
-> 2026-08-31.) A sibling of the standing rule in `CLAUDE.md` — *"exact
-> reconciliation is necessary but not sufficient"* — except that here what is
+The error was reading a comment and treating it as the state, instead of
+measuring whether grouping runs.
+
+### The governing rule — OD-004
+
+Grouping is not disabled. It is **gated**, on the accepted send-time snapshot
+(`grouping-plan.ts:190`):
+
+```ts
+const groupingRequired = applicability === "turnkey_only";
+```
+
+> `detail_level = 'itemized'` → **do NOT group.** The itemized presentation is
+> what the customer agreed to; wrapping it would show them an invoice shaped
+> unlike their quote.
+> `detail_level = 'turnkey_only'` → **grouping IS required.**
+>
+> — OD-004, Edward, 2026-08-11. `docs/validation/od-004-decision-set.md`.
+> *"Do not restore the universal rule; two live rules is exactly what this
+> supersession exists to prevent."*
+
+All seven grouped Sales Orders came from `turnkey_only` quotes. **DPS-1072's
+frozen `detail_level` is `itemized`**, on the quote and on the live v2 snapshot.
+
+### Therefore, for DPS-1072
+
+**A flat member representation is CORRECT, not a defect.** #523 alone is the
+complete missing ERP representation for this order:
+
+- four itemized member lines stay flat;
+- the `item_group` commercial economics resolve through
+  `item_group_production` → IGP-0001;
+- IGP posts at the accepted quantity × the accepted rate;
+- Tooling and R&D stay separate;
+- Included Setup and Artwork stay inside IGP;
+- REG-4 is unchanged.
+
+**Do not create a NetSuite Group for `TRN-SERUM-30` for this order.** Do not
+override an accepted presentation to exercise NetSuite grouping.
+
+### The principle survives, with its scope stated
+
+> **REG-4 is necessary but not sufficient WHERE GROUPING IS APPLICABLE.**
+> (Edward, 2026-08-31.) A sibling of the standing rule in `CLAUDE.md` — *"exact
+> reconciliation is necessary but not sufficient"* — except that what would be
 > misattributed is not value but **structure**.
 
-Merge #523 **together with, or immediately before deploying**, the structural
-Group-span implementation, so that **no operator-visible interval exists** in
-which a structurally flat Item Group is considered ready to push.
+It is sound, and it **does not apply to DPS-1072**, because grouping is
+explicitly not applicable to an itemized quote.
 
-Today, with #523 unmerged, an attempted push fails REG-4 with the $23,887.50
-shortfall and refuses. That is the safe state, and it is safe by accident of
-sequencing rather than by design — which is exactly why the cutover must be one
-step.
+### Grouped-path certification — banked, separate subject
+
+Certify `findOrCreateItemGroup` → composition hash → Group span → member
+multiplicity → `EndGroup` → grouped SO readback **on a later staged order whose
+frozen `detail_level` is `turnkey_only`.** That order, not DPS-1072, is the
+certification subject for grouping. §5–§9 below remain the reference for it.
 
 ---
 
@@ -77,10 +126,11 @@ of the evidence in this document was gathered.
 The **actual NetSuite Sales Order** must prove economic *and* structural
 fidelity:
 
-- the Group span represents `TRN-SERUM-30`;
-- Bottle ×1, Pump ×1, **Label ×2**, Carton ×1;
-- member quantities and rates match the frozen accepted artifact;
-- `IGP-0001` carries exactly **$23,887.50**;
+- **no Group span and no Setup/Artwork lines** — DPS-1072 is itemized (see the
+  correction above);
+- Bottle 6,000 @ 1.59848 · Pump 6,000 @ 0.78387 · **Label 12,000 @ 0.25440** ·
+  Carton 6,000 @ 0.54060, matching the frozen accepted artifact;
+- `IGP-0001` 6,000 @ 3.98125 = exactly **$23,887.50**;
 - Tooling **$16,030** exactly once;
 - R&D **$6,048** exactly once;
 - Included Setup and Artwork **do not reappear**;
@@ -106,9 +156,10 @@ at the top of this section stands, and **success must not be declared earlier.**
 | **#521** | BV-011 authority amendment: the seventeenth destination, `item_group_production`, deliberately outside the `otc_*` namespace |
 | **#522** | The governed destination itself — type union, catalogue entry, `bv011_destination` enum, migration `0117` (additive, label appended) |
 
-### Open and intentionally NOT merged
+### Merged 2026-08-31, on its own, with approval
 
-**#523** — the Item Group **commercial** line. See the warning above.
+**#523** — the Item Group **commercial** line. Merged alone once OD-004 settled
+that DPS-1072 needs no Group span; see the correction above.
 
 What it contains: `LINE_KIND_RESOLUTION.item_group` moves `by_sku →
 by_destination`; a `LINE_KIND_DESTINATION` map (`item_group →
@@ -295,23 +346,25 @@ existing `resolveNetsuiteItem`.
 
 ---
 
-## 8 · Exact next implementation
+## 8 · Grouping implementation — ALREADY BUILT; reference for the turnkey_only order
 
-**Start at the disabled block in `src/lib/netsuite/mark-complete.ts`:**
+**Nothing here needs building.** The rationale was adjudicated 2026-08-31 and
+the machinery is live; this section is the reference for certifying it on a
+`turnkey_only` order.
 
-```
-/* const itemGroupOutcomes … */  // ← intentionally not built
-```
+Adjudication of the historical reasons, for the record:
 
-**Read and adjudicate every reason in that rationale before changing it.** It
-cites the Assembly migration (a v1.1+ candidate proven via Probe 4), a possible
-RESTlet path, and the `smoke:netsuite-item-groups` smoke that keeps the
-primitives from rotting. Each is a claim about what was true when it was
-written; check each against the authority now available rather than assuming the
-disable is stale.
+| reason | verdict |
+|---|---|
+| "the SO validator refuses Group lines at CREATE via REST and SOAP" (2026-07-28) | **superseded** — seven grouped SOs created through the API since |
+| Assembly migration / v1.1+ | still valid as strategic direction; not blocking |
+| Probe 4 | still valid; informs the v1.1+ direction only |
+| possible RESTlet path | superseded as a necessity — it was a workaround for the CREATE refusal |
+| `smoke:netsuite-item-groups` | still valid, and no longer the only thing keeping the primitives alive |
+| line-index mutation / PATCH after expansion | **still valid and live** — `client.ts:459`; the member-rate PATCH already handles it on real orders |
+| "grouping excluded from markComplete" | **it is not excluded — it is gated on OD-004** |
 
-**Prefer enabling the machinery that already exists** — do not write a second
-grouping system:
+The machinery, all of it already in place:
 
 - `groupLines` / `emittedGroupLines`
 - `groupMemberItemIds`
