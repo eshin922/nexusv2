@@ -338,6 +338,25 @@ export type CustomerView = {
    * waiting to happen. They belong here.
    */
   foldFeesIntoTotal: boolean;
+  /**
+   * Governed landed logistics for the recommended tier, from
+   * `landed-logistics.ts` — the SAME rollup Pricing renders, selected and
+   * named rather than recomputed.
+   *
+   * Two consumers: the operator's final-validation panel, and one sentence in
+   * the customer document's pricing lede. Both read this so they cannot
+   * disagree about whether freight is inside the price.
+   *
+   * Optional because callers that predate it — and fixtures — legitimately do
+   * not carry it; absent means the document says nothing, which is the right
+   * default for an ungoverned claim.
+   */
+  landedLogistics?: {
+    freight: number;
+    dutyAndTariff: number;
+    total: number;
+    included: boolean;
+  };
   pdfLayout: CustomerViewPdfLayout;
   detailLevel: CustomerViewDetailLevel;
   /**

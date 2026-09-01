@@ -200,6 +200,11 @@ export function customerViewToCpdf(
     // Tier 1" on the strength of a fallback, and the second fabrication of the
     // same value sat one layer under the first.
     recommendedTierIdx: view.recommendedTierIdx,
+    // Governed flag only — the AMOUNTS stay out of the customer document
+    // deliberately. The customer is told that freight is included, not how
+    // much of their price it is; that figure is operator-internal and lives on
+    // the validation panel.
+    freightIncludedInUnitPrice: view.landedLogistics?.included === true,
     // Carried, not re-derived. Both renderers quote the same column.
     feeBasisTierIdx: view.feeBasisTierIdx,
     skus,

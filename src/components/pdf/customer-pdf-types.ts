@@ -185,4 +185,17 @@ export type CpdfData = {
   skus: ReadonlyArray<CpdfSku>;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
+  /**
+   * Governed: the unit prices carry freight, duty and tariff.
+   *
+   * Drives one sentence in the pricing lede and nothing else. Derived ONCE, in
+   * `landed-logistics.ts`, from the same rollup Pricing renders — never from
+   * an operator's free-text note, which is not authority and which a PM may
+   * simply not have written.
+   *
+   * Optional so the many fixtures that predate it stay valid and render no
+   * sentence, which is the correct default: silence is what a document says
+   * when nothing governs the claim.
+   */
+  freightIncludedInUnitPrice?: boolean;
 };

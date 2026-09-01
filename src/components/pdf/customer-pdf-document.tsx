@@ -98,10 +98,27 @@ function PageChrome({
 // per the four flag combinations; eyebrow / h2 track the
 // single-tier axis.
 
+/**
+ * The governed inclusion sentence. ONE definition, consumed by both branches.
+ *
+ * The HTML preview and the generated PDF already share this component tree —
+ * the preview route streams it (`api/quotes/[id]/customer-pdf`) and `sendQuote`
+ * buffers it, both through `renderRepresentation`. So a single constant here IS
+ * the single copy source; there is no second renderer to keep in step.
+ *
+ * Deliberately NOT "all-in". Separate one-time charges can still exist on an
+ * itemized quote — O2 carries tooling and R&D as their own lines — and "all-in"
+ * beside an itemized fee table would be a claim the document contradicts three
+ * inches lower.
+ */
+const FREIGHT_INCLUDED_SENTENCE =
+  "The unit prices shown include applicable freight, duty, and tariffs.";
+
 function ItemizedHead({
   isSingle,
   hasCharges,
   hasSeparateFreight,
+  freightIncluded,
   hasUnpriced,
   fullLabelIfSingle,
   recommendedTierFullLabel,
@@ -112,6 +129,8 @@ function ItemizedHead({
    *  customer-view model actually carries freight lines. Freight-specific
    *  copy renders only from this, never from `hasCharges`. */
   hasSeparateFreight: boolean;
+  /** Governed: freight, duty and tariff ride inside the unit prices. */
+  freightIncluded: boolean;
   hasUnpriced: boolean;
   /** Passed when isSingle=true; used for h2 "Per-unit pricing · {full}". */
   fullLabelIfSingle: string | null;
@@ -137,6 +156,10 @@ function ItemizedHead({
       <Text style={styles.h2}>{h2}</Text>
       <Text style={styles.lede}>
         Pricing per the terms below across volume tiers.
+        {/* Adjacent to the pricing it qualifies, and mutually exclusive with
+            the separate-freight sentence by construction: `freightIncluded`
+            is false whenever a separate freight line exists. */}
+        {freightIncluded && ` ${FREIGHT_INCLUDED_SENTENCE}`}
         {hasSeparateFreight &&
           " Outbound freight is billed separately at cost."}
         {hasCharges && " One-time charges are itemized below."}
@@ -219,6 +242,9 @@ export function CustomerPdfDocument({
   // demonstrate. If a future state genuinely projects freight lines, the copy
   // returns on its own — gated on the evidence, not on a sibling charge.
   const hasSeparateFreight = freightLines.length > 0;
+  // Governed, from `landed-logistics.ts` via the adapter. Absent on fixtures
+  // that predate it, which correctly render no sentence.
+  const freightIncluded = data.freightIncludedInUnitPrice === true;
   // Null index means no recommendation exists. `tiers[null]` would be
   // undefined anyway, but stating it keeps the intent legible: the document
   // makes no recommendation rather than quietly landing on one.
@@ -228,13 +254,25 @@ export function CustomerPdfDocument({
   // Turnkey lede — composes from same flag axes. Base sentence
   // varies with hasCharges (turnkey-with-fees folds them into the
   // total; without-fees is landed & all-in).
-  const turnkeyLede = hasCharges
+  const turnkeyLedeBase = hasCharges
     ? hasSeparateFreight
       ? "The all-in turnkey total per tier — one-time fees folded in. Outbound freight is billed separately at cost."
       : "The all-in turnkey total per tier — one-time fees folded in."
     : hasUnpriced
       ? "All-in turnkey total per tier. One tier is still pending a final line price, noted below."
       : "Pricing is landed and all-in — one number per volume tier, freight and duty included.";
+
+  // The governed sentence, appended where the shape does not already say it.
+  //
+  // The last branch above already states inclusion in its own words, so
+  // appending there would say it twice. Every other turnkey branch is silent
+  // about freight, and a turnkey total that silently carries logistics is the
+  // same gap this repair exists to close on the itemized side.
+  const turnkeyAlreadySaysIt = !hasCharges && !hasUnpriced;
+  const turnkeyLede =
+    freightIncluded && !turnkeyAlreadySaysIt
+      ? `${turnkeyLedeBase} ${FREIGHT_INCLUDED_SENTENCE}`
+      : turnkeyLedeBase;
 
   // Terms wrapper style — sectionTight when hasCharges OR when
   // turnkey is combined with hasUnpriced (matches the mutually-
@@ -280,6 +318,7 @@ export function CustomerPdfDocument({
                   isSingle={isSingle}
                   hasCharges={hasCharges}
                   hasSeparateFreight={hasSeparateFreight}
+                  freightIncluded={freightIncluded}
                   hasUnpriced={hasUnpriced}
                   fullLabelIfSingle={
                     // A single-tier quote names its one tier whether or not it

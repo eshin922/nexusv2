@@ -74,6 +74,7 @@ export function CustomerViewRail({
   recoveryInstructions,
   rollups,
   governed,
+  landedLogistics,
   pdfLayout,
   onPdfLayoutChange,
   detailLevel,
@@ -96,6 +97,17 @@ export function CustomerViewRail({
   recoveryInstructions: readonly FrozenRecoveryInstruction[];
   rollups: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
+  /**
+   * Governed landed logistics for the recommended tier, or null when the quote
+   * carries none. Read from `landed-logistics.ts` — the same rollup Pricing
+   * renders. Nothing here recomputes it.
+   */
+  landedLogistics?: {
+    freight: number;
+    dutyAndTariff: number;
+    total: number;
+    included: boolean;
+  } | null;
   pdfLayout: CustomerViewPdfLayout;
   onPdfLayoutChange: (next: CustomerViewPdfLayout) => void;
   detailLevel: CustomerViewDetailLevel;
@@ -289,6 +301,46 @@ export function CustomerViewRail({
             </span>
             <span className="cv-gov-src">pricing</span>
           </div>
+          {/* ── Landed logistics ──────────────────────────────────────
+              Freight, duty and tariff are inside the unit prices on a bundled
+              quote, so an operator reviewing the final numbers cannot see them
+              at all — the whole point of showing them HERE, at the last
+              surface before Send and Accept, rather than only on Pricing.
+              Rendered only when the quote actually carries logistics; a $0.00
+              row on a domestic quote would be noise. */}
+          {landedLogistics && landedLogistics.total > 0 && (
+            <>
+              <div className="cv-gov-row">
+                <span className="cv-gov-k">
+                  Landed logistics
+                  {landedLogistics.included ? " — included in unit pricing" : " — billed separately"}
+                </span>
+                <span className="cv-gov-v" data-testid="cv-landed-total">
+                  {usd(landedLogistics.total)}
+                </span>
+                <span className="cv-gov-src">costs</span>
+              </div>
+              <div className="cv-gov-row">
+                <span className="cv-gov-k" style={{ paddingLeft: 12 }}>
+                  Freight
+                </span>
+                <span className="cv-gov-v" data-testid="cv-landed-freight">
+                  {usd(landedLogistics.freight)}
+                </span>
+                <span className="cv-gov-src" />
+              </div>
+              <div className="cv-gov-row">
+                <span className="cv-gov-k" style={{ paddingLeft: 12 }}>
+                  Duty &amp; tariff
+                </span>
+                <span className="cv-gov-v" data-testid="cv-landed-duty">
+                  {usd(landedLogistics.dutyAndTariff)}
+                </span>
+                <span className="cv-gov-src" />
+              </div>
+            </>
+          )}
+
           <div className="cv-gov-row">
             <span className="cv-gov-k">Margin floor / target</span>
             <span className="cv-gov-v">

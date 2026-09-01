@@ -45,6 +45,7 @@ import {
 } from "@/db/schema";
 import { type ProposedElections, getCostingBundle } from "@/app/actions/costing";
 import { projectCommercial } from "@/lib/commercial-projection";
+import { landedLogisticsForTier } from "@/lib/landed-logistics";
 import {
   projectFrozenInstructions,
   projectRecoveryInstructionsForRead,
@@ -645,6 +646,23 @@ export async function resolveCustomerView(args: {
   // price it has no separate customer-facing line, avoiding double signaling.
   const freightLines: [] = [];
 
+  // The governed landed-logistics reading, for the tier the document is about.
+  //
+  // Recomputes nothing: `landedLogisticsForTier` selects from the rollup the
+  // costing layer already produced. Keyed to the RECOMMENDED tier because that
+  // is the tier the customer document quotes and the operator is about to send;
+  // a figure taken from some other tier would be a true number about the wrong
+  // thing.
+  const landedTierId =
+    recommendedTierIdx !== null ? (tiers[recommendedTierIdx]?.id ?? null) : null;
+  const landedLogistics = landedLogisticsForTier({
+    rollup:
+      landedTierId === null
+        ? null
+        : (bundle.data.costing.quoteRollup.find((r) => r.tierId === landedTierId) ?? null),
+    separateFreightLineCount: freightLines.length,
+  });
+
   // #431 Step 2 — the customer's CURRENTLY sourced identity, for drafts.
   //
   // Declared here, before the object that reads it: this file has shipped a
@@ -760,6 +778,7 @@ export async function resolveCustomerView(args: {
     skus,
     serviceFees,
     freightLines,
+    landedLogistics,
     recommendedTierIdx,
     // Decided once. Both renderers read it; neither re-derives it.
     feeBasisTierIdx: recommendedTierIdx ?? 0,
