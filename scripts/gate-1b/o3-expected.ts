@@ -34,6 +34,20 @@
  * system that keyed recovery by charge type would have to give them the same
  * answer and would fail visibly.
  *
+ * TWO VOCABULARIES, one intent. The `treatment` values below are the
+ * `recovery_treatment` enum -- the FROZEN INSTRUCTION vocabulary, which is what
+ * `quote_snapshot_recovery_instructions` carries and therefore what a reader of
+ * the accepted record sees. The live ELECTION table `quote_charge_recovery`
+ * uses a different enum for the same decisions:
+ *
+ *     instruction `unit_price`    <->  election `included`
+ *     instruction `separate_line` <->  election `separate`
+ *     instruction `absorbed`      <->  election `absorbed`
+ *
+ * Verified 2026-08-31 by electing all four through the operator surface and
+ * reading both tables. A verifier comparing an election directly against the
+ * strings below will report a false failure; map first.
+ *
  * O1's four charges were `owner_quote_leaf_id IS NULL` with zero per-tier rows
  * — the legacy production-column path. This is the component-charge path's
  * first exercise.
