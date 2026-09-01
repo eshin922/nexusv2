@@ -5167,5 +5167,52 @@ that caused it.
 
 Reported by Edward 2026-08-31 during the Order 2 walk. Banked deliberately
 rather than investigated inline: the Freight operator-reachability blocker was
-in flight and is the higher-order defect. Trace this separately once Order 2
-certification is clear.
+in flight and is the higher-order defect.
+
+**Widened the same day, and now instrumented.** Edward also reports Nexus
+*intermittently appearing to refresh itself* during normal use and training —
+behaviour that PREDATES this Costs finding. The two are held as ONE
+investigation until their signatures are shown to differ, and split if they do.
+That the intermittent report is older is a reason to suspect a common cause,
+not a reason to assume one.
+
+The diagnostic shipped in PR #531 (`src/lib/diagnostics/lifecycle-trace.ts`).
+It exists to separate four events that look identical to an operator — a true
+document reload, a router navigation, a React remount, and a re-render with
+neither — using a per-document instance id held in a module constant, with the
+buffer in `sessionStorage` so a real reload cannot destroy the evidence that a
+reload happened. It also wraps `fetch` to answer the specific question of
+whether the apparent refresh FOLLOWS an autosave or an action completing.
+
+One thing already measured and deliberately not assumed: `CostBuildAccordion`
+uses `window.history.replaceState` expressly to avoid a Next navigation, so
+"expanding a section navigates" is unlikely on its face. It is instrumented
+anyway. The capture must say whether the expansion preceded the reset or caused
+it — different claims.
+
+**Do not repair either report until the first captured event is classified as
+document reload / router navigation / component remount / scroll-only reset,
+with the network activity immediately preceding it.**
+
+## Freight — nested edit affordances do not share the destination inset
+
+In the Freight drilldown, **Edit destination** aligns to the outer-left
+boundary of the shipment card rather than to the destination subgroup's content
+inset. It should sit on the same left edge as the destination content directly
+above it — the destination name and its details — so the control reads as
+belonging to the subgroup it edits rather than to the card that contains it.
+
+**Apply the same rule to the equivalent subgroup edit affordance**, so nested
+Freight controls express one hierarchy instead of two. The point is the shared
+rule, not the single misaligned element: fixing only the one that was noticed
+leaves the inconsistency intact and the next one will be found the same way.
+
+**Presentation only.** No workflow change, no data change, no Freight
+arithmetic change, no redesign. The smallest shared spacing/layout rule that
+puts nested controls on their subgroup's inset.
+
+Reported by Edward 2026-08-31 during the Order 2 Freight walk. Banked rather
+than fixed inline so Order 2 certification is not interrupted by a cosmetic
+change to the surface being certified — a presentation edit mid-certification
+would also mean re-establishing that nothing economic moved. Fix after Order 2
+certification closes.
