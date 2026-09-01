@@ -5120,3 +5120,247 @@ settled and correct; this is the explanatory clause beside them.
 
 Found in the BV-013 operator walk, 2026-08-18. Edward's disposition: bank as a
 bounded Settings-copy repair.
+
+## Costs — expanding a section returns the viewport to the top mid-scroll
+
+Expand any major Costs section — Packaging, Production or Freight — and begin
+scrolling immediately. Shortly afterwards the page repeatedly jumps back to the
+top. Observed across more than one section, so **do not assume it is
+section-specific**; treat the shared shell as the likelier subject.
+
+**Acceptance.** Expanding a section must not change the operator's viewport
+once they have begun scrolling. Opening a section may increase page height —
+that is expected — but it must not subsequently return the page to the top.
+
+**Establish the event sequence before proposing a cause:**
+
+```
+expand section → operator scrolls → ??? → scroll position resets to top
+```
+
+The `???` is the finding. Generic "React re-rendered" is not it: a re-render
+that preserves the DOM does not move the scroll position, so something more
+specific is doing this. Candidates to rule in or out, each individually:
+
+- a `router.refresh()` or navigation fired after expansion;
+- URL / search-param mutation (the section and active tier are both in the
+  query string, and `ActiveTierUrlSync` writes to it);
+- a form action completing and triggering a refresh;
+- focus restoration or autofocus inside the newly-opened section;
+- a keyed remount of the Costs page or shell;
+- an explicit `scrollIntoView` / `scrollTo`, or browser scroll restoration;
+- a delayed loader or revalidation landing after the section opens — note the
+  store's wait-for-quiet reconcile can arrive seconds later, which matches
+  "shortly afterward" and "repeatedly".
+
+**Instrument, do not infer.** Record `scrollY`, pathname and search params,
+render and remount counts, and `document.activeElement` from the moment of
+expansion through the jump. The requirement is to identify the event that
+actually resets the position — an instrument that cannot distinguish a
+navigation from a re-render cannot settle this.
+
+Two prior findings in this file are relevant and should not be re-derived:
+Pattern 55 (refresh amplification — a burst of `router.refresh()` calls on this
+exact surface) and Pattern 41 (RSC snapshot props vs store). Both concern the
+Costs page and both involve reconciliation arriving later than the interaction
+that caused it.
+
+Reported by Edward 2026-08-31 during the Order 2 walk. Banked deliberately
+rather than investigated inline: the Freight operator-reachability blocker was
+in flight and is the higher-order defect.
+
+**Widened the same day, and now instrumented.** Edward also reports Nexus
+*intermittently appearing to refresh itself* during normal use and training —
+behaviour that PREDATES this Costs finding. The two are held as ONE
+investigation until their signatures are shown to differ, and split if they do.
+That the intermittent report is older is a reason to suspect a common cause,
+not a reason to assume one.
+
+The diagnostic shipped in PR #531 (`src/lib/diagnostics/lifecycle-trace.ts`).
+It exists to separate four events that look identical to an operator — a true
+document reload, a router navigation, a React remount, and a re-render with
+neither — using a per-document instance id held in a module constant, with the
+buffer in `sessionStorage` so a real reload cannot destroy the evidence that a
+reload happened. It also wraps `fetch` to answer the specific question of
+whether the apparent refresh FOLLOWS an autosave or an action completing.
+
+One thing already measured and deliberately not assumed: `CostBuildAccordion`
+uses `window.history.replaceState` expressly to avoid a Next navigation, so
+"expanding a section navigates" is unlikely on its face. It is instrumented
+anyway. The capture must say whether the expansion preceded the reset or caused
+it — different claims.
+
+**Do not repair either report until the first captured event is classified as
+document reload / router navigation / component remount / scroll-only reset,
+with the network activity immediately preceding it.**
+
+## Freight — nested edit affordances do not share the destination inset
+
+In the Freight drilldown, **Edit destination** aligns to the outer-left
+boundary of the shipment card rather than to the destination subgroup's content
+inset. It should sit on the same left edge as the destination content directly
+above it — the destination name and its details — so the control reads as
+belonging to the subgroup it edits rather than to the card that contains it.
+
+**Apply the same rule to the equivalent subgroup edit affordance**, so nested
+Freight controls express one hierarchy instead of two. The point is the shared
+rule, not the single misaligned element: fixing only the one that was noticed
+leaves the inconsistency intact and the next one will be found the same way.
+
+**Presentation only.** No workflow change, no data change, no Freight
+arithmetic change, no redesign. The smallest shared spacing/layout rule that
+puts nested controls on their subgroup's inset.
+
+Reported by Edward 2026-08-31 during the Order 2 Freight walk. Banked rather
+than fixed inline so Order 2 certification is not interrupted by a cosmetic
+change to the surface being certified — a presentation edit mid-certification
+would also mean re-establishing that nothing economic moved. Fix after Order 2
+certification closes.
+
+## Product Library — operators need to deactivate legacy products
+
+**Requirement (Edward, 2026-08-31, from training).** Operators must be able to
+deactivate a legacy product so it cannot be used on NEW quotes, while it stays
+permanently resolvable for the quotes that already reference it. Primary case:
+obsolete OTC-style items that must not be selectable any more.
+
+**Traced before proposing anything.** `leaves.archived` already exists
+(`src/db/schema.ts:2607`, NOT NULL default false). The question was whether it
+is already the right authority. It is the right *semantics* and the wrong
+*ownership* — and that distinction is the whole decision.
+
+### What `archived` already does correctly
+
+| requirement | status | evidence |
+|---|---|---|
+| excluded from new Direct Product selection | **already true** | `attachQuoteProduct` → `evaluateAttachmentEligibility(leaf, "direct")`, refused first at `attachment-eligibility.ts:65-71` |
+| excluded from new Item Group member selection | **already true** | `attachAssemblyLeaf` → same shared classifier, `assemblies.ts:328-348` |
+| existing quotes keep rendering | **already true** | no `quote_leaves → leaves` read filters on `archived` anywhere — costing, setup tree, addenda, PDF, costs page all verified |
+| no cascade, no delete | **already true** | the flag is the only effect |
+| NetSuite / HubSpot identities intact | **already true** | no `archived` reference in `src/lib/netsuite/` at all |
+
+The two selector gates share ONE classifier, so they cannot drift apart. That
+is a real asset and an argument for keeping `archived` rather than introducing
+a second flag.
+
+### Three gaps that block the requirement as written
+
+**1. No operator can archive anything.** There is no `archiveLeaf` action, no
+admin route, no UI control. The ONLY writers are the HubSpot pull
+(`hubspot-pull.ts:218`, `:265`) and `restoreLeaf`
+(`actions/leaves.ts:314-317`), which only ever sets `false`. The
+`leaf_archive` audit action documented in CLAUDE.md as covering "PM-driven
+archives" **has no emitter** — the only thing that writes it is the pull flow.
+So "Deactivate product" does not exist in any form.
+
+**2. HubSpot pull silently reverses a Nexus-side deactivation.** This is the
+decisive finding. The active pass writes `archived: mapped.archived`
+UNCONDITIONALLY, so a leaf archived in Nexus but active in HubSpot flips back
+to `false` **with no audit row at all**. The code says so itself
+(`hubspot-pull.ts:229-233`: "un-archive is rare and TODO; the archived state
+flips silently"). A deactivation that the next pull undoes, invisibly, is not
+a deactivation. The same asymmetry runs the other way: `restoreLeaf` is
+Nexus-side only and leaves the HubSpot product archived, so a restore survives
+only until the next pull re-archives it.
+
+**3. The filter runs backwards from the requirement.** The requirement asks for
+exclusion by default plus an "Include inactive" toggle. Today
+`library-browse-loader.ts` deliberately does NOT filter archived at all
+(`:191-220`) — archived rows are ALWAYS listed, and there is no toggle. Only
+`libraryTotalActive` (`:306`) applies the predicate, and solely to decide the
+empty state. So the work is: add the default exclusion AND the toggle, not just
+the toggle.
+
+### The decision this actually turns on
+
+`archived` is presently a **read-only mirror of HubSpot's archive flag**. Using
+it as the authority for operator deactivation means deciding **who owns the
+value when Nexus and HubSpot disagree** — Nexus-wins, HubSpot-wins, or a
+separate provenance field recording which side last set it. That is a business
+call, not an implementation detail, and it should be settled before any code.
+Introducing a second flag (`disabled`, `active`) would dodge the question by
+creating two lifecycle states that can contradict each other, which is worse
+than answering it.
+
+**Recommendation: keep `archived`, resolve the provenance question, and treat
+the silent un-archive as a defect in its own right** — a write that changes a
+governed availability state with no audit row is a hole regardless of this
+requirement.
+
+### One semantic beyond availability, worth knowing
+
+`archived` also blocks spec EDITING (`actions/leaf-specs.ts:165-169`,
+"Archived leaves can't be edited."). Consistent with deactivation, but it means
+archiving is already slightly more than "not selectable" and the copy should
+say so.
+
+### Legacy-OTC boundary — unchanged and still binding
+
+Deactivation must not become a way to retire a still-live code dependency.
+Before deactivating any obsolete OTC record, PROVE no governed current path
+depends on it, then deactivate. Do not delete historical master data. Note that
+`docs/OPEN_DECISIONS.md:1327` and
+`docs/validation/product-library-authority-finding.md:30` already record that
+`archived = false` is not evidence a product is resolvable — the inverse
+inference is equally unsafe.
+
+### DISPOSITION — Edward, 2026-08-31
+
+**Use `leaves.archived`. Do not introduce `active`, `disabled`, or any other
+overlapping lifecycle flag.** The selector and history behaviour traced above is
+already correct and is not to be re-litigated. What is missing is **write
+authority and provenance**.
+
+**Ownership rule, adopted:**
+
+> Either HubSpot or Nexus may cause a product to become archived. Neither
+> synchronization nor HubSpot may silently reactivate a product that Nexus
+> explicitly archived. Reactivation after a Nexus deactivation requires the
+> explicit Nexus **Restore** operator action.
+
+Deliberately conservative: preventing use of an obsolete SKU is safer than
+silently making it selectable again. Disagreement is NOT to be resolved by
+adding another status field.
+
+**Required implementation, later:**
+
+- governed `archiveLeaf` action
+- explicit Product Library **Deactivate product** control
+- existing **Restore** as the one explicit reactivation path
+- default Product Library view EXCLUDES inactive
+- **Include inactive** exposes them with an obvious status
+- audit for **every** availability transition, both directions
+
+**Repair the silent un-archive as part of this governed lifecycle**, not as an
+unrelated cleanup. It is the same defect: an availability transition with no
+audit row and no owner.
+
+### Provenance — one finding already established
+
+The trace answers part of the pre-implementation question. **The current schema
+cannot express the distinction.** `leaves` carries `archived` as a bare boolean
+(`schema.ts:2607`) and nothing else about who set it; there is no
+`archived_source`, `archived_by`, or equivalent. The only record of causation
+lives in `audit_log` — `leaf_archive` rows carry
+`diff_json.source = "hubspot_archived"` for pull-driven archives
+(`hubspot-pull.ts:239`).
+
+That is not usable here, for the reason the disposition anticipates:
+`pullProductsBatch` decides per row, inside the sync loop
+(`hubspot-pull.ts:218`), and would have to query audit history for every product
+in the batch to know whether a Nexus operator had archived it. **A synchronous
+decision cannot be built on an inference from history.** So the smallest
+provenance addition is a column on `leaves` recording which side last set the
+availability state, read directly by the pull's UPDATE branch.
+
+The exact shape — enum vs boolean, and whether it also records the restoring
+side — is deferred to the implementation trace. Recorded here only so the
+pre-implementation question starts from evidence rather than re-deriving it.
+
+**Banked behind Order 2 certification.** Nothing implemented. The current
+Product Library state does not interfere with training: archived rows are
+visible and clearly badged, and the attach gates already work.
+
+Legacy-OTC cleanup remains downstream and unchanged: prove each obsolete record
+has no current governed dependency, then deactivate it **through the operator
+workflow** rather than deleting it.
