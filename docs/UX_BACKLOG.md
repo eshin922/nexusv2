@@ -5216,3 +5216,94 @@ than fixed inline so Order 2 certification is not interrupted by a cosmetic
 change to the surface being certified — a presentation edit mid-certification
 would also mean re-establishing that nothing economic moved. Fix after Order 2
 certification closes.
+
+## Product Library — operators need to deactivate legacy products
+
+**Requirement (Edward, 2026-08-31, from training).** Operators must be able to
+deactivate a legacy product so it cannot be used on NEW quotes, while it stays
+permanently resolvable for the quotes that already reference it. Primary case:
+obsolete OTC-style items that must not be selectable any more.
+
+**Traced before proposing anything.** `leaves.archived` already exists
+(`src/db/schema.ts:2607`, NOT NULL default false). The question was whether it
+is already the right authority. It is the right *semantics* and the wrong
+*ownership* — and that distinction is the whole decision.
+
+### What `archived` already does correctly
+
+| requirement | status | evidence |
+|---|---|---|
+| excluded from new Direct Product selection | **already true** | `attachQuoteProduct` → `evaluateAttachmentEligibility(leaf, "direct")`, refused first at `attachment-eligibility.ts:65-71` |
+| excluded from new Item Group member selection | **already true** | `attachAssemblyLeaf` → same shared classifier, `assemblies.ts:328-348` |
+| existing quotes keep rendering | **already true** | no `quote_leaves → leaves` read filters on `archived` anywhere — costing, setup tree, addenda, PDF, costs page all verified |
+| no cascade, no delete | **already true** | the flag is the only effect |
+| NetSuite / HubSpot identities intact | **already true** | no `archived` reference in `src/lib/netsuite/` at all |
+
+The two selector gates share ONE classifier, so they cannot drift apart. That
+is a real asset and an argument for keeping `archived` rather than introducing
+a second flag.
+
+### Three gaps that block the requirement as written
+
+**1. No operator can archive anything.** There is no `archiveLeaf` action, no
+admin route, no UI control. The ONLY writers are the HubSpot pull
+(`hubspot-pull.ts:218`, `:265`) and `restoreLeaf`
+(`actions/leaves.ts:314-317`), which only ever sets `false`. The
+`leaf_archive` audit action documented in CLAUDE.md as covering "PM-driven
+archives" **has no emitter** — the only thing that writes it is the pull flow.
+So "Deactivate product" does not exist in any form.
+
+**2. HubSpot pull silently reverses a Nexus-side deactivation.** This is the
+decisive finding. The active pass writes `archived: mapped.archived`
+UNCONDITIONALLY, so a leaf archived in Nexus but active in HubSpot flips back
+to `false` **with no audit row at all**. The code says so itself
+(`hubspot-pull.ts:229-233`: "un-archive is rare and TODO; the archived state
+flips silently"). A deactivation that the next pull undoes, invisibly, is not
+a deactivation. The same asymmetry runs the other way: `restoreLeaf` is
+Nexus-side only and leaves the HubSpot product archived, so a restore survives
+only until the next pull re-archives it.
+
+**3. The filter runs backwards from the requirement.** The requirement asks for
+exclusion by default plus an "Include inactive" toggle. Today
+`library-browse-loader.ts` deliberately does NOT filter archived at all
+(`:191-220`) — archived rows are ALWAYS listed, and there is no toggle. Only
+`libraryTotalActive` (`:306`) applies the predicate, and solely to decide the
+empty state. So the work is: add the default exclusion AND the toggle, not just
+the toggle.
+
+### The decision this actually turns on
+
+`archived` is presently a **read-only mirror of HubSpot's archive flag**. Using
+it as the authority for operator deactivation means deciding **who owns the
+value when Nexus and HubSpot disagree** — Nexus-wins, HubSpot-wins, or a
+separate provenance field recording which side last set it. That is a business
+call, not an implementation detail, and it should be settled before any code.
+Introducing a second flag (`disabled`, `active`) would dodge the question by
+creating two lifecycle states that can contradict each other, which is worse
+than answering it.
+
+**Recommendation: keep `archived`, resolve the provenance question, and treat
+the silent un-archive as a defect in its own right** — a write that changes a
+governed availability state with no audit row is a hole regardless of this
+requirement.
+
+### One semantic beyond availability, worth knowing
+
+`archived` also blocks spec EDITING (`actions/leaf-specs.ts:165-169`,
+"Archived leaves can't be edited."). Consistent with deactivation, but it means
+archiving is already slightly more than "not selectable" and the copy should
+say so.
+
+### Legacy-OTC boundary — unchanged and still binding
+
+Deactivation must not become a way to retire a still-live code dependency.
+Before deactivating any obsolete OTC record, PROVE no governed current path
+depends on it, then deactivate. Do not delete historical master data. Note that
+`docs/OPEN_DECISIONS.md:1327` and
+`docs/validation/product-library-authority-finding.md:30` already record that
+`archived = false` is not evidence a product is resolvable — the inverse
+inference is equally unsafe.
+
+**Banked behind Order 2 certification.** Nothing implemented. The current
+Product Library state does not interfere with training: archived rows are
+visible and clearly badged, and the attach gates already work.
