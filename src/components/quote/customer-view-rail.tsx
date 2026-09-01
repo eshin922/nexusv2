@@ -58,6 +58,19 @@ export type GovernedSummary = {
 };
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+
+/**
+ * Cents-exact, for figures an operator RECONCILES rather than scans.
+ *
+ * `usd` rounds to whole dollars, which is right for the scan-level rows above
+ * it — nobody checks a margin floor to the cent. It is wrong for landed
+ * logistics: that panel exists so the operator can tie the logistics share
+ * back to Costs and Pricing before Send, and $19,815 is not the number those
+ * surfaces show. Rounding turned $19,814.94 into a figure that reconciles
+ * against nothing.
+ */
+const usdCents = (n: number) =>
+  `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
 /** The authority's recovery words for the Accounting handoff. */
@@ -316,7 +329,7 @@ export function CustomerViewRail({
                   {landedLogistics.included ? " — included in unit pricing" : " — billed separately"}
                 </span>
                 <span className="cv-gov-v" data-testid="cv-landed-total">
-                  {usd(landedLogistics.total)}
+                  {usdCents(landedLogistics.total)}
                 </span>
                 <span className="cv-gov-src">costs</span>
               </div>
@@ -325,7 +338,7 @@ export function CustomerViewRail({
                   Freight
                 </span>
                 <span className="cv-gov-v" data-testid="cv-landed-freight">
-                  {usd(landedLogistics.freight)}
+                  {usdCents(landedLogistics.freight)}
                 </span>
                 <span className="cv-gov-src" />
               </div>
@@ -334,7 +347,7 @@ export function CustomerViewRail({
                   Duty &amp; tariff
                 </span>
                 <span className="cv-gov-v" data-testid="cv-landed-duty">
-                  {usd(landedLogistics.dutyAndTariff)}
+                  {usdCents(landedLogistics.dutyAndTariff)}
                 </span>
                 <span className="cv-gov-src" />
               </div>
