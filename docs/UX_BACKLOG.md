@@ -287,6 +287,45 @@ operational pre-flight.)
 
 ## Open
 
+- **Qty / parent — helper copy, and the rule it expresses**
+
+  **Driver:** Edward, 2026-08-31, from the membership-quantity reachability
+  repair (PR #508). **Recommendation only — do not implement unless the field
+  proves confusing during the remaining operator walks.**
+
+  **Proposed helper copy beside the control:**
+
+  > "How many identical units of this component are used in one finished
+  > product?"
+
+  **The business rule it expresses, recorded for the operator model:**
+
+  > Quantity expresses multiplicity of one component identity. Multiple rows
+  > express multiple component identities.
+
+  Use `qty / parent > 1` when several **identical** units of the same
+  commercial component are consumed by one finished product — two identical
+  labels are one Label row at qty 2; twelve identical ampoules are one Ampoule
+  row at qty 12; three identical sample packets are one row at qty 3.
+
+  Use **separate member rows** when the components need independent identity or
+  could be managed differently — front label + back label; inner carton + outer
+  carton; two labels with different artwork; anything differing in specs,
+  vendor, cost, sourcing decision or one-time charges.
+
+  **Why the distinction is commercial, not cosmetic.** `qty / parent` scales
+  recurring component consumption. It does **not** manufacture additional
+  component identities, and it does **not** multiply a fixed one-time charge
+  merely because the component is consumed more than once — that is exactly the
+  defect `costing.ts:3236` repaired, where a charge amortised over `tierQty`
+  alone billed q times. Choosing rows-versus-quantity wrongly selects between
+  those two behaviours.
+
+  Training corpus reference: `TRN-SP-LABEL` at qty 2 on the serum Item Group is
+  the correct structure, and is the first row in the estate to carry a
+  membership quantity other than 1.
+
+
 - **Cross-tier presentation in Commercial recovery and the Accounting agreement
   card**
 
