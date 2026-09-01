@@ -5304,6 +5304,63 @@ depends on it, then deactivate. Do not delete historical master data. Note that
 `archived = false` is not evidence a product is resolvable — the inverse
 inference is equally unsafe.
 
+### DISPOSITION — Edward, 2026-08-31
+
+**Use `leaves.archived`. Do not introduce `active`, `disabled`, or any other
+overlapping lifecycle flag.** The selector and history behaviour traced above is
+already correct and is not to be re-litigated. What is missing is **write
+authority and provenance**.
+
+**Ownership rule, adopted:**
+
+> Either HubSpot or Nexus may cause a product to become archived. Neither
+> synchronization nor HubSpot may silently reactivate a product that Nexus
+> explicitly archived. Reactivation after a Nexus deactivation requires the
+> explicit Nexus **Restore** operator action.
+
+Deliberately conservative: preventing use of an obsolete SKU is safer than
+silently making it selectable again. Disagreement is NOT to be resolved by
+adding another status field.
+
+**Required implementation, later:**
+
+- governed `archiveLeaf` action
+- explicit Product Library **Deactivate product** control
+- existing **Restore** as the one explicit reactivation path
+- default Product Library view EXCLUDES inactive
+- **Include inactive** exposes them with an obvious status
+- audit for **every** availability transition, both directions
+
+**Repair the silent un-archive as part of this governed lifecycle**, not as an
+unrelated cleanup. It is the same defect: an availability transition with no
+audit row and no owner.
+
+### Provenance — one finding already established
+
+The trace answers part of the pre-implementation question. **The current schema
+cannot express the distinction.** `leaves` carries `archived` as a bare boolean
+(`schema.ts:2607`) and nothing else about who set it; there is no
+`archived_source`, `archived_by`, or equivalent. The only record of causation
+lives in `audit_log` — `leaf_archive` rows carry
+`diff_json.source = "hubspot_archived"` for pull-driven archives
+(`hubspot-pull.ts:239`).
+
+That is not usable here, for the reason the disposition anticipates:
+`pullProductsBatch` decides per row, inside the sync loop
+(`hubspot-pull.ts:218`), and would have to query audit history for every product
+in the batch to know whether a Nexus operator had archived it. **A synchronous
+decision cannot be built on an inference from history.** So the smallest
+provenance addition is a column on `leaves` recording which side last set the
+availability state, read directly by the pull's UPDATE branch.
+
+The exact shape — enum vs boolean, and whether it also records the restoring
+side — is deferred to the implementation trace. Recorded here only so the
+pre-implementation question starts from evidence rather than re-deriving it.
+
 **Banked behind Order 2 certification.** Nothing implemented. The current
 Product Library state does not interfere with training: archived rows are
 visible and clearly badged, and the attach gates already work.
+
+Legacy-OTC cleanup remains downstream and unchanged: prove each obsolete record
+has no current governed dependency, then deactivate it **through the operator
+workflow** rather than deleting it.
