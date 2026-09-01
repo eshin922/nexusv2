@@ -819,6 +819,19 @@ const classifiedIdentityFiles = new Set([
   // for lived in the gap between them. Everything it creates is deleted in a
   // `finally`, and the deletion is verified POPULATION-WIDE by re-reading.
   "scripts/gate-1b/od-032-recovery-ask-proof.ts",
+  // CLASSIFIED - prose only. It never reads an identity of either kind.
+  //
+  // The O3 frozen expectation, committed before O3 was authored. Its single
+  // match is one sentence of history explaining that O1's charges were
+  // engagement-owned (`owner_quote_leaf_id IS NULL`) and O3's are the first
+  // component-owned ones — which is WHY O3 exists as a certification subject.
+  //
+  // It queries nothing and computes only from constants stated in the file, so
+  // there is no identity for it to use correctly or incorrectly. Registered
+  // rather than exempted by pattern: the sweep is deliberately blunt, and a
+  // file whose only match is a comment is exactly the case a narrower regex
+  // would start silently dropping.
+  "scripts/gate-1b/o3-expected.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

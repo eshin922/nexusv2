@@ -41,7 +41,7 @@ import {
   type UnbillablePlacement,
 } from "@/lib/commercial-recovery/unbillable-placements";
 import {
-  describeMissingAsk,
+  describeRecoveryGap,
   type ChargeRecoveryPricingGap,
 } from "@/lib/component-charges/recovery-pricing-rule";
 import type { QuotePerTierRollup } from "@/lib/costing";
@@ -180,7 +180,7 @@ export function CustomerViewRail({
   // so the rail predicts the boundary's answer rather than holding an opinion
   // of its own. Before this, the rail said `ready` on a quote whose customer
   // document stated $0.00 for $2,700 of separately-elected charges.
-  const unpricedRecovery = chargeRecoveryPricingGaps.map(describeMissingAsk);
+  const unpricedRecovery = chargeRecoveryPricingGaps.map(describeRecoveryGap);
   const hasUnpricedRecovery = unpricedRecovery.length > 0;
 
   // Card 3 · commercial agreement, one row per CHARGE. The frozen instruction
