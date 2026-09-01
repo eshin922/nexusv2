@@ -22,11 +22,24 @@
  *
  * ── THE INVARIANT ────────────────────────────────────────────────────────
  *
- *     round(quantity × postedRate, 2) === frozenLineAmount
+ *     ROUND_HALF_UP(quantity × postedRate, 2) === frozenLineAmount
  *
  * EXACT integer cents. No tolerance — a near-miss is a refusal, because a
  * tolerance would be a decision to post a different number than the accepted
  * one, and that decision is not ours to make.
+ *
+ * The rounding is the PROVIDER's, measured rather than assumed — see
+ * `netsuite/posted-amount.ts`. This is not a tolerance: the comparison is
+ * still exact integer cents. What changed is WHICH quantity is compared, from
+ * the raw product to the product NetSuite will actually store.
+ *
+ * CORRECTED 2026-09-01. This header already stated the rule correctly; the
+ * implementation below required something stricter — a residue of exactly
+ * zero at scale 8 — and refused lines the provider would have posted at the
+ * accepted amount. DPS-1073 at 2,100 units was refused for a residue of
+ * 0.00001, and a real 15,000-unit draft with it. The sandbox settled it: the
+ * supplied amount is ignored and the computed one is rounded half-up to
+ * cents, so 2100 × 6.00633810 = 12613.31001000 stores as 12613.31.
  *
  * The frozen amount is never adjusted to fit. It is the accepted commercial
  * authority; if it cannot be represented, the send stops.
@@ -48,8 +61,18 @@
  * refusal instead of a wrong number.
  */
 
-/** Decimal places carried on a posted rate. Also `unit_rate`'s scale. */
-export const POSTED_RATE_SCALE = 8;
+import {
+  POSTED_RATE_SCALE,
+  postedAmountCents,
+  centsToDecimal,
+} from "@/lib/netsuite/posted-amount";
+
+/**
+ * Re-exported for the consumers that have always read it from here. The
+ * constant itself now lives with the provider contract in `posted-amount.ts`;
+ * defining it here and importing that module created a circular import.
+ */
+export { POSTED_RATE_SCALE };
 
 const RATE_UNIT = 10n ** BigInt(POSTED_RATE_SCALE); // 1e8
 const CENT_UNIT = 100n;
@@ -81,6 +104,11 @@ function divRound(num: bigint, den: bigint): bigint {
   return neg ? -q : q;
 }
 
+/** The exact product, scaled by 1e8. Kept for the refusal message. */
+function product(scaled: bigint, q: bigint): bigint {
+  return scaled * q;
+}
+
 /** Render a rate scaled by 1e8 as a fixed-scale decimal string. */
 function renderRate(scaled: bigint): string {
   const neg = scaled < 0n;
@@ -110,22 +138,30 @@ export function derivePostedRate(amount: string, quantity: number): DerivedRate 
   // rate×1e8 = (cents/100)/qty × 1e8 = cents × 1e6 / qty
   const scaled = divRound(cents * RATE_PER_CENT, q);
 
-  // The check, not an assumption: does the provider's own multiplication land
-  // back on the accepted cents, with nothing left over?
-  const product = scaled * q; // scaled by 1e8
-  if (product % RATE_PER_CENT !== 0n || product / RATE_PER_CENT !== cents) {
+  // The check, not an assumption: does the provider's own arithmetic land on
+  // the accepted cents? `postedAmountCents` IS that arithmetic, measured
+  // against the sandbox — quantity × rate, rounded half-up to cents.
+  //
+  // Not "with nothing left over". That was the previous rule and it was
+  // stricter than the provider: a residue NetSuite rounds away is not a
+  // discrepancy, and refusing it made ordinary quantities unpublishable.
+  const posted = postedAmountCents(scaled, q);
+  if (posted !== cents) {
     // Rendered at the FULL posted scale, deliberately.
     //
     // A shorter rendering rounds the shortfall away and prints a number that
     // reads as equal to the accepted amount — "3 × 0.00333333 gives 0.0100,
     // not the accepted 0.01", which is nonsense to whoever has to act on it.
     // A message about a sub-cent discrepancy has to be able to show one.
+    //
+    // Both figures are now shown: the exact product AND the cents NetSuite
+    // would store, because the second is what actually disagrees.
     return {
       ok: false,
       reason:
-        `${quantity} × ${renderRate(scaled)} gives ${renderRate(product)}, not the ` +
-        `accepted ${amount}. ${POSTED_RATE_SCALE} decimal places cannot ` +
-        `represent this line.`,
+        `${quantity} × ${renderRate(scaled)} gives ${renderRate(product(scaled, q))}, ` +
+        `which NetSuite would post as ${centsToDecimal(posted)} — not the ` +
+        `accepted ${amount}.`,
     };
   }
   return { ok: true, rate: renderRate(scaled) };

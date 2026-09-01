@@ -182,13 +182,32 @@ test("the emitter cannot reach live costing, by construction", async () => {
   }
   assert.equal(imports.length, ALLOWED.length, imports.join(" | "));
 
-  // The admitted module is a leaf. If it ever grows an import, this fails
-  // here rather than the emitter's boundary quietly becoming transitive.
+  // The admitted module's OWN reach, followed rather than assumed.
+  //
+  // `commercial-rate` was a leaf and is not any more: the publication
+  // representability rule now lives in `posted-amount`, so that both gates
+  // test one measured provider contract instead of two implementations of it.
+  // The guarantee the emitter needs is unchanged — it still cannot reach live
+  // costing — so the assertion follows the edge instead of forbidding it. A
+  // guard that fails on a legitimate refactor teaches people to delete guards.
   const rateSrc = await readFile("src/lib/commercial-rate.ts", "utf8");
+  const rateImports = [...rateSrc.matchAll(/^import[\s\S]*?from "(.*)";$/gm)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(
+    rateImports,
+    ["@/lib/netsuite/posted-amount"],
+    "commercial-rate may reach only the posted-amount contract",
+  );
+
+  // And THAT module is the leaf. Pure BigInt arithmetic over a rate and a
+  // quantity; if it ever grows an import, this fails here rather than the
+  // emitter's boundary quietly becoming transitive.
+  const postedSrc = await readFile("src/lib/netsuite/posted-amount.ts", "utf8");
   assert.equal(
-    [...rateSrc.matchAll(/^import .*$/gm)].length,
+    [...postedSrc.matchAll(/^import .*$/gm)].length,
     0,
-    "commercial-rate must stay import-free to remain safe on this allowlist",
+    "posted-amount must stay import-free to remain safe on this allowlist",
   );
 });
 

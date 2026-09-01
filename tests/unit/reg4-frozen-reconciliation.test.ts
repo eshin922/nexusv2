@@ -42,10 +42,23 @@ test("quantity × rate is exact decimal arithmetic, not float", () => {
   assert.deepEqual(exactRateTimesQuantity("0.0001", 10000), { cents: 100, exact: true });
 });
 
-test("a rate × quantity landing on a fraction of a cent is reported, not rounded", () => {
-  // 0.0001 × 5 = 0.0005 — half a cent. Rounding it here would invent money.
+test("a rate × quantity landing on a fraction of a cent posts as the provider rounds it", () => {
+  // CORRECTED 2026-09-01. This asserted a refusal on the reasoning that
+  // "rounding it here would invent money". It invents nothing — NetSuite
+  // performs exactly this rounding on the other side of the wire, and was
+  // measured doing so. Declining to model it did not prevent the rounding; it
+  // prevented the send.
+  //
+  // 0.0001 × 5 = 0.0005 DOLLARS — a twentieth of a cent, not half of one.
+  // (The original comment here called it "half a cent", and so did my first
+  // correction of it. The assertion built on that misreading failed on its
+  // first run, which is the suite doing its job.)
   const r = exactRateTimesQuantity("0.0001", 5);
-  assert.equal(r.exact, false, "must be flagged rather than silently rounded");
+  assert.equal(r.exact, true, "the rate is readable at the posted scale");
+  assert.equal(r.cents, 0, "a twentieth of a cent rounds down");
+
+  // The genuine half-cent case, so the tie boundary is still asserted here.
+  assert.equal(exactRateTimesQuantity("0.00500000", 1).cents, 1);
 });
 
 // ── link A ───────────────────────────────────────────────────────────────
@@ -109,12 +122,16 @@ test("ONE CENT is a failure — REG-4 admits no tolerance", () => {
 });
 
 test("link B refuses a line whose quantity × rate misses its frozen amount", () => {
-  // NetSuite would compute 3 × 0.3333 = 0.9999 and post 1.00; the frozen
-  // amount says 1.00 too, but the product is not a whole number of cents, so
-  // the agreement is luck rather than arithmetic.
+  // CORRECTED 2026-09-01. The case was 3 × 0.3333 = 0.9999 against a frozen
+  // 1.00, refused because the product was not a whole number of cents — "the
+  // agreement is luck rather than arithmetic". It is not luck: NetSuite posts
+  // 1.00, which IS the frozen amount, so that case now passes correctly.
+  //
+  // Replaced with a product that lands on a DIFFERENT cent, which is what a
+  // real disagreement looks like: 3 × 0.3300 = 0.99 against a frozen 1.00.
   const failures = checkLinkB(
-    [line({ quantity: 3, rate: "0.3333", amount: "1.00" })],
-    100,
+    [line({ quantity: 3, rate: "0.3300", amount: "1.00" })],
+    99,
   );
   const f = failures.find((x) => x.kind === "rate_times_quantity_inexact");
   assert.ok(f, "an inexact product must be refused");
@@ -388,15 +405,20 @@ test("ONE CENT post-grouping is a failure too", () => {
   assert.equal(f.kind, "link_b_mismatch");
 });
 
-test("an expansion landing on a fraction of a cent refuses rather than rounding", () => {
-  // 3 groups × 1 member at 0.3333 = 0.9999. NetSuite would round to $1.00 and
-  // the order would drift from the frozen record by a cent per line.
+test("an expansion landing on a different cent refuses rather than rounding", () => {
+  // CORRECTED 2026-09-01. This used 3 × 0.3333 = 0.9999 against a frozen 1.00,
+  // on the belief that NetSuite "would round to $1.00 and the order would
+  // drift by a cent". It rounds to 1.00 and does NOT drift — 1.00 is the
+  // frozen amount.
+  //
+  // The drift case is a product landing on a different cent, so the member
+  // rate here is 0.3300: 3 × 0.3300 = 0.99 against a frozen 1.00.
   const [f] = checkPostGroupingReg4({
     groups: [
       {
         groupQuantity: 3,
         members: [
-          { sourceLineId: "m1", description: "Odd", netsuiteItemId: "1", qtyPerGroup: 1, rate: "0.3333", frozenAmount: "1.00" },
+          { sourceLineId: "m1", description: "Odd", netsuiteItemId: "1", qtyPerGroup: 1, rate: "0.3300", frozenAmount: "1.00" },
         ],
       },
     ],
@@ -404,5 +426,9 @@ test("an expansion landing on a fraction of a cent refuses rather than rounding"
     frozenAcceptedTotal: "1.00",
   });
   assert.equal(f.kind, "rate_times_quantity_inexact");
-  assert.match(f.detail, /a fraction of a cent/);
+  // The message now names both figures rather than saying "a fraction of a
+  // cent", because the disagreement IS a whole cent — which is the only kind
+  // that can survive the provider's rounding and therefore the only kind worth
+  // refusing.
+  assert.match(f.detail, /3 × 0\.3300, giving \$0\.99 — not the frozen \$1\.00/);
 });
