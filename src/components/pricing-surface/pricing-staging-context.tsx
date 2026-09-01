@@ -58,7 +58,7 @@ import {
 } from "react";
 import { applyPricingAdjustments } from "@/app/actions/pricing-lifts";
 import { costBaseFingerprint } from "@/lib/pricing-cost-base";
-import { planApply } from "@/lib/pricing-apply-plan";
+import { applyCellId, planApply } from "@/lib/pricing-apply-plan";
 import {
   clearStagedSnapshot,
   readStagedSnapshot,
@@ -420,6 +420,22 @@ export function PricingStagingProvider({
    * Removal is the change an operator most needs to survive a reload, so it is
    * the one the wire shape has to be able to express.
    */
+/**
+ * A staging-keyed record, re-addressed the way the apply layer addresses cells.
+ *
+ * One function, so the crossing happens in one place and a future caller cannot
+ * do it slightly differently. See the note at the call site for what happened
+ * when the two spaces were compared without it.
+ */
+function toApplyKeyed(source: Record<string, number>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [key, value] of Object.entries(source)) {
+    const { quoteLeafId, tierId } = parseCellKey(key);
+    out.set(applyCellId(quoteLeafId, tierId), String(value));
+  }
+  return out;
+}
+
   const commit = useCallback(
     (next: PricingSet, intent: "apply" | "baseline", start: typeof startApply) => {
       if (!committable) {
@@ -469,17 +485,39 @@ export function PricingStagingProvider({
           // the server refuses if a lever moved since. `committed` is exactly
           // that belief, kept in step with the server by the same repair that
           // stopped it drifting after a clearing Apply.
+          // ── THE KEY NAMESPACE CROSSING ────────────────────────────────
+          //
+          // Sent in the SERVER's address space, not this layer's. Two key
+          // builders exist and they are one character apart:
+          //
+          //   staging   cellKey      -> `<quoteLeafId>::<tierId>`
+          //   apply     applyCellId  -> `<quoteLeafId>:<tierId>`
+          //
+          // `detectStale` compares the two maps entry by entry, key included.
+          // Sent raw, EVERY key differed the moment the quote carried one
+          // persisted lift, so the guard reported "a surgical lift moved since
+          // you staged" against a baseline that had not moved at all — on Apply
+          // and on Return to baseline alike, permanently, and surviving reload
+          // because the mismatch is structural rather than stateful.
+          //
+          // It hid because both sides are empty on a quote with no lifts: the
+          // FIRST apply always succeeded, and only a second act on the same
+          // quote could fail. Found on O3, where three applied lifts made
+          // Return to baseline refuse three times, including after a reload,
+          // with no console or network error to see.
+          //
+          // Crossed through `parseCellKey`, the only sanctioned way to take a
+          // staging key apart — hand-splitting is how the halves got misnamed
+          // once already.
           authorityBaseline: pricingAuthorityBaseline({
             globalAdj: String(committed.globalAdj),
+            // Tier adjustments key on the bare tier id in both spaces, and the
+            // quote-wide adjustment is a scalar. Neither crosses.
             tierAdj: new Map(
               Object.entries(committed.tierAdj).map(([k, v]) => [k, String(v)]),
             ),
-            lifts: new Map(
-              Object.entries(committed.lifts).map(([k, v]) => [k, String(v)]),
-            ),
-            overrides: new Map(
-              Object.entries(committed.overrides).map(([k, v]) => [k, String(v)]),
-            ),
+            lifts: toApplyKeyed(committed.lifts),
+            overrides: toApplyKeyed(committed.overrides),
           }),
           // The economic basis this decision was STAGED against — the same
           // fingerprint the client-side guard above compares, now sent so the
