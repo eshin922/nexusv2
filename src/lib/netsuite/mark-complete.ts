@@ -1,3 +1,4 @@
+import { buildPlannedSalesOrder } from "@/lib/netsuite/planned-sales-order";
 import { orderPacketUrl } from "@/lib/order-packet/url";
 import { POSTED_RATE_SCALE } from "@/lib/commercial-rate";
 import "server-only";
@@ -975,119 +976,30 @@ export async function runMarkComplete(
     // as NetSuite items; only leaves resolve by SKU-match, so the flat payload
     // remains one line per leaf and the turnkey branch below swaps in the
     // Item Group header lines exactly as before.
-    const lines: SalesOrderLine[] = [];
-    // The subset of `lines` belonging to Direct Products. Collected in the same
-    // pass that builds `lines`, keyed by the attachment's own structure rather
-    // than by index alignment or SKU matching — the same product may legitimately
-    // be attached directly AND be a member of a group on one quote, so SKU is
-    // not an identity here.
-    const directLines: SalesOrderLine[] = [];
-    // The quantity-1 accounting half: separately billed OTC and Direct Service.
-    // Peer to `directLines` — never grouped, never expanded, and never absent,
-    // which is the whole of the under-billing defect this closes.
-    const accountingLines: SalesOrderLine[] = [];
-    // Every frozen line reaching the order, paired with the item it will post
-    // to, so the post-grouping REG-4 check and the provenance write both read
-    // what was actually sent rather than a second derivation of it.
-    const emitted: Array<{
-      frozen: FrozenSalesOrderLine;
-      soLine: SalesOrderLine;
-      /** The Item Group this line will be expanded by, or null if none does. */
-      assemblyId: string | null;
-      /** How many of this member ONE group contains. 1 for anything ungrouped. */
-      qtyPerGroup: number;
-    }> = [];
-    // Track B §4 — assembly attribution, captured HERE rather than re-derived
-    // later. Constraint 3: the plan is built from the same governed state as
-    // the outgoing handoff, so the two cannot disagree.
-    const planLines: PlanLineInput[] = [];
-
-    for (const frozenLine of frozenOrder.lines) {
-      const isProduct =
-        frozenLine.kind === "item_group_member" ||
-        frozenLine.kind === "direct_product";
-
-      // FROZEN, all three. The rate is rendered at the transmitted precision
-      // (`numeric(14,4)`, which is what the payload builder emits) so the
-      // number checked by REG-4 is the number NetSuite receives.
-      const lineRate = Number(frozenLine.rate);
-
-      if (!isProduct) {
-        // OTC and Direct Service. Quantity 1 by construction — the emitter
-        // carries the frozen amount as the rate and multiplies by nothing.
-        const soLine: SalesOrderLine = {
-          netsuiteItemId: frozenLine.netsuiteItemId,
-          sku: frozenLine.sku ?? frozenLine.description,
-          description: frozenLine.description,
-          quantity: frozenLine.quantity,
-          rate: lineRate,
-          // The governed live cost — see the ACCOUNTING COST BASIS block at
-          // STEP 3.5. Zero is sent as a value; only NULL sends nothing.
-          unitCost: accountingCostFor(frozenLine),
-        };
-        accountingLines.push(soLine);
-        emitted.push({ frozen: frozenLine, soLine, assemblyId: null, qtyPerGroup: 1 });
-        continue;
-      }
-
-      // Structure agreement already proved this resolves. Asserted, not
-      // defaulted — see the block comment above.
-      const live = frozenLine.quoteLeafId
-        ? liveByLeafId.get(frozenLine.quoteLeafId)
-        : undefined;
-      if (!live) {
-        throw new Error(
-          `[markComplete] frozen line "${frozenLine.description}" passed the structure ` +
-            "agreement guard but has no live structure entry. Refusing before CREATE.",
-        );
-      }
-
-      const soLine: SalesOrderLine = {
-        netsuiteItemId: frozenLine.netsuiteItemId,
-        sku: live.child.sku as string,
-        description:
-          live.child.name ||
-          (live.assembly
-            ? `${live.assembly.name} — ${live.child.sku}`
-            : (live.child.sku as string)),
-        quantity: frozenLine.quantity,
-        rate: lineRate,
-        unitCost: live.unitCost,
-      };
-      lines.push(soLine);
-      if (live.assembly === null) directLines.push(soLine);
-      emitted.push({
-        frozen: frozenLine,
-        soLine,
-        assemblyId: live.assemblyId,
-        qtyPerGroup: live.qtyPerParent,
-      });
-      planLines.push({
-        // NULL for a Direct Product. The plan records it as attributed to no
-        // group, which is a positive fact the walk can assert — not an absence.
-        assemblyId: live.assemblyId,
-        assemblySku: live.assemblySku,
-        assemblyName: live.assemblyName,
-        sku: live.child.sku as string,
-        netsuiteItemId: frozenLine.netsuiteItemId,
-        quantity: frozenLine.quantity,
-        // The Item Group DEFINITION multiplier — how many of this leaf one
-        // group contains, independent of how many groups the tier buys.
-        qtyPerParent: live.qtyPerParent,
-        rate: lineRate,
-        // Same expression as the flat line above, deliberately — one governed
-        // source reaching both structures is the invariant this repair exists
-        // to hold. Never re-derived from `rate`, the accepted total, freight,
-        // duty or tariff.
-        unitCost: live.unitCost,
-      });
-    }
-
-    // The accounting half rides the flat line list. It is never a group member,
-    // so it cannot collide with an expanded member (the Probe 7a doubling the
-    // payload builder refuses); P1/SO2713 measured a group plus a flat line for
-    // an un-grouped item expanding exactly once.
-    lines.push(...accountingLines);
+    // ── ONE STRUCTURAL PRODUCER ────────────────────────────────────────
+    //
+    // This loop used to live here, and the Sales Order tab built its own list
+    // from the CUSTOMER DOCUMENT instead — so the screen showed flat lines at
+    // the tier quantity while a turnkey order posted Item Group headers whose
+    // members NetSuite expands to `tierQty x qtyPerParent`. Two producers of
+    // one structure, disagreeing at an irreversible boundary.
+    //
+    // The arrangement is now `buildPlannedSalesOrder`, which is pure and calls
+    // no provider. The preview reads the same builder, so a divergence is a
+    // change to one function rather than a drift between two.
+    //
+    // Provider resolution stays here and stays narrow: the plan names the
+    // Group by its deterministic EXTERNAL id, and `findOrCreateItemGroup`
+    // below turns that into an internal one.
+    const planned = buildPlannedSalesOrder({
+      detailLevel: acceptedDetailLevel,
+      customerNetsuiteId: customer.netsuiteCustomerId,
+      tierQty: tierRow.qty ?? null,
+      frozenLines: frozenOrder.lines,
+      liveByLeafId,
+      accountingCostFor,
+    });
+    const { lines, directLines, accountingLines, emitted, planLines } = planned;
 
     if (lines.length === 0) {
       throw new Error(
@@ -1136,12 +1048,11 @@ export async function runMarkComplete(
     // reserved key stripped before transmission. It is the comparison target
     // the turnkey_only read-back needs; without it a wrong-member grouping with
     // a correct total is undetectable.
-    const groupingPlan = buildGroupingPlan({
-      detailLevel: acceptedDetailLevel,
-      customerNetsuiteId: customer.netsuiteCustomerId,
-      tierQty: tierRow.qty ?? null,
-      lines: planLines,
-    });
+    // The SAME plan the preview renders — taken from the builder above rather
+    // than constructed a second time here. A second `buildGroupingPlan` call
+    // would be a second answer to "what is this order's structure", which is
+    // the defect this extraction exists to remove.
+    const groupingPlan = planned.plan;
     // ── Step 2 — deterministic Item Group resolution + Group-line emission ──
     //
     // turnkey_only ONLY. `itemized` keeps the flat payload built above,

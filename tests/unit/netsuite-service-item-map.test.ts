@@ -436,7 +436,12 @@ test("RELEASE-CRITICAL · a fully mapped, usable service now PROCEEDS", async ()
   assert.match(mc, /\.filter\(\(c\) => c\.commercialKind !== "service"\)/);
   //   its quantity is 1 and its amount is frozen — the emitter's line, not the
   //   product path's
-  assert.match(mc, /accountingLines\.push\(soLine\)/);
+  // Reads the BUILDER. The line arrangement moved to
+  // `planned-sales-order.ts` so the preview and the send path have ONE
+  // structural producer; the claim is unchanged, the file that must satisfy
+  // it is the builder.
+  const built = await code("lib/netsuite/planned-sales-order.ts");
+  assert.match(built, /accountingLines\.push\(soLine\)/);
 });
 
 test("EVERY unusable verdict blocks; only a usable mapping proceeds", () => {

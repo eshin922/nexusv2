@@ -241,11 +241,19 @@ test("completion structurally resolves exact SKUs, computes quantities, and chec
   //
   // Both directions are asserted. The positive alone would pass while a stray
   // live derivation survived somewhere else in the builder.
-  assert.match(source, /quantity: frozenLine\.quantity/);
-  assert.match(source, /const lineRate = Number\(frozenLine\.rate\)/);
-  assert.match(source, /netsuiteItemId: frozenLine\.netsuiteItemId/);
-  assert.doesNotMatch(codeOnly(source), /const effectiveQty/);
-  assert.doesNotMatch(codeOnly(source), /requiredSellPerUnit/);
+  // Reads the BUILDER for the arrangement, and mark-complete for the negatives.
+  // The line construction moved to `planned-sales-order.ts` so the preview and
+  // the send path have ONE structural producer. Both halves still matter: the
+  // positive says the frozen values are what is sent, and the negatives say no
+  // live derivation crept back into EITHER file.
+  const built = readFileSync("src/lib/netsuite/planned-sales-order.ts", "utf8");
+  assert.match(built, /quantity: frozenLine\.quantity/);
+  assert.match(built, /const lineRate = Number\(frozenLine\.rate\)/);
+  assert.match(built, /netsuiteItemId: frozenLine\.netsuiteItemId/);
+  for (const f of [codeOnly(source), codeOnly(built)]) {
+    assert.doesNotMatch(f, /const effectiveQty/);
+    assert.doesNotMatch(f, /requiredSellPerUnit/);
+  }
   // The live effective-quantity multiply, in ANY spelling — not just the
   // `const effectiveQty` binding it used to live in.
   //

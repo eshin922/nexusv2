@@ -144,8 +144,21 @@ test("fee-line cost comes from a governed authority, never invented", async () =
   assert.match(src, /assemblyProductionInputs/);
 
   // The hardcoded null is gone.
-  assert.doesNotMatch(codeOnly(src), /unitCost: null,/);
-  assert.match(src, /unitCost: accountingCostFor\(frozenLine\)/);
+  //
+  // Split when the line ARRANGEMENT moved to `planned-sales-order.ts` so the
+  // preview and the send path have one structural producer. The DERIVATION of
+  // the cost is still mark-complete's — that is what the assertions above
+  // read. Where the derived value lands on a line is now the builder's, so
+  // that half is asserted against the builder. Retargeting the whole test at
+  // one file would have dropped one of the two claims.
+  const built = codeOnly(
+    await readFile("src/lib/netsuite/planned-sales-order.ts", "utf8"),
+  );
+  assert.doesNotMatch(built, /unitCost: null,/);
+  assert.match(built, /unitCost: input\.accountingCostFor\(frozenLine\)/);
+  // And mark-complete still hands the derivation in, rather than the builder
+  // acquiring a cost authority of its own.
+  assert.match(codeOnly(src), /accountingCostFor,/);
 });
 
 test("the service cost index is SEPARATE from the structure index", async () => {
@@ -165,7 +178,12 @@ test("cost appears ONLY as unitCost on the accounting line, never in its economi
   //
   // A guarantee about where a value may appear needs a check that reads the
   // place it must not appear in.
-  const src = codeOnly(await readFile("src/lib/netsuite/mark-complete.ts", "utf8"));
+  // Reads the BUILDER, which is where the branch moved. The guarantee is
+  // unchanged: cost may appear once, as `unitCost`, and nowhere in the
+  // economics.
+  const src = codeOnly(
+    await readFile("src/lib/netsuite/planned-sales-order.ts", "utf8"),
+  );
   const start = src.indexOf("if (!isProduct) {");
   const end = src.indexOf("continue;", start);
   assert.ok(start > -1 && end > start, "accounting-line branch not found");
@@ -183,7 +201,7 @@ test("cost appears ONLY as unitCost on the accounting line, never in its economi
     `accountingCostFor appears ${uses.length} times in the accounting-line ` +
       `branch; it may be read once, for unitCost only`,
   );
-  assert.match(branch, /unitCost: accountingCostFor\(frozenLine\),/);
+  assert.match(branch, /unitCost: input\.accountingCostFor\(frozenLine\),/);
 });
 
 test("cost reaches no REG-4 input", async () => {
