@@ -271,6 +271,27 @@ test("it does not say all-in — separate one-time charges can still exist", asy
   assert.match(doc, /Pricing is landed and all-in/);
 });
 
+test("the operator panel states cents, not rounded dollars", async () => {
+  // Caught on the deployed build: the rail's `usd` rounds to whole dollars, so
+  // $19,814.94 rendered as $19,815 — a figure that reconciles against neither
+  // Costs nor Pricing. Rounding is right for the scan-level rows above it and
+  // wrong for one an operator ties back before Send.
+  const rail = await readFile("src/components/quote/customer-view-rail.tsx", "utf8");
+  // Plain string containment, not a regex built by template literal — the
+  // first attempt did that and the backticks ate the escapes, producing
+  // /data-testid="...">s*{usdCents(/ and an "Unterminated group" throw. A
+  // broken pattern is not a passing test, but it is not a meaningful failing
+  // one either.
+  const collapsed = rail.replace(/\s+/g, " ");
+  for (const id of ["cv-landed-total", "cv-landed-freight", "cv-landed-duty"]) {
+    assert.ok(
+      collapsed.includes(`data-testid="${id}"> {usdCents(`),
+      `${id} must render cents-exact`,
+    );
+  }
+  assert.match(rail, /minimumFractionDigits: 2, maximumFractionDigits: 2/);
+});
+
 test("the operator panel reads the governed values, and labels the treatment", async () => {
   const rail = await readFile("src/components/quote/customer-view-rail.tsx", "utf8");
   assert.match(rail, /Landed logistics/);
