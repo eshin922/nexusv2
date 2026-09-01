@@ -4622,13 +4622,52 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
 export const quoteSnapshotChargeRecovery = pgTable(
   "quote_snapshot_charge_recovery",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     snapshotId: uuid("snapshot_id")
       .notNull()
       .references(() => quoteSnapshots.id, { onDelete: "cascade" }),
     chargeKey: recoveryCharge("charge_key").notNull(),
     mode: recoveryMode("mode").notNull(),
+    /**
+     * WHICH ELECTION THIS FROZE — the grain the live table has always had.
+     *
+     * The primary key used to be `(snapshot_id, charge_key)`, one row per
+     * charge TYPE per snapshot. `quote_charge_recovery` is keyed on
+     * `charge_instance_id`, so a quote electing the same type on two different
+     * components holds two elections — and freezing them collapsed to one,
+     * raising 23505 and rolling the whole send back. Every quote in that shape
+     * was unsendable until O3 became the first one to exist.
+     *
+     * NULLABLE ONLY FOR HISTORY, exactly as `owner_kind` is on
+     * `quote_snapshot_recovery_instructions`: rows frozen before the grain was
+     * corrected cannot be given an instance retroactively, because the election
+     * they froze may since have been superseded and inventing an id would dress
+     * a guess as a record. NULL means "pre-contract", never a fourth state, and
+     * is never inferred from `charge_key`.
+     *
+     * Two partial uniques rather than one key, so each era keeps its own
+     * guarantee: `(snapshot_id, charge_instance_id)` where the instance is
+     * present, `(snapshot_id, charge_key)` where it is not — the old key,
+     * preserved exactly for the rows written under it.
+     *
+     * ON DELETE SET NULL, never CASCADE. A frozen election outlives the
+     * draft-side charge it was projected from: deleting a charge on a later
+     * revision must not delete the record of what a customer was already
+     * quoted.
+     */
+    chargeInstanceId: uuid("charge_instance_id").references(
+      () => quoteChargeInstances.id,
+      { onDelete: "set null" },
+    ),
   },
-  (t) => [primaryKey({ columns: [t.snapshotId, t.chargeKey] })],
+  (t) => [
+    uniqueIndex("quote_snapshot_charge_recovery_instance_uq")
+      .on(t.snapshotId, t.chargeInstanceId)
+      .where(sql`${t.chargeInstanceId} is not null`),
+    uniqueIndex("quote_snapshot_charge_recovery_legacy_uq")
+      .on(t.snapshotId, t.chargeKey)
+      .where(sql`${t.chargeInstanceId} is null`),
+  ],
 );
 
 // ─── G4 · Customer presentation profile ─────────────────────────────────────

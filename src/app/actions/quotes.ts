@@ -2235,11 +2235,18 @@ export async function sendQuote(
         .from(quoteChargeRecovery)
         .where(eq(quoteChargeRecovery.quoteId, quoteId));
       if (electionsToFreeze.length > 0) {
+        // THE INSTANCE COMES WITH IT.
+        //
+        // Dropped here, this froze one row per charge TYPE against a key of
+        // `(snapshot_id, charge_key)` — so a quote electing the same type on
+        // two components raised 23505 and rolled the entire send back. The
+        // live table is keyed on the instance; the freeze of it now is too.
         await tx.insert(quoteSnapshotChargeRecovery).values(
           electionsToFreeze.map((e) => ({
             snapshotId: snapshot.id,
             chargeKey: e.chargeKey,
             mode: e.mode,
+            chargeInstanceId: e.chargeInstanceId,
           })),
         );
       }

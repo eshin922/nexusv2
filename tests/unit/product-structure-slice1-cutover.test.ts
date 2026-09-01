@@ -832,6 +832,16 @@ const classifiedIdentityFiles = new Set([
   // file whose only match is a comment is exactly the case a narrower regex
   // would start silently dropping.
   "scripts/gate-1b/o3-expected.ts",
+  // CLASSIFIED - canonical identity, read-only, and it writes nothing.
+  //
+  // The O3 end-to-end certifier. It joins `quote_leaves` to reach a component's
+  // SKU for the charge matrix and reads `assembly_leaves` nowhere; the grouped
+  // structure it certifies is read back from the ERP, not from either identity.
+  //
+  // Read-only by construction, which is the stronger position for an
+  // instrument: it decides whether O3 passed, so it must not be able to change
+  // what it is measuring.
+  "scripts/gate-1b/o3-certify.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
