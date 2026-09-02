@@ -24,13 +24,14 @@
  * guard would newly admit.
  *
  * Disposable sandbox Sales Order. Not DPS-1073.
+ *
+ * Goes through `createProbeSalesOrder` so the artifact carries the governed
+ * `-8 · Not Taxable` line code. A diagnostic must not manufacture a taxable
+ * order under the certification customer — see that helper.
  */
 
-import {
-  createRecord,
-  suiteQL,
-  describeNetsuiteTarget,
-} from "@/lib/netsuite/client";
+import { suiteQL, describeNetsuiteTarget } from "@/lib/netsuite/client";
+import { createProbeSalesOrder } from "./probe-sales-order";
 
 const CUSTOMER = "388800";
 const ITEM = "76155";
@@ -58,19 +59,10 @@ CASES.forEach((c, i) =>
   ),
 );
 
-const created = await createRecord({
-  recordType: "salesOrder",
-  body: {
-    entity: { id: CUSTOMER },
-    memo: "DISPOSABLE — sub-cent rounding rule probe. Safe to delete.",
-    item: {
-      items: CASES.map((c) => ({
-        item: { id: ITEM },
-        quantity: 1000,
-        rate: c.rate,
-      })),
-    },
-  },
+const created = await createProbeSalesOrder({
+  customerId: CUSTOMER,
+  memo: "DISPOSABLE — sub-cent rounding rule probe. Safe to delete.",
+  lines: CASES.map((c) => ({ itemId: ITEM, quantity: 1000, rate: c.rate })),
 });
 
 const SO = created.internalId;
