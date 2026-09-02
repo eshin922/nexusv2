@@ -853,6 +853,18 @@ const classifiedIdentityFiles = new Set([
   // attempt one. Everything happens inside a transaction that ALWAYS rolls
   // back, and the harness verifies population-wide that it left nothing.
   "scripts/gate-1b/snapshot-election-grain-falsify.ts",
+  // CLASSIFIED - canonical identity only, and it resolves none of its own.
+  //
+  // The ONE structural producer for a Sales Order. It keys the live structure
+  // by `quote_leaves.id` -- the canonical identity, handed in already resolved
+  // -- and never touches `assembly_leaves`. It performs no lookup at all: the
+  // caller resolves both the frozen lines and the live structure, and this
+  // arranges them.
+  //
+  // Pure by construction, which is what lets the Sales Order preview and the
+  // irreversible push consume the SAME structure instead of two that can
+  // disagree.
+  "src/lib/netsuite/planned-sales-order.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
