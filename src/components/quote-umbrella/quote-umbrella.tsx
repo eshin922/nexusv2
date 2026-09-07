@@ -37,6 +37,7 @@ import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
 import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
 import type { DealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
+import type { SalesOrderPreview } from "@/lib/netsuite/planned-sales-order-preview";
 import { SubTabStrip } from "./sub-tab-strip";
 import { Legend } from "./legend";
 import { QuoteAxisProvider } from "./quote-axis-context";
@@ -68,6 +69,7 @@ export function QuoteUmbrella({
   salesOrderPreflight,
   identityReadiness,
   dealOrderReadiness,
+  salesOrderPreview,
   soPushMirror,
   showStateSwitcher,
   recoveryInstructions,
@@ -171,6 +173,8 @@ export function QuoteUmbrella({
    * does not have. Advisory: buildFrozenSalesOrder remains the guard. */
   identityReadiness: IdentityReadiness | null;
   dealOrderReadiness: DealOrderReadiness | null;
+  /** Resolved server-side; reads only, never a NetSuite write. */
+  salesOrderPreview: SalesOrderPreview | null;
   /** Slice 12 Step 8c-4 — quote row's mirror of the last SO push.
    * Populated on success (freeze-tx) OR failure (STEP 7 catch).
    * Drives the record vs failed variant selection on the Sales
@@ -419,6 +423,7 @@ export function QuoteUmbrella({
               salesOrderPreflight={salesOrderPreflight}
               identityReadiness={identityReadiness}
               dealOrderReadiness={dealOrderReadiness}
+              salesOrderPreview={salesOrderPreview}
               soPushMirror={soPushMirror}
               /* Slice 12 Step 8c-4 — hard-guard the Sales Order dev
                  switcher on VERCEL_ENV !== 'production' (via

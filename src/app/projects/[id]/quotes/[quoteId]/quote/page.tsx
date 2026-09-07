@@ -18,6 +18,7 @@ import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
 import { loadIdentityReadiness } from "@/lib/netsuite/identity-readiness";
+import { loadSalesOrderPreview } from "@/lib/netsuite/planned-sales-order-preview";
 import { loadDealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
 import { db } from "@/db";
 import { auditLog, firmSettings } from "@/db/schema";
@@ -252,6 +253,24 @@ export default async function CustomerViewPage({
         ? await loadIdentityReadiness(quote.id)
         : null;
 
+    // THE ORDER STRUCTURE Nexus would create, resolved once, server-side.
+    //
+    // READS ONLY. `loadSalesOrderPreview` resolves SKUs and the customer map
+    // and never calls `findOrCreateItemGroup` -- opening the Sales Order tab
+    // must not create anything in NetSuite. Gated on `accepted` for the same
+    // reason as its two siblings above: earlier states cannot have one, and the
+    // reads are not free.
+    //
+    // The receipt renders these rows directly. Building the line set in the
+    // component is what produced the defect it replaces: it rendered every SKU
+    // at the tier quantity, while the push expanded Item Group members by
+    // their per-set multiplier, and the two disagreed with nothing on screen
+    // saying so.
+    const salesOrderPreview =
+      quote.status === "accepted" || quote.status === "complete"
+        ? await loadSalesOrderPreview(quote.id)
+        : null;
+
     // Whether this quote's HubSpot deal has ALREADY produced a Sales Order.
     // Read one step earlier than its sibling above — from `sent`, not from
     // `accepted` — because the operator records acceptance by telling a
@@ -413,6 +432,7 @@ export default async function CustomerViewPage({
             "Pending Fulfillment"
           }
           salesOrderPreflight={salesOrderPreflight}
+          salesOrderPreview={salesOrderPreview}
           identityReadiness={identityReadiness}
         dealOrderReadiness={dealOrderReadiness}
           soPushMirror={soPushMirror}

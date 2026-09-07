@@ -38,6 +38,8 @@
 
 import type { ReactNode } from "react";
 
+import type { PlannedRow } from "@/lib/netsuite/planned-sales-order";
+
 export type ReceiptState = "pending" | "failed" | "record";
 
 export type OrderReceiptFlag = {
@@ -54,6 +56,40 @@ export type OrderReceiptLine = {
   qty: number;
   unit: number;
 };
+
+/**
+ * WHY THE RECEIPT NO LONGER BUILDS ITS OWN LINES.
+ *
+ * It used to render `view.skus` at `carriedTier.qty` -- every SKU at the tier
+ * quantity. For a quote with no Item Group that is right by coincidence, and
+ * for O3 it was wrong on three of five lines: NetSuite expands a group member
+ * to `group quantity x member definition quantity`, so a Bottle at 2 per set
+ * bills 2,400 against a 1,200-unit order. The receipt said 1,200 for all five,
+ * and nothing on the screen was false enough to notice.
+ *
+ * The fix is not better arithmetic here. It is that this component does no
+ * arithmetic at all: `buildPlannedSalesOrder` is the ONE producer of the
+ * order's structure, the push sends what it returns, and the receipt renders
+ * the same rows. There is no second implementation to drift.
+ */
+export type OrderReceiptStructure =
+  | {
+      kind: "planned";
+      /** Verbatim from `buildPlannedSalesOrder`. Rendered, never recomputed. */
+      rows: readonly PlannedRow[];
+    }
+  | {
+      /**
+       * Readiness refused, so there IS no order structure yet.
+       *
+       * The receipt shows the refusal and NOTHING ELSE. A plausible-looking
+       * line set beside a blocker reads as "this is what will be sent once you
+       * clear it", and it would be a different order from the one that
+       * eventually goes -- which is the failure this whole change removes.
+       */
+      kind: "unavailable";
+      reason: string;
+    };
 
 export type OrderReceiptOneTime = {
   id: string;
@@ -109,8 +145,16 @@ export type OrderReceiptProps = {
    * as "TBC" until a future slice adds one (scheduling / target-
    * ship-date capture is post-v1). */
   requestedShipIso: string | null;
-  lines: OrderReceiptLine[];
-  oneTime: OrderReceiptOneTime[];
+  /**
+   * The order's structure, or the reason there is none.
+   *
+   * REPLACES the former `lines` + `oneTime` props, rather than sitting beside
+   * them. Two sources for one line set is the shape that produced the defect:
+   * the receipt rendered CustomerView while the push sent
+   * `buildPlannedSalesOrder`, both were internally consistent, and they
+   * disagreed about three of O3's five member quantities.
+   */
+  structure: OrderReceiptStructure;
   /** Flag rows rendered between totals and status ledger. Empty
    * array = clean receipt (no blockers). Non-empty = one row per
    * flag; each flag's `.detail` is the actionable copy that names
@@ -163,8 +207,7 @@ export function OrderReceipt({
   terms,
   incoterms,
   requestedShipIso,
-  lines,
-  oneTime,
+  structure,
   soFlags,
   hubspotAmount,
   hubspotStageLabel,
@@ -173,10 +216,34 @@ export function OrderReceipt({
 }: OrderReceiptProps): ReactNode {
   const placed = state === "record";
   const failed = state === "failed";
-  const subtotal = lines.reduce((a, l) => a + l.qty * l.unit, 0);
-  const oneTimeTotal = oneTime.reduce((a, o) => a + o.amount, 0);
+  // Totals derived from the SAME rows the structure renders. Deriving them
+  // from anything else is how a receipt shows one order and totals another.
+  const rows = structure.kind === "planned" ? structure.rows : [];
+  const goodsRows = rows.filter(
+    (r): r is Extract<PlannedRow, { role: "member" } | { role: "direct" }> =>
+      r.role === "member" || r.role === "direct",
+  );
+  // A member row carries the amount the producer computed; a Direct or
+  // accounting line carries quantity and rate, and their product IS the
+  // relation REG-4 checks against NetSuite's own multiplication. Neither is the
+  // forbidden arithmetic -- that would be re-deriving a member's quantity from
+  // the tier and the per-set multiplier, which this file never does.
+  const extendedOf = (r: PlannedRow): number =>
+    r.role === "member"
+      ? r.amount
+      : r.role === "direct" || r.role === "accounting"
+        ? r.line.quantity * r.line.rate
+        : 0;
+  const subtotal = goodsRows.reduce((a, r) => a + extendedOf(r), 0);
+  const oneTimeTotal = rows.reduce(
+    (a, r) => (r.role === "accounting" ? a + extendedOf(r) : a),
+    0,
+  );
   const total = subtotal + oneTimeTotal;
-  const units = lines.reduce((a, l) => a + l.qty, 0);
+  const units = goodsRows.reduce(
+    (a, r) => a + (r.role === "member" ? r.quantity : r.line.quantity),
+    0,
+  );
 
   return (
     <div className="r9-so">
@@ -245,6 +312,12 @@ export function OrderReceipt({
         </div>
       </div>
 
+      {/* Says what the reader is looking at. Not "what the customer receives"
+          and not a summary of the quote -- the ERP line set, in send order. */}
+      <div className="r9-so-lcaption">
+        This is the NetSuite order structure Nexus will create.
+      </div>
+
       <div className="r9-so-lines">
         <div className="r9-so-lrow head">
           <span>Item</span>
@@ -252,36 +325,86 @@ export function OrderReceipt({
           <span style={{ textAlign: "right" }}>Unit</span>
           <span style={{ textAlign: "right" }}>Extended</span>
         </div>
-        {lines.map((l) => (
-          <div className="r9-so-lrow" key={l.id}>
-            <span className="desc">
-              <span className="n">{l.name}</span>
-              <span className="m">
-                <span className="code">{l.code}</span>
-                {l.pack && (
-                  <>
-                    {" "}
-                    · {l.pack}
-                  </>
-                )}
-              </span>
+
+        {structure.kind === "unavailable" ? (
+          /* No structure, on purpose. See `OrderReceiptStructure`. */
+          <div className="r9-so-lblocked" role="status">
+            <span className="r9-so-lblocked-title">
+              No order structure yet
             </span>
-            <span className="num qty">{l.qty.toLocaleString()}</span>
-            <span className="num unit">{usd(l.unit, 2)}</span>
-            <span className="num ext">{usd(l.qty * l.unit)}</span>
+            <span className="r9-so-lblocked-body">{structure.reason}</span>
           </div>
-        ))}
-        {oneTime.map((o) => (
-          <div className="r9-so-lrow onetime" key={o.id}>
-            <span className="desc">
-              <span className="n">{o.label}</span>
-              <span className="s">{o.sub}</span>
-            </span>
-            <span className="num qty">1</span>
-            <span className="num unit">—</span>
-            <span className="num ext">{usd(o.amount)}</span>
-          </div>
-        ))}
+        ) : (
+          structure.rows.map((row, i) => {
+            if (row.role === "group") {
+              return (
+                <div className="r9-so-lrow group" key={`g-${row.assemblyId}-${i}`}>
+                  <span className="desc">
+                    <span className="n">Group · {row.sku}</span>
+                    <span className="m">
+                      <span className="code">{row.name}</span>
+                      {row.externalId ? <> · {row.externalId}</> : null}
+                    </span>
+                  </span>
+                  <span className="num qty">{row.quantity.toLocaleString()}</span>
+                  <span className="num unit">—</span>
+                  <span className="num ext">—</span>
+                </div>
+              );
+            }
+            if (row.role === "member") {
+              return (
+                <div className="r9-so-lrow member" key={`m-${row.sku}-${i}`}>
+                  <span className="desc">
+                    <span className="n">{row.sku}</span>
+                    {/* The multiplier is STATED, not applied. NetSuite performs
+                        the expansion; showing the factor is how a reader can
+                        check the quantity beside it without doing it again. */}
+                    <span className="m">
+                      <span className="code">{row.qtyPerParent} per set</span>
+                    </span>
+                  </span>
+                  <span className="num qty">{row.quantity.toLocaleString()}</span>
+                  <span className="num unit">{usd(row.rate, 2)}</span>
+                  <span className="num ext">{usd(row.amount)}</span>
+                </div>
+              );
+            }
+            if (row.role === "end_group") {
+              return (
+                <div className="r9-so-lrow endgroup" key={`e-${row.assemblyId}-${i}`}>
+                  <span className="desc">
+                    <span className="n">EndGroup</span>
+                    {/* Carries no economics of its own -- it closes the group
+                        and nothing more. Shown because the ERP line set has it,
+                        and a receipt that omitted it would not be the order. */}
+                    <span className="m">closes the group</span>
+                  </span>
+                  <span className="num qty">—</span>
+                  <span className="num unit">—</span>
+                  <span className="num ext">—</span>
+                </div>
+              );
+            }
+            const l = row.line;
+            return (
+              <div
+                className={`r9-so-lrow ${row.role === "accounting" ? "onetime" : ""}`}
+                key={`${row.role}-${l.netsuiteItemId}-${i}`}
+              >
+                <span className="desc">
+                  <span className="n">{l.description}</span>
+                  <span className="m">
+                    <span className="code">{l.sku}</span>
+                  </span>
+                </span>
+                <span className="num qty">{l.quantity.toLocaleString()}</span>
+                <span className="num unit">{usd(l.rate, 2)}</span>
+                <span className="num ext">{usd(l.quantity * l.rate)}</span>
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="r9-so-totals">
