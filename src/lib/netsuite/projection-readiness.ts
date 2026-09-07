@@ -17,6 +17,7 @@ import {
   isPerLineDestination,
 } from "@/lib/netsuite/bv011-destinations";
 import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
+import { COMPONENT_CHARGE_LABELS } from "@/lib/commercial-recovery/registry";
 import { resolvesBySku } from "@/lib/netsuite/line-kind-resolution";
 
 /**
@@ -109,6 +110,22 @@ export type ProjectionBlocker =
        * none: it reads as a step they failed to perform.
        */
       kind: "component_destination_ungoverned";
+      lineId: string;
+      displayName: string;
+      remediation: string;
+    }
+  | {
+      /**
+       * A Tooling charge billed on its own line, with nobody having said WHICH
+       * kind it is.
+       *
+       * A SEPARATE variant from the one above, because they are separate
+       * problems. This is a fact an operator can state in one click; that one
+       * is a governance gap they cannot close from the quote at all. One kind
+       * with one message would send half the people who see it to a screen
+       * that cannot help them.
+       */
+      kind: "tooling_classification_missing";
       lineId: string;
       displayName: string;
       remediation: string;
@@ -386,12 +403,45 @@ export async function assessProjectionReadiness(
     // `owningAssemblyId` and leaves `quoteLeafId` null; the component loop does
     // the exact opposite. `component-otc-line-identity` asserts that they stay
     // opposite, so this cannot quietly start reading the wrong lines.
-    if (line.kind === "otc" && line.quoteLeafId !== null) {
+    if (line.kind === "otc" && line.quoteLeafId !== null && destination === null) {
+      // ── AMENDED 2026-09-06 · THE DESTINATION MODEL LANDED ──────────────
+      //
+      // This used to refuse EVERY component-owned charge, because no map said
+      // which BV-011 destination one posts to. That refusal was correct while
+      // it was true, and it is no longer true: `component-charge-destination.ts`
+      // governs four types directly and resolves `tooling` from the
+      // classification its instance carries.
+      //
+      // So the condition narrows to `destination === null` — a component charge
+      // WITH a destination now falls through to the ordinary mapping check
+      // below and posts like any other line.
+      //
+      // The remaining null is one of two states, and they are not the same
+      // problem. A `tooling` charge nobody has classified is a fact an OPERATOR
+      // can state; anything else is a governance gap they cannot. Collapsing
+      // them would send someone to a screen that cannot help.
+      //
+      // NEVER falls back to `otc_tooling`. That is a real destination with a
+      // real item, and defaulting to it would post cutting dies to the mould
+      // account silently — the exact error the classification exists to
+      // prevent, reintroduced as a convenience.
+      // Written as TWO pushes rather than one ternary. A ternary hides both
+      // literals from the dead-state sweep, which reads construction sites —
+      // and it caught exactly that on the first attempt here.
+      if (line.displayName.startsWith(COMPONENT_CHARGE_LABELS.tooling)) {
+        blockers.push({
+          kind: "tooling_classification_missing",
+          lineId: line.id,
+          displayName: line.displayName,
+          remediation: `"${line.displayName}" is billed as its own line, so it needs an accounting classification: a mould or collar, or a cutting die. Those post to different accounts, and nothing can tell them apart from the component. Set it on Costs, then revise and re-send.`,
+        });
+        continue;
+      }
       blockers.push({
         kind: "component_destination_ungoverned",
         lineId: line.id,
         displayName: line.displayName,
-        remediation: `"${line.displayName}" is a component-owned one-time charge, and that charge type does not yet have a governed accounting destination. It cannot be sent to NetSuite yet, and re-sending the quote will not change that. Remove the charge from the accepted tier if this order must be pushed now, or wait for the destination model.`,
+        remediation: `"${line.displayName}" is a component-owned one-time charge whose type has no governed accounting destination. It cannot be sent to NetSuite, and re-sending the quote will not change that. Remove the charge from the accepted tier if this order must be pushed now.`,
       });
       continue;
     }

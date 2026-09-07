@@ -430,6 +430,13 @@ export type HydrateSnapshot = {
     quoteLeafId: string;
     chargeKey: string;
     label: string | null;
+    /**
+     * WHICH KIND of tooling — the accounting fact `tooling` does not carry.
+     *
+     * NULL on every other charge type, and on a Tooling charge nobody has
+     * classified yet. Never inferred; see `component-charge-destination.ts`.
+     */
+    toolingClassification?: "mould_collar" | "cutting_die" | null;
   }[];
   cellOverrides: CostingCellOverride[];
   // Slice 9.4b — sparse per-cell client target benchmarks (rows that

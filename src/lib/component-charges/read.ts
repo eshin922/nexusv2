@@ -26,6 +26,8 @@ export type ComponentChargeForCosts = {
   quoteLeafId: string;
   chargeKey: string;
   label: string | null;
+  /** Which kind of tooling, for a `tooling` charge. NULL on every other type. */
+  toolingClassification: "mould_collar" | "cutting_die" | null;
   /** Per tier, as stored. Strings, because they are money. */
   amounts: { tierId: string; cost: string; recoveryAsk: string | null }[];
 };
@@ -39,6 +41,7 @@ export async function readComponentChargesForCosts(
       quoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       chargeKey: quoteChargeInstances.chargeKey,
       label: quoteChargeInstances.label,
+      toolingClassification: quoteChargeInstances.toolingClassification,
       tierId: quoteChargeInstanceTiers.tierId,
       cost: quoteChargeInstanceTiers.costAmount,
       recoveryAsk: quoteChargeInstanceTiers.recoveryAsk,
@@ -67,6 +70,7 @@ export async function readComponentChargesForCosts(
         quoteLeafId: owner,
         chargeKey: r.chargeKey,
         label: r.label,
+        toolingClassification: r.toolingClassification ?? null,
         amounts: [],
       };
       byInstance.set(r.chargeInstanceId, charge);

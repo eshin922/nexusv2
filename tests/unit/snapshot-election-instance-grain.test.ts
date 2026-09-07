@@ -239,9 +239,14 @@ test("both migrations are registered in the journal, in order", () => {
   // table and executes every entry whose `when` exceeds it; an entry below the
   // mark is structurally unreachable and would never apply.
   const before = j.entries.filter(
-    (e: { tag: string }) =>
+    (e: { tag: string; when: number }) =>
       e.tag !== "0118_snapshot_election_instance_grain" &&
-      e.tag !== "0119_snapshot_election_frozen_provenance",
+      e.tag !== "0119_snapshot_election_frozen_provenance" &&
+      // Everything AFTER these two is also excluded: this asserts where 0118
+      // sat when it was written, and a later migration raising the mark says
+      // nothing about that. Filtering by `when` rather than by naming each new
+      // tag, so the next migration does not have to edit this test.
+      e.when < entry.when,
   );
   const previousMax = Math.max(...before.map((e: { when: number }) => e.when));
   assert.ok(

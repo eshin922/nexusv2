@@ -827,6 +827,13 @@
       "when": 1788856320000,
       "tag": "0119_snapshot_election_frozen_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1788942720000,
+      "tag": "0120_tooling_accounting_classification",
+      "breakpoints": true
     }
   ]
 }

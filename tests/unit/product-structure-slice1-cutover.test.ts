@@ -865,6 +865,17 @@ const classifiedIdentityFiles = new Set([
   // irreversible push consume the SAME structure instead of two that can
   // disagree.
   "src/lib/netsuite/planned-sales-order.ts",
+  // CLASSIFIED - canonical identity, read-only, and it creates nothing.
+  //
+  // The operator PREVIEW of the planned Sales Order. It keys the live tree by
+  // `quote_leaves.id` and never touches `assembly_leaves`, exactly as the send
+  // path's assembly does.
+  //
+  // It performs NetSuite READS (SKU resolution, customer map) because a
+  // structure it cannot name is not a preview. It performs no CREATE and no
+  // UPDATE -- in particular it never calls `findOrCreateItemGroup`, which POSTs
+  // a new Item Group master. Opening a tab must not make master data.
+  "src/lib/netsuite/planned-sales-order-preview.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {
