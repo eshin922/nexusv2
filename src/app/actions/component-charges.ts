@@ -13,6 +13,8 @@
  */
 
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { updateToolingClassificationAs } from "@/lib/component-charges/classify";
+import type { ToolingClassification } from "@/lib/netsuite/component-charge-destination";
 import {
   createComponentChargesAs,
   deleteComponentChargeAs,
@@ -80,3 +82,18 @@ export async function updateComponentChargeCost(input: {
  * as a GATE-FIXTURE writer only; see the note there. The column is retained
  * and holds no non-null values.
  */
+
+/**
+ * Which kind of tooling this charge is, for accounting.
+ *
+ * Stated by the operator, never inferred. `null` clears it back to "not
+ * stated", which is a real state and the one the send gate refuses on.
+ */
+export async function updateToolingClassification(input: {
+  quoteId: string;
+  chargeInstanceId: string;
+  classification: ToolingClassification | null;
+}) {
+  const user = await ensureUser();
+  return updateToolingClassificationAs(user.id, input);
+}
