@@ -99,6 +99,34 @@ const SERVICES = [
 ];
 
 /**
+ * ADDENDUM · SERVICE ECONOMICS — dispositioned 2026-09-07, after #548.
+ *
+ * #548 froze the structure, the tiers and the component-charge economics. It
+ * did NOT freeze what the three Direct Services cost, and that omission is
+ * material: service amounts drive every tier total and therefore every margin.
+ * With them absent, "the quote reconciles to the freeze" would have been a
+ * statement about a quote whose largest cost inputs were unconstrained.
+ *
+ * ── WHY THE ORDER OF EVENTS MATTERS ─────────────────────────────────────
+ *
+ * These values were dispositioned by Edward as business / training inputs
+ * BEFORE the service-cost cells were entered and BEFORE anyone had seen the
+ * resulting tier margins. That sequence is the whole point of recording them
+ * here: a cost chosen after observing a margin is a cost chosen to produce
+ * that margin, and it would make the below-floor gate a formality rather than
+ * a control.
+ *
+ * They are NOT to be adjusted afterwards to avoid a below-floor approval. If
+ * O4 lands below floor, that is O4's economics and it goes through the normal
+ * approval workflow.
+ */
+const SERVICE_COSTS: Record<string, [number, number, number]> = {
+  "SVC-FORMULATION": [3500, 3500, 3500],
+  "SVC-FILLING-BLENDING": [2750, 5400, 12000],
+  "SVC-PACKOUT-ASSEMBLY": [1500, 3000, 6750],
+};
+
+/**
  * The charge matrix.
  *
  * Markup follows the charge TYPE's governed category, never the owner:
@@ -177,6 +205,19 @@ for (const c of CHARGES) {
   console.log(`       recovery     ${rec.join(" / ")}`);
   console.log(
     `       ERP          ${c.treatment === "separate" ? `one accounting line at ${c.destination}` : "NO separate line — carried in unit price"}`,
+  );
+}
+console.log("");
+
+console.log("── ADDENDUM · SERVICE ECONOMICS ─────────────────────────");
+console.log("  Dispositioned after #548, BEFORE the cells were entered and");
+console.log("  before the resulting margins were observed. Not to be adjusted");
+console.log("  afterwards to avoid a below-floor approval.");
+console.log("");
+for (const s of SERVICES) {
+  const c = SERVICE_COSTS[s.sku];
+  console.log(
+    `  ${s.sku.padEnd(22)} ${c.map((n) => n.toLocaleString().padStart(7)).join("  ")}   -> ${s.destination}`,
   );
 }
 console.log("");
