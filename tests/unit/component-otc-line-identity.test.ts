@@ -28,6 +28,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { disposeDestination } from "../../src/lib/netsuite/destination-disposition.ts";
+
 const root = process.cwd();
 const src = readFileSync(
   path.join(root, "src/lib/commercial-projection.ts"),
@@ -64,13 +66,36 @@ test("a component OTC line records its governed accounting destination", () => {
   // could only recover a `tooling` classification by joining back on owner and
   // type — ambiguous the moment one component owns two charges.
   const component = src.slice(src.indexOf("otc:instance:${chargeInstanceId}"));
-  const block = component.slice(0, 2200);
-  assert.match(block, /bv011Destination: \(\(\) => \{/);
+  const block = component.slice(0, 3000);
   assert.match(block, /componentChargeDestination\(\{/);
   assert.match(block, /toolingClassification: meta\.toolingClassification/);
-  // Unresolved still means null — the readiness gate decides what that means,
-  // and it distinguishes "an operator can state this" from "nothing governs it".
-  assert.match(block, /r\.kind === "resolved" \? r\.destination : null/);
+  assert.match(block, /bv011Destination: r\.destination/);
+});
+
+test("BOTH halves of the resolution are carried, not just the destination", () => {
+  // AMENDED 2026-09-07. This used to assert
+  // `r.kind === "resolved" ? r.destination : null` — which discarded WHY a
+  // resolution failed at the one boundary that knew it, and left the readiness
+  // gate to recover it from `displayName`. It could not: it compared a frozen
+  // customer-facing name against an operator-facing label, "Tooling" against
+  // "Tooling & dies", so every unclassified tooling line was told its type had
+  // no governed destination and should be removed from the tier.
+  //
+  // The reason is now persisted beside the destination it explains, exactly as
+  // `legacyUnresolved` is and for the reason its own comment gives.
+  const component = src.slice(src.indexOf("otc:instance:${chargeInstanceId}"));
+  const block = component.slice(0, 3000);
+  assert.match(block, /destinationUnresolvedReason: null,/);
+  assert.match(block, /"tooling_classification_missing" as const/);
+  assert.match(block, /"component_type_ungoverned" as const/);
+  // And the classification is read WITHOUT coalescing. A `?? null` here is what
+  // made an absent field indistinguishable from a stated one, which is how the
+  // loader's omission stayed invisible through a type check and 3016 tests.
+  assert.doesNotMatch(
+    block,
+    /toolingClassification: meta\.toolingClassification \?\?/,
+    "the classification is coalesced, which hides an absent field again",
+  );
 });
 
 test("the projection derives no destination of its own", () => {
@@ -88,51 +113,161 @@ test("readiness refuses a component charge with an instruction that can succeed"
     path.join(root, "src/lib/netsuite/projection-readiness.ts"),
     "utf8",
   );
+  const body = readiness.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  // The discriminator is used, and used before the generic null test — which
-  // would otherwise claim the line first and hand out the wrong remedy.
+  // -- THE DISPOSITION IS DECIDED ONCE, BY A PURE FUNCTION ---------------
   //
-  // Measured inside the RESOLUTION LOOP, not across the file: both kinds are
-  // named in the blocker union far above, and comparing declaration order
-  // there would compare the wrong thing entirely while looking like it worked.
-  const loopAt = readiness.indexOf("for (const line of lines) {");
-  assert.ok(loopAt > 0, "the resolution loop was not found — this test is blind");
-  const body = readiness.slice(loopAt);
-  const componentAt = body.indexOf("tooling_classification_missing");
-  const genericAt = body.indexOf('kind: "destination_not_recorded"');
-  assert.ok(componentAt > 0, "the component blockers are absent");
-  assert.ok(
-    componentAt < genericAt,
-    "the generic null-destination blocker would claim component lines first",
-  );
+  // AMENDED 2026-09-07. This used to grep a chain of inline branches, which is
+  // how the defect it was meant to guard survived: the discriminator was
+  // `displayName.startsWith(COMPONENT_CHARGE_LABELS.tooling)` — a frozen
+  // CUSTOMER-facing name against an OPERATOR-facing label, "Tooling" against
+  // "Tooling & dies" — and it read plausibly in source while never once being
+  // true. Reading source is not how that gets caught. The four eras are
+  // falsified as BEHAVIOUR below.
+  assert.match(body, /disposeDestination\(\{/);
+  assert.match(body, /unresolvedReason: line\.unresolvedReason/);
 
-  const branch = body.slice(componentAt, genericAt);
-
-  // ── THE REFUSAL NARROWED ─────────────────────────────────────────────
+  // -- AND COPY CANNOT REACH THE DECISION AT ALL -------------------------
   //
-  // It used to refuse EVERY component charge. Now it refuses only one with no
-  // destination, so a governed charge falls through and posts like any line.
-  assert.match(body, /line\.quoteLeafId !== null && destination === null/);
-
-  // ── AND SPLIT, BECAUSE THEY ARE DIFFERENT PROBLEMS ───────────────────
-  //
-  // An unclassified Tooling charge is a fact an operator can state; a type with
-  // no governed destination is a gap they cannot close from the quote. One kind
-  // with one message sends half of them to a screen that cannot help.
-  assert.match(branch, /is billed as its own line, so it needs an accounting classification/);
-  assert.match(branch, /re-sending the quote will not change that/);
-
-  // Neither reuses the generic remedy, which cannot work for either.
+  // The strongest form of "a label change cannot change accounting behaviour"
+  // is that no label map is in scope to be read, and no display string is
+  // inspected. Asserted on the whole module, so a future edit cannot
+  // reintroduce one somewhere else in it.
   assert.doesNotMatch(
-    branch,
-    /Revise and re-send so the line records its destination/,
-    "a component refusal reuses the remedy that cannot work for it",
+    body,
+    /_LABELS|displayName\.startsWith|displayName\.includes|displayName ===/,
+    "readiness reads display copy to decide an accounting disposition",
+  );
+  // Same guarantee at the decider, which is the module that actually decides.
+  const decider = readFileSync(
+    path.join(root, "src/lib/netsuite/destination-disposition.ts"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(
+    decider,
+    /displayName|_LABELS|label/i,
+    "the destination decider can see a label",
   );
 
-  // ── NEVER otc_tooling ────────────────────────────────────────────────
+  // -- NEVER otc_tooling -------------------------------------------------
   //
   // It is a real destination with a real item, so a fallback would post cutting
   // dies to the mould account silently — the exact error the classification
   // exists to prevent, reintroduced as a convenience.
-  assert.doesNotMatch(branch, /otc_tooling/);
+  assert.doesNotMatch(decider, /otc_tooling/);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// The four eras, as behaviour
+// ══════════════════════════════════════════════════════════════════════
+
+test("ERA 1 · frozen before the model → revise and re-send", () => {
+  // No destination and NO REASON. The resolution never ran on this line because
+  // it did not exist when the line froze, and the absence of a reason is the
+  // only thing that says so — which is why no backfill was written for that
+  // column. Inventing a reason for a historical row would erase the signal.
+  //
+  // This is the era that was getting the wrong instruction. DPS-1074 v1's Print
+  // plates charge has a governed destination AND a mapped item, and was still
+  // told "re-sending the quote will not change that." A re-send is the entire
+  // remedy.
+  assert.deepEqual(
+    disposeDestination({ destination: null, unresolvedReason: null, isMapped: false }),
+    { kind: "destination_not_recorded" },
+  );
+});
+
+test("ERA 2 · current projection, Tooling unclassified → classify on Costs", () => {
+  // A fact an operator can state in one click. Distinct from era 3 because the
+  // remedies are different and only one of them is theirs to perform.
+  assert.deepEqual(
+    disposeDestination({
+      destination: null,
+      unresolvedReason: "tooling_classification_missing",
+      isMapped: false,
+    }),
+    { kind: "tooling_classification_missing" },
+  );
+});
+
+test("ERA 3 · governed but unmapped → a configuration blocker, not a quote one", () => {
+  // An admin adds one row in Settings and every quote posting here is
+  // unblocked. Reporting this as a quote problem would send an operator to
+  // change a quote that is already correct.
+  assert.deepEqual(
+    disposeDestination({
+      destination: "otc_mould",
+      unresolvedReason: null,
+      isMapped: false,
+    }),
+    { kind: "unmapped_destination", destination: "otc_mould" },
+  );
+});
+
+test("ERA 4 · governed and mapped → readiness clears", () => {
+  for (const d of ["otc_mould", "otc_dies", "otc_print_plates", "otc_samples"] as const) {
+    assert.deepEqual(
+      disposeDestination({ destination: d, unresolvedReason: null, isMapped: true }),
+      { kind: "ready", destination: d },
+    );
+  }
+});
+
+test("a resolved destination clears REGARDLESS of what produced the line", () => {
+  // The narrowing that matters: a component-owned charge WITH a destination is
+  // not a special case. It posts like any other line. The branch used to refuse
+  // every component charge outright, which is why O3 could not reach the ERP at
+  // all — and a reason left over from an earlier state must not re-refuse a
+  // line that has since resolved.
+  assert.deepEqual(
+    disposeDestination({
+      destination: "otc_mould",
+      unresolvedReason: "tooling_classification_missing",
+      isMapped: true,
+    }),
+    { kind: "ready", destination: "otc_mould" },
+  );
+});
+
+test("the four nulls stay four, and no two collapse", () => {
+  // The whole job of this function. If any two of these compared equal, an
+  // operator would be sent to the wrong screen for one of them.
+  const outcomes = [
+    disposeDestination({ destination: null, unresolvedReason: null, isMapped: false }).kind,
+    disposeDestination({
+      destination: null,
+      unresolvedReason: "tooling_classification_missing",
+      isMapped: false,
+    }).kind,
+    disposeDestination({
+      destination: null,
+      unresolvedReason: "component_type_ungoverned",
+      isMapped: false,
+    }).kind,
+    disposeDestination({ destination: "otc_mould", unresolvedReason: null, isMapped: false }).kind,
+  ];
+  assert.equal(new Set(outcomes).size, outcomes.length, "two null states produce one answer");
+});
+
+test("every disposition the decider can produce is handled by readiness", () => {
+  // A state with no branch is a line that falls through and emits anyway — the
+  // short order that reconciles to its own short sum, which is the specific
+  // failure REG-4 exists to catch and the hardest to notice.
+  const readiness = readFileSync(
+    path.join(root, "src/lib/netsuite/projection-readiness.ts"),
+    "utf8",
+  );
+  const decider = readFileSync(
+    path.join(root, "src/lib/netsuite/destination-disposition.ts"),
+    "utf8",
+  );
+  const kinds = [...decider.matchAll(/kind: "([a-z_]+)"/g)].map((m) => m[1]);
+  assert.ok(kinds.length >= 5, "the decider's states could not be enumerated");
+  for (const k of new Set(kinds)) {
+    if (k === "ready") continue; // the success path; it emits rather than blocks
+    assert.ok(
+      readiness.includes(`"${k}"`),
+      `readiness has no branch for the disposition ${k}`,
+    );
+  }
 });

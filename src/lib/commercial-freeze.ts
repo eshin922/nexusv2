@@ -94,6 +94,10 @@ export async function freezeCommercialLineSet(
         // push time would mean string-matching `displayName`, and a copy
         // change would then silently repoint an accounting destination.
         bv011Destination: line.bv011Destination,
+        // Persisted for the same reason the destination is, and stated in the
+        // same comment above: re-deriving it at push time meant string-matching
+        // `displayName`. That was tried, and the strings did not match.
+        destinationUnresolvedReason: line.destinationUnresolvedReason,
         legacyUnresolved: line.legacyUnresolved,
         // The per-line choice is frozen because for this destination the
         // operator's choice IS the governance — a commercial decision about

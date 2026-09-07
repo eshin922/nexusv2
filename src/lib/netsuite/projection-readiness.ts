@@ -17,8 +17,8 @@ import {
   isPerLineDestination,
 } from "@/lib/netsuite/bv011-destinations";
 import type { Bv011Destination } from "@/lib/netsuite/bv011-destinations";
-import { COMPONENT_CHARGE_LABELS } from "@/lib/commercial-recovery/registry";
 import { resolvesBySku } from "@/lib/netsuite/line-kind-resolution";
+import { disposeDestination } from "@/lib/netsuite/destination-disposition";
 
 /**
  * Can the accepted tier's frozen line set be projected to a Sales Order?
@@ -97,17 +97,22 @@ export type ProjectionBlocker =
     }
   | {
       /**
-       * A component-owned charge, which has NO governed accounting destination
-       * yet -- the projection records `null` for every one of them, by
-       * construction rather than by omission.
+       * A component-owned charge whose TYPE names no governed BV-011
+       * destination. Stated by the projection as
+       * `component_type_ungoverned`, never inferred here.
        *
-       * Distinct from `destination_not_recorded` because the remedies differ
-       * and only one of them exists. That blocker tells the operator to revise
-       * and re-send, which is correct for a line frozen before destinations
-       * were captured. For a component charge a re-send would record `null`
-       * again, so the same words would send the operator round a loop that
-       * cannot terminate. An instruction that cannot succeed is worse than
-       * none: it reads as a step they failed to perform.
+       * Distinct from `destination_not_recorded` because the remedies differ.
+       * That blocker says revise-and-re-send, which is right for a line frozen
+       * before destinations were captured. For an ungoverned TYPE a re-send
+       * records the same absence again, so the same words would send the
+       * operator round a loop that cannot terminate.
+       *
+       * The distinction is only trustworthy because it is now read off the
+       * frozen resolution. It was previously decided by a display-name prefix,
+       * which claimed BOTH other cases as this one: an unclassified Tooling
+       * charge, and every line frozen before the model existed. Both were told
+       * a re-send could not help them. For the second, a re-send was the only
+       * thing that could.
        */
       kind: "component_destination_ungoverned";
       lineId: string;
@@ -302,6 +307,10 @@ export async function assessProjectionReadiness(
       kind: quoteSnapshotLines.lineKind,
       displayName: quoteSnapshotLines.displayName,
       destination: quoteSnapshotLines.bv011Destination,
+      // WHY the destination is absent, when it is. Structural, frozen by the
+      // projection. NULL alongside a null destination means this line predates
+      // the destination model.
+      unresolvedReason: quoteSnapshotLines.destinationUnresolvedReason,
       selectedItemId: quoteSnapshotLines.selectedNetsuiteItemId,
       selectedItemCode: quoteSnapshotLines.selectedNetsuiteItemCode,
       owningAssemblyId: quoteSnapshotLines.owningAssemblyId,
@@ -393,42 +402,31 @@ export async function assessProjectionReadiness(
       ] ??
       null;
 
-    // A component-owned charge. Checked BEFORE the generic null test, for the
-    // same reason the legacy combined charge is: a null destination alone
-    // describes several unrelated states, and only the narrowest true one
-    // yields an instruction the operator can act on.
+    // ── THE DESTINATION DISPOSITION ───────────────────────────────────
     //
-    // The discriminator is structural, not inferred. There are exactly two
-    // producers of an `otc` line: the legacy per-column loop sets
-    // `owningAssemblyId` and leaves `quoteLeafId` null; the component loop does
-    // the exact opposite. `component-otc-line-identity` asserts that they stay
-    // opposite, so this cannot quietly start reading the wrong lines.
-    if (line.kind === "otc" && line.quoteLeafId !== null && destination === null) {
-      // ── AMENDED 2026-09-06 · THE DESTINATION MODEL LANDED ──────────────
-      //
-      // This used to refuse EVERY component-owned charge, because no map said
-      // which BV-011 destination one posts to. That refusal was correct while
-      // it was true, and it is no longer true: `component-charge-destination.ts`
-      // governs four types directly and resolves `tooling` from the
-      // classification its instance carries.
-      //
-      // So the condition narrows to `destination === null` — a component charge
-      // WITH a destination now falls through to the ordinary mapping check
-      // below and posts like any other line.
-      //
-      // The remaining null is one of two states, and they are not the same
-      // problem. A `tooling` charge nobody has classified is a fact an OPERATOR
-      // can state; anything else is a governance gap they cannot. Collapsing
-      // them would send someone to a screen that cannot help.
-      //
-      // NEVER falls back to `otc_tooling`. That is a real destination with a
-      // real item, and defaulting to it would post cutting dies to the mould
-      // account silently — the exact error the classification exists to
-      // prevent, reintroduced as a convenience.
-      // Written as TWO pushes rather than one ternary. A ternary hides both
-      // literals from the dead-state sweep, which reads construction sites —
-      // and it caught exactly that on the first attempt here.
-      if (line.displayName.startsWith(COMPONENT_CHARGE_LABELS.tooling)) {
+    // Decided by `disposeDestination`, which is pure and has no idea what any
+    // of this is called. That is the point: the discriminator here used to be
+    // `displayName.startsWith(COMPONENT_CHARGE_LABELS.tooling)` — a frozen
+    // CUSTOMER-facing name against an OPERATOR-facing label, "Tooling" against
+    // "Tooling & dies". Two vocabularies one word apart, so the test was never
+    // true, and every unclassified tooling line was told its type had no
+    // governed destination, that re-sending could not help, and to remove the
+    // charge from the tier. All three false.
+    //
+    // It could not have worked spelled correctly either. The legacy per-column
+    // loop emits a line named exactly "Tooling" too, with different accounting
+    // meaning — the same words identify two different things, and no literal
+    // separates them. The projection knows structurally and now carries it.
+    //
+    // Copy is chosen from the disposition, never the other way round.
+    if (destination === null) {
+      const disposition = disposeDestination({
+        destination,
+        unresolvedReason: line.unresolvedReason,
+        isMapped: false,
+      });
+
+      if (disposition.kind === "tooling_classification_missing") {
         blockers.push({
           kind: "tooling_classification_missing",
           lineId: line.id,
@@ -437,20 +435,26 @@ export async function assessProjectionReadiness(
         });
         continue;
       }
-      blockers.push({
-        kind: "component_destination_ungoverned",
-        lineId: line.id,
-        displayName: line.displayName,
-        remediation: `"${line.displayName}" is a component-owned one-time charge whose type has no governed accounting destination. It cannot be sent to NetSuite, and re-sending the quote will not change that. Remove the charge from the accepted tier if this order must be pushed now.`,
-      });
-      continue;
-    }
 
-    if (destination === null) {
-      // Frozen before destinations were recorded, with nothing on the row to
-      // derive one from. Distinct from the legacy combined charge: this line's
-      // accounting meaning is knowable, it simply was not captured, and a
-      // re-send captures it.
+      if (disposition.kind === "component_destination_ungoverned") {
+        blockers.push({
+          kind: "component_destination_ungoverned",
+          lineId: line.id,
+          displayName: line.displayName,
+          remediation: `"${line.displayName}" is a component-owned one-time charge whose type has no governed accounting destination. It cannot be sent to NetSuite, and re-sending the quote will not change that. Remove the charge from the accepted tier if this order must be pushed now.`,
+        });
+        continue;
+      }
+
+      // Frozen before destinations were recorded. This line's accounting
+      // meaning is knowable — it simply was not captured — and a re-send
+      // captures it.
+      //
+      // A component line could not reach this disposition before: the branch
+      // that handled component charges claimed every one of them first and
+      // handed out the opposite instruction. DPS-1074 v1 is the evidence — its
+      // Print plates charge has a governed destination AND a mapped item, and
+      // was still refused with "re-sending the quote will not change that."
       blockers.push({
         kind: "destination_not_recorded",
         lineId: line.id,
@@ -501,8 +505,17 @@ export async function assessProjectionReadiness(
       continue;
     }
 
-    const mapping = mapped.get(destination);
-    if (!mapping) {
+    // Same decider, second question: present and governed — is it configured?
+    //
+    // A mapping gap is a CONFIGURATION problem an admin fixes once in Settings,
+    // not a quote problem. Reporting it as one would send an operator to change
+    // a quote that is already correct.
+    const mappingDisposition = disposeDestination({
+      destination,
+      unresolvedReason: line.unresolvedReason,
+      isMapped: mapped.has(destination),
+    });
+    if (mappingDisposition.kind === "unmapped_destination") {
       blockers.push({
         kind: "unmapped_destination",
         destination,
@@ -513,6 +526,7 @@ export async function assessProjectionReadiness(
       });
       continue;
     }
+    const mapping = mapped.get(destination)!;
 
     resolved.push({
       sourceLineId: line.id,

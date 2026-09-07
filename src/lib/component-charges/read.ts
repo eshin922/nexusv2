@@ -128,17 +128,46 @@ export type ExistingComponentCharge = {
   quoteLeafId: string;
   chargeKey: string;
   label: string | null;
+  /**
+   * WHICH KIND of tooling, for accounting. NULL on every other type, and on a
+   * Tooling charge nobody has classified.
+   *
+   * REQUIRED, not optional. It was optional on the bundle field this feeds, and
+   * this loader did not select it — so `meta.toolingClassification` was
+   * `undefined` at every call site, `?? null` turned that into a stated null,
+   * and every Tooling charge resolved `needs_classification` no matter what an
+   * operator recorded. Nothing failed: an absent field and a null value are the
+   * same value once `?` lets the field be missing. Required is what makes the
+   * omission a type error instead of a silent one.
+   */
+  toolingClassification: "mould_collar" | "cutting_die" | null;
 };
+
+/**
+ * The executor to read through.
+ *
+ * Defaults to the global client. It is a parameter so a falsification can run
+ * this loader INSIDE a transaction it then rolls back -- which is the only way
+ * to prove all three classification states cross this boundary without
+ * persisting an accounting fact nobody authored. `assessProjectionReadiness`
+ * takes the same parameter for the same kind of reason.
+ */
+type Exec = Pick<typeof db, "select">;
 
 export async function readExistingComponentCharges(
   quoteId: string,
+  exec: Exec = db,
 ): Promise<ExistingComponentCharge[]> {
-  const rows = await db
+  const rows = await exec
     .select({
       chargeInstanceId: quoteChargeInstances.id,
       quoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       chargeKey: quoteChargeInstances.chargeKey,
       label: quoteChargeInstances.label,
+      // The accounting classification travels WITH the charge. Omitting it here
+      // is what broke the destination model: the projection read a field this
+      // loader never supplied.
+      toolingClassification: quoteChargeInstances.toolingClassification,
     })
     .from(quoteChargeInstances)
     .where(
@@ -156,5 +185,6 @@ export async function readExistingComponentCharges(
     quoteLeafId: r.quoteLeafId as string,
     chargeKey: r.chargeKey,
     label: r.label,
+    toolingClassification: r.toolingClassification ?? null,
   }));
 }

@@ -231,6 +231,19 @@ export const leafCommercialKind = pgEnum("leaf_commercial_kind", [
  * amount: a bottle's tooling is USUALLY a mould, and "usually" is not an
  * accounting authority.
  */
+/**
+ * WHY a frozen line has no accounting destination, when it has none.
+ *
+ * Persisted rather than re-derived, for the same reason `legacy_unresolved` is:
+ * the alternative is reading accounting meaning out of display copy, and a copy
+ * change then silently repoints a destination. NULL alongside a null
+ * destination means the line was frozen before this model existed.
+ */
+export const destinationUnresolvedReason = pgEnum("destination_unresolved_reason", [
+  "tooling_classification_missing",
+  "component_type_ungoverned",
+]);
+
 export const toolingClassification = pgEnum("tooling_classification", [
   "mould_collar",
   "cutting_die",
@@ -4091,6 +4104,16 @@ export const quoteSnapshotLines = pgTable(
      * copy change would then silently repoint an accounting destination.
      */
     bv011Destination: bv011Destination("bv011_destination"),
+    /**
+     * WHY there is no destination, when there is none. Structural, decided once
+     * at projection, and never re-derived from `displayName`.
+     *
+     * NULL with a NULL destination means the line predates this model, which is
+     * what routes it to `destination_not_recorded` and a revise-and-re-send.
+     */
+    destinationUnresolvedReason: destinationUnresolvedReason(
+      "destination_unresolved_reason",
+    ),
     /**
      * TRUE only for the legacy combined Tooling/Artwork charge.
      *

@@ -435,8 +435,14 @@ export type HydrateSnapshot = {
      *
      * NULL on every other charge type, and on a Tooling charge nobody has
      * classified yet. Never inferred; see `component-charge-destination.ts`.
+     *
+     * REQUIRED. It was optional, and `readExistingComponentCharges` did not
+     * select it — so the field was simply absent, `?? null` read that as a
+     * stated null, and every Tooling charge resolved `needs_classification`
+     * regardless of what an operator recorded. An optional field cannot tell
+     * "absent" from "null", which is the one distinction that mattered here.
      */
-    toolingClassification?: "mould_collar" | "cutting_die" | null;
+    toolingClassification: "mould_collar" | "cutting_die" | null;
   }[];
   cellOverrides: CostingCellOverride[];
   // Slice 9.4b — sparse per-cell client target benchmarks (rows that
