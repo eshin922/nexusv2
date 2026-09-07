@@ -37,6 +37,14 @@ const QUOTE = process.argv[2] ?? "4ec5db82-967a-482c-a9e5-48baf3fc11f5";
 // any divergence between the two is itself a finding.
 const CUSTOMER = "388800";
 const GROUP_SKU = "TRN-GIFTSET-DUO";
+/**
+ * The Group ITEM's id, which is not the base sku.
+ *
+ * `item-groups.ts` names slot 1 `<base>-G` and slot N `<base>-GN`, so a quote
+ * whose composition changes gets a new slot rather than a mutated group. The
+ * hash is over the BASE sku; the item carries the suffix.
+ */
+const GROUP_ITEM_ID = `${GROUP_SKU}-G`;
 const MEMBERS = [
   { ord: 1, sku: "TRN-PP-BOTTLE-30", qtyPerParent: 2, nsId: "76155" },
   { ord: 2, sku: "TRN-PP-PUMP", qtyPerParent: 2, nsId: "76156" },
@@ -135,6 +143,11 @@ const instr: any[] = await db.execute(sql`
     join leaves l on l.id = ql.leaf_id
     join quote_tiers t on t.id = i.tier_id
    where s.quote_id = ${QUOTE}
+     -- CURRENT snapshot only. Without this it reads every snapshot the quote
+     -- has ever had, so a revised quote returns 3 instructions x N versions and
+     -- the per-tier count check fails on a quote that is perfectly correct.
+     -- O3 was the first order to be revised, which is why it never surfaced.
+     and s.superseded_at is null
    order by l.sku, ci.charge_key, t.qty`);
 
 let subjectBExercised = false;
@@ -211,8 +224,15 @@ if (!q.netsuite_so_id) {
   subjectAExercised = true;
   const so = q.netsuite_so_id;
   const lines: any = await suiteQL(
+    // `tl.itemtype`, from the LINE -- not `i.itemtype` from the item.
+    //
+    // An EndGroup line has NO ITEM, so the joined column is null for it and a
+    // check reading it can never match "EndGroup". It reported a missing
+    // EndGroup on an order that had one, using a column structurally incapable
+    // of reporting its presence. The Group header passed the same check only
+    // because a Group line does carry an item.
     `select tl.linesequencenumber seq, tl.quantity, tl.rate, tl.netamount,
-            i.itemid, i.itemtype, i.id itemid_internal
+            tl.itemtype, i.itemid, i.id itemid_internal
        from transactionline tl
        left join item i on i.id = tl.item
       where tl.transaction = ${so} and tl.taxline = 'F'
@@ -242,15 +262,35 @@ if (!q.netsuite_so_id) {
       `${span.length}`,
     );
     const header = rows[groupIdx];
+    // The Group ITEM is `<baseSku>-G`, per `item-groups.ts`: slot 1 is a bare
+    // `-G`, slot N is `-GN`. `GROUP_SKU` is the BASE sku, which is what the
+    // composition hash is taken over -- so comparing the item's id to it was
+    // comparing two different identifiers that were never meant to be equal.
     check(
-      String(header.itemid) === GROUP_SKU,
-      `Group header is ${GROUP_SKU}`,
+      String(header.itemid) === GROUP_ITEM_ID,
+      `Group header is ${GROUP_ITEM_ID}`,
       String(header.itemid),
     );
 
-    const acceptedQty = acceptedTier ? Number(acceptedTier.qty) : Number(header.quantity);
+    // NETSUITE'S SIGN CONVENTION. `transactionline.quantity` and `netamount`
+    // are stored NEGATIVE on a sales order -- the income side of the entry --
+    // while the mainline total is positive. Comparing a stored -2,400 against
+    // an expected 2,400 fails on a correct order, so quantities are compared as
+    // magnitudes and the sign is asserted separately, once, rather than being
+    // silently absorbed by an abs() nobody reads.
+    const qtyOf = (v: unknown) => Math.abs(Number(v));
+    const acceptedQty = acceptedTier ? Number(acceptedTier.qty) : qtyOf(header.quantity);
     check(
-      Number(header.quantity) === acceptedQty,
+      // The mainline summary row carries NO quantity at all, so the guard has
+      // to admit absent as well as null -- Number(undefined) is NaN, and every
+      // comparison against NaN is false, which failed the check on a compliant
+      // order. Absence is a third state here, not a zero.
+      rows.every((r) => r.quantity == null || Number(r.quantity) <= 0),
+      "every line carries NetSuite's negative sales-order quantity convention",
+      `${rows.filter((r) => Number(r.quantity) > 0).length} positive`,
+    );
+    check(
+      qtyOf(header.quantity) === acceptedQty,
       "Group line quantity is the accepted tier quantity",
       `${header.quantity} vs ${acceptedQty}`,
     );
@@ -267,7 +307,7 @@ if (!q.netsuite_so_id) {
       );
       const expectedQty = acceptedQty * exp.qtyPerParent;
       check(
-        Number(r.quantity) === expectedQty,
+        qtyOf(r.quantity) === expectedQty,
         `  ${exp.sku} expands to ${acceptedQty} x ${exp.qtyPerParent} = ${expectedQty}`,
         `got ${r.quantity}`,
       );
@@ -284,11 +324,22 @@ if (!q.netsuite_so_id) {
     // ── EndGroup carries no independent economics ─────────────────────
     console.log("");
     const end = rows[endIdx];
-    const endAmt = end.netamount === null ? 0 : Number(end.netamount);
+    const endAmt = end.netamount === null ? 0 : Math.abs(Number(end.netamount));
+    const memberSum = span.reduce((a, r) => a + Math.abs(Number(r.netamount ?? 0)), 0);
+
+    // WHAT THE REQUIREMENT ACTUALLY IS, and it is not `netamount === 0`.
+    //
+    // NetSuite puts the group's rolled-up subtotal on its EndGroup line, so the
+    // old assertion was a guess about REPRESENTATION rather than a test of the
+    // property. The property is that the amount is a display roll-up the
+    // transaction does not bill again -- which is checked two ways, both
+    // falsifiable: it equals the members it closes, and the order total
+    // excludes it. Were it independent, this order would total 43,123.04
+    // instead of 26,145.52.
     check(
-      endAmt === 0,
-      "EndGroup carries no independent commercial value",
-      `netamount=${end.netamount ?? "null"}`,
+      Math.abs(endAmt - memberSum) < 0.005,
+      "EndGroup restates the members it closes, rather than adding to them",
+      `${endAmt.toFixed(2)} vs members ${memberSum.toFixed(2)}`,
     );
   }
 
@@ -313,7 +364,8 @@ if (!q.netsuite_so_id) {
   );
   if (found.length === 1) {
     check(
-      String(found[0].itemid) === GROUP_SKU,
+      // Same base-vs-item confusion as the header check above.
+      String(found[0].itemid) === GROUP_ITEM_ID,
       "and it is the expected Group",
       String(found[0].itemid),
     );
