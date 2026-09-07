@@ -32,8 +32,15 @@
 -- needs no destination and is sendable unclassified. A `separate` one is
 -- refused until an operator states which it is.
 --
--- No backfill. Deriving a classification for the 0 existing Tooling instances
--- would be inventing the fact this column exists to record.
+-- No backfill, and the reason is governance rather than population. Existing
+-- Tooling instances have no previously recorded tooling classification: no
+-- historical row can be backfilled without inventing an accounting fact that
+-- was never authored.
+--
+-- CORRECTED. This said "the 0 existing Tooling instances", which was false when
+-- it was written -- O3 already carried one. The count was never the argument,
+-- and stating it as though it were would have made the rule look contingent on
+-- a population that changes with the next quote.
 
 ALTER TYPE "public"."bv011_destination" ADD VALUE IF NOT EXISTS 'otc_mould';--> statement-breakpoint
 CREATE TYPE "public"."tooling_classification" AS ENUM ('mould_collar', 'cutting_die');--> statement-breakpoint
