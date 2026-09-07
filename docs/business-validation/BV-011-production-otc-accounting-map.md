@@ -48,6 +48,7 @@ separate OTC or service lines.
 | Testing / Micros | `OTC - Testing` | Non-inventory Item |
 | Other Service | `OTC - Other Service` | Non-inventory Item |
 | Emboss / Deboss / Foil / Cutting Die | `OTC - Dies` | Non-inventory Item |
+| Mould / Collar | `OTC - Mould / Collar` | Non-inventory Item |
 | Printing Plates | `OTC - Print Plates` | Non-inventory Item |
 | Samples / PPS | `OTC - Samples` | Non-inventory Item |
 | Processing Fee | `OTC - Processing Fee` | Non-inventory Item |

@@ -221,6 +221,21 @@ export const leafCommercialKind = pgEnum("leaf_commercial_kind", [
  * The identity also determines which Production input the Costs surface
  * exposes: a Filling service exposes filling, not formulation.
  */
+/**
+ * How a Tooling charge posts — the accounting fact its TYPE does not carry.
+ *
+ * `tooling` is authored as "Tooling & dies" — "cutting die, mould or collar" —
+ * and BV-011 governs a cutting die and a mould as different destinations. One
+ * map entry would book every die as a mould. Recorded per instance, by an
+ * operator, and never inferred from the owner, SKU, component type, label or
+ * amount: a bottle's tooling is USUALLY a mould, and "usually" is not an
+ * accounting authority.
+ */
+export const toolingClassification = pgEnum("tooling_classification", [
+  "mould_collar",
+  "cutting_die",
+]);
+
 export const bv011Destination = pgEnum("bv011_destination", [
   "otc_filling",
   "otc_packout",
@@ -242,6 +257,9 @@ export const bv011Destination = pgEnum("bv011_destination", [
   // rewrite what existing rows mean. Outside the `otc_*` namespace by design —
   // see `bv011-destinations.ts` and the BV-011 amendment of 2026-08-31.
   "item_group_production",
+  // Appended for the same reason. Mould / Collar — the half of the component
+  // "Tooling & dies" charge that is not a die. See bv011-destinations.ts.
+  "otc_mould",
 ]);
 
 export const directServiceIdentity = pgEnum("direct_service_identity", [
@@ -4360,6 +4378,22 @@ export const quoteChargeInstances = pgTable(
       .notNull()
       .references(() => quotes.id, { onDelete: "cascade" }),
     chargeKey: recoveryCharge("charge_key").notNull(),
+    /**
+     * WHICH KIND of tooling — `mould_collar` or `cutting_die`.
+     *
+     * NULL is "not yet classified": legitimate while a charge is in progress,
+     * and the only possible state for anything predating the column. It is
+     * never a third value and never resolves to a destination.
+     *
+     * Whether NULL blocks is decided by the RECOVERY treatment, which is a
+     * separate authority — an `included` charge emits no accounting line, so it
+     * needs no destination; a `separate` one is refused until stated.
+     *
+     * A CHECK constrains it to `charge_key = 'tooling'`: on any other type it
+     * would be a fact about nothing, and would read as authority to whoever
+     * found it next.
+     */
+    toolingClassification: toolingClassification("tooling_classification"),
     /** `'@quote'` or a `quote_leaves` id. Never null — a nullable owner is the
      * state the design rejects, and the one that makes freight attribution
      * guesswork today. */

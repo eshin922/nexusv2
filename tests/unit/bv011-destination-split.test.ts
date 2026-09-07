@@ -81,7 +81,7 @@ const prod = (tierId: string, extra: Record<string, unknown>) => ({
 // ── the catalogue ────────────────────────────────────────────────────────
 
 test("BV-011 catalogue is complete and matches the document's own count", () => {
-  assert.equal(BV011_DESTINATIONS.length, 17);
+  assert.equal(BV011_DESTINATIONS.length, 18);
   const inventory = BV011_DESTINATIONS.filter((d) => d.itemType === "inventory");
   // The count is mirrored here on purpose: it is how a silent drift between the
   // document and the catalogue gets caught, and it has now caught two
@@ -89,14 +89,20 @@ test("BV-011 catalogue is complete and matches the document's own count", () => 
   //
   //   6/10 → 5/11  2026-08-20  Pack-out / Assembly governed non-inventory
   //   5/11 → 5/12  2026-08-31  `item_group_production` added
+  //   5/12 → 5/13  2026-09-06  `otc_mould` added — the half of the component
+  //                            "Tooling & dies" charge that is not a die. It
+  //                            is NOT `otc_tooling`: that destination carries
+  //                            an unresolved Inventory-vs-NonInvtPart conflict
+  //                            with its own sandbox item, and a new governed
+  //                            path must not be built on a contested one.
   //
   // The seventeenth is Item Group-owned economics, outside the `otc_*`
   // namespace because it is recurring rather than a one-time charge. It exists
   // because a NetSuite Group header carries a quantity and no sell value, so an
   // Item Group's own economics need a line of their own.
   assert.equal(inventory.length, 5, "five Inventory destinations");
-  assert.equal(BV011_DESTINATIONS.length - inventory.length, 12);
-  assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 17, "keys unique");
+  assert.equal(BV011_DESTINATIONS.length - inventory.length, 13);
+  assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 18, "keys unique");
 });
 
 test("Tooling and Artwork are separate destinations with DIFFERENT item types", () => {
@@ -474,7 +480,7 @@ test("item_group_production is deliberately OUTSIDE the otc_ namespace", () => {
   assert.ok(!("item_group_production" as string).startsWith("otc_"));
 
   const otcKeys = BV011_DESTINATIONS.filter((d) => d.key.startsWith("otc_"));
-  assert.equal(otcKeys.length, 16, "the sixteen one-time destinations are unchanged");
+  assert.equal(otcKeys.length, 17, "the seventeen one-time destinations");
   assert.equal(
     BV011_DESTINATIONS.length - otcKeys.length,
     1,

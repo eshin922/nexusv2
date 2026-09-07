@@ -2,6 +2,7 @@ import {
   PRODUCTION_MARKUP_CATEGORY,
   resolveMarkupStrict,
 } from "@/lib/costing";
+import { componentChargeDestination } from "@/lib/netsuite/component-charge-destination";
 import type { QuoteCostingResult } from "@/lib/costing";
 import type { HydrateSnapshot } from "@/lib/costing-store";
 import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
@@ -799,7 +800,28 @@ export function projectCommercial(
       // A one-time charge has no bill-of-materials multiplicity.
       memberMultiplicity: null,
       serviceIdentity: null,
-      bv011Destination: null,
+      // ── THE ACCOUNTING IDENTITY, DECIDED HERE ────────────────────────
+      //
+      // Null used to be unconditional, and `projection-readiness` refused every
+      // component charge with `component_destination_ungoverned` as a result:
+      // the economics were governed all the way through Send and the accounting
+      // identity was not. O3 was the first order to reach it.
+      //
+      // Decided at PROJECTION because this is the last layer that knows the
+      // charge INSTANCE. A frozen line carries no instance id, so a downstream
+      // consumer could only recover the classification by joining back on
+      // owner and type — ambiguous the moment one component owns two charges.
+      //
+      // `needs_classification` and `ungoverned` both leave it null, and the
+      // readiness gate tells those two apart: one is a fact an operator can
+      // state, the other is not, and they send a person to different places.
+      bv011Destination: (() => {
+        const r = componentChargeDestination({
+          chargeKey: meta.chargeKey,
+          toolingClassification: meta.toolingClassification ?? null,
+        });
+        return r.kind === "resolved" ? r.destination : null;
+      })(),
       legacyUnresolved: false,
       selectedNetsuiteItem: null,
       cells,

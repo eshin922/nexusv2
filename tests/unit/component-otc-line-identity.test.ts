@@ -50,17 +50,37 @@ test("the two OTC producers set owner and leaf identity oppositely", () => {
   );
 });
 
-test("a component OTC line records no accounting destination", () => {
-  // Not an omission — there is no governed `charge_key -> destination` map at
-  // all, and `otc_dies` / `otc_print_plates` / `otc_samples` are assigned by
-  // nothing anywhere. Pinned so the day a destination model lands, this test
-  // fails and the readiness refusal has to be revisited with it.
+test("a component OTC line records its governed accounting destination", () => {
+  // AMENDED 2026-09-06. This test used to pin the OPPOSITE — that a component
+  // line records NO destination — and said so explicitly: "pinned so the day a
+  // destination model lands, this test fails and the readiness refusal has to
+  // be revisited with it."
+  //
+  // That day is this one. The pin did its job: it failed, and the refusal was
+  // revisited with it rather than the assertion being deleted to make room.
+  //
+  // Decided at PROJECTION because this is the last layer that knows the charge
+  // INSTANCE. A frozen line carries no instance id, so anything downstream
+  // could only recover a `tooling` classification by joining back on owner and
+  // type — ambiguous the moment one component owns two charges.
   const component = src.slice(src.indexOf("otc:instance:${chargeInstanceId}"));
-  assert.match(
-    component.slice(0, 900),
-    /bv011Destination: null,\s*\n\s*legacyUnresolved: false,/,
-    "a component charge acquired a destination without the destination model",
-  );
+  const block = component.slice(0, 2200);
+  assert.match(block, /bv011Destination: \(\(\) => \{/);
+  assert.match(block, /componentChargeDestination\(\{/);
+  assert.match(block, /toolingClassification: meta\.toolingClassification/);
+  // Unresolved still means null — the readiness gate decides what that means,
+  // and it distinguishes "an operator can state this" from "nothing governs it".
+  assert.match(block, /r\.kind === "resolved" \? r\.destination : null/);
+});
+
+test("the projection derives no destination of its own", () => {
+  // One authority. The projection ASKS `componentChargeDestination`; it must
+  // not carry its own map, or a charge type would have two answers.
+  const component = src.slice(src.indexOf("otc:instance:${chargeInstanceId}"));
+  const block = component.slice(0, 2200);
+  for (const shape of [/otc_print_plates/, /otc_samples/, /otc_mould/, /otc_dies/]) {
+    assert.doesNotMatch(block, shape, "the destination is resolved, never named here");
+  }
 });
 
 test("readiness refuses a component charge with an instruction that can succeed", () => {
@@ -78,22 +98,41 @@ test("readiness refuses a component charge with an instruction that can succeed"
   const loopAt = readiness.indexOf("for (const line of lines) {");
   assert.ok(loopAt > 0, "the resolution loop was not found — this test is blind");
   const body = readiness.slice(loopAt);
-  const componentAt = body.indexOf("component_destination_ungoverned");
+  const componentAt = body.indexOf("tooling_classification_missing");
   const genericAt = body.indexOf('kind: "destination_not_recorded"');
-  assert.ok(componentAt > 0, "the component blocker is absent");
+  assert.ok(componentAt > 0, "the component blockers are absent");
   assert.ok(
     componentAt < genericAt,
     "the generic null-destination blocker would claim component lines first",
   );
 
-  // And the message must not tell the operator to re-send, because a re-send
-  // records `null` again. This is the specific defect: an instruction that
-  // reads as a step they failed to perform.
   const branch = body.slice(componentAt, genericAt);
+
+  // ── THE REFUSAL NARROWED ─────────────────────────────────────────────
+  //
+  // It used to refuse EVERY component charge. Now it refuses only one with no
+  // destination, so a governed charge falls through and posts like any line.
+  assert.match(body, /line\.quoteLeafId !== null && destination === null/);
+
+  // ── AND SPLIT, BECAUSE THEY ARE DIFFERENT PROBLEMS ───────────────────
+  //
+  // An unclassified Tooling charge is a fact an operator can state; a type with
+  // no governed destination is a gap they cannot close from the quote. One kind
+  // with one message sends half of them to a screen that cannot help.
+  assert.match(branch, /is billed as its own line, so it needs an accounting classification/);
+  assert.match(branch, /re-sending the quote will not change that/);
+
+  // Neither reuses the generic remedy, which cannot work for either.
   assert.doesNotMatch(
     branch,
     /Revise and re-send so the line records its destination/,
-    "the component refusal reuses the remedy that cannot work for it",
+    "a component refusal reuses the remedy that cannot work for it",
   );
-  assert.match(branch, /re-sending the quote will not change that/);
+
+  // ── NEVER otc_tooling ────────────────────────────────────────────────
+  //
+  // It is a real destination with a real item, so a fallback would post cutting
+  // dies to the mould account silently — the exact error the classification
+  // exists to prevent, reintroduced as a convenience.
+  assert.doesNotMatch(branch, /otc_tooling/);
 });

@@ -36,6 +36,25 @@ export type Bv011Destination =
   | "otc_samples"
   | "otc_processing_fee"
   | "otc_cartons"
+  // §amendment 2026-09-06 — Mould / Collar, split out of "Tooling & dies".
+  //
+  // The component charge `tooling` covers "cutting die, mould or collar", which
+  // BV-011 already governs as TWO destinations with different meanings: a
+  // cutting die is `otc_dies`, a mould is tooling. Mapping the whole charge to
+  // one of them would book every die as the other, which is the same defect
+  // BV-011 §4.2 records for the legacy `Tooling / artwork` column.
+  //
+  // A SEPARATE key rather than reusing `otc_tooling`, because `otc_tooling`
+  // carries an unresolved conflict: §1.b records it Inventory while its
+  // sandbox item OTC-0005 is NonInvtPart (confirmed 2026-09-06 by SuiteQL and
+  // by the REST record resolving as `nonInventoryResaleItem`). That is a live
+  // accounting finding, and a new governed path must not be built on a
+  // contested one. `otc_tooling` is left exactly as it is.
+  //
+  // The firm's chart of accounts already draws this line: OTC-0006 "OTC - Mold"
+  // and OTC-0002 "OTC - Cutting Die" are distinct governed items. This records
+  // a distinction the accounting already makes.
+  | "otc_mould"
   // §amendment 2026-08-31 — Item Group-owned economics. OUTSIDE the `otc_*`
   // namespace on purpose: an `otc_*` destination is a one-time charge, and
   // this is recurring economics that scale with the accepted tier quantity.
@@ -83,6 +102,10 @@ export const BV011_DESTINATIONS: ReadonlyArray<{
   { key: "otc_samples", label: "OTC - Samples", itemType: "non_inventory", section: "1.b" },
   { key: "otc_processing_fee", label: "OTC - Processing Fee", itemType: "non_inventory", section: "1.b" },
   { key: "otc_cartons", label: "OTC - Cartons", itemType: "non_inventory", section: "1.b" },
+  // Non-inventory, and checked rather than assumed: OTC-0006 is `NonInvtPart`
+  // in the sandbox, as are all 65 active OTC-coded items. Recording it
+  // "inventory" would repeat the `otc_tooling` conflict on a brand-new key.
+  { key: "otc_mould", label: "OTC - Mould / Collar", itemType: "non_inventory", section: "1.b" },
   // ── THE SEVENTEENTH ───────────────────────────────────────────────────
   //
   // What a NetSuite Group cannot say. A Group header carries a quantity and no
