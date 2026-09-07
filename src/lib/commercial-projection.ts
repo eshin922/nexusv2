@@ -162,6 +162,29 @@ export type CommercialLine = {
    */
   bv011Destination: Bv011Destination | null;
   /**
+   * WHY there is no destination, when the resolution ran and produced none.
+   *
+   * Decided HERE, once, because this is the last layer that knows the charge
+   * INSTANCE. It is persisted onto the frozen line rather than re-derived,
+   * exactly as `legacyUnresolved` is and for the same reason: the alternative
+   * is reading accounting meaning out of `displayName`, and a copy change then
+   * silently repoints a destination.
+   *
+   * That alternative was shipped and did not work. The readiness gate compared
+   * a frozen CUSTOMER-facing name against an OPERATOR-facing label — "Tooling"
+   * against "Tooling & dies", two vocabularies one word apart — so the test was
+   * never true, and every unclassified tooling line was told its type had no
+   * governed destination and should be removed from the tier.
+   *
+   * NULL means EITHER resolved (a destination is present) OR the line predates
+   * this model (no destination and no reason). Readiness tells those apart by
+   * the destination, and routes the second to a revise-and-re-send.
+   */
+  destinationUnresolvedReason:
+    | "tooling_classification_missing"
+    | "component_type_ungoverned"
+    | null;
+  /**
    * True only for the legacy combined Tooling/Artwork charge.
    *
    * Stated rather than inferred from a null destination, because null also
@@ -386,6 +409,10 @@ export function projectCommercial(
       bv011Destination: serviceIdentity
         ? SERVICE_IDENTITY_DESTINATION[serviceIdentity]
         : null,
+      // Not a component charge, so no component resolution ran. A product line
+      // with no service identity resolves by SKU and needs no destination at
+      // all; that is not an unresolved state.
+      destinationUnresolvedReason: null,
       legacyUnresolved: false,
       // Ask the governed predicate rather than naming a destination. This read
       // `serviceIdentity === "other_service"`, which is why Testing could not
@@ -507,6 +534,9 @@ export function projectCommercial(
       // "Product lines have no destination -- they resolve by SKU", per the
       // field's own contract. An Item Group is a product.
       bv011Destination: null,
+      // An Item Group header posts nothing of its own. No destination is owed,
+      // so none is missing.
+      destinationUnresolvedReason: null,
       legacyUnresolved: false,
       selectedNetsuiteItem: null,
       cells,
@@ -657,6 +687,16 @@ export function projectCommercial(
           (OTC_COLUMN_DESTINATION as Record<string, Bv011Destination>)[
             fee.field
           ] ?? null,
+        // The legacy per-column loop. Its null destination is the legacy
+        // combined charge, already stated by `legacyUnresolved` on the next
+        // line — a separate fact from a component resolution that failed, and
+        // kept separate so the gate cannot conflate them.
+        //
+        // Worth noting that this loop can emit a line named exactly "Tooling",
+        // which is the other half of why discriminating component charges by
+        // display name could not work: the same words are produced by two
+        // different producers with different accounting meaning.
+        destinationUnresolvedReason: null,
         legacyUnresolved: fee.field === LEGACY_COMBINED_OTC_COLUMN,
         selectedNetsuiteItem:
           fee.field === "otherServiceTotal"
@@ -815,12 +855,30 @@ export function projectCommercial(
       // `needs_classification` and `ungoverned` both leave it null, and the
       // readiness gate tells those two apart: one is a fact an operator can
       // state, the other is not, and they send a person to different places.
-      bv011Destination: (() => {
+      ...(() => {
+        // ONE resolution, and BOTH halves of its answer are carried. Returning
+        // only the destination is what stranded the reason at this boundary and
+        // left the gate downstream to guess it back from display copy.
         const r = componentChargeDestination({
           chargeKey: meta.chargeKey,
-          toolingClassification: meta.toolingClassification ?? null,
+          // NOT `?? null`. The field is required on the bundle now; a `??` here
+          // would restore exactly the coalescing that made an absent field
+          // indistinguishable from a stated one.
+          toolingClassification: meta.toolingClassification,
         });
-        return r.kind === "resolved" ? r.destination : null;
+        if (r.kind === "resolved") {
+          return {
+            bv011Destination: r.destination,
+            destinationUnresolvedReason: null,
+          } as const;
+        }
+        return {
+          bv011Destination: null,
+          destinationUnresolvedReason:
+            r.kind === "needs_classification"
+              ? ("tooling_classification_missing" as const)
+              : ("component_type_ungoverned" as const),
+        } as const;
       })(),
       legacyUnresolved: false,
       selectedNetsuiteItem: null,

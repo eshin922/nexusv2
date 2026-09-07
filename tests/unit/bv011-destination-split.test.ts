@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+
+import { disposeDestination } from "../../src/lib/netsuite/destination-disposition.ts";
 import test from "node:test";
 
 import {
@@ -317,9 +319,23 @@ test("an unmapped destination BLOCKS rather than being skipped", async () => {
   // The dangerous alternative is falling through and emitting the line
   // anyway: the order would be short AND reconcile to its own short sum. So
   // the branch must both RECORD a blocker and STOP.
+  // AMENDED 2026-09-07. This matched `if (!mapping) {`, which no longer exists:
+  // the mapping question is now asked of `disposeDestination`, the same pure
+  // decider that answers every other destination state. The PROPERTY is
+  // unchanged and is what is asserted — record a blocker, and stop.
   assert.match(
     src,
-    /if \(!mapping\) \{[\s\S]{0,400}blockers\.push\(\{[\s\S]{0,400}continue;/,
+    /mappingDisposition\.kind === "unmapped_destination"\) \{[\s\S]{0,600}blockers\.push\(\{[\s\S]{0,600}continue;/,
+  );
+  // And the decider itself must produce that state, so the branch above is
+  // reachable. A guarded branch nothing can enter is the same as no branch.
+  assert.deepEqual(
+    disposeDestination({
+      destination: "otc_print_plates",
+      unresolvedReason: null,
+      isMapped: false,
+    }),
+    { kind: "unmapped_destination", destination: "otc_print_plates" },
   );
 });
 

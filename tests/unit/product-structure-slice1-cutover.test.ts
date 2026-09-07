@@ -852,6 +852,17 @@ const classifiedIdentityFiles = new Set([
   // instrument: it decides whether O3 passed, so it must not be able to change
   // what it is measuring.
   "scripts/gate-1b/o3-certify.ts",
+  // CLASSIFIED - canonical identity only, and it WRITES NOTHING.
+  //
+  // The before/after capture of O3 component-charge state. It reads
+  // `quote_charge_instances.owner_quote_leaf_id` -- the canonical identity --
+  // to print WHO caused a charge, and joins `quote_tiers` for tier labels. It
+  // reaches `assembly_leaves` nowhere.
+  //
+  // Read-only by construction, and it must stay so: its whole purpose is to
+  // prove an operator action changed exactly one field, which an instrument
+  // that could write would not be able to establish.
+  "scripts/gate-1b/o3-charge-state.ts",
   // CLASSIFIED - canonical identity only, and every row it writes is removed.
   //
   // The frozen-election grain falsifier. It reads `quote_leaves.id` to pick a
