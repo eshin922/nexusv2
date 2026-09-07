@@ -139,10 +139,20 @@ check(
   accounting.filter((l) => l.itemid === "OTC-0004").length === 1,
   "one print-plates line only, for the Label set",
 );
+// CORRECTED 2026-09-07. This asserted the absence of OTC-0002 / OTC-0003,
+// which are a Cutting Die and an unrelated item -- not samples. It excluded
+// two things that were never going to be present for reasons having nothing
+// to do with samples, so it passed vacuously and could not have failed.
+//
+// `otc_samples` has NO mapped item, so there is no code to name. The property
+// that actually holds is structural: an Included charge produces no accounting
+// line at all, so the two lines above are the complete set. Asserted that way,
+// it fails the moment a third appears.
 check(
   "Samples (Included) has no separate line",
-  !lines.some((l) => l.itemid === "OTC-0002" || l.itemid === "OTC-0003"),
-  "no samples item on the order",
+  accounting.length === EXPECTED_CHARGES.length &&
+    accounting.every((l) => EXPECTED_CHARGES.some((e) => e.item === l.itemid)),
+  `${accounting.length} accounting line(s), all expected`,
 );
 check(
   "no duplicate Tooling through OTC-0005 or any legacy path",
