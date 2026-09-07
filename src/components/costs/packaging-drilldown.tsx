@@ -22,8 +22,14 @@ import type { ComponentChargeForCosts } from "@/lib/component-charges/read";
 import type { ComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import {
   updateComponentChargeCost,
+  updateToolingClassification,
 } from "@/app/actions/component-charges";
 import { COMPONENT_CHARGE_LABELS } from "@/lib/commercial-recovery/registry";
+import {
+  TOOLING_CLASSIFICATIONS,
+  TOOLING_CLASSIFICATION_LABELS,
+  type ToolingClassification,
+} from "@/lib/netsuite/component-charge-destination";
 import {
   selectActiveTierId,
   selectGraph,
@@ -1492,6 +1498,25 @@ function ComponentChargeRow({
         </span>
       </div>
 
+      {/* ── ACCOUNTING TYPE — TOOLING ONLY ───────────────────────────────
+          "Tooling & dies" is authored as one charge type covering "cutting
+          dies, moulds, collars" (OD-032 §V1 charge vocabulary), and BV-011
+          governs a die and a mould as DIFFERENT accounting destinations.
+          Nothing on the charge distinguishes them, so the operator states it.
+
+          On the Tooling instance only. Not global, and not on every component:
+          the other four charge types each name exactly one destination, so a
+          control there would ask a question with one answer. */}
+      {charge.chargeKey === "tooling" && (
+        <ToolingClassificationField
+          quoteId={quoteId}
+          chargeInstanceId={charge.chargeInstanceId}
+          value={charge.toolingClassification}
+          disabled={disabled}
+          onError={setError}
+        />
+      )}
+
       {/* ── COST ONLY. THE RECOVERY FIELD WAS REMOVED ────────────────────
           "Costs owns governed cost; Pricing derives recovery from charge-type
           authority." (Edward, 2026-08-29.)
@@ -1657,5 +1682,122 @@ function ChargeAmountInput({
         }
       }}
     />
+  );
+}
+
+/**
+ * WHICH KIND OF TOOLING THIS IS, FOR ACCOUNTING.
+ *
+ * ── WHY A CONTROL EXISTS AT ALL ─────────────────────────────────────────
+ *
+ * BV-011 governs a cutting die and a mould as different destinations, and
+ * "Tooling & dies" is one charge type covering both — "cutting dies, moulds,
+ * collars specific to this component's geometry" (OD-032 §V1 charge
+ * vocabulary). Nothing on the charge distinguishes them: not the owner, the
+ * SKU, the component type, the label or the amount. So an operator states it.
+ * A bottle's tooling is USUALLY a mould, and inferring from that would post the
+ * exceptional case to the wrong account with nothing saying so.
+ *
+ * ── AND ONLY ON A TOOLING CHARGE ────────────────────────────────────────
+ *
+ * The other four component charge types each name exactly one destination, so
+ * a control on them would ask a question with a single answer. Not global
+ * either: two Tooling charges on one quote can genuinely differ.
+ *
+ * ── COMMIT ON CHANGE, NOT ON BLUR ───────────────────────────────────────
+ *
+ * Pattern 47's blur/Enter sub-pattern exists for fields typed THROUGH states
+ * that are not the answer — `1`, `14`, `145` on the way to `1450`. A select has
+ * no such states: every value it can hold is one the operator chose. So change
+ * IS the commit, and the chosen value is passed explicitly rather than read
+ * back from state that has not committed yet (Save handler pattern — reading it
+ * back writes the PREVIOUS selection, one step behind, every time).
+ *
+ * ── IT IS NOT A RECOVERY DECISION ───────────────────────────────────────
+ *
+ * Two authorities, kept apart on the screen as well as in the model. This says
+ * what identity the line uses; Included / Separate in Commercial Recovery says
+ * whether a separate line exists at all. Classifying does not make an Included
+ * charge emit, and an Included charge sends fine with this unset.
+ */
+function ToolingClassificationField({
+  quoteId,
+  chargeInstanceId,
+  value,
+  disabled,
+  onError,
+}: {
+  quoteId: string;
+  chargeInstanceId: string;
+  value: ToolingClassification | null;
+  disabled: boolean;
+  onError: (message: string | null) => void;
+}) {
+  const [choice, setChoice] = useState<ToolingClassification | "">(value ?? "");
+  const [pending, startTransition] = useTransition();
+
+  // Server truth wins when it changes underneath.
+  useEffect(() => {
+    setChoice(value ?? "");
+  }, [value, chargeInstanceId]);
+
+  function commit(next: ToolingClassification | "") {
+    onError(null);
+    startTransition(async () => {
+      const res = await updateToolingClassification({
+        quoteId,
+        // EXPLICIT instance id. Two Tooling charges on one component render
+        // adjacent rows of identical controls, and an index would be the one
+        // mistake that silently classifies A as B.
+        chargeInstanceId,
+        // "" is the operator clearing it, which is a real state: not stated.
+        classification: next === "" ? null : next,
+      });
+      if (!res.ok) {
+        // Restored, not left showing a choice the database refused. A control
+        // still displaying a rejected value reads as saved.
+        setChoice(value ?? "");
+        onError(res.error.message);
+      }
+    });
+  }
+
+  return (
+    <div className="od032-costs-charge-class">
+      <label className="od032-costs-charge-field">
+        <span className="od032-costs-charge-field-label">accounting type</span>
+        <select
+          className="od032-costs-charge-class-select"
+          data-testid={`charge-tooling-class-${chargeInstanceId}`}
+          data-unset={value === null ? "yes" : undefined}
+          aria-label="Accounting type for this tooling charge"
+          title={pending ? "Saving the accounting type…" : undefined}
+          value={choice}
+          // Pattern 47(e): never `disabled || pending` on a form control.
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value as ToolingClassification | "";
+            setChoice(v);
+            commit(v);
+          }}
+        >
+          {/* Not a default. An unstated classification is the honest state, and
+              the send gate refuses on it rather than guessing. */}
+          <option value="">Not set</option>
+          {TOOLING_CLASSIFICATIONS.map((c) => (
+            <option key={c} value={c}>
+              {TOOLING_CLASSIFICATION_LABELS[c]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {value === null && (
+        // Names the condition rather than asserting the quote is blocked: an
+        // Included tooling charge needs no classification to send.
+        <span className="od032-costs-charge-class-hint">
+          needed before this can bill as its own line
+        </span>
+      )}
+    </div>
   );
 }

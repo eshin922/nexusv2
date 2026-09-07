@@ -53,7 +53,7 @@ export const TOOLING_CLASSIFICATIONS = ["mould_collar", "cutting_die"] as const;
 export type ToolingClassification = (typeof TOOLING_CLASSIFICATIONS)[number];
 
 export const TOOLING_CLASSIFICATION_LABELS: Record<ToolingClassification, string> = {
-  mould_collar: "Mould or collar",
+  mould_collar: "Mould / collar",
   cutting_die: "Cutting die",
 };
 

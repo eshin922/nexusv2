@@ -723,6 +723,16 @@ const classifiedIdentityFiles = new Set([
   // lives on a production column, and recording the causal owner in the audit
   // row. It cannot create a charge, change its owner, or elect a mode.
   "src/lib/component-charges/update.ts",
+  // CLASSIFIED - the accounting-classification writer, and the identity is only
+  // RECORDED.
+  //
+  // It writes `tooling_classification` on an existing instance, scoped to the
+  // quote. `owner_quote_leaf_id` is read for exactly one purpose — naming the
+  // causal owner in the audit row — and reaches no stored value and no
+  // decision: the classification an operator states is the only input to what
+  // gets written. It cannot create a charge, change its owner or its type, or
+  // elect a recovery mode.
+  "src/lib/component-charges/classify.ts",
   // CLASSIFIED - canonical identity only, and it WRITES NOTHING.
   //
   // The OD-032 recovery-pricing diagnostic: does every elected component charge

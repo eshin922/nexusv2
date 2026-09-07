@@ -231,3 +231,63 @@
   letter-spacing: 0.06em;
   color: var(--ink-3);
 }
+
+/* ── accounting classification (tooling only) ─────────────────────────── */
+
+/*
+ * A THIRD FACT, SO IT GETS ITS OWN ROW.
+ *
+ * Cost is per tier; the classification is per instance. Placing it inside the
+ * tier grid would put a once-per-charge fact in a column that repeats per tier
+ * and read as a per-tier answer. It sits above the tier grid instead, on the
+ * same left edge, so the charge reads: what it is, what it books as, what it
+ * costs.
+ *
+ * Reuses `.od032-costs-charge-field` for the caption + control pairing, so the
+ * caption column lines up with the `cost` captions below it.
+ */
+.od032-costs-charge-class {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0 2px;
+}
+
+.od032-costs-charge-class-select {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.od032-costs-charge-class-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.od032-costs-charge-class-select:disabled {
+  background: var(--paper-3);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+/* Unstated. Marked the same way an uncosted tier is, because it is the same
+   kind of state: not an error, but the thing that will hold the send if this
+   charge bills separately. */
+.od032-costs-charge-class-select[data-unset="yes"] {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.od032-costs-charge-class-hint {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+  white-space: nowrap;
+}
