@@ -599,3 +599,74 @@
 .r9-recovery-confirm-actions button:disabled {
   opacity: 0.45; cursor: not-allowed;
 }
+
+/* ── the planned NetSuite structure ───────────────────────────────────── */
+
+/*
+ * The receipt renders `buildPlannedSalesOrder`'s rows, which carry the ERP's
+ * own shape: a group header, its members, and an EndGroup that closes it.
+ *
+ * Indentation is the whole point. NetSuite expands a member to
+ * `group quantity x member definition quantity`, so a member's number is NOT
+ * the order quantity and must not read as a peer of it. The old receipt
+ * rendered a flat list at the tier quantity and was wrong on three of O3's
+ * five lines with nothing on screen to say so.
+ */
+.r9-so-lrow.group .desc .n {
+  font-weight: 600;
+}
+.r9-so-lrow.member .desc {
+  padding-left: 18px;
+  position: relative;
+}
+/* A parenting tick, pointing at the group above. */
+.r9-so-lrow.member .desc::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 0.75em;
+  width: 7px;
+  border-top: 1px solid var(--rule);
+}
+.r9-so-lrow.endgroup {
+  color: var(--ink-3);
+}
+.r9-so-lrow.endgroup .desc .n {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Readiness refused. The refusal, and no line set beside it — a plausible
+   structure next to a blocker reads as "this is what will be sent", and it
+   would be a different order from the one that eventually goes. */
+.r9-so-lblocked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 12px;
+  background: var(--warn-soft);
+  border-top: 1px solid var(--rule);
+}
+.r9-so-lblocked-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+.r9-so-lblocked-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.r9-so-lcaption {
+  padding: 10px 12px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}

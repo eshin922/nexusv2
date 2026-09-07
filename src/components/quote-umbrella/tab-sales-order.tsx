@@ -53,10 +53,11 @@ import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
 import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
 import type { DealOrderReadiness } from "@/lib/netsuite/deal-order-readiness";
+import type { SalesOrderPreview } from "@/lib/netsuite/planned-sales-order-preview";
 import { markComplete } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
 import { OrderReceipt } from "./order-receipt";
-import type { OrderReceiptFlag, OrderReceiptLine, OrderReceiptOneTime, ReceiptState } from "./order-receipt";
+import type { OrderReceiptFlag, OrderReceiptOneTime, OrderReceiptStructure, ReceiptState } from "./order-receipt";
 import { SendOrderModal } from "./send-order-modal";
 import type { SubTabId } from "./subtabs";
 import { runGoverned } from "@/lib/governed-action";
@@ -142,6 +143,15 @@ export type TabSalesOrderProps = {
   salesOrderPreflight: PreflightResult | null;
   identityReadiness: IdentityReadiness | null;
   dealOrderReadiness: DealOrderReadiness | null;
+  /**
+   * The order Nexus would create, resolved server-side by
+   * `loadSalesOrderPreview` -- reads only. Opening this tab must never write to
+   * NetSuite, so the loader does SKU and customer RESOLUTION and never calls
+   * `findOrCreateItemGroup`.
+   *
+   * `null` when the quote has not reached a state that has one.
+   */
+  salesOrderPreview: SalesOrderPreview | null;
   /** Slice 12 Step 8c-4 — quote row mirror of the last SO push.
    * pushStatus 'succeeded' → record variant; 'failed' → failed
    * variant. */
@@ -172,6 +182,7 @@ export function TabSalesOrder({
   salesOrderPreflight,
   identityReadiness,
   dealOrderReadiness,
+  salesOrderPreview,
   soPushMirror,
   showStateSwitcher,
   onGo,
@@ -261,40 +272,34 @@ export function TabSalesOrder({
     return view.tiers.findIndex((t) => t.id === carriedTier.tierId);
   }, [view.tiers, carriedTier]);
 
-  const lines: OrderReceiptLine[] = useMemo(() => {
-    if (tierIdx < 0 || !carriedTier) return [];
-    return view.skus
-      .map((s, i): OrderReceiptLine | null => {
-        const unit = s.tierPrices[tierIdx];
-        if (unit == null) return null;
-        return {
-          id: `sku-${i}`,
-          code: s.label,
-          name: s.name,
-          pack: s.pack,
-          qty: carriedTier.qty,
-          unit,
-        };
-      })
-      .filter((l): l is OrderReceiptLine => l !== null);
-  }, [view.skus, tierIdx, carriedTier]);
-
-  // The ACCEPTED tier's fee, not the largest one across tiers.
+  // ── THE ORDER'S STRUCTURE ────────────────────────────────────
   //
-  // `tierAmounts[tierIdx]` reads the column this order is actually for. A
-  // null means the fee is not separately billed at this tier — it is
-  // allocated into the unit prices above, so emitting it here as well would
-  // bill the same economics twice.
-  const oneTime: OrderReceiptOneTime[] =
-    tierIdx < 0
-      ? []
-      : view.serviceFees
-          .map((sf): OrderReceiptOneTime | null => {
-            const amount = sf.tierAmounts[tierIdx];
-            if (amount == null) return null;
-            return { id: sf.id, label: sf.label, sub: sf.sub, amount };
-          })
-          .filter((l): l is OrderReceiptOneTime => l !== null);
+  // Rendered from `buildPlannedSalesOrder` via the preview loader. It used to
+  // be built here from `view.skus` at `carriedTier.qty` -- every SKU at the
+  // tier quantity -- which is right only when nothing expands. NetSuite
+  // expands an Item Group member to `group quantity x member definition
+  // quantity`, so O3's Bottle at 2 per set bills 2,400 against a 1,200-unit
+  // order and the receipt claimed 1,200 for all five lines.
+  //
+  // The receipt now renders the SAME rows the push sends. There is no second
+  // grouping implementation here to drift from that one, and no arithmetic
+  // that could reconstruct a member quantity differently.
+  const structure: OrderReceiptStructure = useMemo(() => {
+    if (!salesOrderPreview) {
+      return {
+        kind: "unavailable",
+        reason:
+          "The order structure is resolved once the quote is accepted. Nothing is sent by opening this tab.",
+      };
+    }
+    if (salesOrderPreview.status !== "ok") {
+      // The governed refusal, verbatim. Not restated in this component's own
+      // words: readiness owns what the operator is told, and a paraphrase here
+      // would be a second, drifting copy of an accounting instruction.
+      return { kind: "unavailable", reason: salesOrderPreview.reason };
+    }
+    return { kind: "planned", rows: salesOrderPreview.planned.rows };
+  }, [salesOrderPreview]);
 
   // ── Real flag derivation ─────────────────────────────────────
   // R9 §6 LOAD-BEARING #9 — the flags are what make the receipt
@@ -451,9 +456,21 @@ export function TabSalesOrder({
   // ── HubSpot amount for the ledger row (unchanged from 8b) ─────
   const hsAmountEffective = hubspotPushedAmount ?? carriedTier?.totalRevenue ?? 0;
 
-  const total =
-    lines.reduce((a, l) => a + l.qty * l.unit, 0) +
-    oneTime.reduce((a, o) => a + o.amount, 0);
+  // From the SAME rows the receipt renders and the push sends. The confirm
+  // dialog is the last thing an operator reads before an irreversible act, so
+  // it must not be able to state a different order from the one going.
+  const plannedRows = structure.kind === "planned" ? structure.rows : [];
+  const extendedOf = (r: (typeof plannedRows)[number]): number =>
+    r.role === "member"
+      ? r.amount
+      : r.role === "direct" || r.role === "accounting"
+        ? r.line.quantity * r.line.rate
+        : 0;
+  const total = plannedRows.reduce((a, r) => a + extendedOf(r), 0);
+  const productLineCount = plannedRows.filter(
+    (r) => r.role === "member" || r.role === "direct",
+  ).length;
+  const oneTimeCount = plannedRows.filter((r) => r.role === "accounting").length;
 
   // ── Send-blocking derivation ─────────────────────────────────
   // Post-8c-4: markComplete is LIVE. Below-floor is the structural
@@ -787,8 +804,7 @@ export function TabSalesOrder({
             terms={view.quote.paymentTerms ?? "—"}
             incoterms={view.quote.incoterms ?? "—"}
             requestedShipIso={null}
-            lines={lines}
-            oneTime={oneTime}
+            structure={structure}
             soFlags={soFlags}
             hubspotAmount={hsAmountEffective}
             hubspotStageLabel={hubspotAcceptStageLabel}
@@ -1066,8 +1082,8 @@ export function TabSalesOrder({
         netsuiteCustomerId={netsuiteCustomerForReceipt.id}
         netsuiteStatusOnPush={netsuiteStatusOnPush}
         totalAmount={total}
-        productLineCount={lines.length}
-        oneTimeCount={oneTime.length}
+        productLineCount={productLineCount}
+        oneTimeCount={oneTimeCount}
         disabled={sendDisabled}
         disabledReason={disabledReason || undefined}
         sending={isPending}

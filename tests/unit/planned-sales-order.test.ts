@@ -282,3 +282,69 @@ test("provider resolution stays downstream, and stays narrow", () => {
   const built = code("src/lib/netsuite/planned-sales-order.ts");
   assert.doesNotMatch(built, /findOrCreateItemGroup/);
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// The substitution control — what the old receipt would have shown
+// ══════════════════════════════════════════════════════════════════════
+
+test("the old CustomerView receipt reproduces the flat-1,200 failure", () => {
+  // THE CONTROL FOR THE RECEIVER REPAIR.
+  //
+  // The Sales Order receipt used to build its own line set: every SKU at
+  // `carriedTier.qty`. Reproduced here against the same fixture the producer
+  // uses, so the two can be compared directly rather than described.
+  //
+  // It is right on the two members at 1 per set and wrong on the three at 2 —
+  // which is exactly why nobody caught it. A receipt that is wrong on
+  // everything gets noticed; one that is wrong on three of five lines, by a
+  // factor the reader has no reason to expect, does not.
+  const p = build({ detailLevel: "turnkey_only" });
+  const members = p.rows.filter((r) => r.role === "member") as Extract<
+    (typeof p.rows)[number],
+    { role: "member" }
+  >[];
+
+  // What the producer says NetSuite will bill.
+  assert.deepEqual(
+    members.map((m) => [m.sku, m.quantity]),
+    [
+      ["TRN-PP-BOTTLE-30", 2400],
+      ["TRN-PP-PUMP", 2400],
+      ["TRN-SP-LABEL", 2400],
+      ["TRN-SP-SLEEVE", 1200],
+      ["TRN-SP-GIFTBOX", 1200],
+    ],
+  );
+
+  // What the old receipt showed: the tier quantity, for every line.
+  const oldReceipt = MEMBERS.map((m) => [m.sku, TIER_QTY] as const);
+  assert.deepEqual(
+    oldReceipt.map(([, q]) => q),
+    [1200, 1200, 1200, 1200, 1200],
+    "the reproduction is not the flat rendering it claims to be",
+  );
+
+  // And they disagree on exactly the members that expand.
+  const disagreeing = members
+    .filter((m, i) => m.quantity !== oldReceipt[i][1])
+    .map((m) => m.sku);
+  assert.deepEqual(disagreeing, ["TRN-PP-BOTTLE-30", "TRN-PP-PUMP", "TRN-SP-LABEL"]);
+
+  // The unit totals differ by 3,600 units of real product. Stated as a number
+  // because "three lines were wrong" understates what reaches the ERP.
+  const plannedUnits = members.reduce((a, m) => a + m.quantity, 0);
+  const oldUnits = oldReceipt.reduce((a, [, q]) => a + q, 0);
+  assert.equal(plannedUnits, 9600);
+  assert.equal(oldUnits, 6000);
+});
+
+test("EndGroup carries no economics, so a receipt cannot total it into anything", () => {
+  // It closes the group and nothing more. A renderer that gave it a quantity or
+  // a rate would be inventing a line the ERP does not price.
+  const p = build({ detailLevel: "turnkey_only" });
+  const end = p.rows.filter((r) => r.role === "end_group");
+  assert.equal(end.length, 1);
+  for (const r of end) {
+    assert.deepEqual(Object.keys(r).sort(), ["assemblyId", "role"]);
+  }
+});
