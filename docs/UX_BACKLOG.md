@@ -5120,3 +5120,34 @@ settled and correct; this is the explanatory clause beside them.
 
 Found in the BV-013 operator walk, 2026-08-18. Edward's disposition: bank as a
 bounded Settings-copy repair.
+
+## Sales Order receipt — "units per SKU" is wrong wording once a Group expands
+
+**Cosmetic. No economics move.** Banked 2026-09-07 during O3 certification.
+
+The Sales Order receipt header reads:
+
+> Tier 2 · 1,200 units per SKU · 9,600 units total
+
+The total is correct and comes from the planned rows. **"1,200 units per SKU"
+is not**, and stopped being true the moment Item Group members expanded: three
+of O3's five members bill 2,400, not 1,200. The 1,200 is the TIER quantity —
+which is also the Group line quantity — and it is per *set*, not per SKU.
+
+It is the last surviving sentence of the assumption the flat-1,200 receipt was
+built on, and it now sits directly above a table that contradicts it: a reader
+comparing the caption to the rows sees 1,200 asserted and 2,400 rendered.
+
+**Fix shape.** Say what the number is: `Tier 2 · 1,200 sets · 9,600 units
+total`, or drop the middle clause entirely since the Group row already states
+1,200 against `TRN-GIFTSET-DUO-G`. Ungrouped orders should keep reading
+sensibly — for a quote with no Group, tier quantity IS per-SKU quantity, so the
+wording is only wrong in the grouped case and the copy has to serve both.
+
+**Not fixed during O3** deliberately: the quote was mid-lifecycle between Send
+and the NetSuite push, and a copy edit is not worth a redeploy inside that
+window. No economic, structural or accounting consequence — the rendered rows,
+the totals and the pushed order were all verified correct against
+`planned.rows` and against the ERP readback.
+
+Reference: `order-receipt.tsx`, the `r9-so-head` sub-line.

@@ -59,14 +59,13 @@ const lines = (await db.execute(sql`
          l.display_name,
          COALESCE(l.bv011_destination::text, 'NULL')              AS dest,
          COALESCE(l.destination_unresolved_reason::text, 'NULL')  AS reason,
-         t.label                                                  AS tier_label,
+         lt.tier_label                                            AS tier_label,
          lt.line_amount::text                                     AS amount
     FROM quote_snapshot_lines l
-    JOIN quote_snapshot_line_tiers lt ON lt.snapshot_line_id = l.id
-    JOIN quote_tiers t                ON t.id = lt.tier_id
+    JOIN quote_snapshot_line_tiers lt ON lt.quote_snapshot_line_id = l.id
    WHERE l.quote_snapshot_id = ${snapshotId}
      AND l.line_kind = 'otc'
-     AND t.label = ${wantTier}
+     AND lt.tier_label = ${wantTier}
    ORDER BY l.display_name
 `)) as unknown as Array<Record<string, string>>;
 
