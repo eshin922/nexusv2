@@ -70,7 +70,13 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
 import { canonical } from "./canonical-digest.ts";
-import { baselineEntryInBasket, basketPredicate, VALIDATION_NAMESPACE } from "./basket.ts";
+import {
+  baselineEntryInBasket,
+  basketPredicate,
+  CERTIFIED_REFERENCE_QUOTES,
+  missingCertifiedReferences,
+  VALIDATION_NAMESPACE,
+} from "./basket.ts";
 import { projectOntoBaseline } from "./projection.ts";
 import {
   ATTRIBUTION_FIELDS,
@@ -125,10 +131,30 @@ function reportDifferences(diffs: Diff[], indent: string): void {
 }
 
 const quotes = (await db.execute(sql`
-  select q.id::text as quote_id from quotes q
+  select q.id::text as quote_id, q.quote_number from quotes q
    where ${basketPredicate()}
    order by q.id
-`)) as unknown as { quote_id: string }[];
+`)) as unknown as { quote_id: string; quote_number: string | null }[];
+
+/**
+ * THE CERTIFIED REFERENCES MUST BE IN THE BASKET.
+ *
+ * Checked before any comparison, because their absence does not produce a
+ * failure of its own -- the run would simply measure fewer, weaker quotes and
+ * come back GREEN. A preservation gate that has silently lost its best
+ * references is worse than one that fails, because it still reads as evidence.
+ */
+const missingRefs = missingCertifiedReferences(quotes.map((q) => q.quote_number));
+if (missingRefs.length > 0) {
+  console.error("\nS-7 BASKET DEFECT - certified reference(s) absent: " + missingRefs.join(", "));
+  console.error("The O1-O5 corpus is the highest-quality preservation reference set in");
+  console.error("the estate. A predicate or namespace change has removed " + missingRefs.length +
+    " of " + CERTIFIED_REFERENCE_QUOTES.length + ".");
+  console.error("No comparison was run - fix the basket before trusting a result.\n");
+  process.exit(1);
+}
+console.log("certified references in basket: " + CERTIFIED_REFERENCE_QUOTES.length +
+  "/" + CERTIFIED_REFERENCE_QUOTES.length);
 
 /**
  * Both sides of the comparison, restricted to the basket.

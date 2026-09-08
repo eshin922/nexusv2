@@ -27,18 +27,40 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getCostingBundle } from "@/app/actions/costing";
 import { canonical } from "./canonical-digest.ts";
-import { basketPredicate } from "./basket.ts";
+import {
+  basketPredicate,
+  missingCertifiedReferences,
+} from "./basket.ts";
 
 // One definition of the basket, shared with the verifier — see `basket.ts` for
 // why the validation namespace is out of scope, and for why a second copy of
 // this rule is the specific bug that manufactures the failure S-7 detects.
 const quotes = (await db.execute(sql`
-  select q.id::text as quote_id, q.status, q.scenario_label, p.deal_name
+  select q.id::text as quote_id, q.status, q.scenario_label, q.quote_number, p.deal_name
     from quotes q
     join projects p on p.id = q.project_id
    where ${basketPredicate()}
    order by q.id
-`)) as unknown as { quote_id: string; status: string; scenario_label: string; deal_name: string }[];
+`)) as unknown as {
+  quote_id: string;
+  status: string;
+  scenario_label: string;
+  quote_number: string | null;
+  deal_name: string;
+}[];
+
+/**
+ * A baseline captured WITHOUT the certified references is a weaker baseline
+ * that looks identical to a strong one. Refuse to write it: re-baselining is a
+ * governance act, and it must not quietly narrow what the gate protects.
+ */
+const missingRefs = missingCertifiedReferences(quotes.map((q) => q.quote_number));
+if (missingRefs.length > 0) {
+  console.error("\nREFUSED - certified reference(s) absent from the basket: " +
+    missingRefs.join(", "));
+  console.error("No baseline was written.\n");
+  process.exit(1);
+}
 
 console.log(`\nGate 1B S-7 — capturing baseline over ${quotes.length} quotes with structure\n`);
 

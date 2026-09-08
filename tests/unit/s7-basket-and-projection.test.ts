@@ -19,9 +19,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CERTIFIED_REFERENCE_QUOTES,
   VALIDATION_NAMESPACE,
   baselineEntryInBasket,
   isValidationInstrument,
+  missingCertifiedReferences,
 } from "../../scripts/gate-1b/basket.ts";
 import { projectOntoBaseline } from "../../scripts/gate-1b/projection.ts";
 
@@ -176,4 +178,78 @@ test("an array swapped for an object is left intact", () => {
   const added: string[] = [];
   const out = projectOntoBaseline([1, 2], { 0: 1, 1: 2 }, added);
   assert.deepEqual(out, { 0: 1, 1: 2 });
+});
+
+// ───────────────────────────────────── the certified reference set, O1-O5
+
+/**
+ * The five training-corpus quotes are the estate's best preservation
+ * references: complete, frozen, and certified against real NetSuite Sales
+ * Orders. Losing them would not fail a run -- it would make every subsequent
+ * run measure less while still reporting green.
+ */
+test("the certified O1-O5 references are asserted by identity, not by naming", () => {
+  assert.deepEqual([...CERTIFIED_REFERENCE_QUOTES], [
+    "DPS-1072",
+    "DPS-1073",
+    "DPS-1074",
+    "DPS-1075",
+    "DPS-1076",
+  ]);
+
+  // Present -> nothing missing.
+  assert.deepEqual(
+    missingCertifiedReferences(["DPS-1072", "DPS-1073", "DPS-1074", "DPS-1075", "DPS-1076", "DPS-1001"]),
+    [],
+  );
+
+  // The failure this exists to catch: a basket that lost them but is otherwise
+  // full and healthy-looking.
+  assert.deepEqual(
+    missingCertifiedReferences(["DPS-1001", "DPS-1002", "DPS-1003"]),
+    ["DPS-1072", "DPS-1073", "DPS-1074", "DPS-1075", "DPS-1076"],
+  );
+
+  // Partial loss is still a defect -- one missing reference is reported.
+  assert.deepEqual(
+    missingCertifiedReferences(["DPS-1072", "DPS-1073", "DPS-1074", "DPS-1075"]),
+    ["DPS-1076"],
+  );
+
+  // Nulls are quote rows without a number, not matches.
+  assert.deepEqual(missingCertifiedReferences([null, undefined]), [
+    "DPS-1072",
+    "DPS-1073",
+    "DPS-1074",
+    "DPS-1075",
+    "DPS-1076",
+  ]);
+});
+
+/**
+ * The concrete way the corpus would vanish.
+ *
+ * All five carry `client_name = "ZZ-VALIDATION - Nexus Certification
+ * Customer"`, so a future tightening that also consulted the client -- a
+ * plausible-looking improvement, and the same KIND of change the deal-side
+ * rule just made -- would delete the whole reference set in one line.
+ *
+ * Their deal names are `TRAINING - ...` and their scenario is `Primary`, so
+ * the predicate as written keeps them. This pins that.
+ */
+test("the O1-O5 label shapes survive the basket predicate", () => {
+  for (const deal of [
+    "TRAINING \u00b7 Serum Launch",
+    "TRAINING \u00b7 Import Programme",
+    "TRAINING \u00b7 Retail Gift Set",
+    "TRAINING \u00b7 Contract Fill",
+    "TRAINING \u00b7 Full Spec Reference",
+  ]) {
+    assert.equal(
+      baselineEntryInBasket(deal + " / Primary", "complete"),
+      true,
+      deal + " must stay in the basket",
+    );
+    assert.equal(isValidationInstrument("Primary", deal), false, deal);
+  }
 });

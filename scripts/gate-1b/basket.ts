@@ -150,6 +150,59 @@ export function isValidationInstrument(
  */
 export const REFERENCE_STATUSES = ["sent", "accepted", "complete"] as const;
 
+/**
+ * The certified reference set — O1-O5, the training corpus.
+ *
+ * ── WHY THIS IS AN ASSERTION AND NOT A COMMENT ───────────────────────────
+ *
+ * These five are the highest-quality preservation references the estate has:
+ * complete, frozen, externally certified against NetSuite Sales Orders
+ * SO2730 / SO2733 / SO2734 / SO2735 / SO2736, and structurally unable to move
+ * again. A basket that loses them is measurably weaker even if it still looks
+ * healthy, and it would look healthy -- nothing about "26 quotes, all
+ * immutable" reveals which 26.
+ *
+ * ── THE SPECIFIC WAY THEY WOULD DISAPPEAR ────────────────────────────────
+ *
+ * Their `client_name` is `ZZ-VALIDATION - Nexus Certification Customer`.
+ * Their deal names are `TRAINING - ...`, which is why the deal-side rule keeps
+ * them. But a future tightening that ALSO consulted `client_name` -- an
+ * entirely plausible-looking improvement, and exactly the kind of change the
+ * deal-side rule itself just made -- would remove all five silently and leave
+ * a green run behind.
+ *
+ * So the guard keys on QUOTE NUMBER: an identity that no naming convention,
+ * namespace rule or predicate refactor can reach. Not on TRAINING, not on the
+ * client, not on a count.
+ *
+ * ── WHAT THIS IS NOT ─────────────────────────────────────────────────────
+ *
+ * Not a required basket size. The basket is a query and is meant to grow as
+ * quotes are sent; asserting a number would break on the next legitimate send.
+ * This asserts a floor of specific, known-good members and says nothing about
+ * the rest.
+ */
+export const CERTIFIED_REFERENCE_QUOTES = [
+  "DPS-1072",
+  "DPS-1073",
+  "DPS-1074",
+  "DPS-1075",
+  "DPS-1076",
+] as const;
+
+/**
+ * Which certified references are missing from a set of basket quote numbers.
+ *
+ * Pure, so the rule is unit-testable and this module stays free of a database
+ * import -- the verifier and the capture script supply the live membership.
+ */
+export function missingCertifiedReferences(
+  basketQuoteNumbers: ReadonlyArray<string | null | undefined>,
+): string[] {
+  const present = new Set(basketQuoteNumbers.filter((n): n is string => typeof n === "string"));
+  return CERTIFIED_REFERENCE_QUOTES.filter((q) => !present.has(q));
+}
+
 /** Whether a quote status can serve as a preservation reference. */
 export function isReferenceStatus(status: string | null | undefined): boolean {
   return (REFERENCE_STATUSES as readonly string[]).includes(String(status));
