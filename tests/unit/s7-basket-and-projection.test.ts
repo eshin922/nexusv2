@@ -19,9 +19,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CERTIFIED_REFERENCE_QUOTES,
   VALIDATION_NAMESPACE,
   baselineEntryInBasket,
   isValidationInstrument,
+  missingCertifiedReferences,
 } from "../../scripts/gate-1b/basket.ts";
 import { projectOntoBaseline } from "../../scripts/gate-1b/projection.ts";
 
@@ -53,16 +55,46 @@ test("a quote with no scenario label is a real quote and stays in", () => {
   assert.equal(isValidationInstrument(undefined), false);
 });
 
-test("baseline entries are matched on the SCENARIO half of the label", () => {
-  // Entry labels are `{deal name} / {scenario label}`. A deal name is customer
-  // data and cannot be allowed to decide basket membership.
+test("baseline entries are matched on BOTH halves of the label", () => {
+  // Entry labels are `{deal name} / {scenario label}`.
   assert.equal(
     baselineEntryInBasket("Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-tier-propagation"),
     false,
   );
   assert.equal(baselineEntryInBasket("Some Deal / Base"), true);
-  // The unlucky deal name: it must NOT exclude a real quote.
-  assert.equal(baselineEntryInBasket("ZZ-VALIDATION-Widgets Inc / Base"), true);
+
+  // ── AMENDED 2026-09-08, on measurement ────────────────────────────────
+  //
+  // This previously asserted that a deal named `ZZ-VALIDATION-Widgets Inc`
+  // stays IN, on the principle that customer data must not decide membership.
+  // The principle is right and the scenario-side rule still honours it; what
+  // the original decision lacked was the count. Fourteen instruments were in
+  // the basket because the convention had moved to the deal level, while the
+  // scenario-only rule excluded three quotes.
+  //
+  // A census of all 46 projects found ZERO real customer deals beginning
+  // `ZZ-`. So the deal half now excludes, using the full `ZZ-VALIDATION`
+  // rather than bare `ZZ-` to keep the false-exclusion surface as small as the
+  // evidence allows. A customer genuinely named `ZZ-VALIDATION…` would be
+  // excluded, and that residual is accepted knowingly.
+  assert.equal(baselineEntryInBasket("ZZ-VALIDATION-Widgets Inc / Base"), false);
+  // A deal that merely CONTAINS the marker, or starts with ZZ- but is not the
+  // validation namespace, stays in.
+  assert.equal(baselineEntryInBasket("Widgets ZZ-VALIDATION Inc / Base"), true);
+  assert.equal(baselineEntryInBasket("ZZ-Widgets Inc / Base"), true);
+});
+
+test("only immutable quotes can serve as preservation references", () => {
+  // A draft is MEANT to change, so its drift says nothing about the engine.
+  // Both sides of the comparison must agree, or an excluded draft is reported
+  // as "in baseline, absent now -- coverage shrank": the same red, relabelled.
+  assert.equal(baselineEntryInBasket("Some Deal / Base", "draft"), false);
+  for (const st of ["sent", "accepted", "complete"]) {
+    assert.equal(baselineEntryInBasket("Some Deal / Base", st), true, st);
+  }
+  // Status omitted keeps the namespace half working for any caller not yet
+  // passing it -- but the verifier does pass it.
+  assert.equal(baselineEntryInBasket("Some Deal / Base"), true);
 });
 
 // ───────────────────────────────────────────── the projection: what it allows
@@ -146,4 +178,78 @@ test("an array swapped for an object is left intact", () => {
   const added: string[] = [];
   const out = projectOntoBaseline([1, 2], { 0: 1, 1: 2 }, added);
   assert.deepEqual(out, { 0: 1, 1: 2 });
+});
+
+// ───────────────────────────────────── the certified reference set, O1-O5
+
+/**
+ * The five training-corpus quotes are the estate's best preservation
+ * references: complete, frozen, and certified against real NetSuite Sales
+ * Orders. Losing them would not fail a run -- it would make every subsequent
+ * run measure less while still reporting green.
+ */
+test("the certified O1-O5 references are asserted by identity, not by naming", () => {
+  assert.deepEqual([...CERTIFIED_REFERENCE_QUOTES], [
+    "DPS-1072",
+    "DPS-1073",
+    "DPS-1074",
+    "DPS-1075",
+    "DPS-1076",
+  ]);
+
+  // Present -> nothing missing.
+  assert.deepEqual(
+    missingCertifiedReferences(["DPS-1072", "DPS-1073", "DPS-1074", "DPS-1075", "DPS-1076", "DPS-1001"]),
+    [],
+  );
+
+  // The failure this exists to catch: a basket that lost them but is otherwise
+  // full and healthy-looking.
+  assert.deepEqual(
+    missingCertifiedReferences(["DPS-1001", "DPS-1002", "DPS-1003"]),
+    ["DPS-1072", "DPS-1073", "DPS-1074", "DPS-1075", "DPS-1076"],
+  );
+
+  // Partial loss is still a defect -- one missing reference is reported.
+  assert.deepEqual(
+    missingCertifiedReferences(["DPS-1072", "DPS-1073", "DPS-1074", "DPS-1075"]),
+    ["DPS-1076"],
+  );
+
+  // Nulls are quote rows without a number, not matches.
+  assert.deepEqual(missingCertifiedReferences([null, undefined]), [
+    "DPS-1072",
+    "DPS-1073",
+    "DPS-1074",
+    "DPS-1075",
+    "DPS-1076",
+  ]);
+});
+
+/**
+ * The concrete way the corpus would vanish.
+ *
+ * All five carry `client_name = "ZZ-VALIDATION - Nexus Certification
+ * Customer"`, so a future tightening that also consulted the client -- a
+ * plausible-looking improvement, and the same KIND of change the deal-side
+ * rule just made -- would delete the whole reference set in one line.
+ *
+ * Their deal names are `TRAINING - ...` and their scenario is `Primary`, so
+ * the predicate as written keeps them. This pins that.
+ */
+test("the O1-O5 label shapes survive the basket predicate", () => {
+  for (const deal of [
+    "TRAINING \u00b7 Serum Launch",
+    "TRAINING \u00b7 Import Programme",
+    "TRAINING \u00b7 Retail Gift Set",
+    "TRAINING \u00b7 Contract Fill",
+    "TRAINING \u00b7 Full Spec Reference",
+  ]) {
+    assert.equal(
+      baselineEntryInBasket(deal + " / Primary", "complete"),
+      true,
+      deal + " must stay in the basket",
+    );
+    assert.equal(isValidationInstrument("Primary", deal), false, deal);
+  }
 });

@@ -48,17 +48,164 @@
 import { sql, type SQL } from "drizzle-orm";
 
 /**
- * The governed validation namespace.
+ * The governed disposable-instrument namespace.
  *
- * A quote whose `scenario_label` starts with this is an instrument, not a
- * reference. The convention predates this exclusion; this is the first place
- * that gives it force.
+ * ── WHY THIS WIDENED (Step 0, 2026-09-08) ────────────────────────────────
+ *
+ * The rule was `scenario_label LIKE 'ZZ-VALIDATION-%'`. Measured against the
+ * live estate it excluded THREE quotes while FOURTEEN instruments sat in the
+ * basket, because the convention had moved: instruments are now named at the
+ * DEAL level (`ZZ-VALIDATION — Soak Lineage VIII`) with scenario labels like
+ * `ZZ-SOAK-run-7`, `CERT-300 frozen line set`, `UAT-1 direct product`. None of
+ * those matches a scenario-label prefix of `ZZ-VALIDATION-`.
+ *
+ * This is exactly the mechanism the original exclusion was written to prevent
+ * — "the next validation quote joins the basket the moment it is created" —
+ * reaching the basket through a naming route the rule did not cover.
+ *
+ * So the prefix is now `ZZ-`, the estate's standing marker for a disposable
+ * artifact, and it is checked on BOTH the deal name and the scenario label.
+ * One prefix covers `ZZ-VALIDATION` and `ZZ-SOAK` together and does not need
+ * revisiting when the next instrument family appears.
+ *
+ * `TRAINING` is deliberately NOT excluded. The O1-O5 corpus is frozen and
+ * certified; a complete quote that will never move again is the BEST kind of
+ * preservation reference, not an instrument.
  */
+export const INSTRUMENT_PREFIX = "ZZ-";
+
+/**
+ * The DEAL-side marker, deliberately narrower than the scenario-side one.
+ *
+ * ── THE TRADE, MADE ON MEASUREMENT ───────────────────────────────────────
+ *
+ * A prior decision held that "a deal name is customer data and cannot be
+ * allowed to decide basket membership", guarding against a real customer whose
+ * name happens to start with the marker being silently dropped from
+ * preservation coverage. That concern is sound and is why this is not simply
+ * `ZZ-`.
+ *
+ * What that decision did not have was the measurement. FOURTEEN instruments
+ * were sitting in the basket because the convention had moved to the deal
+ * level, and the scenario-only rule was excluding three quotes. Against that,
+ * a census of all 46 projects finds ZERO real customer deals beginning `ZZ-`:
+ * the 16 that match are eleven `ZZ-VALIDATION` instrument deals and five
+ * `TRAINING ·` corpus deals matched only on their CLIENT name.
+ *
+ * So the rule takes the full `ZZ-VALIDATION` rather than bare `ZZ-`. A
+ * customer genuinely named `ZZ-VALIDATION…` would still be excluded, and that
+ * residual is accepted knowingly rather than by omission — if one ever
+ * appears, this is the line to revisit.
+ *
+ * `client_name` is NOT consulted. The TRAINING corpus carries the validation
+ * customer as its client, and excluding on that would drop the five certified
+ * O1-O5 quotes, which are the best references in the estate.
+ */
+export const DEAL_INSTRUMENT_PREFIX = "ZZ-VALIDATION";
+
+/** Retained for callers that import it; the meaning is unchanged. */
 export const VALIDATION_NAMESPACE = "ZZ-VALIDATION-";
 
-/** Whether a scenario label names a validation instrument. */
-export function isValidationInstrument(scenarioLabel: string | null | undefined): boolean {
-  return typeof scenarioLabel === "string" && scenarioLabel.startsWith(VALIDATION_NAMESPACE);
+/**
+ * Whether a deal name or scenario label names a disposable instrument.
+ *
+ * Either half is sufficient: the deal carries the namespace for the soak and
+ * certification lineages, the scenario carries it for the older standalone
+ * instruments.
+ */
+export function isValidationInstrument(
+  scenarioLabel: string | null | undefined,
+  dealName?: string | null | undefined,
+): boolean {
+  const scenario =
+    typeof scenarioLabel === "string" && scenarioLabel.startsWith(INSTRUMENT_PREFIX);
+  // The DEAL rule is narrower than the scenario rule on purpose -- see
+  // DEAL_INSTRUMENT_PREFIX for the trade it makes and why.
+  const deal = typeof dealName === "string" && dealName.startsWith(DEAL_INSTRUMENT_PREFIX);
+  return scenario || deal;
+}
+
+/**
+ * Quote statuses eligible to serve as a preservation reference.
+ *
+ * ── WHY MUTABILITY IS A BASKET RULE, NOT A FAILURE TO TRIAGE ─────────────
+ *
+ * A draft is MEANT to change. HARNESS-1 recorded eight failures on unmodified
+ * `main` from four drafts and called them benign, which they were — but a
+ * check whose red state is routinely benign teaches the reader to discount it,
+ * and that is the whole value of a preservation gate.
+ *
+ * OD-013 records the sharper version: an operator entering costs while an
+ * increment was in flight moved `blendedMarginPct 0.1847 -> 0.2275`, and the
+ * instrument could not, on its own, distinguish that from an engine
+ * regression. Excluding drafts removes the entire class rather than paying a
+ * manual bisect each time it recurs.
+ *
+ * Immutability here is not a convention. `assertNotFrozen` and the Pattern 52
+ * draft-lock make a sent, accepted or complete quote's own cost data
+ * unwritable, so these rows hold still by construction.
+ *
+ * What this does NOT do is make the remaining comparison looser: every quote
+ * that stays is compared exactly as before, at full float precision.
+ */
+export const REFERENCE_STATUSES = ["sent", "accepted", "complete"] as const;
+
+/**
+ * The certified reference set — O1-O5, the training corpus.
+ *
+ * ── WHY THIS IS AN ASSERTION AND NOT A COMMENT ───────────────────────────
+ *
+ * These five are the highest-quality preservation references the estate has:
+ * complete, frozen, externally certified against NetSuite Sales Orders
+ * SO2730 / SO2733 / SO2734 / SO2735 / SO2736, and structurally unable to move
+ * again. A basket that loses them is measurably weaker even if it still looks
+ * healthy, and it would look healthy -- nothing about "26 quotes, all
+ * immutable" reveals which 26.
+ *
+ * ── THE SPECIFIC WAY THEY WOULD DISAPPEAR ────────────────────────────────
+ *
+ * Their `client_name` is `ZZ-VALIDATION - Nexus Certification Customer`.
+ * Their deal names are `TRAINING - ...`, which is why the deal-side rule keeps
+ * them. But a future tightening that ALSO consulted `client_name` -- an
+ * entirely plausible-looking improvement, and exactly the kind of change the
+ * deal-side rule itself just made -- would remove all five silently and leave
+ * a green run behind.
+ *
+ * So the guard keys on QUOTE NUMBER: an identity that no naming convention,
+ * namespace rule or predicate refactor can reach. Not on TRAINING, not on the
+ * client, not on a count.
+ *
+ * ── WHAT THIS IS NOT ─────────────────────────────────────────────────────
+ *
+ * Not a required basket size. The basket is a query and is meant to grow as
+ * quotes are sent; asserting a number would break on the next legitimate send.
+ * This asserts a floor of specific, known-good members and says nothing about
+ * the rest.
+ */
+export const CERTIFIED_REFERENCE_QUOTES = [
+  "DPS-1072",
+  "DPS-1073",
+  "DPS-1074",
+  "DPS-1075",
+  "DPS-1076",
+] as const;
+
+/**
+ * Which certified references are missing from a set of basket quote numbers.
+ *
+ * Pure, so the rule is unit-testable and this module stays free of a database
+ * import -- the verifier and the capture script supply the live membership.
+ */
+export function missingCertifiedReferences(
+  basketQuoteNumbers: ReadonlyArray<string | null | undefined>,
+): string[] {
+  const present = new Set(basketQuoteNumbers.filter((n): n is string => typeof n === "string"));
+  return CERTIFIED_REFERENCE_QUOTES.filter((q) => !present.has(q));
+}
+
+/** Whether a quote status can serve as a preservation reference. */
+export function isReferenceStatus(status: string | null | undefined): boolean {
+  return (REFERENCE_STATUSES as readonly string[]).includes(String(status));
 }
 
 /**
@@ -76,7 +223,21 @@ export function basketPredicate(): SQL {
        join assembly_leaves al on al.assembly_id = a.id
       where a.quote_id = q.id
     )
-    and (q.scenario_label is null or q.scenario_label not like ${VALIDATION_NAMESPACE + "%"})
+    and (q.scenario_label is null or q.scenario_label not like ${INSTRUMENT_PREFIX + "%"})
+    and not exists (
+      -- SELF-CONTAINED, deliberately. A first version read "p.deal_name"
+      -- directly; the capture script joins "projects p" and the verifier does
+      -- not, so it would have failed at runtime in one caller and not the
+      -- other -- and tsc cannot see inside a SQL template to say so. A
+      -- shared predicate that depends on the caller's FROM clause is the same
+      -- two-copies hazard this file exists to remove.
+      select 1 from projects pr
+       where pr.id = q.project_id
+         and pr.deal_name like ${DEAL_INSTRUMENT_PREFIX + "%"}
+    )
+    and q.status::text = any(${sql.raw(
+      `ARRAY[${REFERENCE_STATUSES.map((s) => `'${s}'`).join(",")}]`,
+    )})
   `;
 }
 
@@ -92,7 +253,15 @@ export function basketPredicate(): SQL {
  * labels are `"{deal name} / {scenario label}"`; the scenario half is what the
  * namespace applies to, so an unlucky deal name cannot exclude a real quote.
  */
-export function baselineEntryInBasket(label: string): boolean {
-  const scenario = label.includes(" / ") ? label.slice(label.lastIndexOf(" / ") + 3) : label;
-  return !isValidationInstrument(scenario);
+export function baselineEntryInBasket(label: string, status?: string | null): boolean {
+  const i = label.lastIndexOf(" / ");
+  const scenario = i >= 0 ? label.slice(i + 3) : label;
+  const deal = i >= 0 ? label.slice(0, i) : "";
+  if (isValidationInstrument(scenario, deal)) return false;
+  // `status` is optional so a caller that has not been updated still gets the
+  // namespace half rather than a type error -- but the verifier DOES pass it,
+  // and it must, or the two sides disagree about drafts and every excluded
+  // draft is reported as "in baseline, absent now".
+  if (status !== undefined && !isReferenceStatus(status)) return false;
+  return true;
 }
