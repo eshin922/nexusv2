@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { LeafSpecField } from "@/lib/leaf-spec-loader";
+import { resolveFieldControl } from "@/lib/spec-field-control";
 import { updateLeafSpec } from "@/app/actions/leaf-specs";
 
 // Phase A.1 v2 impl-3 Step 4-5 — SpecPanel field-grid renderer
@@ -138,17 +139,12 @@ function SpecCell({
     scheduleSave(v);
   }
 
-  // Field-key heuristic per canonical line 395-398: wide multi-line
-  // fields trigger textarea rendering. Everything else is single-line.
-  const isMultiline =
-    field.key.includes("additional") ||
-    field.key.includes("description") ||
-    field.key.includes("packout");
+  const control = resolveFieldControl(field);
 
   return (
     <div className={`a1v2-spec-cell${field.wide ? " wide" : ""}`}>
       <span className="lbl">{field.label}</span>
-      {isMultiline ? (
+      {control === "textarea" ? (
         <textarea
           value={draft}
           onChange={handleChange}
@@ -158,7 +154,7 @@ function SpecCell({
         />
       ) : (
         <input
-          type="text"
+          type={control}
           value={draft}
           onChange={handleChange}
           disabled={readOnly}
