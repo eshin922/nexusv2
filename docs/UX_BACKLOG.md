@@ -5165,22 +5165,42 @@ because the declaration looks like the feature.
 ### 1 · The Leaf Product Type picker is required, and its value is discarded
 
 The Product Library create-leaf form requires a Leaf Product Type before it
-will submit. The selected value is never sent: `createLeaf` does not accept a
-`productTypeId`, and `leaves.product_type_id` is left NULL on every
-Nexus-authored leaf. The operator makes a required choice that has no effect.
+will submit — `add-product-modal.tsx:197` refuses to submit without one. The
+selected value is never sent: `leafTypeId` is React state that no field
+carries, and `createLeaf` does not read a `productTypeId` at all. The operator
+makes a required choice that has no effect.
 
-Confirmed by tracing every current writer of `leaves.product_type_id` — the
-only one is the TypePicker on an existing leaf, which is a separate surface
-reached after creation.
+**The discard is deliberate, and that is the important part.**
+`actions/leaves.ts:71` says so directly: *"`productTypeId` is NO LONGER READ. A
+leaf's classification is HubSpot's alone; accepting a Nexus type here would
+have left the second authority creatable at the exact moment a product enters
+the Library."* The action is not missing a field — it is refusing one, to keep
+a single classification authority.
 
-**Why it survived:** a leaf's schema resolves from HubSpot `hs_product_type`,
-which the same form does send. So the created leaf gets the right schema
-anyway, by the other authority, and the discarded field never produces a
-visible wrong result.
+**Schema note, corrected 2026-09-08.** An earlier draft of this entry said the
+value would land on `leaves.product_type_id`, written by a TypePicker. That is
+false and is corrected here so it is not banked as fact. Verified against the
+live database: `leaves` has **no** `product_type_id` column — its
+classification column is `hubspot_product_type` — and `product_type_id` exists
+only on `leaf_specs` and `quote_snapshot_leaf_specs`.
 
-**Fix shape:** either carry the value through to `createLeaf`, or drop the
-control and let HubSpot classification stand alone. A required input that is
-thrown away is the worst of the three states.
+The governed authority is:
+
+    leaves.hubspot_product_type  ->  resolved schema  ->  schema PINNED on
+                                     leaf_specs at attachment
+
+and every downstream reader — spec form, ordered-spec freeze, customer
+addendum, historical readback — reads the pin. O5 exercised that chain end to
+end across 31 fields.
+
+**Why it survived:** the same form does send `hubspotProductType`, so the
+created leaf gets the correct schema by the authority that actually governs.
+The discarded field never produces a visible wrong result.
+
+**Fix shape:** drop the client-side requirement, or make the control advisory
+rather than required. Carrying the value through to `createLeaf` is NOT the
+fix — that is precisely the second authority Step 8 removed. A required input
+that is deliberately refused by the action behind it is the state to resolve.
 
 ### 2 · The sandbox HubSpot vocabulary is missing mappings production has
 
