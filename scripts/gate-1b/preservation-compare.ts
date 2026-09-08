@@ -137,9 +137,40 @@ export function quantizeAggregates(node: unknown, scope: string | null): unknown
   return node;
 }
 
-/** The payload with the attribution-bearing per-SKU scalars removed. */
+/**
+ * The payload with the attribution-bearing per-SKU scalars removed.
+ *
+ * ── ONE SERIALISATION, BECAUSE TWO DISAGREED ─────────────────────────────
+ *
+ * The normalising round trip used to be `JSON.parse(JSON.stringify(...))`.
+ * The baseline detail file is written with `canonical()`. Those two disagree
+ * about exactly one thing, and it is enough:
+ *
+ *   canonical()      undefined -> "null", and the KEY IS KEPT
+ *   JSON.stringify   undefined -> the key is DROPPED
+ *
+ * So a field that is `undefined` at runtime is stored as `"chargeInstanceId":
+ * null` and read back as no key at all. The digests differ, `allDifferences`
+ * compares scalars and finds nothing, and the run reports the contradiction
+ * "0 governed scalar(s) moved" alongside a FAIL.
+ *
+ * Measured on the first recapture after the basket was corrected: four quotes,
+ * every one of them carrying `constructed.charges[].chargeInstanceId` /
+ * `.ownerRef` as `undefined`. It had been unreachable only because no quote
+ * with that charge shape was in the basket.
+ *
+ * The reader now uses the writer's serialisation. This is the same discipline
+ * that put the basket predicate and the canonical digest each in one place:
+ * two copies of a rule drift into a difference that reads exactly like a
+ * commercial regression and is not one.
+ *
+ * NOT a tolerance. `canonical` emits numbers at 17 significant digits, which
+ * round-trips an IEEE-754 double exactly, and both sides go through this same
+ * function -- so a real value change, an appearing key or a disappearing one
+ * all still fail.
+ */
 export function strictHalf(payload: unknown): unknown {
-  const p = JSON.parse(JSON.stringify(payload ?? null)) as Payload | null;
+  const p = JSON.parse(canonical(payload ?? null)) as Payload | null;
   if (!p || typeof p !== "object") return p;
   for (const s of p.skuRollups ?? [])
     for (const pt of s.perTier ?? [])
