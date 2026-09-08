@@ -53,16 +53,46 @@ test("a quote with no scenario label is a real quote and stays in", () => {
   assert.equal(isValidationInstrument(undefined), false);
 });
 
-test("baseline entries are matched on the SCENARIO half of the label", () => {
-  // Entry labels are `{deal name} / {scenario label}`. A deal name is customer
-  // data and cannot be allowed to decide basket membership.
+test("baseline entries are matched on BOTH halves of the label", () => {
+  // Entry labels are `{deal name} / {scenario label}`.
   assert.equal(
     baselineEntryInBasket("Smart Pressed Juice - Juice Cleanse Reorder 2026 / ZZ-VALIDATION-tier-propagation"),
     false,
   );
   assert.equal(baselineEntryInBasket("Some Deal / Base"), true);
-  // The unlucky deal name: it must NOT exclude a real quote.
-  assert.equal(baselineEntryInBasket("ZZ-VALIDATION-Widgets Inc / Base"), true);
+
+  // ── AMENDED 2026-09-08, on measurement ────────────────────────────────
+  //
+  // This previously asserted that a deal named `ZZ-VALIDATION-Widgets Inc`
+  // stays IN, on the principle that customer data must not decide membership.
+  // The principle is right and the scenario-side rule still honours it; what
+  // the original decision lacked was the count. Fourteen instruments were in
+  // the basket because the convention had moved to the deal level, while the
+  // scenario-only rule excluded three quotes.
+  //
+  // A census of all 46 projects found ZERO real customer deals beginning
+  // `ZZ-`. So the deal half now excludes, using the full `ZZ-VALIDATION`
+  // rather than bare `ZZ-` to keep the false-exclusion surface as small as the
+  // evidence allows. A customer genuinely named `ZZ-VALIDATION…` would be
+  // excluded, and that residual is accepted knowingly.
+  assert.equal(baselineEntryInBasket("ZZ-VALIDATION-Widgets Inc / Base"), false);
+  // A deal that merely CONTAINS the marker, or starts with ZZ- but is not the
+  // validation namespace, stays in.
+  assert.equal(baselineEntryInBasket("Widgets ZZ-VALIDATION Inc / Base"), true);
+  assert.equal(baselineEntryInBasket("ZZ-Widgets Inc / Base"), true);
+});
+
+test("only immutable quotes can serve as preservation references", () => {
+  // A draft is MEANT to change, so its drift says nothing about the engine.
+  // Both sides of the comparison must agree, or an excluded draft is reported
+  // as "in baseline, absent now -- coverage shrank": the same red, relabelled.
+  assert.equal(baselineEntryInBasket("Some Deal / Base", "draft"), false);
+  for (const st of ["sent", "accepted", "complete"]) {
+    assert.equal(baselineEntryInBasket("Some Deal / Base", st), true, st);
+  }
+  // Status omitted keeps the namespace half working for any caller not yet
+  // passing it -- but the verifier does pass it.
+  assert.equal(baselineEntryInBasket("Some Deal / Base"), true);
 });
 
 // ───────────────────────────────────────────── the projection: what it allows

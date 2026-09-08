@@ -138,8 +138,8 @@ const quotes = (await db.execute(sql`
  * verifier would report it as "in baseline, absent now — coverage silently
  * shrank": the same red under a different heading.
  */
-const inBasket = baseline.entries.filter((e) => baselineEntryInBasket(e.label));
-const excluded = baseline.entries.filter((e) => !baselineEntryInBasket(e.label));
+const inBasket = baseline.entries.filter((e) => baselineEntryInBasket(e.label, e.status));
+const excluded = baseline.entries.filter((e) => !baselineEntryInBasket(e.label, e.status));
 
 console.log("\nGate 1B S-7 — preservation check\n");
 
