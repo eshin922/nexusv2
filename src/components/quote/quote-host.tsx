@@ -328,7 +328,7 @@ export function QuoteHost({
 
   return (
     <div className="r3-shared">
-        /* ── The authority's composition ───────────────────────────────
+        {/* ── The authority's composition ───────────────────────────────
            "Left: the artifact. Right: the decisions about it.
             Bottom-right: the act."
 
@@ -337,7 +337,7 @@ export function QuoteHost({
            able to disagree with the artifact the customer receives" -- the
            right worry, answered by evidence rather than by avoidance: both
            renderers read one resolved CustomerView, and the parity is
-           asserted rather than assumed. */
+           asserted rather than assumed. */}
         <div className="cv-body" ref={workspaceRef}>
           <div className="cv-preview">
             <div className="cv-preview-bar">
