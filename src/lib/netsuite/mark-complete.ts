@@ -55,6 +55,8 @@ import {
   recordAttemptFailure,
   recordNeedsReconciliation,
   recordSalesOrderCreated,
+  recordSalesOrderTranid,
+  syncQuoteMirror,
 } from "./attempt-lifecycle";
 import {
   buildSalesOrderPayload,
@@ -1363,6 +1365,11 @@ export async function runMarkComplete(
           .update(netsuiteSoPushes)
           .set({ status: "pending", errorClass: null, errorDetail: null })
           .where(eq(netsuiteSoPushes.id, pendingId));
+        // W1 - `pending` is a governed state and mirrors like the rest. A row
+        // reset for a fresh attempt while the quote still showed the previous
+        // failure would leave the surface describing an attempt that no longer
+        // exists.
+        await syncQuoteMirror(pendingId);
       }
     } else {
       try {
@@ -1380,6 +1387,9 @@ export async function runMarkComplete(
           })
           .returning({ id: netsuiteSoPushes.id });
         pendingId = pending.id;
+        // W1 - the first governed transition of the attempt, mirrored like
+        // every other one. Total means total.
+        await syncQuoteMirror(pendingId);
       } catch {
         [durableAttempt] = await db
           .select({
@@ -1591,43 +1601,14 @@ export async function runMarkComplete(
     // Deliberately BEFORE the tranid fetch below: the tranid is diagnostic,
     // the internal id is the recovery key, and the id must be durable even
     // if the follow-up GET fails.
-    // W1 STEP 2 - the tranid is fetched HERE, at the boundary, not at Step 8.
-    //
-    // The id still goes first and still wins: the fetch below cannot prevent
-    // the identity being persisted, because a failed lookup yields null and
-    // the write proceeds regardless. What changes is that the display
-    // identifier stops waiting for a step it does not depend on.
-    //
-    // The old ordering put this fetch AFTER the member-rate PATCH sequence and
-    // persisted it only on the success path, so any interruption in between
-    // stranded the row with tranid = null. Measured on production: DPS-1046
-    // and DPS-1051 both hold a real SO id and a null tranid, and DPS-1051's
-    // operator message names SO2707 -- the value reached the prose and never
-    // the column. A persistence gap, not a knowledge gap.
-    //
-    // NON-BLOCKING, and that is the load-bearing property: an inability to
-    // read the display identifier must never turn a valid awaiting_rates
-    // recovery state into a failed CREATE. Hence the isolated try, and hence
-    // null rather than a throw.
-    let boundaryTranid: string | null = null;
-    try {
-      boundaryTranid = await netsuite.fetchSalesOrderTranid(salesOrderInternalId);
-      if (boundaryTranid !== null) {
-        salesOrderTranid = boundaryTranid;
-        tranidFetchOutcome = "succeeded";
-      } else {
-        tranidFetchOutcome = "failed";
-      }
-    } catch {
-      // The order exists. A missing display id is diagnostic, never fatal.
-      tranidFetchOutcome = "failed";
-    }
-
     try {
       await recordSalesOrderCreated({
         attemptId: pendingId,
         netsuiteSoId: salesOrderInternalId,
-        netsuiteSoTranid: boundaryTranid,
+        // null, and that is correct: the id is the recovery key and is
+        // persisted before any network call that could fail. The tranid is
+        // attached immediately below, once this row is durable.
+        netsuiteSoTranid: null,
         amountPushed: currentAmount,
       });
     } catch (persistErr) {
@@ -1638,6 +1619,43 @@ export async function runMarkComplete(
         `[markComplete] Sales Order ${salesOrderInternalId} was created but its identity could not be persisted; ` +
           `manual reconciliation required. Cause: ${String(persistErr)}`,
       );
+    }
+
+    // ── W1 · the tranid, attached AFTER the id is durable ────────────────
+    //
+    // ORDERING IS THE WHOLE POINT, and a first version of this repair got it
+    // backwards: it fetched the tranid BEFORE `recordSalesOrderCreated`, so a
+    // process death during the GET would have left a created Sales Order whose
+    // internal id was never persisted -- unreachable by any retry, which the
+    // catch above exists to call the one thing worse than a failed create.
+    // Moving a diagnostic lookup ahead of the recovery key inverted the
+    // invariant the boundary is for.
+    //
+    // So: id first, unconditionally and durably. Then the display identifier,
+    // as a SEPARATE write against a row that already survives.
+    //
+    // Still non-blocking, and still earlier than before -- it used to wait for
+    // the whole member-rate sequence and land only on the success path, which
+    // is why DPS-1046 and DPS-1051 hold a real SO id and a null tranid while
+    // DPS-1051's operator message names SO2707. The value reached the prose
+    // and never the column.
+    try {
+      const boundaryTranid = await netsuite.fetchSalesOrderTranid(salesOrderInternalId);
+      if (boundaryTranid !== null) {
+        salesOrderTranid = boundaryTranid;
+        tranidFetchOutcome = "succeeded";
+        await recordSalesOrderTranid({
+          attemptId: pendingId,
+          netsuiteSoTranid: boundaryTranid,
+        });
+      } else {
+        tranidFetchOutcome = "failed";
+      }
+    } catch {
+      // The order exists and its id is durable. A missing display identifier
+      // is diagnostic: it must never turn a valid awaiting_rates recovery into
+      // a failed CREATE, and it must never unwind the id that was just saved.
+      tranidFetchOutcome = "failed";
     }
     } // end CREATE branch (skipped entirely when resuming)
 

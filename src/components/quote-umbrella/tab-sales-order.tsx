@@ -573,12 +573,29 @@ export function TabSalesOrder({
     });
   }
 
+  // W1 · SEND IS SUPPRESSED WHEN AN ORDER MAY ALREADY EXIST.
+  //
+  // The same rule the write side applies as `mustNotCreate`, expressed on the
+  // surface so the operator is never offered an act the server would refuse --
+  // or worse, one it would perform. `variantImpliesOrderMayExist` covers
+  // `awaiting`, `reconcile` and `record`: an order that exists, and an order
+  // that MAY exist and could not be matched, are both states in which a second
+  // CREATE is wrong.
+  const orderMayExist = variantImpliesOrderMayExist(realVariant);
+  if (orderMayExist && !isComplete) {
+    disabledReasons.push(
+      isNeedsReconciliation
+        ? "Blocked — a Sales Order may already exist for this deal and could not be matched to this quote."
+        : "Blocked — a Sales Order already exists for this quote. Continue it instead of sending a new one.",
+    );
+  }
   const sendDisabled =
     belowFloorDisabled ||
     unmappedCustomerDisabled ||
     noHubspotCompanyDisabled ||
     identityBlocked ||
-    dealBlocked;
+    dealBlocked ||
+    (orderMayExist && !isComplete);
   const disabledReason = disabledReasons.join(" ");
 
   // ── Send handler ─────────────────────────────────────────────
@@ -629,7 +646,17 @@ export function TabSalesOrder({
   }
 
   // ── Not-yet-accepted state ───────────────────────────────────
-  if (!isAccepted && !isComplete) {
+  // W1 · the acceptance banner must not hide an order that exists.
+  //
+  // It used to fire on quote status alone, so a quote that had been revised
+  // back to `draft` -- or was still `sent` -- rendered "Record acceptance
+  // first" while its push row held a real Sales Order id or an unresolved
+  // duplicate. Two production quotes are in exactly that position: DPS-1062
+  // (draft, needs_reconciliation) and DPS-1046 (sent, awaiting_rates).
+  //
+  // Saying "no Sales Order exists" to an operator whose deal has one is the
+  // most expensive sentence this surface can print.
+  if (!isAccepted && !isComplete && !orderMayExist) {
     return (
       <div className="r9-wrap">
         <p className="eyebrow">Sub-tab 5 · Sales Order · awaiting acceptance</p>

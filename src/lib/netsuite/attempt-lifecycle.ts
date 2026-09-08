@@ -1,9 +1,18 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
+
+/**
+ * A database handle, so these writers can run inside a transaction a
+ * falsification rolls back. Same convention as `readExistingComponentCharges`:
+ * behaviour that can only be exercised against the live client is behaviour
+ * that can only be asserted by prose.
+ */
+type Exec = typeof db;
 import { db } from "@/db";
 import { netsuiteSoPushes, quotes as quotesTable } from "@/db/schema";
 import {
   failureStatusFor,
+  isResumable,
   mirrorFieldsFor,
   type AttemptStatus,
 } from "./attempt-lifecycle-rules";
@@ -84,9 +93,9 @@ export {
  * never unwind a recorded provider outcome -- losing the record of a created
  * Sales Order is strictly worse than a stale mirror.
  */
-async function syncQuoteMirror(attemptId: string): Promise<void> {
+export async function syncQuoteMirror(attemptId: string, exec: Exec = db): Promise<void> {
   try {
-    const [row] = await db
+    const [row] = await exec
       .select({
         quoteId: netsuiteSoPushes.quoteId,
         status: netsuiteSoPushes.status,
@@ -98,7 +107,7 @@ async function syncQuoteMirror(attemptId: string): Promise<void> {
       .where(eq(netsuiteSoPushes.id, attemptId))
       .limit(1);
     if (!row) return;
-    await db
+    await exec
       .update(quotesTable)
       .set({
         ...mirrorFieldsFor({
@@ -129,8 +138,10 @@ export async function recordSalesOrderCreated(args: {
   netsuiteSoId: string;
   netsuiteSoTranid: string | null;
   amountPushed: number;
-}): Promise<void> {
-  await db
+},
+  exec: Exec = db,
+): Promise<void> {
+  await exec
     .update(netsuiteSoPushes)
     .set({
       status: "awaiting_rates",
@@ -141,7 +152,7 @@ export async function recordSalesOrderCreated(args: {
       errorDetail: null,
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
-  await syncQuoteMirror(args.attemptId);
+  await syncQuoteMirror(args.attemptId, exec);
 }
 
 /**
@@ -158,17 +169,20 @@ export async function recordSalesOrderCreated(args: {
  * The branch is on SO-id presence, not on the caller's intent — callers do not
  * get to choose, which is the point of centralising it.
  */
-export async function recordAttemptFailure(args: {
-  attemptId: string;
-  netsuiteSoId: string | null;
-  errorClass: string;
-  errorDetail: string;
-}): Promise<{ terminal: boolean; status: AttemptStatus }> {
+export async function recordAttemptFailure(
+  args: {
+    attemptId: string;
+    netsuiteSoId: string | null;
+    errorClass: string;
+    errorDetail: string;
+  },
+  exec: Exec = db,
+): Promise<{ terminal: boolean; status: AttemptStatus }> {
   const decision = failureStatusFor({ status: "", netsuiteSoId: args.netsuiteSoId });
   const postCreate = !decision.terminal;
 
   if (postCreate) {
-    await db
+    await exec
       .update(netsuiteSoPushes)
       .set({
         status: "awaiting_rates",
@@ -176,11 +190,11 @@ export async function recordAttemptFailure(args: {
         errorDetail: args.errorDetail,
       })
       .where(eq(netsuiteSoPushes.id, args.attemptId));
-    await syncQuoteMirror(args.attemptId);
+    await syncQuoteMirror(args.attemptId, exec);
     return { terminal: false, status: "awaiting_rates" };
   }
 
-  await db
+  await exec
     .update(netsuiteSoPushes)
     .set({
       status: "failed",
@@ -189,7 +203,7 @@ export async function recordAttemptFailure(args: {
       completedAt: new Date(),
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
-  await syncQuoteMirror(args.attemptId);
+  await syncQuoteMirror(args.attemptId, exec);
   return { terminal: true, status: "failed" };
 }
 
@@ -199,18 +213,21 @@ export async function recordAttemptFailure(args: {
  * Only reachable once the full verification gate has passed. Refuses without
  * an SO id — `succeeded` without an order is not a representable state.
  */
-export async function recordAttemptSucceeded(args: {
-  attemptId: string;
-  netsuiteSoId: string;
-  netsuiteSoTranid: string | null;
-  amountPushed: number;
-}): Promise<void> {
+export async function recordAttemptSucceeded(
+  args: {
+    attemptId: string;
+    netsuiteSoId: string;
+    netsuiteSoTranid: string | null;
+    amountPushed: number;
+  },
+  exec: Exec = db,
+): Promise<void> {
   if (!args.netsuiteSoId) {
     throw new Error(
       "[attempt-lifecycle] refusing to mark an attempt succeeded without a NetSuite Sales Order id",
     );
   }
-  await db
+  await exec
     .update(netsuiteSoPushes)
     .set({
       status: "succeeded",
@@ -222,7 +239,103 @@ export async function recordAttemptSucceeded(args: {
       completedAt: new Date(),
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
-  await syncQuoteMirror(args.attemptId);
+  await syncQuoteMirror(args.attemptId, exec);
+}
+
+
+/**
+ * Attach the display identifier to an attempt whose SO id is already durable.
+ *
+ * A SEPARATE write, deliberately. The internal id is the recovery key and must
+ * be persisted before anything that can fail; the tranid is diagnostic and is
+ * attached afterwards. Folding the lookup into `recordSalesOrderCreated` would
+ * put a network call in front of the one write that must not be delayed -- a
+ * process death during the GET would leave a created Sales Order that no retry
+ * can find.
+ *
+ * Refuses to clear a value: a null result from a failed lookup must not erase
+ * a tranid an earlier attempt already established.
+ */
+export async function recordSalesOrderTranid(
+  args: { attemptId: string; netsuiteSoTranid: string },
+  exec: Exec = db,
+): Promise<void> {
+  if (!args.netsuiteSoTranid) return;
+  await exec
+    .update(netsuiteSoPushes)
+    .set({ netsuiteSoTranid: args.netsuiteSoTranid })
+    .where(eq(netsuiteSoPushes.id, args.attemptId));
+  await syncQuoteMirror(args.attemptId, exec);
+}
+
+/**
+ * The resume BINDING, as a decision.
+ *
+ * Resume must continue one specific order on one specific attempt against one
+ * specific frozen snapshot. `isResumable` alone says only that the row looks
+ * continuable; it does not say the caller is continuing the thing they think
+ * they are. If the snapshot the attempt froze is no longer the quote's current
+ * snapshot, the plan has moved and continuing would apply today's intent to
+ * yesterday's order.
+ *
+ * Returns a refusal rather than throwing, so the caller can render it as a
+ * governed business refusal instead of a fault.
+ */
+export type ResumeBinding =
+  | { ok: true; attemptId: string; netsuiteSoId: string; quoteSnapshotId: string | null }
+  | { ok: false; reason: string };
+
+export async function bindResume(
+  args: { quoteId: string; currentSnapshotId: string | null },
+  exec: Exec = db,
+): Promise<ResumeBinding> {
+  const [attempt] = await exec
+    .select({
+      id: netsuiteSoPushes.id,
+      status: netsuiteSoPushes.status,
+      netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+      quoteSnapshotId: netsuiteSoPushes.quoteSnapshotId,
+    })
+    .from(netsuiteSoPushes)
+    .where(eq(netsuiteSoPushes.quoteId, args.quoteId))
+    .orderBy(desc(netsuiteSoPushes.createdAt))
+    .limit(1);
+
+  if (!attempt) {
+    return {
+      ok: false,
+      reason:
+        "There is no Sales Order attempt on this quote to continue. Use Send order to NetSuite.",
+    };
+  }
+  if (!isResumable({ status: attempt.status, netsuiteSoId: attempt.netsuiteSoId })) {
+    return {
+      ok: false,
+      reason: attempt.netsuiteSoId
+        ? `This order is ${attempt.status}, not awaiting rate completion, so there is nothing to continue.`
+        : "No Sales Order exists for this quote yet, so there is nothing to continue. Use Send order to NetSuite.",
+    };
+  }
+  // The snapshot the order was built from must still be the quote's current
+  // one. A revision since the push means the order in NetSuite reflects a plan
+  // the quote no longer holds.
+  if (
+    args.currentSnapshotId !== null &&
+    attempt.quoteSnapshotId !== null &&
+    attempt.quoteSnapshotId !== args.currentSnapshotId
+  ) {
+    return {
+      ok: false,
+      reason:
+        "This quote has been revised since the Sales Order was created, so continuing would apply the current plan to an order built from the previous one. Review the order in NetSuite before continuing.",
+    };
+  }
+  return {
+    ok: true,
+    attemptId: attempt.id,
+    netsuiteSoId: attempt.netsuiteSoId as string,
+    quoteSnapshotId: attempt.quoteSnapshotId,
+  };
 }
 
 /**
@@ -243,11 +356,11 @@ export async function recordAttemptSucceeded(args: {
  * precisely because the id was never learned, and inventing one here would be
  * worse than recording the ambiguity honestly.
  */
-export async function recordNeedsReconciliation(args: {
-  attemptId: string;
-  errorDetail: string;
-}): Promise<void> {
-  await db
+export async function recordNeedsReconciliation(
+  args: { attemptId: string; errorDetail: string },
+  exec: Exec = db,
+): Promise<void> {
+  await exec
     .update(netsuiteSoPushes)
     .set({
       status: "needs_reconciliation",
@@ -256,5 +369,5 @@ export async function recordNeedsReconciliation(args: {
       completedAt: new Date(),
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
-  await syncQuoteMirror(args.attemptId);
+  await syncQuoteMirror(args.attemptId, exec);
 }

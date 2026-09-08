@@ -258,27 +258,44 @@ test("C3 · ownsSnapshot is unchanged — only failed+validation releases", () =
   }
 });
 
-test("C3 · the boundary persists the tranid without gating on it", () => {
-  // Non-blocking is the property: an inability to read the display identifier
-  // must never turn a valid awaiting_rates recovery into a failed CREATE.
+test("C3 · the SO id is persisted BEFORE any tranid lookup", () => {
+  // ORDERING, and a correction to this repair's own first attempt.
+  //
+  // The first version fetched the tranid BEFORE `recordSalesOrderCreated`, so
+  // a process death during the GET would have left a created Sales Order whose
+  // internal id was never persisted -- unreachable by any retry, which the code
+  // itself calls the one thing worse than a failed create. A diagnostic lookup
+  // had been moved ahead of the recovery key.
   const src = readFileSync("src/lib/netsuite/mark-complete.ts", "utf8");
-  // Search FORWARD from the anchor: `recordSalesOrderCreated({` also appears
-  // earlier in the file, so an unanchored indexOf yields a negative slice and
-  // an empty string -- which would make every assertion below vacuous.
-  const start = src.indexOf("W1 STEP 2 - the tranid is fetched HERE");
-  assert.ok(start > 0, "the boundary fetch must exist");
-  const boundaryRaw = src.slice(start, src.indexOf("recordSalesOrderCreated({", start));
-  // STRIP COMMENTS FIRST. A first version asserted `doesNotMatch(/throw/)`
-  // against the raw slice and failed on the word "throw" inside this repair's
-  // own explanatory comment -- an instrument that cannot tell prose from code
-  // reports the prose.
-  const boundary = boundaryRaw
+  const created = src.indexOf("await recordSalesOrderCreated({");
+  const tranid = src.indexOf("const boundaryTranid = await netsuite.fetchSalesOrderTranid");
+  assert.ok(created > 0, "the boundary write must exist");
+  assert.ok(tranid > 0, "the boundary tranid fetch must exist");
+  assert.ok(
+    created < tranid,
+    "the SO id must be persisted before any tranid lookup is attempted",
+  );
+});
+
+test("C3 · the boundary tranid lookup cannot fail the create", () => {
+  // Non-blocking is the load-bearing property: an inability to read the display
+  // identifier must never turn a valid awaiting_rates recovery into a failed
+  // CREATE, and must never unwind the id just saved.
+  const src = readFileSync("src/lib/netsuite/mark-complete.ts", "utf8");
+  const start = src.indexOf("const boundaryTranid = await netsuite.fetchSalesOrderTranid");
+  // Bounded to the enclosing try/catch. A first version sliced to the next
+  // "STEP 2" occurrence, 12,000 characters away, and swept in unrelated code
+  // that legitimately throws -- an assertion that big is not about the thing
+  // it names.
+  const end = src.indexOf("} // end CREATE branch", start);
+  assert.ok(end > start, "the CREATE branch terminator must follow the fetch");
+  const block = src
+    .slice(start, end)
+    // Strip comments: an earlier version asserted `doesNotMatch(/throw/)`
+    // against raw source and matched the word inside this repair's own prose.
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
-  assert.ok(boundary.length > 0, "the boundary fetch must exist");
-  assert.match(boundary, /try \{/, "the fetch must be isolated");
-  assert.match(boundary, /catch \{/, "a failed lookup must not propagate");
-  assert.doesNotMatch(boundary, /throw/, "the boundary fetch must never throw");
+  assert.doesNotMatch(block, /throw/, "a failed lookup must not propagate");
 });
 
 test("C3 · the completion fetch is a backfill that cannot erase the boundary value", () => {

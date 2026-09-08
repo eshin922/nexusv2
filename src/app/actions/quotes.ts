@@ -5185,37 +5185,41 @@ export async function resumeSalesOrderPush(
       throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
     }
 
-    const { isResumable } = await import("@/lib/netsuite/attempt-lifecycle-rules");
-    const { netsuiteSoPushes } = await import("@/db/schema");
+    const { bindResume } = await import("@/lib/netsuite/attempt-lifecycle");
+    const { quoteSnapshots } = await import("@/db/schema");
 
-    const [attempt] = await db
-      .select({
-        status: netsuiteSoPushes.status,
-        netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
-        netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
-      })
-      .from(netsuiteSoPushes)
-      .where(eq(netsuiteSoPushes.quoteId, quoteId))
-      .orderBy(desc(netsuiteSoPushes.createdAt))
+    // THE BINDING, BEFORE ANYTHING ELSE.
+    //
+    // Resume continues ONE order, on ONE attempt, against ONE frozen snapshot.
+    // `isResumable` alone says only that a row looks continuable; it does not
+    // say the caller is continuing the thing they believe they are. If the
+    // quote has been revised since the push, today's plan would be applied to
+    // an order built from yesterday's.
+    //
+    // Refused BEFORE `runMarkComplete` is reached, so a failed binding can
+    // never enter a code path that is capable of a CREATE.
+    const [currentSnapshot] = await db
+      .select({ id: quoteSnapshots.id })
+      .from(quoteSnapshots)
+      .where(
+        and(
+          eq(quoteSnapshots.quoteId, quoteId),
+          isNull(quoteSnapshots.supersededAt),
+        ),
+      )
+      .orderBy(desc(quoteSnapshots.createdAt))
       .limit(1);
 
-    // The refusal is business-facing on purpose: an operator who reaches this
-    // has been told an order exists, and "nothing to resume" must say which of
-    // the two things is not true rather than failing generically.
-    if (!attempt) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "There is no Sales Order attempt on this quote to continue. Use Send order to NetSuite.",
-      );
+    const binding = await bindResume({
+      quoteId,
+      currentSnapshotId: currentSnapshot?.id ?? null,
+    });
+    // Business-facing on purpose: an operator who reaches this has been told an
+    // order exists, so the refusal must say which part of that is not true.
+    if (!binding.ok) {
+      throw new ActionGuardError(ERR.VALIDATION, binding.reason);
     }
-    if (!isResumable({ status: attempt.status, netsuiteSoId: attempt.netsuiteSoId })) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        attempt.netsuiteSoId
-          ? `This order is ${attempt.status}, not awaiting rate completion, so there is nothing to continue.`
-          : "No Sales Order exists for this quote yet, so there is nothing to continue. Use Send order to NetSuite.",
-      );
-    }
+    const boundSoId = binding.netsuiteSoId;
 
     const { runMarkComplete } = await import("@/lib/netsuite/mark-complete");
     const { NetsuiteError } = await import("@/lib/netsuite/errors");
@@ -5233,6 +5237,20 @@ export async function resumeSalesOrderPush(
       throw new ActionGuardError(
         ERR.VALIDATION,
         e instanceof Error ? e.message : String(e),
+      );
+    }
+
+    // THE ORDER MAY NOT HAVE MOVED.
+    //
+    // A continuation that returns a different Sales Order id has not continued
+    // anything -- it has created one, which is the single outcome this path
+    // exists to make impossible. Checked against the id the binding captured
+    // BEFORE the run, so the assertion cannot be satisfied by whatever the run
+    // happens to report.
+    if (result.netsuite.salesOrderId !== boundSoId) {
+      throw new ActionGuardError(
+        ERR.DATA_INTEGRITY,
+        `Continuing this order was expected to work on Sales Order ${boundSoId} but reported ${result.netsuite.salesOrderId}. No further action was taken; check the order in NetSuite before retrying.`,
       );
     }
 
