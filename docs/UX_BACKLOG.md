@@ -5151,3 +5151,70 @@ the totals and the pushed order were all verified correct against
 `planned.rows` and against the ERP readback.
 
 Reference: `order-receipt.tsx`, the `r9-so-head` sub-line.
+
+---
+
+## Post-O5 capability review — four findings banked during the O5 setup
+
+All four surfaced while establishing O5's master data, and none of them blocks
+O5. They are banked together because they share a shape: something is
+*declared* — in a picker, in a mapping table, in a type union — and nothing
+downstream honours the declaration. Each is invisible in normal use precisely
+because the declaration looks like the feature.
+
+### 1 · The Leaf Product Type picker is required, and its value is discarded
+
+The Product Library create-leaf form requires a Leaf Product Type before it
+will submit. The selected value is never sent: `createLeaf` does not accept a
+`productTypeId`, and `leaves.product_type_id` is left NULL on every
+Nexus-authored leaf. The operator makes a required choice that has no effect.
+
+Confirmed by tracing every current writer of `leaves.product_type_id` — the
+only one is the TypePicker on an existing leaf, which is a separate surface
+reached after creation.
+
+**Why it survived:** a leaf's schema resolves from HubSpot `hs_product_type`,
+which the same form does send. So the created leaf gets the right schema
+anyway, by the other authority, and the discarded field never produces a
+visible wrong result.
+
+**Fix shape:** either carry the value through to `createLeaf`, or drop the
+control and let HubSpot classification stand alone. A required input that is
+thrown away is the worst of the three states.
+
+### 2 · The sandbox HubSpot vocabulary is missing mappings production has
+
+Sandbox and production `hs_product_type` option sets differ, and the mapping
+table is written against production. Measured directly against both portals:
+`Corrugated` and `Preliminary` exist in the sandbox with no mapping.
+`Tertiary Packaging` is live in production and absent from the sandbox.
+
+**This is not a stale-mapping defect** — an earlier reading of it as one came
+from fetching a single portal and treating it as the vocabulary. The mappings
+are correct for production, which is the portal that matters.
+
+### 3 · No environment-aware vocabulary verification in CI
+
+Nothing checks that a portal's option set is fully mapped, in either direction,
+at any point in the build. The divergence above was found by hand.
+
+The rule is NOT obviously "every portal must satisfy the union mapping" —
+production-only values legitimately have no sandbox counterpart, and sandbox
+scratch values legitimately have no mapping at all. What the guard should
+assert is an open question and should be settled before it is written.
+
+### 4 · `select` is declared in the spec-field type union and implemented nowhere
+
+`LeafSpecField` admits `type: "select"` with an `options` array. No live schema
+uses it: measured across `leaf_primary_packaging` (10 fields),
+`leaf_secondary_packaging` (11) and `leaf_tertiary_packaging` (10), zero
+declare it.
+
+`resolveFieldControl` names the case explicitly and returns a text input, so
+the gap is visible in the resolver rather than absorbed by its fallback — but a
+schema author who writes `"type": "select"` today gets a free-text box and no
+warning.
+
+This is why O5 does not certify a multi-value specification. Its scope asked
+for one *if the live schema provides one*; it does not, and inventing a field
+to cover it would have certified a fixture rather than the product.

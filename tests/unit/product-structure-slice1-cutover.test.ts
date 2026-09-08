@@ -877,6 +877,19 @@ const classifiedIdentityFiles = new Set([
   // change what it is measuring.
   "scripts/gate-1b/o4-certify.ts",
   "scripts/gate-1b/o4-state-capture.ts",
+  // CLASSIFIED - canonical identity only, and it is a CONSTANT FILE.
+  //
+  // O5's frozen expectation. It names the three specified leaves by
+  // `leaves.id` -- the canonical library identity -- alongside their SKU and
+  // NetSuite internal id, so a later boundary can be checked against a fixed
+  // target rather than against whatever the previous boundary produced. It
+  // touches `assembly_leaves` nowhere: O5's attachment identity is
+  // `quote_leaves`, and the expectation does not need attachment at all.
+  //
+  // It executes no query and holds no logic beyond a self-consistency check.
+  // That is deliberate rather than incidental -- an expectation that could
+  // read the system it certifies would stop being an expectation.
+  "scripts/gate-1b/o5-expected.ts",
   // CLASSIFIED - canonical identity only, and every row it writes is removed.
   //
   // The frozen-election grain falsifier. It reads `quote_leaves.id` to pick a
