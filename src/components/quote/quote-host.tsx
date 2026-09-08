@@ -22,6 +22,7 @@ import type { QuotePerTierRollup } from "@/lib/costing";
 import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import { CustomerViewLive } from "./customer-view-live";
+import { presentPaymentTerms } from "@/lib/payment-terms-presentation";
 import type { AuthoritativeProjection } from "./authoritative-projection";
 import { useRecoveryDraft } from "./use-recovery-draft";
 import { useQuoteAxis } from "@/components/quote-umbrella/quote-axis-context";
@@ -366,6 +367,48 @@ export function QuoteHost({
                 Push it to HubSpot before sending.
               </div>
             )}
+
+            {(() => {
+              // ── WHY THE TERMS LINE IS BLANK, AND WHAT TO DO ABOUT IT ──
+              //
+              // Outside the sheet, beside the linkage warning, because it is
+              // addressed to the operator and not to the customer.
+              //
+              // The reason is carried, not collapsed: an unmapped customer is
+              // a data gap somebody must close, and an unreachable NetSuite is
+              // a condition that clears itself. Telling an admin to go and
+              // create a mapping that already exists is the specific mistake
+              // the distinction prevents.
+              const t = presentPaymentTerms({
+                source: shownView.quote.paymentTermsSource,
+                value: shownView.quote.paymentTerms,
+                unresolvedReason: shownView.quote.paymentTermsUnresolvedReason,
+              });
+              if (t.kind === "verified") return null;
+              return (
+                <div
+                  role="status"
+                  data-testid="payment-terms-unverified"
+                  data-terms-reason={t.reason}
+                  style={{
+                    margin: "12px 20px 0", padding: "10px 14px",
+                    background: "var(--warn-soft, #fff4e5)",
+                    border: "1px solid var(--warn, #d97706)",
+                    color: "var(--warn, #92400e)",
+                    borderRadius: 6, fontSize: 13, lineHeight: 1.4,
+                  }}
+                >
+                  <strong>Payment terms: {t.qualifier.toLowerCase()}.</strong>{" "}
+                  {t.action}{" "}
+                  {t.provisionalValue ? (
+                    <>
+                      The firm default is &ldquo;{t.provisionalValue}&rdquo;, which is
+                      not this customer&apos;s term and is not shown on the quote.
+                    </>
+                  ) : null}
+                </div>
+              );
+            })()}
 
             <div className="cv-canvas">
               {/* `cv-sheet-live` drops the paper, border and shadow this
