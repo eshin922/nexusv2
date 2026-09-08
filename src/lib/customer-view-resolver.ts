@@ -433,6 +433,16 @@ export async function resolveCustomerView(args: {
     : governedTerms?.status === "governed"
       ? "governed"
       : "provisional";
+  /**
+   * WHY it is provisional, carried through rather than collapsed.
+   *
+   * `provisional` alone cannot distinguish a customer nobody has mapped yet
+   * from a NetSuite that did not answer this second. Those need opposite
+   * responses from whoever reads the screen -- close a data gap, or wait --
+   * so the surface is given the reason and not only the verdict.
+   */
+  const paymentTermsUnresolvedReason =
+    governedTerms?.status === "unresolved" ? governedTerms.reason : null;
   const leadTime = isSent
     ? quote.leadTimeSnapshot
     : (firm?.leadTimeDefault ?? null);
@@ -754,6 +764,7 @@ export async function resolveCustomerView(args: {
       validUntil: quote.validUntil,
       paymentTerms,
       paymentTermsSource,
+      paymentTermsUnresolvedReason,
       leadTime,
       // ── M2 · frozen once sent, like every field beside it ──────────────
       //
