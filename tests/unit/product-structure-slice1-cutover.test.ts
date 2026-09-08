@@ -863,6 +863,20 @@ const classifiedIdentityFiles = new Set([
   // prove an operator action changed exactly one field, which an instrument
   // that could write would not be able to establish.
   "scripts/gate-1b/o3-charge-state.ts",
+  // CLASSIFIED - canonical identity only, and both WRITE NOTHING.
+  //
+  // O4's certifier and its state capture. Both join `quote_leaves` to reach a
+  // component's SKU and read `assembly_leaves` only for the Group's frozen
+  // membership quantities -- the composition the ERP is checked against. The
+  // grouped structure they certify is read back from NetSuite, not from either
+  // identity.
+  //
+  // Read-only by construction, which is the stronger position for an
+  // instrument: the certifier decides whether O4 passed, and the capture
+  // decides whether a revision changed anything, so neither may be able to
+  // change what it is measuring.
+  "scripts/gate-1b/o4-certify.ts",
+  "scripts/gate-1b/o4-state-capture.ts",
   // CLASSIFIED - canonical identity only, and every row it writes is removed.
   //
   // The frozen-election grain falsifier. It reads `quote_leaves.id` to pick a

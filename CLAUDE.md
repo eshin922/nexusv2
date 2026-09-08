@@ -5658,6 +5658,50 @@ check.**
 - Pattern 58's measurement lessons (the grep that could not match a numeric
   difference; the `catch` that reported "missing" for a read failure).
 
+### An ERP readback is evidence only after the push is terminal
+
+**Banked 2026-09-08 from the O4 / SO2735 push.** A sibling of the entries above,
+and the inverse failure: not an instrument that cannot express the answer, but a
+true reading of a state that was still moving, reported as an outcome.
+
+The O4 push ran for 82 seconds. Queried at roughly the halfway point it showed a
+push row at `awaiting_rates` and a 6% `TaxItem` worth $699.18 on the Sales
+Order. Both readings were accurate. Both were reported as final. Neither was:
+the row settled `succeeded`, the tax settled at zero, and the order settled at
+exactly the accepted consideration. A hard business-correctness failure was
+declared against a system that was working.
+
+**Two intermediate states will mislead anyone sampling mid-push:**
+
+- **`awaiting_rates` is not a failure.** It is the deliberate recovery boundary
+  (`mark-complete.ts`, "THE RECOVERY BOUNDARY"), persisted the instant the Sales
+  Order exists so that a crash anywhere in the member-rate sequence resumes
+  against the same order rather than creating another. Seeing it in flight is
+  the design working.
+- **A taxable line mid-push is expected.** `enforceNonTaxableLines` runs AFTER
+  member-rate convergence, deliberately: Item Group member lines do not exist
+  until NetSuite expands the group, and the member is exactly the line that was
+  taxable on SO2716. Between creation and enforcement the order is genuinely
+  taxable and genuinely mid-repair.
+
+**The rule.** Do not inspect or adjudicate an external ERP result until the
+corresponding Nexus push row is terminal:
+
+    netsuite_so_push_status = 'succeeded'
+    netsuite_so_pushes.completed_at IS NOT NULL
+    quotes.status = 'complete'
+    so id / tranid both present
+
+`scripts/gate-1b/o4-certify.ts` implements this as a hard precondition: it
+prints INCOMPLETE and exits without issuing a single ERP query when the gate
+fails. A certifier that reads first and checks later can report a moment as an
+outcome, which is the whole failure.
+
+**Corollary for retries.** The same discipline forbids re-pushing on an
+ambiguous response. Adjudicate persisted Nexus state and the ERP FIRST — and
+"persisted state" means terminal state, not whatever the row says while the
+sequence is still running.
+
 ### A reading an instrument cannot produce is not a finding
 
 **Banked 2026-08-24 from the Quote Presentation visual pass.** Same family as
