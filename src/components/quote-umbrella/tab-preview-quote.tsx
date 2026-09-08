@@ -31,8 +31,6 @@ import type { GovernedSummary } from "@/components/quote/customer-view-rail";
 import type { CustomerView } from "@/types/quote";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
 import type { VersionRow } from "@/lib/quote-version-chain";
-import { AdvanceBar } from "./advance-bar";
-import { computeUmbrellaAdvance } from "./advance-target";
 import { VersionPicker } from "./version-picker";
 import type { SubTabId } from "./subtabs";
 
@@ -51,7 +49,6 @@ export function TabPreviewQuote({
   accountingInstruction,
   quoteRollup,
   governed,
-  presentationRestored,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -86,7 +83,6 @@ export function TabPreviewQuote({
   accountingInstruction: string | null;
   quoteRollup: readonly QuotePerTierRollup[];
   governed: GovernedSummary;
-  presentationRestored: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   isHubspotLinked: boolean;
@@ -112,7 +108,6 @@ export function TabPreviewQuote({
           accountingInstruction={accountingInstruction}
       quoteRollup={quoteRollup}
       governed={governed}
-      presentationRestored={presentationRestored}
       internalNotes={internalNotes}
       addendumData={addendumData}
       isHubspotLinked={isHubspotLinked}
@@ -132,39 +127,13 @@ export function TabPreviewQuote({
   // `Continue to Send →` bar is OBSOLETE. Freeze & send is the single
   // canonical final action, and the two are not to be reconciled or relocated.
   //
-  // So the restored branch returns before `AdvanceBar` is ever referenced,
-  // rather than rendering it conditionally. A conditional would keep the old
-  // control one boolean away from returning — and the boolean in question is
-  // the admin gate, which is going to be removed. Suppression that depends on
-  // a flag you intend to delete is not suppression.
-  //
-  // The legacy branch below keeps the bar, and keeps it only while that
-  // surface exists.
-  if (presentationRestored) {
-    return (
-      <div className="r8-wrap">
-        {picker}
-        {host}
-      </div>
-    );
-  }
-
-  const adv = computeUmbrellaAdvance("preview", quoteStatus);
+  // The gate that kept the legacy bar alive is gone, so the bar is gone with
+  // it -- and with it this file's last use of the advance primitives, which
+  // the other sub-tabs still import for themselves.
   return (
     <div className="r8-wrap">
       {picker}
       {host}
-      {/* Slice 12 Step 9 CB P6 pattern-fix — advance target derived from
-          quoteStatus via computeUmbrellaAdvance, not hardcoded. Prior version
-          pinned "Continue to Send →" regardless of lifecycle position. */}
-      <AdvanceBar
-        weight="light"
-        mid={<span>previewing {quoteStatus}</span>}
-        caption={adv?.caption ?? "Umbrella read-only — no advance"}
-        label={adv?.label}
-        onAdvance={adv ? () => onGo(adv.targetTab) : undefined}
-        disabled={!adv}
-      />
     </div>
   );
 }

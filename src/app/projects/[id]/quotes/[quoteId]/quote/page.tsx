@@ -52,8 +52,6 @@ export default async function CustomerViewPage({
   params: Promise<{ id: string; quoteId: string }>;
   searchParams: Promise<{
     dev?: string;
-    /** Review-only: force the legacy layout for an admin. See below. */
-    legacy?: string;
     /**
      * Slice 11 Step 4 preview overrides. Draft-mode only —
      * sent quotes always read from the immutable snapshot column.
@@ -82,7 +80,7 @@ export default async function CustomerViewPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { dev, legacy, layout, detail, addendum, tab, live } = await searchParams;
+  const { dev, layout, detail, addendum, tab, live } = await searchParams;
   const activeTabRaw = parseSubTabParam(tab);
   const tag = quoteId.slice(0, 8);
   console.log(`[quote:${tag}] start memory=${heapMb()}MB`);
@@ -338,26 +336,6 @@ export default async function CustomerViewPage({
     // gates the surface itself.
     const viewer = await ensureUser();
 
-    // ── THE RESTORED LAYOUT IS UNDER REVIEW ─────────────────────────────
-    //
-    // #376 restores this surface to its Design Authority: document dominant,
-    // controls in a panel beside it, Accounting in its own zone. That changes
-    // the operator-facing shape, and structural tests are necessary but not
-    // sufficient for a layout — so it ships where it can be reviewed with a
-    // real session (production is the only surface carrying one) without
-    // reaching operators before it has been.
-    //
-    // TEMPORARY. Removing this deletes every `!presentationRestored` branch in
-    // quote-host.tsx. It is NOT a role boundary: the authority's Q6 says the
-    // panel is any-PM, and this must come off rather than harden into one.
-    //
-    // `?legacy=1` forces the legacy path for an admin. The gate cannot come
-    // off until BOTH paths have been seen, and every admin sees only the
-    // restored one — while nine non-admin users (six PMs, plus accounting,
-    // logistics and sales) see only the legacy one. The alternatives were to
-    // mutate a real person's role in the database, or to ask a colleague to
-    // test; an opt-in query param costs neither and is deleted with the flag.
-    const presentationRestored = viewer.role === "admin" && legacy !== "1";
 
 
     console.log(
@@ -422,7 +400,6 @@ export default async function CustomerViewPage({
           chargeRecoveryPricingGaps={chargeRecoveryPricingGaps}
           accountingInstruction={accountingInstruction}
           governed={governed}
-          presentationRestored={presentationRestored}
           acceptancePrefill={acceptancePrefill}
           hubspotAcceptStageLabel={hubspotAcceptStageLabel}
           hubspotAcceptSyncSuppressed={isHubspotAcceptSyncSuppressed()}
