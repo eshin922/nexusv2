@@ -1,8 +1,12 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { netsuiteSoPushes } from "@/db/schema";
-import { failureStatusFor, type AttemptStatus } from "./attempt-lifecycle-rules";
+import { netsuiteSoPushes, quotes as quotesTable } from "@/db/schema";
+import {
+  failureStatusFor,
+  mirrorFieldsFor,
+  type AttemptStatus,
+} from "./attempt-lifecycle-rules";
 
 // Grouped-SO push attempt lifecycle.
 //
@@ -58,11 +62,58 @@ import { failureStatusFor, type AttemptStatus } from "./attempt-lifecycle-rules"
 export {
   awaitingRatesOperatorMessage,
   failureStatusFor,
+  mirrorFieldsFor,
+  needsReconciliationOperatorMessage,
   isResumable,
   mustNotCreate,
   ownsSnapshot,
   type AttemptStatus,
 } from "./attempt-lifecycle-rules";
+
+
+/**
+ * Project the attempt row onto the quote mirror.
+ *
+ * Reads the row it is mirroring rather than taking fields from the caller: a
+ * caller that supplies the fields can supply the wrong ones, which is exactly
+ * how the mirror came to disagree in the first place. Every push-row writer in
+ * this module calls it as its last act.
+ *
+ * NON-FATAL by design. `netsuite_so_pushes` is the source of truth for
+ * retry-idempotency; the mirror is a read convenience. A failure to mirror must
+ * never unwind a recorded provider outcome -- losing the record of a created
+ * Sales Order is strictly worse than a stale mirror.
+ */
+async function syncQuoteMirror(attemptId: string): Promise<void> {
+  try {
+    const [row] = await db
+      .select({
+        quoteId: netsuiteSoPushes.quoteId,
+        status: netsuiteSoPushes.status,
+        netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+        netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
+        errorDetail: netsuiteSoPushes.errorDetail,
+      })
+      .from(netsuiteSoPushes)
+      .where(eq(netsuiteSoPushes.id, attemptId))
+      .limit(1);
+    if (!row) return;
+    await db
+      .update(quotesTable)
+      .set({
+        ...mirrorFieldsFor({
+          status: row.status as AttemptStatus,
+          netsuiteSoId: row.netsuiteSoId,
+          netsuiteSoTranid: row.netsuiteSoTranid,
+          errorDetail: row.errorDetail,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(quotesTable.id, row.quoteId));
+  } catch {
+    // deliberate: see the contract above
+  }
+}
 
 /**
  * THE RECOVERY BOUNDARY.
@@ -90,6 +141,7 @@ export async function recordSalesOrderCreated(args: {
       errorDetail: null,
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
+  await syncQuoteMirror(args.attemptId);
 }
 
 /**
@@ -124,6 +176,7 @@ export async function recordAttemptFailure(args: {
         errorDetail: args.errorDetail,
       })
       .where(eq(netsuiteSoPushes.id, args.attemptId));
+    await syncQuoteMirror(args.attemptId);
     return { terminal: false, status: "awaiting_rates" };
   }
 
@@ -136,6 +189,7 @@ export async function recordAttemptFailure(args: {
       completedAt: new Date(),
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
+  await syncQuoteMirror(args.attemptId);
   return { terminal: true, status: "failed" };
 }
 
@@ -168,6 +222,7 @@ export async function recordAttemptSucceeded(args: {
       completedAt: new Date(),
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
+  await syncQuoteMirror(args.attemptId);
 }
 
 /**
@@ -201,4 +256,5 @@ export async function recordNeedsReconciliation(args: {
       completedAt: new Date(),
     })
     .where(eq(netsuiteSoPushes.id, args.attemptId));
+  await syncQuoteMirror(args.attemptId);
 }

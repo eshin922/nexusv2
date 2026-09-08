@@ -50,6 +50,7 @@ import {
 } from "./grouping-plan-adapter";
 import {
   awaitingRatesOperatorMessage,
+  mirrorFieldsFor,
   mustNotCreate,
   recordAttemptFailure,
   recordNeedsReconciliation,
@@ -1558,29 +1559,18 @@ export async function runMarkComplete(
           // secondary write failed — original throw is the real error
         }
       }
-      // Slice 12 Step 8c-4 — mirror failure state onto the quote row
-      // so the /quote page's Sales Order tab reads the failed variant
-      // across page reloads without a join to netsuite_so_pushes.
-      // Non-fatal — if this write fails, netsuite_so_pushes still
-      // carries the row; preflight loader reads either source.
+      // W1 · the mirror is no longer written here.
       //
-      // Step 1: mirrors the RESUMABLE variant when an SO already exists, so
-      // the operator surface never shows "failed" for an order that was in
-      // fact created. Same branch condition as the lifecycle helper.
-      try {
-        await db
-          .update(quotesTable)
-          .set({
-            netsuiteSoPushStatus: resumeSoId ? "awaiting_rates" : "failed",
-            netsuiteSoPushError: resumeSoId
-              ? awaitingRatesOperatorMessage(resumeSoTranid)
-              : errDetail,
-            updatedAt: failedAt,
-          })
-          .where(eq(quotesTable.id, quoteId));
-      } catch {
-        // non-fatal — preflight reads netsuite_so_pushes as fallback
-      }
+      // `recordAttemptFailure` above projects the attempt row onto the quote
+      // as its last act, for BOTH of its exit paths. This block used to
+      // duplicate that decision -- recomputing `awaiting_rates` vs `failed`
+      // from `resumeSoId`, and writing status and message while omitting the
+      // SO id. Two copies of one rule, and the copy that ran here is the one
+      // that left production quotes claiming an order exists with nothing to
+      // identify it.
+      //
+      // `recordNeedsReconciliation` on the branch above now mirrors too, which
+      // is the state that previously had no quote-side writer at all.
       throw e;
       }
     }
@@ -1601,11 +1591,43 @@ export async function runMarkComplete(
     // Deliberately BEFORE the tranid fetch below: the tranid is diagnostic,
     // the internal id is the recovery key, and the id must be durable even
     // if the follow-up GET fails.
+    // W1 STEP 2 - the tranid is fetched HERE, at the boundary, not at Step 8.
+    //
+    // The id still goes first and still wins: the fetch below cannot prevent
+    // the identity being persisted, because a failed lookup yields null and
+    // the write proceeds regardless. What changes is that the display
+    // identifier stops waiting for a step it does not depend on.
+    //
+    // The old ordering put this fetch AFTER the member-rate PATCH sequence and
+    // persisted it only on the success path, so any interruption in between
+    // stranded the row with tranid = null. Measured on production: DPS-1046
+    // and DPS-1051 both hold a real SO id and a null tranid, and DPS-1051's
+    // operator message names SO2707 -- the value reached the prose and never
+    // the column. A persistence gap, not a knowledge gap.
+    //
+    // NON-BLOCKING, and that is the load-bearing property: an inability to
+    // read the display identifier must never turn a valid awaiting_rates
+    // recovery state into a failed CREATE. Hence the isolated try, and hence
+    // null rather than a throw.
+    let boundaryTranid: string | null = null;
+    try {
+      boundaryTranid = await netsuite.fetchSalesOrderTranid(salesOrderInternalId);
+      if (boundaryTranid !== null) {
+        salesOrderTranid = boundaryTranid;
+        tranidFetchOutcome = "succeeded";
+      } else {
+        tranidFetchOutcome = "failed";
+      }
+    } catch {
+      // The order exists. A missing display id is diagnostic, never fatal.
+      tranidFetchOutcome = "failed";
+    }
+
     try {
       await recordSalesOrderCreated({
         attemptId: pendingId,
         netsuiteSoId: salesOrderInternalId,
-        netsuiteSoTranid: null,
+        netsuiteSoTranid: boundaryTranid,
         amountPushed: currentAmount,
       });
     } catch (persistErr) {
@@ -1793,18 +1815,8 @@ export async function runMarkComplete(
           errorClass: err?.className ?? "verification",
           errorDetail: err?.context.detail ?? String(e),
         });
-        try {
-          await db
-            .update(quotesTable)
-            .set({
-              netsuiteSoPushStatus: "awaiting_rates",
-              netsuiteSoPushError: awaitingRatesOperatorMessage(salesOrderTranid),
-              updatedAt: new Date(),
-            })
-            .where(eq(quotesTable.id, quoteId));
-        } catch {
-          // non-fatal — netsuite_so_pushes still carries the resumable row
-        }
+        // W1 · mirror written by `recordAttemptFailure` above, from the row
+        // itself. See the note at the CREATE-failure site.
         throw e;
       }
     }
@@ -1857,13 +1869,24 @@ export async function runMarkComplete(
     // The SO itself exists; tranid is diagnostic, not
     // correctness-critical. Backfill on next retry-convergence attempt
     // (see priorSuccess branch above).
-    const fresh = await netsuite.fetchSalesOrderTranid(salesOrderInternalId);
-    if (fresh !== null) {
-      salesOrderTranid = fresh;
-      tranidFetchOutcome = "succeeded";
-    } else {
-      salesOrderTranid = null;
-      tranidFetchOutcome = "failed";
+    // W1 STEP 2 - now a BACKFILL, not the primary fetch.
+    //
+    // The boundary above already fetched and persisted the tranid. This
+    // re-fetches only when that attempt came back empty, so a transient GET
+    // failure at create time still resolves by completion.
+    //
+    // The guard is not an optimisation. The old code assigned `null` on
+    // failure unconditionally, which would now DISCARD a tranid the boundary
+    // had already captured and persisted -- turning the repair into a
+    // regression on exactly the path it exists to fix.
+    if (salesOrderTranid === null) {
+      const fresh = await netsuite.fetchSalesOrderTranid(salesOrderInternalId);
+      if (fresh !== null) {
+        salesOrderTranid = fresh;
+        tranidFetchOutcome = "backfilled_on_retry";
+      } else {
+        tranidFetchOutcome = "failed";
+      }
     }
 
     // ============================================================
@@ -1969,11 +1992,18 @@ export async function runMarkComplete(
       .set({
         status: "complete",
         acceptedTierId: effectiveAcceptedTierId,
-        netsuiteSoId: salesOrderInternalId,
-        netsuiteSoTranid: salesOrderTranid,
+        // W1 · the same projection the non-transactional writers use, spread
+        // into the freeze so there is ONE definition of the mirror. It stays
+        // inline here rather than becoming a second UPDATE because this write
+        // is atomic with `status = complete` and the audit row, and that
+        // atomicity is not negotiable.
+        ...mirrorFieldsFor({
+          status: "succeeded",
+          netsuiteSoId: salesOrderInternalId,
+          netsuiteSoTranid: salesOrderTranid,
+          errorDetail: null,
+        }),
         netsuitePushedAt: completedAt,
-        netsuiteSoPushStatus: "succeeded",
-        netsuiteSoPushError: null,
         updatedAt: completedAt,
       })
       .where(eq(quotesTable.id, quoteId));

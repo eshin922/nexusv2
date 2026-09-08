@@ -40,7 +40,15 @@ import type { ReactNode } from "react";
 
 import type { PlannedRow } from "@/lib/netsuite/planned-sales-order";
 
-export type ReceiptState = "pending" | "failed" | "record";
+/**
+ * W1 - `awaiting` and `reconcile` are distinct states, not shades of `failed`.
+ *
+ * They reuse the failed variant's LAYOUT (no surface redesign) and must not
+ * reuse its copy: "the order did not reach NetSuite" is false for both. The
+ * mapping from push status is total and lives in
+ * `@/lib/netsuite/receipt-variant`.
+ */
+export type ReceiptState = "pending" | "awaiting" | "reconcile" | "failed" | "record";
 
 export type OrderReceiptFlag = {
   level: "warn" | "bad";
@@ -215,7 +223,21 @@ export function OrderReceipt({
   netsuiteStatusOnPush,
 }: OrderReceiptProps): ReactNode {
   const placed = state === "record";
-  const failed = state === "failed";
+  // W1 - `awaiting` and `reconcile` share the failed variant's LAYOUT, which is
+  // what they did implicitly before the mapping became total. The status word
+  // below stays distinct so the row does not claim a failure that did not
+  // happen: an order that exists, or may exist, is not an order that failed.
+  const failed = state === "failed" || state === "awaiting" || state === "reconcile";
+  const statusWord =
+    state === "record"
+      ? "created"
+      : state === "awaiting"
+        ? "pending rates"
+        : state === "reconcile"
+          ? "unreconciled"
+          : state === "failed"
+            ? "failed"
+            : "not yet";
   // Totals derived from the SAME rows the structure renders. Deriving them
   // from anything else is how a receipt shows one order and totals another.
   const rows = structure.kind === "planned" ? structure.rows : [];
@@ -487,7 +509,7 @@ export function OrderReceipt({
             )}
           </span>
           <span className="val">
-            {placed ? "created" : failed ? "failed" : "not yet"}
+            {statusWord}
           </span>
         </div>
         <div className={"r9-so-srow " + (placed ? "done" : "")}>

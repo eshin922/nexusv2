@@ -58,6 +58,8 @@ import { markComplete } from "@/app/actions/quotes";
 import { AdvanceBar } from "./advance-bar";
 import { OrderReceipt } from "./order-receipt";
 import type { OrderReceiptFlag, OrderReceiptOneTime, OrderReceiptStructure, ReceiptState } from "./order-receipt";
+import { receiptVariantFor, variantImpliesOrderMayExist } from "@/lib/netsuite/receipt-variant";
+import { resumeSalesOrderPush } from "@/app/actions/quotes";
 import { SendOrderModal } from "./send-order-modal";
 import type { SubTabId } from "./subtabs";
 import { runGoverned } from "@/lib/governed-action";
@@ -211,15 +213,16 @@ export function TabSalesOrder({
   // variant's LAYOUT (no surface redesign) but must not reuse its copy: "the
   // order didn't reach NetSuite" is simply false here, and the operator needs
   // the tranid so Accounting can find the order.
-  const isAwaitingRates =
-    soPushMirror.pushStatus === "awaiting_rates" && !isComplete;
-  const hasFailedPush =
-    (soPushMirror.pushStatus === "failed" || isAwaitingRates) && !isComplete;
-  const realVariant: ReceiptState = isComplete
-    ? "record"
-    : hasFailedPush
-      ? "failed"
-      : "pending";
+  // W1 - one TOTAL mapping, replacing the ternary chain whose open `else`
+  // sent `needs_reconciliation` to `pending`. See receipt-variant.ts: the
+  // switch has no usable default, so a sixth push state breaks the build here
+  // rather than rendering as an invitation to send.
+  const realVariant: ReceiptState = receiptVariantFor(
+    soPushMirror.pushStatus,
+    isComplete,
+  );
+  const isAwaitingRates = realVariant === "awaiting";
+  const isNeedsReconciliation = realVariant === "reconcile";
   const variant: ReceiptState = devVariant ?? realVariant;
 
   // Resolve the carried tier (customer_accepted_tier_id or fallback
@@ -535,6 +538,41 @@ export function TabSalesOrder({
     disabledReasons.push(`Blocked — ${dealBlocker.remediation}`);
   }
 
+  /**
+   * W1 - CONTINUE an existing order. Not Send.
+   *
+   * The distinction is not cosmetic: the server action refuses unless the
+   * latest attempt is `awaiting_rates` WITH an SO id, and that precondition
+   * implies `mustNotCreate`, so this path cannot issue a CREATE. Pressing it
+   * twice is safe for the same reason -- the second call re-enters against the
+   * same durable attempt and re-converges rates that are already correct.
+   */
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  function onResume() {
+    setResumeError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("quoteId", quoteId);
+      // Routed through `runGoverned`: a REJECTED action (unreachable server,
+      // RSC transport failure) is a different outcome from a refused one, and
+      // calling the action directly would make the first invisible. Resuming
+      // is safe to repeat, so the unreachable case says so rather than leaving
+      // the operator guessing.
+      const res = await runGoverned(() => resumeSalesOrderPush(fd));
+      if (res.kind === "ok") {
+        router.refresh();
+        return;
+      }
+      setResumeError(
+        res.kind === "unreachable"
+          ? "Couldn't reach the server, so it is not known whether the order was continued. " +
+              "Reload and check the order below — continuing again is safe, because it resumes " +
+              "the same Sales Order rather than creating another."
+          : res.message,
+      );
+    });
+  }
+
   const sendDisabled =
     belowFloorDisabled ||
     unmappedCustomerDisabled ||
@@ -628,7 +666,19 @@ export function TabSalesOrder({
 
   // ── Accepted / complete / failed states — the receipt ────────
   const placed = variant === "record";
+  // W1 - LAYOUT vs COPY, kept apart.
+  //
+  // Before the total mapping, `awaiting_rates` arrived here literally AS
+  // "failed", so it rendered the failed LAYOUT with its own copy. Now that it
+  // has its own variant, that layout has to be requested explicitly or the
+  // surface silently changes shape for a state whose presentation was correct.
+  // `reconcile` joins it: same layout, its own copy.
+  //
+  // `failed` stays exactly as narrow as it was -- it drives the copy that says
+  // the order did not reach NetSuite, which is true of one state only.
   const failed = variant === "failed";
+  const usesFailedLayout =
+    variant === "failed" || variant === "awaiting" || variant === "reconcile";
 
   // Which error to render in the failed tab's split-banner error
   // slot. Priority: in-flight error from this session's attempt >
@@ -651,16 +701,26 @@ export function TabSalesOrder({
       ? soPushMirror.soTranid
         ? `Sales Order ${soPushMirror.soTranid} created · pricing completion pending`
         : "Sales Order created · pricing completion pending"
-      : failed
-        ? "The order didn't reach NetSuite"
-        : `Send ${view.customer.name ?? "the customer"}'s order to NetSuite`;
+      : isNeedsReconciliation
+        ? soPushMirror.soId
+          ? `A Sales Order (${soPushMirror.soId}) may already exist for this deal`
+          : "A Sales Order may already exist for this deal"
+        : failed
+          ? "The order didn't reach NetSuite"
+          : `Send ${view.customer.name ?? "the customer"}'s order to NetSuite`;
   const lede = placed
     ? "This is the canonical record of what was agreed and what was ordered. The quote and every sub-tab are read-only."
     : isAwaitingRates
       ? "The order exists in NetSuite. Its negotiated line pricing is still being applied — safe to retry; retrying continues the same order rather than creating a second one."
-      : failed
-        ? "Two things are true at once — read both before you retry."
-        : "Everything below goes to NetSuite exactly as shown. Read it, then send.";
+      : isNeedsReconciliation
+        ? // No adopt/abandon control is offered: there is no governed
+          // disposition for choosing between a candidate order and this quote,
+          // and inventing one here would make a commercial decision the
+          // business has not made. State the conflict; name what is known.
+          "NetSuite reported an existing order for this deal, and it could not be matched to this quote. Nexus will not send another order until this is resolved — check the deal in NetSuite, then bring what you find back here."
+        : failed
+          ? "Two things are true at once — read both before you retry."
+          : "Everything below goes to NetSuite exactly as shown. Read it, then send.";
 
   return (
     <div className="r9-wrap">
@@ -668,7 +728,7 @@ export function TabSalesOrder({
         <div>
           <p className="eyebrow">
             Sub-tab 5 · Sales Order ·{" "}
-            {placed ? "record" : failed ? "push failed" : "pending"}
+            {placed ? "record" : isAwaitingRates ? "awaiting rates" : isNeedsReconciliation ? "needs reconciliation" : failed ? "push failed" : "pending"}
           </p>
           <h1 className="r8-h1">{headingText}</h1>
           <p className="r8-sub">{lede}</p>
@@ -680,7 +740,7 @@ export function TabSalesOrder({
               placeholder — it's the persisted error from
               netsuite_so_pushes, verbatim from markComplete's guard
               chain. */}
-          {failed && (
+          {usesFailedLayout && (
             <div className="r9-so-split">
               <div className="half held">
                 <div className="k">
@@ -1026,6 +1086,34 @@ export function TabSalesOrder({
                   Send is disabled
                 </strong>
                 {disabledReason}
+              </div>
+            )}
+            {isAwaitingRates && (
+              <div className="r9-resume" role="group" aria-label="Continue this Sales Order">
+                <p>
+                  <strong>
+                    {soPushMirror.soTranid
+                      ? `Sales Order ${soPushMirror.soTranid} exists in NetSuite.`
+                      : soPushMirror.soId
+                        ? `Sales Order ${soPushMirror.soId} exists in NetSuite.`
+                        : "The Sales Order exists in NetSuite."}
+                  </strong>{" "}
+                  Its line pricing was not finished. Continuing picks up the
+                  same order where it stopped — it does not create a second one.
+                </p>
+                <button
+                  type="button"
+                  className="r8-adv-btn"
+                  onClick={onResume}
+                  disabled={isPending}
+                >
+                  {isPending ? "Continuing…" : "Continue this order"}
+                </button>
+                {resumeError && (
+                  <p className="err" role="alert">
+                    {resumeError}
+                  </p>
+                )}
               </div>
             )}
             <AdvanceBar

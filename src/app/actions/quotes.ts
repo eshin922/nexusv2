@@ -5143,6 +5143,115 @@ export async function renameScenarioLabel(input: {
 }
 
 // ============================================================
+// ============================================================
+// W1 · resumeSalesOrderPush — CONTINUE an order, never create one
+// ============================================================
+//
+// A Sales Order in `awaiting_rates` EXISTS at the provider. Its member rates,
+// tax enforcement and freeze may all be outstanding, and the machinery to
+// finish them already exists -- `runMarkComplete` skips CREATE entirely when
+// `mustNotCreate` holds, reads the order back structurally and completes it.
+// What did not exist was any way for an operator to invoke that.
+//
+// ── WHY THIS IS NOT "SEND AGAIN" ────────────────────────────────────────
+//
+// Send is offered when no order exists. This is offered only when one does,
+// and the guard below is what makes that structural rather than advisory:
+//
+//     isResumable(a)  =  a.status === "awaiting_rates" && a.netsuiteSoId !== null
+//     mustNotCreate(a) =  a.netsuiteSoId !== null || a.status === "needs_reconciliation"
+//
+// so `isResumable` IMPLIES `mustNotCreate`, over the whole state space. The
+// resume path therefore cannot reach a CREATE -- not because the caller is
+// careful, but because the precondition for offering resume is strictly
+// stronger than the precondition for suppressing creation. That implication is
+// asserted exhaustively rather than assumed.
+//
+// Idempotent by the same route: a second resume re-enters with the same
+// durable attempt, skips CREATE again, and re-converges rates that are already
+// correct. An interruption mid-resume leaves the row exactly where it was --
+// still `awaiting_rates`, still owning its snapshot, still resumable.
+//
+// C3 · This adds no new authority. `mustNotCreate`, `ownsSnapshot`,
+// `failureStatusFor` and migration 0065's ownership rule are untouched; resume
+// consults them, it does not extend them.
+export async function resumeSalesOrderPush(
+  formData: FormData,
+): Promise<ActionResult<Awaited<ReturnType<typeof markComplete>> extends ActionResult<infer T> ? T : never>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+
+    const { isResumable } = await import("@/lib/netsuite/attempt-lifecycle-rules");
+    const { netsuiteSoPushes } = await import("@/db/schema");
+
+    const [attempt] = await db
+      .select({
+        status: netsuiteSoPushes.status,
+        netsuiteSoId: netsuiteSoPushes.netsuiteSoId,
+        netsuiteSoTranid: netsuiteSoPushes.netsuiteSoTranid,
+      })
+      .from(netsuiteSoPushes)
+      .where(eq(netsuiteSoPushes.quoteId, quoteId))
+      .orderBy(desc(netsuiteSoPushes.createdAt))
+      .limit(1);
+
+    // The refusal is business-facing on purpose: an operator who reaches this
+    // has been told an order exists, and "nothing to resume" must say which of
+    // the two things is not true rather than failing generically.
+    if (!attempt) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "There is no Sales Order attempt on this quote to continue. Use Send order to NetSuite.",
+      );
+    }
+    if (!isResumable({ status: attempt.status, netsuiteSoId: attempt.netsuiteSoId })) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        attempt.netsuiteSoId
+          ? `This order is ${attempt.status}, not awaiting rate completion, so there is nothing to continue.`
+          : "No Sales Order exists for this quote yet, so there is nothing to continue. Use Send order to NetSuite.",
+      );
+    }
+
+    const { runMarkComplete } = await import("@/lib/netsuite/mark-complete");
+    const { NetsuiteError } = await import("@/lib/netsuite/errors");
+
+    let result;
+    try {
+      result = await runMarkComplete({ quoteId, actorUserId: user.id });
+    } catch (e) {
+      if (e instanceof NetsuiteError) {
+        throw new ActionGuardError(
+          ERR.HUBSPOT,
+          `NetSuite ${e.className}: ${e.context.detail}`,
+        );
+      }
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+
+    const quote = await loadQuoteOrThrow(quoteId);
+    revalidateQuoteLifecycleSurfaces(quote.projectId, quoteId);
+    // Same projection markComplete returns, so the two paths are
+    // indistinguishable to the caller -- a resumed order and a fresh one are
+    // the same order.
+    return {
+      completedAt: result.completedAt,
+      netsuiteSalesOrderId: result.netsuite.salesOrderId,
+      netsuiteSalesOrderTranid: result.netsuite.salesOrderTranid,
+      amountPushed: result.netsuite.amountPushed,
+      retryOutcome: result.retryOutcome,
+      amountPatchStatus: result.amountPatch.status,
+    };
+  });
+}
+
 // Slice 12 Step 8c-3 — markComplete server action
 // ============================================================
 //
