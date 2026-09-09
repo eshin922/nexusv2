@@ -23,14 +23,17 @@ import {
   canChoose,
   closePanel,
   initialSession,
-  issueSearch,
+  noteSearchIssued,
   openPanel,
   receive,
   saveFailed,
   saveSucceeded,
-  shouldAccept,
+  shouldAcceptSearch,
   visibleCandidates,
+  type SaveTicket,
   type SearchOutcome,
+  type SearchTicket,
+  type SessionState,
 } from "../../src/lib/admin/customer-search-session.ts";
 
 // ── 1 · production configuration ───────────────────────────────────────────
@@ -142,7 +145,16 @@ test("a production MUTATION still never reaches the wire", async () => {
   }
 });
 
-// ── 2 · results and selection are bound to their origin ────────────────────
+// ── 2 · results and selection are bound to their origin ───────────────────
+//
+// These are the RULES, exhaustively. That the component invokes them is a
+// separate question, answered by `customer-map-view-mounted.test.tsx` -- and
+// it has to be asked separately: every test in this file passed while the
+// component was issuing no search request at all.
+//
+// Epochs are minted by the caller here exactly as the component mints them
+// from refs, because a counter that must be readable at the instant of a click
+// cannot live in React state.
 
 const OK = (ids: string[]): SearchOutcome => ({
   state: "ok",
@@ -154,34 +166,90 @@ const OK = (ids: string[]): SearchOutcome => ({
   })),
 });
 
+/** Mirrors the component's ref-held counters. */
+function harness() {
+  let epoch = 0;
+  let seq = 0;
+  let state: SessionState = initialSession;
+  return {
+    get state() {
+      return state;
+    },
+    open(companyId: string, query = "") {
+      state = openPanel(state, companyId, query, ++epoch);
+    },
+    close() {
+      state = closePanel(state, ++epoch);
+    },
+    issue(): SearchTicket {
+      const ticket: SearchTicket = {
+        epoch,
+        seq: ++seq,
+        companyId: state.openCompanyId ?? "",
+        query: state.query,
+      };
+      state = noteSearchIssued(state, ticket);
+      return ticket;
+    },
+    receive(ticket: SearchTicket, outcome: SearchOutcome) {
+      state = receive(state, ticket, outcome);
+    },
+    saveTicket(netsuiteCustomerId: string): SaveTicket {
+      return {
+        epoch,
+        companyId: state.openCompanyId ?? "",
+        netsuiteCustomerId,
+      };
+    },
+    begin(t: SaveTicket) {
+      state = beginSave(state, t);
+    },
+    fail(t: SaveTicket, detail: string) {
+      state = saveFailed(state, t, detail);
+    },
+    succeed(t: SaveTicket) {
+      state = saveSucceeded(state, t, ++epoch);
+    },
+  };
+}
+
 test("switching companies while a search is pending DISCARDS the response", () => {
-  // The corruption path: A's candidates render under B's heading, and
-  // "Use this customer" maps B to A's customer. Nothing looks wrong on screen.
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = state;
+  const h = harness();
+  h.open("company-A", "Acme");
+  const ticket = h.issue();
+  h.open("company-B", "Beta");
 
-  // the admin switches before the response lands
-  s = openPanel(s, "company-B", "Beta");
+  assert.equal(shouldAcceptSearch(h.state, ticket), false);
+  h.receive(ticket, OK(["A-1"]));
+  assert.equal(h.state.results, null, "A's response must not surface under B");
+  assert.equal(visibleCandidates(h.state), null);
+});
 
-  assert.equal(shouldAccept(s, ticket), false);
-  s = receive(s, ticket, OK(["A-1", "A-2"]));
-  assert.equal(s.results, null, "A's response must not surface under B");
-  assert.equal(visibleCandidates(s), null);
+test("A → close → reopen A discards the first response", () => {
+  // Same company, different panel session. A company check alone readmits it;
+  // this is the case the epoch exists for.
+  const h = harness();
+  h.open("company-A", "Acme");
+  const ticket = h.issue();
+  h.close();
+  h.open("company-A", "Acme");
+
+  assert.equal(shouldAcceptSearch(h.state, ticket), false);
+  h.receive(ticket, OK(["stale"]));
+  assert.equal(visibleCandidates(h.state), null);
 });
 
 test("a superseded search of the SAME company is discarded", () => {
-  let s = openPanel(initialSession, "company-A", "Ac");
-  const first = issueSearch(s);
-  s = first.state;
-  const second = issueSearch(s);
-  s = second.state;
+  const h = harness();
+  h.open("company-A", "Ac");
+  const first = h.issue();
+  const second = h.issue();
 
   // The slower first request returns last — the classic out-of-order finish.
-  s = receive(s, second.ticket, OK(["fresh"]));
-  s = receive(s, first.ticket, OK(["stale"]));
+  h.receive(second, OK(["fresh"]));
+  h.receive(first, OK(["stale"]));
 
-  const out = visibleCandidates(s);
+  const out = visibleCandidates(h.state);
   assert.ok(out && out.state === "ok");
   assert.deepEqual(
     out.state === "ok" ? out.candidates.map((c) => c.netsuiteCustomerId) : [],
@@ -191,92 +259,110 @@ test("a superseded search of the SAME company is discarded", () => {
 });
 
 test("closing the panel while a search is pending discards the response", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = closePanel(state);
-  s = receive(s, ticket, OK(["A-1"]));
-  assert.equal(s.results, null);
+  const h = harness();
+  h.open("company-A", "Acme");
+  const ticket = h.issue();
+  h.close();
+  h.receive(ticket, OK(["A-1"]));
+  assert.equal(h.state.results, null);
 });
 
 test("a candidate cannot be chosen for a company it did not come from", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = receive(state, ticket, OK(["A-1"]));
+  const h = harness();
+  h.open("company-A", "Acme");
+  const ticket = h.issue();
+  h.receive(ticket, OK(["A-1"]));
 
-  assert.equal(canChoose(s, "company-A", "A-1"), true);
-  // wrong company
-  assert.equal(canChoose(s, "company-B", "A-1"), false);
-  // a customer that was never in this result set
-  assert.equal(canChoose(s, "company-A", "SOMETHING-ELSE"), false);
+  assert.equal(canChoose(h.state, "company-A", "A-1"), true);
+  assert.equal(canChoose(h.state, "company-B", "A-1"), false);
+  assert.equal(canChoose(h.state, "company-A", "SOMETHING-ELSE"), false);
 });
 
 test("switching companies leaves nothing choosable until the new search returns", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const a = issueSearch(s);
-  s = receive(a.state, a.ticket, OK(["A-1"]));
-  s = openPanel(s, "company-B", "Beta");
-  assert.equal(canChoose(s, "company-B", "A-1"), false);
-  assert.equal(canChoose(s, "company-A", "A-1"), false);
+  const h = harness();
+  h.open("company-A", "Acme");
+  h.receive(h.issue(), OK(["A-1"]));
+  h.open("company-B", "Beta");
+  assert.equal(canChoose(h.state, "company-B", "A-1"), false);
+  assert.equal(canChoose(h.state, "company-A", "A-1"), false);
 });
 
 test("an unavailable response is not choosable and is not an empty result", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = receive(state, ticket, { state: "unavailable", detail: "connection reset" });
-  const out = visibleCandidates(s);
+  const h = harness();
+  h.open("company-A", "Acme");
+  h.receive(h.issue(), { state: "unavailable", detail: "connection reset" });
+  const out = visibleCandidates(h.state);
   assert.ok(out && out.state === "unavailable");
-  assert.equal(canChoose(s, "company-A", "anything"), false);
+  assert.equal(canChoose(h.state, "company-A", "anything"), false);
 });
 
 test("sequence numbers never restart — a reopened panel cannot collide", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const a = issueSearch(s);
-  s = openPanel(a.state, "company-B", "Beta");
-  const b = issueSearch(s);
-  assert.notEqual(a.ticket.seq, b.ticket.seq);
-  // A's in-flight response cannot match B's ticket by coincidence.
-  assert.equal(shouldAccept(b.state, a.ticket), false);
+  const h = harness();
+  h.open("company-A", "Acme");
+  const a = h.issue();
+  h.open("company-B", "Beta");
+  const b = h.issue();
+  assert.notEqual(a.seq, b.seq);
+  assert.equal(shouldAcceptSearch(h.state, a), false);
 });
 
-// ── 3 · a failed save is visible, and retryable ────────────────────────────
+// ── 3 · a save result belongs to the panel that started it ─────────────────
 
 test("a failed save keeps the panel open with the reason inside it", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = receive(state, ticket, OK(["A-1"]));
-  s = beginSave(s);
-  s = saveFailed(s, "NetSuite could not be reached, so the mapping was not saved.");
+  const h = harness();
+  h.open("company-A", "Acme");
+  h.receive(h.issue(), OK(["A-1"]));
+  const t = h.saveTicket("A-1");
+  h.begin(t);
+  h.fail(t, "NetSuite could not be reached, so the mapping was not saved.");
 
-  assert.equal(s.openCompanyId, "company-A", "the panel must not close");
-  assert.match(String(s.panelError), /not saved/);
-  assert.equal(s.saving, false, "and the control must be usable again");
+  assert.equal(h.state.openCompanyId, "company-A", "the panel must not close");
+  assert.match(String(h.state.panelError), /not saved/);
+  assert.equal(h.state.saving, false, "and the control must be usable again");
 });
 
 test("retry after a failure works, and clears the error", () => {
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = receive(state, ticket, OK(["A-1"]));
-  s = saveFailed(beginSave(s), "transient");
+  const h = harness();
+  h.open("company-A", "Acme");
+  h.receive(h.issue(), OK(["A-1"]));
+  const t = h.saveTicket("A-1");
+  h.begin(t);
+  h.fail(t, "transient");
 
-  // the candidate is still on screen and still choosable — that IS the retry
-  assert.equal(canChoose(s, "company-A", "A-1"), true);
+  assert.equal(canChoose(h.state, "company-A", "A-1"), true, "still retryable");
 
-  s = beginSave(s);
-  assert.equal(s.panelError, null, "retry clears the stale error");
-  assert.equal(canChoose(s, "company-A", "A-1"), false, "no double-submit mid-save");
+  h.begin(t);
+  assert.equal(h.state.panelError, null, "retry clears the stale error");
+  assert.equal(canChoose(h.state, "company-A", "A-1"), false, "no double-submit");
 
-  s = saveSucceeded(s);
-  assert.equal(s.openCompanyId, null, "success closes the panel");
-  assert.equal(s.panelError, null);
+  h.succeed(t);
+  assert.equal(h.state.openCompanyId, null, "success closes the panel");
+  assert.equal(h.state.panelError, null);
+});
+
+test("save A → open B → A resolves: B is untouched", () => {
+  const h = harness();
+  h.open("company-A", "Acme");
+  h.receive(h.issue(), OK(["A-1"]));
+  const t = h.saveTicket("A-1");
+  h.begin(t);
+  h.open("company-B", "Beta");
+
+  h.succeed(t);
+  assert.equal(h.state.openCompanyId, "company-B", "B must stay open");
+  h.fail(t, "A failed");
+  assert.equal(h.state.panelError, null, "and must not inherit A's error");
 });
 
 test("a failure does not strand the panel in a saving state", () => {
-  // The shape that produces a permanently disabled button with nothing on
+  // The shape that produces a permanently disabled control with nothing on
   // screen explaining it — Pattern 47(f), in miniature.
-  let s = openPanel(initialSession, "company-A", "Acme");
-  const { state, ticket } = issueSearch(s);
-  s = receive(state, ticket, OK(["A-1"]));
-  s = saveFailed(beginSave(s), "boom");
-  assert.equal(s.saving, false);
-  assert.ok(s.panelError, "a disabled-then-re-enabled control must say why");
+  const h = harness();
+  h.open("company-A", "Acme");
+  h.receive(h.issue(), OK(["A-1"]));
+  const t = h.saveTicket("A-1");
+  h.begin(t);
+  h.fail(t, "boom");
+  assert.equal(h.state.saving, false);
+  assert.ok(h.state.panelError, "a re-enabled control must say why it stalled");
 });
