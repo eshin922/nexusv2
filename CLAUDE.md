@@ -72,18 +72,27 @@ while establishing nothing.
   Continue the verification that IS available, state precisely what remains
   unverified, and name the access or harness change that would close it.
 
-**Known harness defects blocking the isolated path (2026-09-08).** Both are
-pre-existing and unrelated to the change that surfaced them; both need a
-separately scoped repair:
+**Known harness defect blocking the isolated path (2026-09-08).** Pre-existing
+and unrelated to the change that surfaced it; needs a separately scoped repair:
 
-1. `npm run validation:seed` fails on `assembly_leaf_inputs.quote_leaf_id`
-   NOT NULL — the same shape as the 0066 attach-product break.
-2. The harness identity `pm@nexus-validation.invalid` is refused at sign-in by
-   the corporate-email gate (`non_corporate_identity` in
-   `src/lib/auth/pending-binding.ts`), so `validation:app` returns 500 on every
-   authenticated route.
+`tests/harness/fixtures/world.ts` writes `assembly_leaf_inputs` twice (near
+lines 315 and 611) without `quote_leaf_id`, which migration 0066 made NOT NULL.
+`npm run validation:seed` therefore aborts.
 
-Until those are repaired, mounted-component tests with injected service
+**The sign-in refusal is a SYMPTOM of that, not a second defect.**
+`seedFixtureWorld` runs one transaction spanning the whole seed, so the failed
+insert rolls back the `users` rows it also writes. `ensureUserWithAuthentication`
+then finds no row for `validation_clerk_pm`, falls through to
+`bindPendingUser`, and refuses `pm@nexus-validation.invalid` as a non-corporate
+identity — which is the production rule behaving correctly against a database
+that was never seeded.
+
+Recorded because the misreading is expensive in one specific direction: treated
+as an auth defect, the tempting "fix" is to relax `isCorporateEmail` for
+isolated mode. That would weaken an authentication rule to work around a
+missing NOT NULL column. **The identity path needs no change.**
+
+Until the seeder is repaired, mounted-component tests with injected service
 doubles are the available pre-merge path for operator-facing behaviour.
 
 # Project validation policy
