@@ -1,0 +1,78 @@
+{
+  "category": "browser",
+  "surface": "http://127.0.0.1:3100/admin/netsuite-customer-map",
+  "identity": "admin",
+  "conditions": {
+    "NEXUS_FAKE_NETSUITE_DELAY_MS": 3000,
+    "why": "readCustomerTerms is what a save waits on. Without injected latency a save resolves before a human could switch panels, so the race is unobservable and a green result would prove only that it did not happen."
+  },
+  "results": [
+    {
+      "id": "BR1",
+      "verdict": "PASS",
+      "detail": "Admin page renders 3 companies, unmapped first (data-mapped=0 at index 0).",
+      "observed": {
+        "rows": [
+          "Validation Unmapped Customer (mapped=0)",
+          "Validation Alt-Terms Customer (mapped=1)",
+          "Validation Customer (mapped=1)"
+        ]
+      }
+    },
+    {
+      "id": "BR2",
+      "verdict": "PASS",
+      "detail": "A search that RAN and matched nothing says so; it is not the unavailable state.",
+      "observed": { "defaultQuery": "Validation Unmapped Customer", "candidates": 0, "emptyMessageShown": true }
+    },
+    {
+      "id": "BR3",
+      "verdict": "PASS",
+      "detail": "Ambiguity is shown and nothing is auto-selected.",
+      "observed": { "candidates": ["validation_ns_customer", "validation_ns_customer_broken", "validation_ns_customer_alt"], "copy": "3 customers match" }
+    },
+    {
+      "id": "BR4",
+      "verdict": "PASS",
+      "detail": "A failing save is VISIBLE inside the panel, and the panel stays open.",
+      "observed": {
+        "midFlightLabel": "Saving…",
+        "midFlightDisabled": true,
+        "panelStillOpen": true,
+        "errorInsidePanel": true,
+        "errorText": "NetSuite has no customer with internal id validation_ns_customer_broken. Nothing was saved.",
+        "candidatesStillListed": 3
+      }
+    },
+    {
+      "id": "BR5",
+      "verdict": "PASS",
+      "detail": "Retry after that failure succeeds, in the same session.",
+      "observed": {
+        "panelClosed": true,
+        "errorCleared": true,
+        "notice": "Validation Unmapped Customer mapped to Validation Customer. Governed payment terms: Net 30.",
+        "rowNowMapped": "1"
+      }
+    },
+    {
+      "id": "E1",
+      "verdict": "PASS",
+      "detail": "save A -> switch to B mid-flight -> A resolves: B is untouched AND still works. This is the sequence the epoch desync broke, where B looked normal and was inert.",
+      "observed": {
+        "aSavingMidFlight": "Saving…",
+        "panelAfterSwitch": "validation_hs_company_local-example",
+        "panelAfterAResolved": "validation_hs_company_local-example",
+        "errorLeakedFromA": false,
+        "noticeNamesA": "Validation Alt-Terms Customer mapped to Validation Customer. Governed payment terms: Net 30.",
+        "bSearchAfterAResolved": ["validation_ns_customer", "validation_ns_customer_broken", "validation_ns_customer_alt"],
+        "bSaveSucceeded": true,
+        "bNotice": "Validation Customer mapped to Validation Customer. Governed payment terms: Net 30."
+      }
+    }
+  ],
+  "pass": 6,
+  "fail": 0,
+  "blocked": 0,
+  "screenshot": ".artifacts/pr-557/admin-customer-map.jpg"
+}

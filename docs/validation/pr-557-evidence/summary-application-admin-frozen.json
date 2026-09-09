@@ -1,0 +1,17 @@
+{
+  "category": "application",
+  "identity": "admin",
+  "scenario": "success",
+  "pass": 1,
+  "fail": 0,
+  "blocked": 0,
+  "results": [
+    {
+      "id": "FROZEN",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "sent quote shows \"Frozen Net 45\" (exact \"Frozen Net 45\") while the customer's CURRENT term is \"Net 15 CHANGED\"",
+      "artifact": ".artifacts/pr-557/preview-sent.html"
+    }
+  ]
+}

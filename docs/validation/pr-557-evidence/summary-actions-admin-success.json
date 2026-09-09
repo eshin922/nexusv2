@@ -1,0 +1,52 @@
+{
+  "category": "server-action",
+  "identity": "admin",
+  "scenario": "success",
+  "pass": 6,
+  "fail": 0,
+  "blocked": 0,
+  "results": [
+    {
+      "id": "B1",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "3 companies; unmapped company at index 0, first mapped at 1",
+      "artifact": null
+    },
+    {
+      "id": "B2",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "2 candidates returned for an ambiguous query: validation_ns_customer, validation_ns_customer_alt",
+      "artifact": null
+    },
+    {
+      "id": "B4a",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "before mapping: kind=unverified reason=no_lineage printed=\"—\"",
+      "artifact": null
+    },
+    {
+      "id": "B3",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "row=true verified_at=true audit rows=1 · governed terms read back=\"Net 30\"",
+      "artifact": null
+    },
+    {
+      "id": "B4",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "after mapping: resolver kind=verified printed=\"Net 30\" (exact \"Net 30\")",
+      "artifact": null
+    },
+    {
+      "id": "B4r",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "reopened quote renders terms=\"Net 30\" verified=true · operator notice gone=true",
+      "artifact": ".artifacts/pr-557/preview-after-mapping.html"
+    }
+  ]
+}

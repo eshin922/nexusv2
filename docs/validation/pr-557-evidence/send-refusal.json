@@ -1,0 +1,21 @@
+{
+  "refusal": "Customer payment terms could not be verified. No verified NetSuite customer is mapped to this HubSpot company, so its governed payment terms cannot be read. Resolve the customer's NetSuite Terms before sending — the firm-wide default is not authority for a customer commitment.",
+  "before": [
+    {
+      "status": "draft",
+      "quoteNumber": null,
+      "sentAt": null,
+      "pdfUrl": null,
+      "snapshot": null
+    }
+  ],
+  "after": [
+    {
+      "status": "draft",
+      "quoteNumber": null,
+      "sentAt": null,
+      "pdfUrl": null,
+      "snapshot": null
+    }
+  ]
+}

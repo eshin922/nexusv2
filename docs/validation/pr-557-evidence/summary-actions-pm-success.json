@@ -1,0 +1,17 @@
+{
+  "category": "server-action",
+  "identity": "pm",
+  "scenario": "success",
+  "pass": 1,
+  "fail": 0,
+  "blocked": 0,
+  "results": [
+    {
+      "id": "C2",
+      "category": "server-action",
+      "verdict": "PASS",
+      "detail": "PM refused: search=true save=true list=true · mapping rows 2->2 · audit rows 7->7",
+      "artifact": ".artifacts/pr-557/pm-action-denial.json"
+    }
+  ]
+}
