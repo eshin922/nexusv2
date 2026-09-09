@@ -221,16 +221,34 @@ export function saveFailed(
 }
 
 /**
- * Success closes the originating panel under a fresh epoch.
+ * Success closes the originating panel.
  *
- * If the admin has since moved to another company, this does nothing visible —
+ * If the admin has since moved to another company, this does nothing --
  * closing the panel they are now working in, because a different save
  * finished, is the same class of defect as showing them its error.
+ *
+ * -- WHY THIS DOES NOT MINT A NEW EPOCH ------------------------------------
+ *
+ * An earlier version took one, and the caller computed it as
+ * `++epochRef.current` BEFORE calling. That bump was unconditional while the
+ * acceptance below is not, so a stale completion that was correctly rejected
+ * still advanced the counter -- leaving the ref ahead of `panelEpoch`. Every
+ * subsequent search and save on the panel the admin was actually using then
+ * minted a ticket that could never match, and was silently discarded. The
+ * ownership check protected the state while the counter moved out from under
+ * it.
+ *
+ * No epoch is needed. Clearing `openCompanyId` already refuses outstanding
+ * work from this session, and the next `openPanel` mints a fresh epoch anyway.
+ *
+ * The general rule, and the reason the parameter is GONE rather than guarded:
+ * ASYNC COMPLETIONS NEVER MINT EPOCHS. Only `openPanel` and `closePanel` do,
+ * because only they are synchronous user actions whose ownership is not in
+ * question.
  */
 export function saveSucceeded(
   s: SessionState,
   ticket: SaveTicket,
-  epoch: number,
 ): SessionState {
   if (!shouldAcceptSaveResult(s, ticket)) return s;
   return {
@@ -238,7 +256,6 @@ export function saveSucceeded(
     saving: false,
     panelError: null,
     openCompanyId: null,
-    panelEpoch: epoch,
     results: null,
   };
 }

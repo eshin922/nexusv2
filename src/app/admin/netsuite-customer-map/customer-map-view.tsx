@@ -141,8 +141,12 @@ export function CustomerMapView({
         setSession((s) => saveFailed(s, ticket, res.error.message));
         return;
       }
-      const epoch = ++epochRef.current;
-      setSession((s) => saveSucceeded(s, ticket, epoch));
+      // No epoch bump here. It would run unconditionally while the acceptance
+      // inside `saveSucceeded` does not, so a stale success would advance the
+      // ref past the panel the admin is actually using -- silently killing its
+      // searches and saves, because every ticket it then minted could no
+      // longer match `panelEpoch`.
+      setSession((s) => saveSucceeded(s, ticket));
       // Names the company, because by now the admin may be looking at another.
       const company =
         rows.find((r) => r.hubspotCompanyId === companyId)?.hubspotCompanyName ??
