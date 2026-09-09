@@ -8,6 +8,7 @@ import { longDate } from "@/lib/customer-dates";
 // second copy of the words, and NOT a second derivation of inclusion -- this
 // renderer reads `view.landedLogistics.included` and states it.
 import { FREIGHT_INCLUDED_SENTENCE } from "@/lib/landed-logistics";
+import { presentPaymentTerms } from "@/lib/payment-terms-presentation";
 import "@/styles/pp-customer-document.css";
 import "@/styles/pp-customer-document-fit.css";
 
@@ -135,6 +136,30 @@ function useFitScale() {
 
 export function CustomerViewLive({ view }: { view: CustomerView }) {
   const { tiers, skus, serviceFees, freightLines, quote, vendor, customer } = view;
+
+  // ── THE DOCUMENT STATES ONLY WHAT IT HAS AUTHORITY FOR ─────────────────
+  //
+  // A payment term is a commercial commitment. When the customer governed
+  // term cannot be read, this sheet previously printed
+  // `firm_settings.payment_terms_default` -- a firm-wide string with no
+  // customer dimension -- in the same register as a verified one, so a Net 90
+  // customer read as "50% deposit, 50% on shipment" with nothing on screen
+  // marking the difference.
+  //
+  // It now prints nothing rather than something unauthorised. The marker and
+  // the remedy live in the PM chrome OUTSIDE this sheet (`quote-host`),
+  // deliberately: this component and the PDF are two renderings of one
+  // artifact, and an operator-only badge inside the body would make the
+  // preview stop predicting the document it is previewing.
+  //
+  // Sending while unverified is impossible -- `sendQuote` fails closed -- so
+  // this blank can never reach a customer. It is a draft that has not
+  // established its terms yet, and says so by not asserting any.
+  const paymentTermsPresentation = presentPaymentTerms({
+    source: quote.paymentTermsSource,
+    value: quote.paymentTerms,
+    unresolvedReason: quote.paymentTermsUnresolvedReason,
+  });
   const { ref, scale } = useFitScale();
 
   const turnkey = view.detailLevel === "turnkey_only";
@@ -635,7 +660,11 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 </div>
                 <div className="pp-term">
                   <div className="label">Payment terms</div>
-                  <div className="value">{quote.paymentTerms ?? "—"}</div>
+                  <div className="value" data-terms-verified={paymentTermsPresentation.kind === "verified" ? "1" : "0"}>
+                    {paymentTermsPresentation.kind === "verified"
+                      ? paymentTermsPresentation.value
+                      : "—"}
+                  </div>
                 </div>
                 <div className="pp-term">
                   <div className="label">Lead time</div>

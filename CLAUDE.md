@@ -37,6 +37,64 @@ four-phase model. They are preserved as history in
 `docs/AUTHORITY_TIMELINE.md` Era 1 and in `docs/validation/slice-12-handover.md`,
 which is a historical record and is not retro-edited.
 
+# Authenticated validation: where it may be attempted
+
+**Standing rule — Edward's directive, 2026-09-08. Persisted here because it has
+been re-learned in more than one session, which is the definition of a rule
+that belongs in the repository rather than in a transcript.**
+
+> A sign-in screen is evidence of BLOCKED ACCESS, not of application
+> validation.
+
+An authenticated `nexus.thedps.co` session does NOT grant access to a
+`*.vercel.app` preview origin. They are different origins, so the session
+cookie does not travel. Reopening the preview, retrying SSO, or trying a
+different branch alias does not change this, and each attempt costs a cycle
+while establishing nothing.
+
+**The rules, in force for every session:**
+
+- **Do not attempt authenticated preview validation** unless access to that
+  EXACT origin has explicitly been established. "It is a preview of our app" is
+  not access.
+- **Never bypass SSO, weaken authentication, or change production roles** to
+  make testing possible. A role changed for a test is a production data change
+  wearing a disguise.
+- **Use mounted-component tests with mocked services, plus the isolated
+  validation environment**, for pre-merge verification. That is the supported
+  path.
+- **If the isolated harness is broken**, report its concrete defects and
+  propose a separately scoped repair. Do NOT fall back to the known-blocked
+  preview.
+- **The authenticated production domain certifies DEPLOYED behaviour only**,
+  within the authorised scope. It cannot certify an unmerged change.
+- **Missing preview access is never a reason to merge in order to test.**
+  Continue the verification that IS available, state precisely what remains
+  unverified, and name the access or harness change that would close it.
+
+**Known harness defect blocking the isolated path (2026-09-08).** Pre-existing
+and unrelated to the change that surfaced it; needs a separately scoped repair:
+
+`tests/harness/fixtures/world.ts` writes `assembly_leaf_inputs` twice (near
+lines 315 and 611) without `quote_leaf_id`, which migration 0066 made NOT NULL.
+`npm run validation:seed` therefore aborts.
+
+**The sign-in refusal is a SYMPTOM of that, not a second defect.**
+`seedFixtureWorld` runs one transaction spanning the whole seed, so the failed
+insert rolls back the `users` rows it also writes. `ensureUserWithAuthentication`
+then finds no row for `validation_clerk_pm`, falls through to
+`bindPendingUser`, and refuses `pm@nexus-validation.invalid` as a non-corporate
+identity — which is the production rule behaving correctly against a database
+that was never seeded.
+
+Recorded because the misreading is expensive in one specific direction: treated
+as an auth defect, the tempting "fix" is to relax `isCorporateEmail` for
+isolated mode. That would weaken an authentication rule to work around a
+missing NOT NULL column. **The identity path needs no change.**
+
+Until the seeder is repaired, mounted-component tests with injected service
+doubles are the available pre-merge path for operator-facing behaviour.
+
 # Project validation policy
 
 The isolated validation harness is a first-class subsystem and its gate is

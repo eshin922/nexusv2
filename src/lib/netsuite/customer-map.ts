@@ -96,7 +96,7 @@ export function formatCustomerMissingError(
   const displayName = resolution.hubspotCompanyName
     ? `${resolution.hubspotCompanyName} (HubSpot company ${resolution.hubspotCompanyId})`
     : `HubSpot company ${resolution.hubspotCompanyId}`;
-  return `${displayName} has no NetSuite customer mapping. An admin can add one at /admin/netsuite-customer-map.`;
+  return `${displayName} has no NetSuite customer mapping. An admin can add one in Settings \u2192 NetSuite customers (/admin/netsuite-customer-map).`;
 }
 
 // ---------- admin write path ----------

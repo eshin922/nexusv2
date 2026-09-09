@@ -53,6 +53,13 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
       "Integration settings. Direct Service item mappings decide which NetSuite record each service becomes on a Sales Order.",
   },
   {
+    href: "/admin/netsuite-customer-map",
+    label: "NetSuite customers",
+    nav: "HubSpot company to NetSuite customer",
+    index:
+      "Which NetSuite customer each HubSpot company is. Decides who a Sales Order is raised against and which governed payment terms a quote prints — an unmapped customer cannot be sent.",
+  },
+  {
     href: "/admin/users",
     label: "Users",
     nav: "Manual phone entry for PreparedBy",

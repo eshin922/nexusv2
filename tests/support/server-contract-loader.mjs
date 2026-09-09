@@ -64,3 +64,36 @@ export async function resolve(specifier, context, nextResolve) {
     throw error;
   }
 }
+
+// ── JSX ───────────────────────────────────────────────────────────────────
+//
+// `--experimental-strip-types` erases TYPES; it does not transform JSX, so a
+// `.tsx` file reaches Node as an unknown extension. Mounted component tests
+// need one, so `.tsx` -- and ONLY `.tsx` -- is transpiled here.
+//
+// Deliberately narrow. Every other module keeps going through Node's own type
+// stripping, so adding this changes nothing about how the existing suite is
+// executed: no `.ts` file takes a different path than it did before.
+//
+// TypeScript rather than a bundler because `typescript` is a first-class
+// dependency of this repo; reaching for a transitive one would make the test
+// runner depend on something nobody declared.
+import { readFile } from "node:fs/promises";
+import ts from "typescript";
+
+export async function load(url, context, nextLoad) {
+  if (!url.startsWith("file:") || !url.endsWith(".tsx")) {
+    return nextLoad(url, context);
+  }
+  const source = await readFile(fileURLToPath(url), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    fileName: fileURLToPath(url),
+    compilerOptions: {
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      verbatimModuleSyntax: false,
+    },
+  });
+  return { format: "module", source: outputText, shortCircuit: true };
+}

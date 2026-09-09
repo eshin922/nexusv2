@@ -109,6 +109,41 @@ export const fakeNetSuite: NetSuiteOperations = {
       terms: { id: "validation_ns_terms_net30", refName: "Net 30" },
     };
   },
+  async searchCustomers(query: string) {
+    record("customer-search", { query });
+    fail("customer-search");
+    // `search-unavailable` exists so the harness can exercise the branch that
+    // must NOT read as "no such customer". That distinction is the point of
+    // the outcome union, and a fake that could only succeed would leave the
+    // more dangerous half of it untested.
+    if (scenario() === "search-unavailable") {
+      return { state: "unavailable" as const, detail: "NetSuite unreachable" };
+    }
+    const q = query.trim().toUpperCase();
+    if (!q) return { state: "ok" as const, candidates: [] };
+    const all = [
+      {
+        netsuiteCustomerId: "validation_ns_customer",
+        entityId: "V-1000",
+        companyName: "Validation Customer",
+        inactive: false,
+      },
+      {
+        netsuiteCustomerId: "validation_ns_customer_alt",
+        entityId: "V-1001",
+        companyName: "Validation Customer Holdings",
+        inactive: false,
+      },
+    ];
+    return {
+      state: "ok" as const,
+      candidates: all.filter(
+        (c) =>
+          (c.companyName ?? "").toUpperCase().includes(q) ||
+          (c.entityId ?? "").toUpperCase().includes(q),
+      ),
+    };
+  },
   async createSalesOrder(payload, { idempotencyKey }) {
     record("sales-order-create", { idempotencyKey, payload });
     const existing = ordersByKey.get(idempotencyKey);

@@ -49,6 +49,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { CustomerView } from "@/types/quote";
+import { presentPaymentTerms } from "@/lib/payment-terms-presentation";
 import type { QuotePerTierRollup } from "@/lib/costing";
 import type { PreflightResult } from "@/lib/netsuite/sales-order-preflight";
 import type { IdentityReadiness } from "@/lib/netsuite/identity-readiness";
@@ -801,7 +802,21 @@ export function TabSalesOrder({
             }
             netsuiteCustomer={netsuiteCustomerForReceipt}
             shipTo={shipToLine}
-            terms={view.quote.paymentTerms ?? "—"}
+            terms={
+              // Same rule as the customer document: a term is shown only when
+              // an authority stands behind it. On a placed order this is the
+              // frozen snapshot -- the term actually promised -- so it renders
+              // as-is. Before that, an unverified firm default is not this
+              // customer term and is not presented as one.
+              (() => {
+                const t = presentPaymentTerms({
+                  source: view.quote.paymentTermsSource,
+                  value: view.quote.paymentTerms,
+                  unresolvedReason: view.quote.paymentTermsUnresolvedReason,
+                });
+                return t.kind === "verified" ? t.value : "—";
+              })()
+            }
             incoterms={view.quote.incoterms ?? "—"}
             requestedShipIso={null}
             structure={structure}
