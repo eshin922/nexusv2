@@ -7,89 +7,104 @@ import {
   searchNetsuiteCustomersForMapping,
   type CustomerMappingRow,
 } from "@/app/actions/netsuite-customer-map";
-import type { NetsuiteCustomerCandidate } from "@/lib/integrations/netsuite-provider";
+import {
+  beginSave,
+  canChoose,
+  closePanel,
+  initialSession,
+  issueSearch,
+  openPanel,
+  receive,
+  saveFailed,
+  saveSucceeded,
+  setQuery,
+  visibleCandidates,
+  type SessionState,
+} from "@/lib/admin/customer-search-session";
 
 /**
  * Map a HubSpot company to its verified NetSuite customer.
  *
+ * The panel is a thin binding over `customer-search-session`, which holds
+ * every rule worth proving:
+ *
+ *  · a response is admitted only if its company and sequence still hold, so
+ *    switching companies mid-search cannot leave one company's candidates
+ *    under another company's heading;
+ *  · a candidate can only be chosen from the open company's own search;
+ *  · a failed save keeps the panel open with the reason inside it, so the
+ *    admin can read it and retry rather than clicking into silence.
+ *
+ * Those live in a pure module because a race that exists only inside a
+ * component is a race nothing can test.
+ *
  * ── AMBIGUITY IS SHOWN, NOT RESOLVED ──────────────────────────────────────
  *
- * A name search can match several customers, and often does: parents and
+ * A name search matches several customers often enough: parents and
  * subsidiaries, an old record beside its replacement, an inactive duplicate.
- * This surface lists all of them with entity id and active state and requires
- * an explicit choice. It never auto-selects a single match either — "exactly
- * one row came back" is a fact about a search string, not evidence of
- * identity, and the mapping it would write is the one that decides which
- * customer gets invoiced.
- *
- * ── A FAILED SEARCH IS NOT AN EMPTY ONE ───────────────────────────────────
- *
- * The two states are rendered differently and deliberately so. An admin shown
- * "no matches" during a NetSuite outage would reasonably conclude the customer
- * needs creating, and create a duplicate of one that already exists.
+ * All of them are listed with entity id and active state, and the choice is
+ * explicit — including when only one matches, because "one row came back" is a
+ * fact about a search string and not evidence of identity.
  */
 export function CustomerMapTable({ rows }: { rows: CustomerMappingRow[] }) {
   const router = useRouter();
-  const [openCompany, setOpenCompany] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [candidates, setCandidates] = useState<NetsuiteCustomerCandidate[]>([]);
-  const [searchState, setSearchState] = useState<
-    "idle" | "ok" | "empty" | "unavailable"
-  >("idle");
-  const [message, setMessage] = useState<string | null>(null);
+  const [session, setSession] = useState<SessionState>(initialSession);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pendingSearch, startSearch] = useTransition();
-  const [pendingSave, startSave] = useTransition();
+  const [, startSave] = useTransition();
 
   function open(row: CustomerMappingRow) {
-    setOpenCompany(row.hubspotCompanyId);
-    setQuery(row.hubspotCompanyName ?? "");
-    setCandidates([]);
-    setSearchState("idle");
-    setMessage(null);
+    setNotice(null);
+    setSession((s) => openPanel(s, row.hubspotCompanyId, row.hubspotCompanyName ?? ""));
   }
 
   function runSearch() {
+    // The ticket is minted from the CURRENT state and compared against the
+    // state at return. Anything that happened in between — a second search, a
+    // different company, a closed panel — invalidates it.
+    let ticket: ReturnType<typeof issueSearch>["ticket"] | null = null;
+    setSession((s) => {
+      const next = issueSearch(s);
+      ticket = next.ticket;
+      return next.state;
+    });
+
     startSearch(async () => {
-      setMessage(null);
-      const res = await searchNetsuiteCustomersForMapping(query);
-      if (!res.ok) {
-        setSearchState("unavailable");
-        setMessage(res.error.message);
-        return;
-      }
-      if (res.data.state === "unavailable") {
-        setCandidates([]);
-        setSearchState("unavailable");
-        setMessage(
-          `NetSuite could not be searched: ${res.data.detail}. This does not mean the customer is absent — try again shortly.`,
-        );
-        return;
-      }
-      setCandidates(res.data.candidates);
-      setSearchState(res.data.candidates.length === 0 ? "empty" : "ok");
+      const issued = ticket;
+      if (!issued) return;
+      const res = await searchNetsuiteCustomersForMapping(issued.query);
+      const outcome = res.ok
+        ? res.data
+        : ({ state: "unavailable", detail: res.error.message } as const);
+      setSession((s) => receive(s, issued, outcome));
     });
   }
 
-  function choose(companyId: string, candidate: NetsuiteCustomerCandidate) {
+  function choose(companyId: string, netsuiteCustomerId: string) {
+    if (!canChoose(session, companyId, netsuiteCustomerId)) return;
+    setSession(beginSave);
     startSave(async () => {
       const res = await saveCustomerMapping({
         hubspotCompanyId: companyId,
-        netsuiteCustomerId: candidate.netsuiteCustomerId,
+        netsuiteCustomerId,
       });
       if (!res.ok) {
-        setMessage(res.error.message);
+        // Stays open. The admin reads why, and clicks again.
+        setSession((s) => saveFailed(s, res.error.message));
         return;
       }
-      setMessage(
-        `Mapped to ${res.data.displayName ?? candidate.netsuiteCustomerId}. Governed payment terms: ${
+      setNotice(
+        `Mapped to ${res.data.displayName ?? netsuiteCustomerId}. Governed payment terms: ${
           res.data.terms ?? "none set on the customer"
         }.`,
       );
-      setOpenCompany(null);
+      setSession(saveSucceeded);
       router.refresh();
     });
   }
 
+  const outcome = visibleCandidates(session);
+  const candidates = outcome?.state === "ok" ? outcome.candidates : [];
   const unmapped = rows.filter((r) => !r.netsuiteCustomerId).length;
 
   return (
@@ -161,8 +176,12 @@ export function CustomerMapTable({ rows }: { rows: CustomerMappingRow[] }) {
         </tbody>
       </table>
 
-      {openCompany && (
-        <div className="mt-6 rounded border border-slate-300 p-4">
+      {session.openCompanyId && (
+        <div
+          className="mt-6 rounded border border-slate-300 p-4"
+          data-testid="customer-map-panel"
+          data-company={session.openCompanyId}
+        >
           <h3 className="text-sm font-semibold text-slate-900">
             Find the NetSuite customer
           </h3>
@@ -174,8 +193,11 @@ export function CustomerMapTable({ rows }: { rows: CustomerMappingRow[] }) {
 
           <div className="mt-3 flex gap-2">
             <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={session.query}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSession((s) => setQuery(s, v));
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -195,21 +217,35 @@ export function CustomerMapTable({ rows }: { rows: CustomerMappingRow[] }) {
             </button>
             <button
               type="button"
-              onClick={() => setOpenCompany(null)}
+              onClick={() => setSession(closePanel)}
               className="rounded border border-slate-300 px-3 py-1 text-sm text-slate-700"
             >
               Cancel
             </button>
           </div>
 
-          {searchState === "empty" && (
+          {session.panelError && (
+            <p
+              role="alert"
+              data-testid="customer-map-save-error"
+              className="mt-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              {session.panelError}
+            </p>
+          )}
+
+          {outcome?.state === "ok" && candidates.length === 0 && (
             <p className="mt-3 text-sm text-slate-700">
               The search ran and matched nothing in NetSuite.
             </p>
           )}
-          {searchState === "unavailable" && (
-            <p className="mt-3 text-sm text-amber-900">
-              {message ?? "NetSuite could not be searched."}
+          {outcome?.state === "unavailable" && (
+            <p
+              data-testid="customer-search-unavailable"
+              className="mt-3 text-sm text-amber-900"
+            >
+              NetSuite could not be searched: {outcome.detail}. This does not
+              mean the customer is absent — try again shortly.
             </p>
           )}
 
@@ -244,11 +280,13 @@ export function CustomerMapTable({ rows }: { rows: CustomerMappingRow[] }) {
                     </div>
                     <button
                       type="button"
-                      disabled={pendingSave}
-                      onClick={() => choose(openCompany, c)}
+                      disabled={session.saving}
+                      onClick={() =>
+                        choose(session.openCompanyId!, c.netsuiteCustomerId)
+                      }
                       className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                     >
-                      Use this customer
+                      {session.saving ? "Saving…" : "Use this customer"}
                     </button>
                   </li>
                 ))}
@@ -258,8 +296,8 @@ export function CustomerMapTable({ rows }: { rows: CustomerMappingRow[] }) {
         </div>
       )}
 
-      {message && !openCompany && (
-        <p className="mt-4 text-sm text-slate-700">{message}</p>
+      {notice && !session.openCompanyId && (
+        <p className="mt-4 text-sm text-slate-700">{notice}</p>
       )}
     </div>
   );

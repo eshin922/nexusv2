@@ -159,10 +159,16 @@ test("mapping requires an explicit customer choice — nothing auto-selects", ()
   assert.match(action, /ERR\.VALIDATION/);
 
   const table = src("../../src/app/admin/netsuite-customer-map/customer-map-table.tsx");
-  // Choosing is bound to a click on a specific candidate.
-  assert.match(table, /onClick=\{\(\) => choose\(openCompany, c\)\}/);
-  // And a multi-match says so rather than quietly presenting the first.
+  // A multi-match says so rather than quietly presenting the first.
   assert.match(table, /candidates\.length > 1/);
+  // The selection rule itself is NOT asserted here. An earlier version of this
+  // test pinned the literal text of an onClick handler, which broke the moment
+  // the handler was refactored while the behaviour it described was intact --
+  // a check measuring the shape of the code rather than what the code does.
+  // The rule now lives in `customer-search-session` and is exercised directly
+  // in `customer-mapping-workflow.test.ts`, including the case this file could
+  // never have reached: a company switched while a search is still in flight.
+  assert.match(table, /canChoose\(/, "selection must route through the guard");
 });
 
 test("a mapping is not saved on a read the workflow could not confirm", () => {

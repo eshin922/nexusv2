@@ -137,7 +137,24 @@ test("the endpoint reuses the production guard rather than restating it", async 
   // writeAuthorized must come from calling assertWriteAuthorized. A parallel
   // implementation could agree today and diverge silently later — reporting a
   // safety it no longer establishes.
-  assert.match(src, /describeNetsuiteTarget[\s\S]*assertWriteAuthorized\(config, "POST"\)/);
+  assert.match(
+    src,
+    /describeNetsuiteTarget[\s\S]*assertWriteAuthorized\(\s*config,\s*"POST",/,
+  );
+  // And it must ask about a MUTATION. The guard now exempts one read-only
+  // path -- SuiteQL, which travels as POST -- so asking about that path here
+  // would report `writeAuthorized: true` on a locked-down production account:
+  // the endpoint claiming a safety it no longer establishes, which is the
+  // exact failure this test exists to prevent, arriving by a new route.
+  const describeBlock = src.slice(
+    src.indexOf("export function describeNetsuiteTarget"),
+  );
+  const call = describeBlock.slice(
+    describeBlock.indexOf("assertWriteAuthorized("),
+    describeBlock.indexOf("} catch"),
+  );
+  assert.match(call, /"\/record\/v1\//, "must probe a record path, not a query path");
+  assert.doesNotMatch(call, /suiteql/i);
   // And accountIsSandbox must come from the same inference the client uses.
   assert.match(src, /accountIsSandbox: inferEnv\(config\.accountId\) === "sandbox"/);
 });

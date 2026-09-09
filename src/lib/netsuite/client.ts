@@ -99,9 +99,13 @@ export function describeNetsuiteTarget(): NetsuiteTargetFacts {
   const config = loadNetsuiteConfig();
   let writeAuthorized = true;
   try {
-    // POST, because that is what a Sales Order CREATE is. GET short-circuits
-    // inside the guard and would prove nothing.
-    assertWriteAuthorized(config, "POST");
+    // POST to a RECORD path, because that is what a Sales Order CREATE is.
+    // GET short-circuits inside the guard and would prove nothing -- and so,
+    // now, would the SuiteQL path, which is a read. Asking about the query
+    // endpoint here would report `writeAuthorized: true` on a locked-down
+    // production account: an endpoint claiming a safety it does not establish,
+    // which is worse than no endpoint.
+    assertWriteAuthorized(config, "POST", "/record/v1/salesOrder");
   } catch {
     writeAuthorized = false;
   }
@@ -112,12 +116,65 @@ export function describeNetsuiteTarget(): NetsuiteTargetFacts {
   };
 }
 
-/** Guardrail: refuse production writes without explicit opt-in. */
-function assertWriteAuthorized(config: NetsuiteConfig, method: string) {
-  if (method === "GET") return;
+/**
+ * The one READ that does not travel as a GET.
+ *
+ * SuiteQL is a query endpoint reached by POST, because the statement goes in
+ * the body. The production guard below classifies by HTTP METHOD, so every
+ * SuiteQL query was refused on a production account exactly as though it were
+ * a Sales Order create — and `allowProduction` is never set by
+ * `loadNetsuiteConfig`, so there was no configuration in which a production
+ * account could be queried at all.
+ *
+ * That is not a theoretical gap. The customer-mapping workflow searches
+ * NetSuite by name, and a workflow that cannot run in production is not a
+ * workflow. Worse, the refusal surfaced to the admin as "NetSuite could not be
+ * searched" — indistinguishable from an outage, and the exact confusion the
+ * search outcome union exists to prevent.
+ *
+ * WHY WIDENING `allowProduction` WOULD BE THE WRONG FIX. It is a single flag
+ * governing every mutation; turning it on to permit a read would authorise
+ * Sales Order creates as a side effect. The carve-out is therefore by PATH,
+ * and it is exactly one path.
+ *
+ * WHY THIS PATH CANNOT MUTATE. SuiteQL has no DML — NetSuite does not accept
+ * INSERT/UPDATE/DELETE through it — and `suiteQL()` additionally refuses any
+ * statement that does not begin with SELECT before it reaches the wire. The
+ * carve-out therefore widens what can be READ on a production account and
+ * nothing at all about what can be WRITTEN.
+ */
+const SUITEQL_PATH = "/query/v1/suiteql";
+
+/**
+ * TRUE when a request cannot mutate, whatever its HTTP verb.
+ *
+ * Exported so the guarantee is testable against the real predicate rather than
+ * a restatement of it: a copy in a test agrees today and diverges silently
+ * later, which is how a safety check stops being one.
+ */
+export function isReadOnlyTransport(method: string, path: string): boolean {
+  if (method === "GET") return true;
+  // Deliberately NOT `startsWith`: a prefix test would admit any path that
+  // merely begins with the query route.
+  if (method === "POST") return path.split("?")[0] === SUITEQL_PATH;
+  return false;
+}
+
+/**
+ * Guardrail: refuse production MUTATIONS without explicit opt-in.
+ *
+ * Exported for the same reason as the predicate above — the production-safety
+ * tests exercise this function, not a description of it.
+ */
+export function assertWriteAuthorized(
+  config: NetsuiteConfig,
+  method: string,
+  path: string,
+) {
+  if (isReadOnlyTransport(method, path)) return;
   if (config.env === "production" && !config.allowProduction) {
     throw new Error(
-      `[netsuite] Production write attempted (${method}) without allowProduction=true. ` +
+      `[netsuite] Production write attempted (${method} ${path}) without allowProduction=true. ` +
         `Set NETSUITE_ENV=sandbox for dev, or pass allowProduction:true explicitly.`,
     );
   }
@@ -144,7 +201,7 @@ interface RequestArgs {
  */
 export async function nsRequest<T = unknown>(args: RequestArgs): Promise<T> {
   const config = args.config ?? loadNetsuiteConfig();
-  assertWriteAuthorized(config, args.method);
+  assertWriteAuthorized(config, args.method, args.path);
 
   const url = suiteTalkBaseUrl(config.accountId) + args.path;
   const maxRetries = args.maxRetries ?? 3;
@@ -343,7 +400,11 @@ export async function patchSalesOrderLine(
   const url =
     suiteTalkBaseUrl(cfg.accountId) +
     `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`;
-  assertWriteAuthorized(cfg, "PATCH");
+  assertWriteAuthorized(
+    cfg,
+    "PATCH",
+    `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`,
+  );
 
   // Built FIELD-BY-FIELD from known scalars. Never spread from the argument —
   // that is the property that stops a future caller smuggling `item.items`
@@ -433,7 +494,7 @@ export async function createRecord(args: {
     suiteTalkBaseUrl((args.config ?? loadNetsuiteConfig()).accountId) +
     `/record/v1/${args.recordType}`;
   const config = args.config ?? loadNetsuiteConfig();
-  assertWriteAuthorized(config, "POST");
+  assertWriteAuthorized(config, "POST", `/record/v1/${args.recordType}`);
 
   const authHeader = buildAuthHeader({
     method: "POST",
