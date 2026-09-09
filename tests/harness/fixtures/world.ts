@@ -313,14 +313,14 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           for (const [tierIndex, tierId] of [tier1, tier2].entries()) {
             await tx`
               insert into assembly_leaf_inputs (
-                id, assembly_leaf_id, tier_id, line_group_id,
+                id, assembly_leaf_id, quote_leaf_id, tier_id, line_group_id,
                 pricing_vendor_hubspot_company_id,
                 pricing_vendor_name_snapshot, pricing_date, supplier,
                 qty_per_sellable_unit, category, markup_pct,
                 markup_pct_source, unit_cost, purchase_qty
               ) values (
                 ${uuid(runId, `input-${name}-${index}-${tierIndex}`)},
-                ${junctionId}, ${tierId},
+                ${junctionId}, ${quoteLeafId}, ${tierId},
                 ${uuid(runId, `line-${name}-${index}`)},
                 ${index === 0 ? "900000000000001" : null},
                 ${index === 0 ? "Validation Packaging Vendor" : null},
@@ -609,12 +609,13 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           for (const [tierIndex, tierId] of tierIdList.entries()) {
             await tx`
               insert into assembly_leaf_inputs (
-                id, assembly_leaf_id, tier_id, line_group_id, supplier,
+                id, assembly_leaf_id, quote_leaf_id, tier_id, line_group_id,
+                supplier,
                 qty_per_sellable_unit, category, markup_pct,
                 markup_pct_source, unit_cost, purchase_qty
               ) values (
                 ${uuid(runId, `input-operator-${spec.name}-${index}-${tierIndex}`)},
-                ${junctionId}, ${tierId},
+                ${junctionId}, ${quoteLeafId}, ${tierId},
                 ${uuid(runId, `line-operator-${spec.name}-${index}`)},
                 'Pacific Components', 1, 'primary_packaging', ${markupPct},
                 'manual_override', ${(index + 1) / 10},
@@ -629,12 +630,13 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         // browser-verifying replacement was impossible without this row.
         if (spec.overrideAt) {
           const target = operatorJunctionIds[spec.overrideAt.skuIndex];
+          const targetLeaf = operatorQuoteLeafIds[spec.overrideAt.skuIndex];
           const targetTier = tierIdList[spec.overrideAt.tierIndex];
-          if (target && targetTier) {
+          if (target && targetLeaf && targetTier) {
             await tx`
               insert into assembly_leaf_overrides (
-                assembly_leaf_id, tier_id, sell_price_override
-              ) values (${target}, ${targetTier}, ${spec.overrideAt.price})
+                assembly_leaf_id, quote_leaf_id, tier_id, sell_price_override
+              ) values (${target}, ${targetLeaf}, ${targetTier}, ${spec.overrideAt.price})
             `;
           }
         }
@@ -645,19 +647,24 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         // per cell, which is exactly the dimensional split §13 describes.
         for (const t of spec.clientTargetAt ?? []) {
           const leaf = operatorJunctionIds[t.skuIndex];
-          if (!leaf) continue;
+          const leafCanonical = operatorQuoteLeafIds[t.skuIndex];
+          if (!leaf || !leafCanonical) continue;
           for (const tierId of tierIdList) {
             await tx`
               insert into assembly_leaf_targets (
-                assembly_leaf_id, tier_id, client_target_price_per_unit
-              ) values (${leaf}, ${tierId}, ${t.price})
+                assembly_leaf_id, quote_leaf_id, tier_id, client_target_price_per_unit
+              ) values (${leaf}, ${leafCanonical}, ${tierId}, ${t.price})
             `;
           }
         }
 
-        // A persisted applied lift, keyed CANONICALLY — the table is
-        // `quote_leaf_lifts`, so this is a quote_leaf id, not the junction one
-        // the two rows above use.
+        // A persisted applied lift, keyed CANONICALLY by quote leaf.
+        //
+        // The two rows above now carry `quote_leaf_id` as well: OD-017 made it
+        // the governed identity and NOT NULL on both tables, while
+        // `assembly_leaf_id` stayed as the legacy key. This fixture wrote only
+        // the legacy one and the seed aborted -- the same omission, in the same
+        // file, as `assembly_leaf_inputs` and `freight_subcategory_items`.
         if (spec.liftAt) {
           const canonical = operatorQuoteLeafIds[spec.liftAt.skuIndex];
           const tierId = tierIdList[spec.liftAt.tierIndex];
@@ -817,9 +824,9 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
         // transition evidence and are suppressed by costing whenever these
         // selected worksheet breaks exist.
         const shipmentSpecs = [
-          { key: "ocean", label: "Packaging from overseas · ocean container", origin: "Ningbo, China", selected: "Long Beach, CA", comparison: "Houston, TX", mode: "ocean_fcl", carrier: "Straight Forwarding", members: operatorJunctionIds, border: true },
-          ...(spec.includeAirLeg ? [{ key: "air", label: "Launch stock · split air shipment", origin: "Shenzhen, China", selected: "Los Angeles, CA", comparison: "Dallas, TX", mode: "air_freight", carrier: "Cathay Cargo", members: operatorJunctionIds.slice(0, Math.min(2, operatorJunctionIds.length)), border: true }] : []),
-          ...(spec.includeDomesticLeg ? [{ key: "domestic", label: "Ocean arrival · domestic transfer", origin: "Long Beach, CA", selected: "Dallas, TX", comparison: "Chicago, IL", mode: "truckload", carrier: "J.B. Hunt", members: operatorJunctionIds.slice(0, 3), border: false }] : []),
+          { key: "ocean", label: "Packaging from overseas · ocean container", origin: "Ningbo, China", selected: "Long Beach, CA", comparison: "Houston, TX", mode: "ocean_fcl", carrier: "Straight Forwarding", members: operatorQuoteLeafIds, border: true },
+          ...(spec.includeAirLeg ? [{ key: "air", label: "Launch stock · split air shipment", origin: "Shenzhen, China", selected: "Los Angeles, CA", comparison: "Dallas, TX", mode: "air_freight", carrier: "Cathay Cargo", members: operatorQuoteLeafIds.slice(0, Math.min(2, operatorQuoteLeafIds.length)), border: true }] : []),
+          ...(spec.includeDomesticLeg ? [{ key: "domestic", label: "Ocean arrival · domestic transfer", origin: "Long Beach, CA", selected: "Dallas, TX", comparison: "Chicago, IL", mode: "truckload", carrier: "J.B. Hunt", members: operatorQuoteLeafIds.slice(0, 3), border: false }] : []),
         ];
         for (const [shipmentIndex, shipment] of shipmentSpecs.entries()) {
           const subcategoryId = uuid(runId, `worksheet-subcategory-${spec.name}-${shipment.key}`);
@@ -837,8 +844,13 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
               ${tx.json({ fixture: "operator worksheet" })}
             )
           `;
+          // Membership is keyed by QUOTE LEAF, per OD-017. `assembly_leaf_id`
+          // is the legacy column and is now nullable; the identity guard
+          // resolves `quote_leaf_id` against `quote_leaves`, and the live
+          // writer (`freight-worksheet.ts`) supplies only that. A fixture that
+          // wrote the legacy key produced a row no guard could validate.
           for (const memberId of shipment.members) await tx`
-            insert into freight_subcategory_items (freight_subcategory_id, assembly_leaf_id, source, field_provenance)
+            insert into freight_subcategory_items (freight_subcategory_id, quote_leaf_id, source, field_provenance)
             values (${subcategoryId}, ${memberId}, 'manual', ${tx.json({ fixture: "shipment membership" })})
           `;
           await tx`
