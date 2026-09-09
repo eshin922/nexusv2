@@ -134,15 +134,25 @@ async function main() {
     // is indistinguishable from an empty document.
     const text = extractPdfText(pdfPath);
     const txtPath = save(`customer-${name}.pdf.txt`, text);
-    if (!text.includes("PAYMENT TERMS") && !text.includes("Payment terms")) {
-      rec(`PDF:${name}`, "BLOCKED", `extractor found no terms label in ${text.length} chars of text`, txtPath);
+    // EXACT field value, not a substring of the whole document.
+    //
+    // `includes(term)` cannot assert the unmapped case at all: an empty terms
+    // field and a missing terms BLOCK read identically, so the check that
+    // matters most -- the document stating no commitment -- would pass on a
+    // document that never rendered the row. The field is delimited by its own
+    // label and the next one, so it can be read exactly and compared for
+    // equality, including against "".
+    const field = text.match(/PAYMENT TERMS([\s\S]*?)LEAD TIME/);
+    if (!field) {
+      rec(`PDF:${name}`, "BLOCKED",
+        `no PAYMENT TERMS -> LEAD TIME block in ${text.length} chars of extracted text`, txtPath);
       continue;
     }
-    const hasTerm = spec.term ? text.includes(spec.term) : false;
-    const hasDefault = text.includes(FIRM_DEFAULT);
-    const ok = spec.term ? hasTerm && !hasDefault : !hasDefault;
+    const value = field[1].trim();
+    const expected = spec.term ?? "";
+    const ok = value === expected && !text.includes(FIRM_DEFAULT);
     rec(`PDF:${name}`, ok ? "PASS" : "FAIL",
-      `${r.buf.length}B pdf · governed term "${spec.term ?? "(none expected)"}" present=${hasTerm} · firm default present=${hasDefault}`, txtPath);
+      `${r.buf.length}B pdf · terms field="${value}" (exact "${expected}") · firm default anywhere in document=${text.includes(FIRM_DEFAULT)}`, txtPath);
   }
 
   // ── the Sales Order receipt ─────────────────────────────────────────────
