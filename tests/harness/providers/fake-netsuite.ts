@@ -105,8 +105,20 @@ export const fakeNetSuite: NetSuiteOperations = {
     // on, so the harness can exercise the refusal as well as the happy path.
     if (scenario() === "customer-missing") return null;
     if (scenario() === "customer-no-terms") return { terms: null };
+    // A SECOND governed term, so "each customer keeps its own" is
+    // distinguishable from "one value is printed everywhere" -- which is the
+    // claim the customer-terms work is actually about.
+    if (netsuiteCustomerId.includes("_alt_")) {
+      return {
+        terms: { id: "validation_ns_terms_net60", refName: "Net 60" },
+        companyName: "Validation Alt-Terms Customer",
+        entityId: "V-ALT",
+      };
+    }
     return {
       terms: { id: "validation_ns_terms_net30", refName: "Net 30" },
+      companyName: "Validation Customer",
+      entityId: "V-1000",
     };
   },
   async searchCustomers(query: string) {
