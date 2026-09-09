@@ -1,23 +1,35 @@
 /**
  * The customer-mapping panel's state, as a pure machine.
  *
- * ── WHY THIS IS NOT JUST `useState` IN THE COMPONENT ──────────────────────
+ * ── WHY EVERY ASYNC RESULT CARRIES A TICKET ───────────────────────────────
  *
- * Two of the three things this governs are RACES, and a race that lives only
- * inside a component is a race nothing can test. The first draft of the panel
- * held `candidates` in component state and wrote to it from an async handler,
- * which produces a real corruption path:
+ * Three of the rules here are RACES, and they share one shape: work is started
+ * against a panel, and by the time it finishes the panel may be showing
+ * something else. Admitting the result then corrupts what the admin sees, and
+ * what they are about to write:
  *
- *   admin opens company A -> searches -> switches to company B while the
- *   response is still in flight -> A's candidates render under B's heading ->
- *   "Use this customer" maps B to A's customer.
+ *   · search A -> switch to B -> A's candidates render under B's heading, and
+ *     "Use this customer" maps B to A's customer;
+ *   · search A -> close -> REOPEN A -> the first response is still in flight
+ *     and its company still matches, so a company check alone readmits it;
+ *   · save A -> open B -> A resolves -> B's panel closes, or shows A's error.
  *
- * Nothing about that looks wrong on screen. The list is populated, the names
- * are real, and the mapping decides who gets invoiced.
+ * The second is why a `panelEpoch` exists rather than only a company id. Every
+ * open and every close mints a new epoch, so a reopened panel is a DIFFERENT
+ * session from the one whose work is still outstanding, even though it is the
+ * same company.
  *
- * So every response carries a TICKET naming the company and the sequence it
- * was issued under, and a response is admitted only if both still hold. The
- * rule is one predicate, `shouldAccept`, and it is exercised directly.
+ * ── WHY THE EPOCH IS MINTED BY THE CALLER ─────────────────────────────────
+ *
+ * The component holds the counters in refs and passes the new value in. That
+ * is not ceremony: the first version derived a ticket INSIDE a `setSession`
+ * updater and read it back immediately, and React does not run updaters
+ * synchronously — so the ticket was still null when the request would have
+ * been issued, and clicking Search produced no request at all. Nothing in the
+ * pure rules could have caught that, because the rules were never reached.
+ *
+ * Counters that must be readable at the instant of the click belong in a ref.
+ * These functions therefore take the minted value rather than deriving it.
  */
 
 export type SearchOutcome =
@@ -32,28 +44,35 @@ export type SearchOutcome =
     }
   | { state: "unavailable"; detail: string };
 
-/** Names the company and the search a response belongs to. */
+/** Names the panel session and the search a response belongs to. */
 export type SearchTicket = {
+  epoch: number;
   seq: number;
   companyId: string;
   query: string;
 };
 
+/** Names the panel session a save was started from. */
+export type SaveTicket = {
+  epoch: number;
+  companyId: string;
+  netsuiteCustomerId: string;
+};
+
 export type SessionState = {
-  /** The company whose panel is open, or null when the panel is closed. */
   openCompanyId: string | null;
+  /** Bumped on every open and every close. Identifies THIS panel session. */
+  panelEpoch: number;
+  /** The most recently issued search. Monotonic; never reset. */
+  searchSeq: number;
   query: string;
-  /** Monotonic. Every issued search takes the next value; never reset. */
-  issued: number;
-  /** The displayed response, tagged with the ticket that produced it. */
   results: { ticket: SearchTicket; outcome: SearchOutcome } | null;
   /**
    * A failure the admin must see WITHOUT the panel closing.
    *
-   * The first draft set a message and rendered it only when the panel was
-   * shut, so a failed save produced no visible feedback at all: the admin
-   * clicked, nothing happened, and the reason sat in a variable no branch
-   * displayed. Errors belong where the action was taken.
+   * An earlier version rendered this only when the panel was shut, so a failed
+   * save produced no feedback at all: the admin clicked, nothing happened, and
+   * the reason sat in a variable no branch displayed.
    */
   panelError: string | null;
   saving: boolean;
@@ -61,28 +80,31 @@ export type SessionState = {
 
 export const initialSession: SessionState = {
   openCompanyId: null,
+  panelEpoch: 0,
+  searchSeq: 0,
   query: "",
-  issued: 0,
   results: null,
   panelError: null,
   saving: false,
 };
 
 /**
- * Open the panel for a company.
+ * Open the panel for a company under a fresh epoch.
  *
- * Results are dropped rather than carried over. `issued` is NOT reset — it is
- * the thing in-flight responses are compared against, so restarting it would
- * let a stale response match a later ticket by coincidence.
+ * Results are dropped rather than carried over, and any work outstanding from
+ * a previous session — including a previous session on THIS company — can no
+ * longer be admitted.
  */
 export function openPanel(
   s: SessionState,
   companyId: string,
   query: string,
+  epoch: number,
 ): SessionState {
   return {
     ...s,
     openCompanyId: companyId,
+    panelEpoch: epoch,
     query,
     results: null,
     panelError: null,
@@ -90,40 +112,44 @@ export function openPanel(
   };
 }
 
-export function closePanel(s: SessionState): SessionState {
-  return { ...s, openCompanyId: null, results: null, panelError: null, saving: false };
+export function closePanel(s: SessionState, epoch: number): SessionState {
+  return {
+    ...s,
+    openCompanyId: null,
+    panelEpoch: epoch,
+    results: null,
+    panelError: null,
+    saving: false,
+  };
 }
 
 export function setQuery(s: SessionState, query: string): SessionState {
   return { ...s, query };
 }
 
-/** Take the next sequence number and hand back the ticket to quote on return. */
-export function issueSearch(s: SessionState): {
-  state: SessionState;
-  ticket: SearchTicket;
-} {
-  const seq = s.issued + 1;
-  const ticket: SearchTicket = {
-    seq,
-    companyId: s.openCompanyId ?? "",
-    query: s.query,
-  };
-  return { state: { ...s, issued: seq, panelError: null }, ticket };
+/** Record that a search went out. The ticket was minted by the caller. */
+export function noteSearchIssued(
+  s: SessionState,
+  ticket: SearchTicket,
+): SessionState {
+  return { ...s, searchSeq: ticket.seq, panelError: null };
 }
 
 /**
  * May this response be shown?
  *
- * Both conditions are load-bearing and neither implies the other. The sequence
- * check discards a response superseded by a later search of the SAME company;
- * the company check discards one whose company is no longer open — including
- * the case where the admin closed the panel entirely.
+ * Three conditions, none implied by the others: the company must still be the
+ * open one, the panel session must be the one that asked, and this must be the
+ * most recent search of it.
  */
-export function shouldAccept(s: SessionState, ticket: SearchTicket): boolean {
+export function shouldAcceptSearch(
+  s: SessionState,
+  ticket: SearchTicket,
+): boolean {
   if (s.openCompanyId === null) return false;
   if (ticket.companyId !== s.openCompanyId) return false;
-  return ticket.seq === s.issued;
+  if (ticket.epoch !== s.panelEpoch) return false;
+  return ticket.seq === s.searchSeq;
 }
 
 /** Apply a response, or leave the state untouched when it is stale. */
@@ -132,7 +158,7 @@ export function receive(
   ticket: SearchTicket,
   outcome: SearchOutcome,
 ): SessionState {
-  if (!shouldAccept(s, ticket)) return s;
+  if (!shouldAcceptSearch(s, ticket)) return s;
   return { ...s, results: { ticket, outcome } };
 }
 
@@ -143,20 +169,17 @@ export function receive(
  * responses were ever stored. The two are the same today; they stop being the
  * same the moment anyone adds a second writer.
  */
-export function visibleCandidates(
-  s: SessionState,
-): SearchOutcome | null {
+export function visibleCandidates(s: SessionState): SearchOutcome | null {
   if (!s.results || s.openCompanyId === null) return null;
   if (s.results.ticket.companyId !== s.openCompanyId) return null;
+  if (s.results.ticket.epoch !== s.panelEpoch) return null;
   return s.results.outcome;
 }
 
 /**
  * May this customer be mapped to this company right now?
  *
- * The last gate before a write that decides who gets invoiced. It refuses a
- * candidate that did not come from the open company's own search, which is
- * precisely what a mid-flight company switch would otherwise leave on screen.
+ * The last gate before a write that decides who gets invoiced.
  */
 export function canChoose(
   s: SessionState,
@@ -172,15 +195,50 @@ export function canChoose(
   );
 }
 
-export function beginSave(s: SessionState): SessionState {
+/** Does this save result still belong to the panel on screen? */
+export function shouldAcceptSaveResult(
+  s: SessionState,
+  ticket: SaveTicket,
+): boolean {
+  return (
+    s.openCompanyId === ticket.companyId && s.panelEpoch === ticket.epoch
+  );
+}
+
+export function beginSave(s: SessionState, ticket: SaveTicket): SessionState {
+  if (!shouldAcceptSaveResult(s, ticket)) return s;
   return { ...s, saving: true, panelError: null };
 }
 
 /** A failure keeps the panel OPEN, with the reason where the click happened. */
-export function saveFailed(s: SessionState, detail: string): SessionState {
+export function saveFailed(
+  s: SessionState,
+  ticket: SaveTicket,
+  detail: string,
+): SessionState {
+  if (!shouldAcceptSaveResult(s, ticket)) return s;
   return { ...s, saving: false, panelError: detail };
 }
 
-export function saveSucceeded(s: SessionState): SessionState {
-  return { ...s, saving: false, panelError: null, openCompanyId: null, results: null };
+/**
+ * Success closes the originating panel under a fresh epoch.
+ *
+ * If the admin has since moved to another company, this does nothing visible —
+ * closing the panel they are now working in, because a different save
+ * finished, is the same class of defect as showing them its error.
+ */
+export function saveSucceeded(
+  s: SessionState,
+  ticket: SaveTicket,
+  epoch: number,
+): SessionState {
+  if (!shouldAcceptSaveResult(s, ticket)) return s;
+  return {
+    ...s,
+    saving: false,
+    panelError: null,
+    openCompanyId: null,
+    panelEpoch: epoch,
+    results: null,
+  };
 }

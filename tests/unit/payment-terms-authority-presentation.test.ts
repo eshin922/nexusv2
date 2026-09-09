@@ -158,7 +158,7 @@ test("mapping requires an explicit customer choice — nothing auto-selects", ()
   assert.match(action, /if \(!netsuiteCustomerId\)/);
   assert.match(action, /ERR\.VALIDATION/);
 
-  const table = src("../../src/app/admin/netsuite-customer-map/customer-map-table.tsx");
+  const table = src("../../src/app/admin/netsuite-customer-map/customer-map-view.tsx");
   // A multi-match says so rather than quietly presenting the first.
   assert.match(table, /candidates\.length > 1/);
   // The selection rule itself is NOT asserted here. An earlier version of this

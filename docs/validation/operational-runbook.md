@@ -4,6 +4,35 @@ This is the authoritative execution procedure for the
 [merge-gate checklist](merge-gate.md). Commands below target Windows
 PowerShell, the supported environment used to verify Slice 12.
 
+## 0. Where authenticated validation may be attempted
+
+**Read before choosing a validation target. Edward's directive, 2026-09-08.**
+
+> A sign-in screen is evidence of BLOCKED ACCESS, not of application validation.
+
+An authenticated `nexus.thedps.co` session does NOT grant access to a
+`*.vercel.app` preview origin — different origin, so the session does not
+travel. Retrying the preview, re-running SSO, or switching branch alias does
+not change that.
+
+- Do not attempt authenticated preview validation unless access to that exact
+  origin has explicitly been established.
+- Never bypass SSO, weaken authentication, or change production roles to make
+  testing possible.
+- Use mounted-component tests with mocked services and this isolated
+  environment for pre-merge verification.
+- If this harness is broken, report the concrete defects and propose a
+  separately scoped repair. Do not fall back to the preview.
+- The authenticated production domain certifies DEPLOYED behaviour only. It
+  cannot certify an unmerged change, and missing preview access is never a
+  reason to merge in order to test.
+
+Known defects blocking sections 5 and 6 as of 2026-09-08: `validation:seed`
+fails on `assembly_leaf_inputs.quote_leaf_id` NOT NULL, and the harness
+identity `pm@nexus-validation.invalid` is refused by the corporate-email gate,
+so `validation:app` 500s on authenticated routes.
+
+
 ## Prerequisites
 
 - Node.js 22 and `npm.cmd install` completed.
