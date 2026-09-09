@@ -27,10 +27,17 @@ not change that.
   cannot certify an unmerged change, and missing preview access is never a
   reason to merge in order to test.
 
-Known defects blocking sections 5 and 6 as of 2026-09-08: `validation:seed`
-fails on `assembly_leaf_inputs.quote_leaf_id` NOT NULL, and the harness
-identity `pm@nexus-validation.invalid` is refused by the corporate-email gate,
-so `validation:app` 500s on authenticated routes.
+Known defect blocking sections 5 and 6 as of 2026-09-08: `validation:seed`
+aborts because `tests/harness/fixtures/world.ts` writes `assembly_leaf_inputs`
+without `quote_leaf_id` (NOT NULL since migration 0066).
+
+The subsequent `validation:app` 500 — `pm@nexus-validation.invalid` refused as
+a non-corporate identity — is a SYMPTOM of that, not a second defect. The seed
+runs in one transaction, so the failed insert rolls back the `users` rows it
+also writes; `ensureUser` then finds no row and falls through to pre-authorized
+binding, where the production corporate-domain rule correctly refuses a fake
+address. **Do not relax `isCorporateEmail` for isolated mode.** Seed the
+database and the identity resolves at step 1.
 
 
 ## Prerequisites
