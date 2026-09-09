@@ -27,6 +27,16 @@ export type FixtureQuoteName =
   | "unmappedCustomer"
   /** Draft on a company mapped to a customer whose governed terms differ. */
   | "altTermsCustomer";
+/**
+ * The payment term a SENT fixture quote froze at send time.
+ *
+ * Deliberately distinct from `firm_settings.payment_terms_default`
+ * ("Validation Net 30") and from every governed term the fake returns. It used
+ * to BE the firm-default string, which made "renders the frozen snapshot" and
+ * "renders the firm default" the same observation -- an assertion that could
+ * not fail in either direction.
+ */
+const FROZEN_TERMS_SNAPSHOT = "Frozen Net 45";
 const QUOTE_FIXTURE_NAMES: FixtureQuoteName[] = [
   "draft", "sent", "accepted", "failed", "complete", "sendable",
   "unmappedCustomer", "altTermsCustomer",
@@ -320,7 +330,7 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             ${accepted ? "2026-01-15T13:00:00Z" : null},
             ${accepted ? pmId : null}, ${accepted ? "manual_button" : null},
             ${accepted ? "email" : null}, ${sent ? `VAL-${runId}-${name}` : null},
-            ${sent ? "2026-02-14" : null}, ${sent ? "Validation Net 30" : null},
+            ${sent ? "2026-02-14" : null}, ${sent ? FROZEN_TERMS_SNAPSHOT : null},
             ${sent ? "Validation 4 weeks" : null}, ${sent ? "Validation FOB" : null},
             ${sent ? 30 : null}, ${sent ? "Validation Owner" : null},
             ${sent ? "owner@nexus-validation.invalid" : null},

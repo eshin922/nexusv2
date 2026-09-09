@@ -14,6 +14,24 @@ let nextOrder = 1;
 function scenario(): string {
   return process.env.NEXUS_FAKE_NETSUITE_SCENARIO ?? "success";
 }
+/**
+ * Override the governed term this fake reports as CURRENT.
+ *
+ * Needed to establish that a sent quote renders its frozen snapshot rather
+ * than re-deriving: with the customer record unchanged, "frozen" and "live"
+ * produce the same string and the assertion proves nothing.
+ */
+function termsOverride(): string | null {
+  const v = process.env.NEXUS_FAKE_NETSUITE_TERMS;
+  return v && v.trim() ? v.trim() : null;
+}
+/** Artificial latency, so a mid-flight switch is reliably observable. */
+async function delay(): Promise<void> {
+  const ms = Number(process.env.NEXUS_FAKE_NETSUITE_DELAY_MS ?? "0");
+  if (Number.isFinite(ms) && ms > 0) {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+}
 function record(operation: string, input: Record<string, unknown>) {
   calls.push({ operation, input, at: new Date().toISOString() });
 }
@@ -103,8 +121,18 @@ export const fakeNetSuite: NetSuiteOperations = {
     fail("customer-terms-read");
     // Scenario hooks mirror the two unresolved outcomes Send must fail closed
     // on, so the harness can exercise the refusal as well as the happy path.
+    await delay();
+    if (netsuiteCustomerId.includes("_broken")) return null;
     if (scenario() === "customer-missing") return null;
     if (scenario() === "customer-no-terms") return { terms: null };
+    const override = termsOverride();
+    if (override) {
+      return {
+        terms: { id: "validation_ns_terms_override", refName: override },
+        companyName: "Validation Customer",
+        entityId: "V-1000",
+      };
+    }
     // A SECOND governed term, so "each customer keeps its own" is
     // distinguishable from "one value is printed everywhere" -- which is the
     // claim the customer-terms work is actually about.
@@ -138,6 +166,16 @@ export const fakeNetSuite: NetSuiteOperations = {
         netsuiteCustomerId: "validation_ns_customer",
         entityId: "V-1000",
         companyName: "Validation Customer",
+        inactive: false,
+      },
+      {
+        // A candidate the fake CANNOT read back. Save must refuse it, which is
+        // what makes "a visible failure, then a successful retry" reachable in
+        // one session -- a scenario flag fails every save and can never show
+        // the recovery half.
+        netsuiteCustomerId: "validation_ns_customer_broken",
+        entityId: "V-BROKEN",
+        companyName: "Validation Customer (unreadable)",
         inactive: false,
       },
       {
