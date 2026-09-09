@@ -21,7 +21,6 @@ import type { RecoveryChargeRow } from "@/lib/commercial-recovery/workspace-view
 import type { QuotePerTierRollup } from "@/lib/costing";
 import { AddendumToggle } from "./addendum-toggle";
 import type { QuoteAddendumData } from "@/lib/addendum-loader";
-import { BoundaryGuardNotice } from "./boundary-guard-notice";
 import { CustomerViewLive } from "./customer-view-live";
 import type { AuthoritativeProjection } from "./authoritative-projection";
 import { useRecoveryDraft } from "./use-recovery-draft";
@@ -102,7 +101,6 @@ export function QuoteHost({
   recoveryRows,
   quoteRollup,
   governed,
-  presentationRestored,
   internalNotes,
   addendumData,
   isHubspotLinked,
@@ -125,18 +123,6 @@ export function QuoteHost({
   quoteRollup: readonly QuotePerTierRollup[];
   /** Card 0 · the read-only mirror. */
   governed: GovernedSummary;
-  /**
-   * Render the authority's document-plus-panel layout.
-   *
-   * TEMPORARY, and admin-derived at the page. The restored layout changes
-   * the operator-facing shape of this surface, and structural tests are
-   * necessary but not sufficient for that — so it reaches production where
-   * it can be reviewed with a real session, without reaching operators
-   * before it has been. Removing this flag deletes every `!presentationRestored`
-   * branch below; it is not a role boundary and must not become one (the
-   * authority's Q6 says the panel is any-PM).
-   */
-  presentationRestored: boolean;
   internalNotes: string | null;
   addendumData: QuoteAddendumData | null;
   /** Slice 11 Step 8 Gate-0 hotfix — when false, the deal has no
@@ -334,7 +320,7 @@ export function QuoteHost({
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [presentationRestored]);
+  }, []);
 
   // Owned here so the Presentation panel's Voice group and the drawer
   // agree about whether it is open.
@@ -342,8 +328,7 @@ export function QuoteHost({
 
   return (
     <div className="r3-shared">
-      {presentationRestored ? (
-        /* ── The authority's composition ───────────────────────────────
+        {/* ── The authority's composition ───────────────────────────────
            "Left: the artifact. Right: the decisions about it.
             Bottom-right: the act."
 
@@ -352,7 +337,7 @@ export function QuoteHost({
            able to disagree with the artifact the customer receives" -- the
            right worry, answered by evidence rather than by avoidance: both
            renderers read one resolved CustomerView, and the parity is
-           asserted rather than assumed. */
+           asserted rather than assumed. */}
         <div className="cv-body" ref={workspaceRef}>
           <div className="cv-preview">
             <div className="cv-preview-bar">
@@ -417,133 +402,6 @@ export function QuoteHost({
             accountingInstruction={accountingInstruction}
           />
         </div>
-      ) : (
-      <div className="preview-chrome">
-        {showLinkageWarning && (
-          <div
-            role="alert"
-            data-testid="quote-linkage-warning"
-            style={{
-              maxWidth: 880,
-              margin: "0 auto 12px",
-              padding: "10px 14px",
-              background: "var(--warn-soft, #fff4e5)",
-              border: "1px solid var(--warn, #d97706)",
-              color: "var(--warn, #92400e)",
-              borderRadius: 6,
-              fontSize: 13,
-              lineHeight: 1.4,
-            }}
-          >
-            <strong>This deal isn&apos;t linked to HubSpot.</strong>{" "}
-            Push it to HubSpot before sending. Send is disabled until
-            the deal has a real HubSpot record; downstream capabilities
-            (deal-stage push, NetSuite SO write) also require the
-            linkage.
-          </div>
-        )}
-        <PreviewToolbar
-          quoteId={quoteId}
-          quoteStatus={quoteStatus}
-          quoteNumber={view.quote.quoteNumber}
-          sentDate={view.quote.sentDate}
-          pdfLayout={pdfLayout}
-          onPdfLayoutChange={setPdfLayout}
-          customerFacingNotes={view.quote.customerFacingNotes}
-          internalNotes={internalNotes}
-          notesOpen={notesOpen}
-          onOpenNotes={() => setNotesOpen(true)}
-          onCloseNotes={() => setNotesOpen(false)}
-          showNotesButton={!presentationRestored}
-        />
-
-        <BoundaryGuardNotice />
-
-        {/* LEGACY control row — deleted with the flag. The authority moves
-            these into the Presentation panel: "controls become a panel beside
-            it". Kept only so operators are not shown an unreviewed layout. */}
-        {!presentationRestored && (
-          <div
-            style={{
-              maxWidth: 880,
-              margin: "0 auto 18px",
-              padding: "10px 14px",
-              background: "var(--paper-2)",
-              border: "1px solid var(--rule)",
-              borderRadius: 6,
-              display: "flex",
-              gap: 16,
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-            }}
-          >
-            <label
-              style={{ display: "flex", alignItems: "center", gap: 8, opacity: isSent ? 0.5 : 1 }}
-              title={sentLockTooltip}
-            >
-              <span style={{ fontSize: 12, color: "var(--ink-3)" }}>Detail:</span>
-              <select
-                value={detailLevel}
-                onChange={(e) =>
-                  setDetailLevel(e.target.value as CustomerViewDetailLevel)
-                }
-                disabled={isSent}
-                style={{ fontSize: 12 }}
-              >
-                <option value="itemized">Itemized</option>
-                <option value="turnkey_only">Turnkey only</option>
-              </select>
-            </label>
-            {addendumData ? (
-              <span style={{ opacity: isSent ? 0.5 : 1 }} title={sentLockTooltip}>
-                <AddendumToggle
-                  on={addendumOn}
-                  onToggle={() => {
-                    if (isSent) return;
-                    setAddendumOn(!addendumOn);
-                  }}
-                  totalLeaves={addendumData.totalLeaves}
-                  totalAssemblies={addendumData.totalAssemblies}
-                  hasMeaningfulContent={addendumData.hasMeaningfulContent}
-                />
-              </span>
-            ) : (
-              <span style={{ fontSize: 12, color: "var(--ink-4)" }}>
-                No addendum data.
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Preview iframe — the actual react-pdf output the customer
-            receives. Height accommodates a Letter page (8.5in × 11in
-            at 96dpi ≈ 1056px) plus overflow for multi-page. */}
-        <div
-          style={{
-            border: "1px solid var(--rule)",
-            background: "var(--paper)",
-            maxWidth: 880,
-            margin: "0 auto",
-          }}
-        >
-          {/* Legacy path: direct and uncoalesced, as it has always been.
-              The two-pane composition is what makes following worthwhile,
-              and this branch does not have it. */}
-          <iframe
-            key={targetSrc}
-            src={targetSrc}
-            title="Customer PDF preview"
-            style={{
-              width: "100%",
-              height: "1100px",
-              border: "none",
-              display: "block",
-            }}
-          />
-        </div>
-      </div>
-      )}
     </div>
   );
 }

@@ -207,9 +207,34 @@ is the sentence that would otherwise become "it is approved".
 
 ```
 COMPOSITION_FIDELITY: VERIFIED    four cards + footer, correct order and location
-VISUAL_FIDELITY:      PENDING     density, state grammar, typography, card treatments
+VISUAL_FIDELITY:      RELEASED    2026-09-08, Edward — see the disposition below
 FUNCTIONAL_FIDELITY:  PENDING     Card 2 / Card 3 presentation-profile capability
 ```
+
+### The disposition, 2026-09-08
+
+`RELEASED`, not `VERIFIED`. The distinction is the point and is recorded rather
+than smoothed over: **no visual-fidelity review was completed.** The gate came
+off because it had become the more expensive of the two risks.
+
+It was removed after the first training session, where an operator opened the
+quote surface in production and was shown the LEGACY layout — because the gate
+resolved on `viewer.role === "admin"`, and she is not an admin. Every review
+this project performed on that surface was performed by an admin, and therefore
+against a different interface from the one nine non-admin users received.
+
+That is the failure the flag's own comment predicted in the abstract: *"it is
+NOT a role boundary … and this must come off rather than harden into one."* It
+had hardened into one, and the cost was validating an interface no operator
+saw.
+
+`FUNCTIONAL_FIDELITY` stays `PENDING`. Card 2 / Card 3 presentation-profile
+capability is unaffected by this removal and is still owed; releasing the layout
+does not release that.
+
+The coupling this section describes did its job — the gate could not be removed
+without moving this line, and moving this line is what makes the reason
+legible.
 
 Three properties, because the operator comparison against the reference of
 record showed they fail independently. Composition was verified and the surface
@@ -223,11 +248,14 @@ the clamp is present, the panel groups exist, no economic input reaches the
 panel, F4 is gone. None of them can see whether the surface an operator opens
 is right. That judgement is Edward's, and the flag stays until he makes it.
 
-`tests/unit/recovery-workspace.test.ts` asserts the coupling: while this file
-says `VISUAL_FIDELITY: PENDING`, the `presentationRestored` gate must still
-exist. Removing the flag without moving this line fails the suite — so the two
-cannot drift apart silently, which is the only failure mode worth automating
-here.
+`tests/unit/recovery-workspace.test.ts` asserts the coupling in both
+directions: while this file said `VISUAL_FIDELITY: PENDING` the
+`presentationRestored` gate had to exist, and now that it does not, the gate
+must be ABSENT. Removing the flag without moving this line failed the suite;
+moving this line without removing the flag fails it too. The two could not
+drift apart silently, which is the only failure mode worth automating here —
+and the direction that fired in the end is the one that keeps a retired gate
+from creeping back.
 
 **Before the flag comes off:**
 
