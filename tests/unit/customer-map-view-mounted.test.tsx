@@ -211,29 +211,139 @@ test("a superseded search of the same company loses to the newer one", async () 
 
 // ── save results belong to the panel that started them ─────────────────────
 
-test("save A → open B → A resolves: B is untouched", async () => {
-  const gate = deferred<{ ok: true; data: { created: boolean; displayName: string | null; terms: string | null } }>();
-  const save: SaveService = async () => gate.promise;
-  const m = await mount(view({ search: okSearch(["ns-1"]), save }));
+test("save A → open B → A resolves: B can still search AND save", async () => {
+  // "B remains open" is not enough. The stale completion used to advance
+  // `epochRef` unconditionally, while `saveSucceeded` correctly refused to
+  // touch B's state — so the ref outran `panelEpoch` and every ticket B minted
+  // afterwards could never match. B looked fine and was inert.
+  const aSave = deferred<{
+    ok: true;
+    data: { created: boolean; displayName: string | null; terms: string | null };
+  }>();
+  const saved: string[] = [];
+  const save: SaveService = async (input) => {
+    saved.push(input.hubspotCompanyId);
+    if (input.hubspotCompanyId === "company-A") return aSave.promise;
+    return {
+      ok: true,
+      data: { created: true, displayName: "Customer B", terms: "Net 30" },
+    };
+  };
+  let refreshed = 0;
+  const m = await mount(
+    view({ search: okSearch(["ns-1"]), save, refresh: () => refreshed++ }),
+  );
 
   await m.click('[data-testid="open-company-A"]');
   await m.click('[data-testid="customer-search-run"]');
   await flush();
-  await m.click('[data-testid="choose-ns-1"]');   // save A, in flight
+  await m.click('[data-testid="choose-ns-1"]');   // A save in flight
   await m.click('[data-testid="open-company-B"]'); // admin moves on
 
-  gate.resolve({ ok: true, data: { created: true, displayName: "Customer X", terms: "Net 90" } });
+  aSave.resolve({
+    ok: true,
+    data: { created: true, displayName: "Customer A", terms: "Net 90" },
+  });
   await flush();
 
   const panel = m.byTestId("customer-map-panel");
   assert.ok(panel, "B's panel must still be open");
   assert.equal(panel?.getAttribute("data-company"), "company-B");
+
+  // B must still WORK, not merely still be there.
+  await m.click('[data-testid="customer-search-run"]');
+  await flush();
+  assert.ok(
+    m.byTestId("customer-candidate"),
+    "B's search must still return results after A's stale success",
+  );
+
+  await m.click('[data-testid="choose-ns-1"]');
+  await flush();
+  assert.ok(saved.includes("company-B"), "B's save must be issued");
+  assert.equal(m.byTestId("customer-map-panel"), null, "and must close B on success");
+  assert.match(m.byTestId("customer-map-notice")?.textContent ?? "", /Beta mapped to/);
+  // TWO refreshes, and both are correct: A's mapping really was written, so
+  // the table must show it. Panel ownership governs the PANEL, not whether a
+  // genuine success reaches the row list. The notice names its company for the
+  // same reason -- the admin may be looking at another one by then.
+  assert.equal(refreshed, 2);
   await m.unmount();
 });
 
-test("save A fails → open B → A resolves: B shows no error", async () => {
+test("A resolves while B's own search is ALREADY pending", async () => {
+  // The harder ordering: B has work in flight when A's stale completion lands,
+  // so a counter that moved would invalidate a request B had already sent.
+  const aSave = deferred<{
+    ok: true;
+    data: { created: boolean; displayName: string | null; terms: string | null };
+  }>();
+  const bSearch = deferred<{
+    ok: true;
+    data: { state: "ok"; candidates: ReturnType<typeof candidate>[] };
+  }>();
+  let searches = 0;
+  const search: SearchService = async () => {
+    searches++;
+    if (searches === 1) {
+      return { ok: true, data: { state: "ok", candidates: [candidate("ns-1")] } };
+    }
+    return bSearch.promise;
+  };
+  const saved: string[] = [];
+  const save: SaveService = async (input) => {
+    saved.push(input.hubspotCompanyId);
+    if (input.hubspotCompanyId === "company-A") return aSave.promise;
+    return {
+      ok: true,
+      data: { created: true, displayName: "Customer B", terms: "Net 30" },
+    };
+  };
+  const m = await mount(view({ search, save }));
+
+  await m.click('[data-testid="open-company-A"]');
+  await m.click('[data-testid="customer-search-run"]');
+  await flush();
+  await m.click('[data-testid="choose-ns-1"]');    // A save in flight
+  await m.click('[data-testid="open-company-B"]');
+  await m.click('[data-testid="customer-search-run"]'); // B search in flight
+
+  // A's stale success lands in the middle of B's outstanding work.
+  aSave.resolve({
+    ok: true,
+    data: { created: true, displayName: "Customer A", terms: "Net 90" },
+  });
+  await flush();
+
+  bSearch.resolve({
+    ok: true,
+    data: { state: "ok", candidates: [candidate("ns-2")] },
+  });
+  await flush();
+
+  assert.ok(
+    m.find('[data-customer="ns-2"]'),
+    "B's in-flight search must survive A's stale completion",
+  );
+
+  await m.click('[data-testid="choose-ns-2"]');
+  await flush();
+  assert.ok(saved.includes("company-B"), "and B must still be able to save");
+  assert.equal(m.byTestId("customer-map-panel"), null);
+  await m.unmount();
+});
+
+test("save A fails → open B → A resolves: B shows no error and still works", async () => {
   const gate = deferred<{ ok: false; error: { code: string; message: string } }>();
-  const save: SaveService = async () => gate.promise;
+  const saved: string[] = [];
+  const save: SaveService = async (input) => {
+    saved.push(input.hubspotCompanyId);
+    if (input.hubspotCompanyId === "company-A") return gate.promise;
+    return {
+      ok: true,
+      data: { created: true, displayName: "Customer B", terms: "Net 30" },
+    };
+  };
   const m = await mount(view({ search: okSearch(["ns-1"]), save }));
 
   await m.click('[data-testid="open-company-A"]');
@@ -250,6 +360,12 @@ test("save A fails → open B → A resolves: B shows no error", async () => {
     null,
     "A's failure must not appear on B's panel",
   );
+
+  await m.click('[data-testid="customer-search-run"]');
+  await flush();
+  await m.click('[data-testid="choose-ns-1"]');
+  await flush();
+  assert.ok(saved.includes("company-B"), "B must still be able to save");
   await m.unmount();
 });
 

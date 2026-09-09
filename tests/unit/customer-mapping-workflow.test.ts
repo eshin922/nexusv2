@@ -208,7 +208,7 @@ function harness() {
       state = saveFailed(state, t, detail);
     },
     succeed(t: SaveTicket) {
-      state = saveSucceeded(state, t, ++epoch);
+      state = saveSucceeded(state, t);
     },
   };
 }
