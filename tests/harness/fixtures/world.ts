@@ -20,10 +20,55 @@ export type FixtureState = "draft" | "sent" | "accepted" | "failed" | "complete"
  * concurrently against one database. Serialising them would hide the sharing
  * rather than remove it.
  */
-export type FixtureQuoteName = FixtureState | "sendable";
-const QUOTE_FIXTURE_NAMES: FixtureQuoteName[] = ["draft", "sent", "accepted", "failed", "complete", "sendable"];
+export type FixtureQuoteName =
+  | FixtureState
+  | "sendable"
+  /** Draft on a company with NO netsuite_customer_map row. */
+  | "unmappedCustomer"
+  /** Draft on a company mapped to a customer whose governed terms differ. */
+  | "altTermsCustomer";
+const QUOTE_FIXTURE_NAMES: FixtureQuoteName[] = [
+  "draft", "sent", "accepted", "failed", "complete", "sendable",
+  "unmappedCustomer", "altTermsCustomer",
+];
 const quoteLifecycle = (name: FixtureQuoteName): FixtureState =>
-  name === "sendable" ? "draft" : name;
+  name === "sendable" || name === "unmappedCustomer" || name === "altTermsCustomer"
+    ? "draft"
+    : name;
+
+/**
+ * Which HubSpot company a fixture quote belongs to.
+ *
+ * Every fixture previously pointed at ONE company, and that company is mapped
+ * — so every seeded quote resolved `governed` payment terms and the unmapped
+ * half of the customer-terms behaviour was not representable at all. A check
+ * cannot fail in a direction the fixtures cannot express.
+ *
+ * Three states are now mandatory and each has its own company:
+ *   mapped            -> the original company, mapped to the base customer
+ *   unmappedCustomer  -> no map row at all
+ *   altTermsCustomer  -> mapped to a DIFFERENT customer, whose governed terms
+ *                        differ, so "each customer keeps its own term" is
+ *                        distinguishable from "one value is printed everywhere"
+ */
+export function fixtureCompanyId(
+  runId: string,
+  name: FixtureQuoteName,
+): string {
+  if (name === "unmappedCustomer") return `validation_hs_company_unmapped_${runId}`;
+  if (name === "altTermsCustomer") return `validation_hs_company_alt_${runId}`;
+  return `validation_hs_company_${runId}`;
+}
+
+/** The NetSuite customer each mapped company resolves to. */
+export function fixtureNetsuiteCustomerId(
+  runId: string,
+  name: FixtureQuoteName,
+): string | null {
+  if (name === "unmappedCustomer") return null;
+  if (name === "altTermsCustomer") return `validation_ns_customer_alt_${runId}`;
+  return `validation_ns_customer_${runId}`;
+}
 export type OperatorFixtureName =
   | "oneSku"
   | "sixSku"
@@ -188,6 +233,19 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
           'Validation Customer', ${adminId}
         )
       `;
+      // The alt-terms company IS mapped, to a different customer. The
+      // unmapped company is deliberately absent from this table -- that
+      // absence is the fixture.
+      await tx`
+        insert into netsuite_customer_map (
+          hubspot_company_id, netsuite_customer_id,
+          netsuite_customer_display_name, verified_by_user_id
+        ) values (
+          ${fixtureCompanyId(runId, "altTermsCustomer")},
+          ${`validation_ns_customer_alt_${runId}`},
+          'Validation Alt-Terms Customer', ${adminId}
+        )
+      `;
 
       const leafIds = ["carton", "bottle", "insert"].map((name) => uuid(runId, `leaf-${name}`));
       for (const [index, leafId] of leafIds.entries()) {
@@ -220,7 +278,13 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
             business_segment_id, business_segment_label, last_synced_at
           ) values (
             ${dealId}, ${`Validation ${name} deal`}, 'validation_stage_sent',
-            ${companyId}, 'Validation Customer', 'validation_hs_owner_pm',
+            ${fixtureCompanyId(runId, name)},
+            ${name === "unmappedCustomer"
+              ? "Validation Unmapped Customer"
+              : name === "altTermsCustomer"
+                ? "Validation Alt-Terms Customer"
+                : "Validation Customer"},
+            'validation_hs_owner_pm',
             'Validation Owner', 'owner@nexus-validation.invalid',
             'validation_hs_owner_pm', 'Validation PM',
             'pm@nexus-validation.invalid', 'Validation Domestic',
@@ -953,6 +1017,7 @@ export async function resetFixtureWorld(runId: string): Promise<void> {
         await tx`delete from hubspot_deals_cache where deal_id = ${dealId}`;
       }
       await tx`delete from netsuite_customer_map where hubspot_company_id = ${`validation_hs_company_${runId}`}`;
+      await tx`delete from netsuite_customer_map where hubspot_company_id = ${`validation_hs_company_alt_${runId}`}`;
       for (const index of [1, 2, 3]) {
         await tx`delete from leaves where hubspot_product_id = ${`validation_hs_product_${runId}_${index}`}`;
       }
