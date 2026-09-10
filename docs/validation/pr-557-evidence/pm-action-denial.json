@@ -1,0 +1,22 @@
+{
+  "search": {
+    "code": "FORBIDDEN",
+    "message": "Admin role required."
+  },
+  "save": {
+    "code": "FORBIDDEN",
+    "message": "Admin role required."
+  },
+  "list": {
+    "code": "FORBIDDEN",
+    "message": "Admin role required."
+  },
+  "mappingRows": {
+    "before": 2,
+    "after": 2
+  },
+  "auditRows": {
+    "before": 7,
+    "after": 7
+  }
+}

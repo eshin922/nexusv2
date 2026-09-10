@@ -1,0 +1,101 @@
+{
+  "category": "application",
+  "identity": "admin",
+  "scenario": "success",
+  "pass": 13,
+  "fail": 0,
+  "blocked": 0,
+  "results": [
+    {
+      "id": "A:mapped",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "document terms=\"Net 30\" (exact \"Net 30\") verified=true · firm-default in artifact=false · chrome=false",
+      "artifact": ".artifacts/pr-557/preview-mapped.html"
+    },
+    {
+      "id": "A:unmapped",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "document terms=\"—\" verified=false · firm-default in artifact=false (false) in chrome=true (true) · chrome=true/no_lineage",
+      "artifact": ".artifacts/pr-557/preview-unmapped.html"
+    },
+    {
+      "id": "A:alt",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "document terms=\"Net 60\" (exact \"Net 60\") verified=true · firm-default in artifact=false · chrome=false",
+      "artifact": ".artifacts/pr-557/preview-alt.html"
+    },
+    {
+      "id": "A5",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "mapped=\"Net 30\" alt=\"Net 60\" — each keeps its own",
+      "artifact": null
+    },
+    {
+      "id": "PDF:mapped",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "36441B pdf · terms field=\"Net 30\" (exact \"Net 30\") · firm default anywhere in document=false",
+      "artifact": ".artifacts/pr-557/customer-mapped.pdf.txt"
+    },
+    {
+      "id": "PDF:unmapped",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "36726B pdf · terms field=\"\" (exact \"\") · firm default anywhere in document=false",
+      "artifact": ".artifacts/pr-557/customer-unmapped.pdf.txt"
+    },
+    {
+      "id": "PDF:alt",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "36698B pdf · terms field=\"Net 60\" (exact \"Net 60\") · firm default anywhere in document=false",
+      "artifact": ".artifacts/pr-557/customer-alt.pdf.txt"
+    },
+    {
+      "id": "SO:mapped",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "draft with no Sales Order renders no receipt (terms cell found=false)",
+      "artifact": ".artifacts/pr-557/so-receipt-mapped.html"
+    },
+    {
+      "id": "SO:unmapped",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "draft with no Sales Order renders no receipt (terms cell found=false)",
+      "artifact": ".artifacts/pr-557/so-receipt-unmapped.html"
+    },
+    {
+      "id": "SO:alt",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "draft with no Sales Order renders no receipt (terms cell found=false)",
+      "artifact": ".artifacts/pr-557/so-receipt-alt.html"
+    },
+    {
+      "id": "SO:order",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "receipt Terms=\"Frozen Net 45\" (exact \"Frozen Net 45\" — the term frozen at send, not the customer's current one)",
+      "artifact": ".artifacts/pr-557/so-receipt-complete.html"
+    },
+    {
+      "id": "C:admin:map",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "HTTP 200 (expected 200)",
+      "artifact": null
+    },
+    {
+      "id": "C:admin:ns",
+      "category": "application",
+      "verdict": "PASS",
+      "detail": "HTTP 200 (expected 200)",
+      "artifact": null
+    }
+  ]
+}
