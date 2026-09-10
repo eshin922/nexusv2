@@ -986,18 +986,22 @@ test("no advance bar means no reservation for one", async () => {
     new URL("../../src/components/quote-umbrella/quote-umbrella.tsx", import.meta.url),
     "utf8",
   );
+  // The admin gate is gone (2026-09-08), so the condition is the tab alone.
+  // The property is unchanged: the modifier must key on the same condition
+  // that suppresses the bar, or the layout reserves space for a control that
+  // is not there.
   assert.match(
     umbrella,
-    /presentationRestored && activeTab === "preview" \? " r8-body-no-advance"/,
+    /activeTab === "preview" \? " r8-body-no-advance"/,
     "the modifier must key on the same condition that suppresses the bar",
   );
 
-  // The condition on the other side, so a change to one fails against the other.
+  // The other side: the preview tab must render no advance bar at all.
   const tab = await readFile(
     new URL("../../src/components/quote-umbrella/tab-preview-quote.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(tab, /if \(presentationRestored\) \{/);
+  assert.doesNotMatch(tab, /<AdvanceBar/);
 });
 
 test("Continue to Send is superseded on the restored surface, not suppressed", async () => {
@@ -1013,18 +1017,16 @@ test("Continue to Send is superseded on the restored surface, not suppressed", a
     new URL("../../src/components/quote-umbrella/tab-preview-quote.tsx", import.meta.url),
     "utf8",
   );
-  const restored = src.slice(
-    src.indexOf("if (presentationRestored) {"),
-    src.indexOf("const adv = computeUmbrellaAdvance"),
-  );
-  assert.ok(restored.length > 0, "the restored branch is not a distinct return");
-  assert.doesNotMatch(
-    restored,
-    /AdvanceBar/,
-    "the restored branch still reaches the superseded control",
-  );
-  // And the legacy path keeps it — only while that surface exists.
-  assert.match(src, /<AdvanceBar/);
+  // 2026-09-08 — SUPERSESSION COMPLETED.
+  //
+  // This asserted that the restored branch returned before `AdvanceBar` while
+  // the legacy branch kept it. The gate is gone and the legacy branch with it,
+  // so the property strengthens from "the restored path does not reach the
+  // control" to "the control is not in this file at all". There is no longer a
+  // branch that could reach it, which is what supersession was for.
+  assert.doesNotMatch(src, /AdvanceBar/, "the superseded control is still referenced");
+  assert.doesNotMatch(src, /computeUmbrellaAdvance/, "its advance target is still computed");
+  assert.doesNotMatch(src, /presentationRestored/, "the retired gate is still referenced");
 });
 
 test("the umbrella shell is sized by its container, not by the viewport", async () => {
@@ -1281,4 +1283,53 @@ test("the grain reaches the projection without the math branching on it", async 
       );
     }
   }
+});
+
+test("the quote surface renders the same view for every role", async () => {
+  // ── THE TRAINING-SESSION DEFECT, 2026-09-08 ──────────────────────────
+  //
+  // `presentationRestored = viewer.role === "admin" && legacy !== "1"` shipped
+  // as a temporary review gate. Its own comment said it was NOT a role
+  // boundary and had to come off. It did not come off, and the first training
+  // session found it the way these things are always found: an operator opened
+  // the surface in production and was shown the legacy layout, because she is
+  // a pm and every reviewer was an admin.
+  //
+  // Nine non-admin users -- six pms plus accounting, logistics and sales --
+  // were on the other side of it. The comment had predicted exactly that
+  // number.
+  //
+  // This asserts the class, not the instance: no PRESENTATION decision on this
+  // surface may depend on the viewer's role. Action permissions are untouched
+  // and belong elsewhere; what must never return is a layout that differs by
+  // who is looking.
+  const page = codeOnly(
+    await read("src/app/projects/[id]/quotes/[quoteId]/quote/page.tsx"),
+  );
+
+  assert.doesNotMatch(
+    page,
+    /presentationRestored/,
+    "the retired presentation gate is back",
+  );
+  assert.doesNotMatch(
+    page,
+    /legacy !== "1"/,
+    "the legacy-layout escape hatch is back",
+  );
+
+  // Exactly one viewer-role read may remain: the `?live=1` parity-evidence
+  // mount, which is an explicit opt-in diagnostic and does not change the
+  // default view anyone is served. Anything else is a presentation gate.
+  const roleReads = [...page.matchAll(/viewer\.role/g)];
+  assert.equal(
+    roleReads.length,
+    1,
+    `expected only the ?live=1 diagnostic to read viewer.role, found ${roleReads.length}`,
+  );
+  assert.match(
+    page,
+    /live === "1" && viewer\.role === "admin"/,
+    "the one permitted role read is the parity-evidence mount",
+  );
 });

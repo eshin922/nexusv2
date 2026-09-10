@@ -81,7 +81,6 @@ export function QuoteUmbrella({
   chargeRecoveryPricingGaps,
   accountingInstruction,
   governed,
-  presentationRestored,
   allowSimulatedComplete,
   internalNotes,
   addendumData,
@@ -198,7 +197,6 @@ export function QuoteUmbrella({
   accountingInstruction: string | null;
   governed: GovernedSummary;
   /** TEMPORARY admin gate on the restored layout — see quote-host.tsx. */
-  presentationRestored: boolean;
   /** Slice 12 Step 8b · CB P2 fix — hard-guard on the strip-state
    * simulation. Computed server-side in page.tsx from VERCEL_ENV so
    * client-baked NODE_ENV can't be the sole gate (Vercel Preview
@@ -334,7 +332,7 @@ export function QuoteUmbrella({
         <div
           className={
             "r8-body" +
-            (presentationRestored && activeTab === "preview" ? " r8-body-no-advance" : "")
+            (activeTab === "preview" ? " r8-body-no-advance" : "")
           }
         >
           {activeTab === "preview" && (
@@ -353,7 +351,6 @@ export function QuoteUmbrella({
           accountingInstruction={accountingInstruction}
               quoteRollup={quoteRollup}
               governed={governed}
-              presentationRestored={presentationRestored}
               internalNotes={internalNotes}
               addendumData={addendumData}
               isHubspotLinked={isHubspotLinked}
