@@ -270,12 +270,12 @@ copy**.
 - **Existing production-sourced charges keep a coerced `owner_ref`.** For those,
   the plan must *not* present the anchor as a cause.
 
-**RULE — disposition 1, accepted 2026-08-27.** Not a recommendation:
+**RULE — disposition 1, accepted 2026-08-27. AMENDED 2026-08-27 (Phase 3 stop):
+the destination is the Item Group, not Project.**
 
 > A charge whose `owner_ref` comes from anchor coercion **must not be presented
-> as causally owned by that component**. On every OD-032 surface those charges
-> group under **Project**, and the coerced anchor is never exposed as the cause
-> in Costs, Commercial Recovery, customer copy or the NetSuite memo.
+> as causally owned by that component**, and the coerced anchor is never exposed
+> as the cause in Costs, Commercial Recovery, customer copy or the NetSuite memo.
 >
 > New packaging-owned charges use their actual `quote_leaf_id` and therefore
 > have genuine causal ownership.
@@ -283,10 +283,59 @@ copy**.
 > **OD-028 remains post-gate unless we ever decide to expose coerced owner
 > attribution.**
 
+**What changed, and why the original clause was wrong.** The rule originally sent
+anchor-coerced charges to **Project**. That was correct about what they are NOT —
+they are not caused by the anchor component — and wrong about what they ARE.
+
+Every such charge is Production economics stored on
+`assembly_production_inputs`, and **BV-012 §1.a** is an approved governing rule
+confirmed with Accounting:
+
+> Production costs belong to the Item Group itself. They do not belong to an
+> arbitrary packaging component underneath it.
+
+The Item Group is therefore the causal owner. Sending these to Project would
+detach Production economics from the object that incurs them — asserting a
+different and false cause rather than declining to assert one.
+
+**The anchor is not needed to reach the Item Group.** `assembly_production_inputs`
+is keyed by `assembly_id`, so the owning Item Group is read **directly from
+storage**. There is no coercion in that path and no tie to break, which is why
+this amendment does not weaken the OD-028 protection: `owner_ref` remains
+non-causal and unread for display, and the anchor stays unexposed.
+
+The `'@quote'` value backfilled onto legacy instances in Phase 1 is therefore
+**a legacy marker, not an owner claim.** Nothing reads it to decide a display
+owner. See §2.2a.
+
 This is testable rather than merely intended, and §12 asserts it: no OD-032
-surface may render an owner label for a charge whose owner is `'@quote'` or
-whose instance row is synthesised. The rule fails loudly if a future surface
-reaches for the anchor.
+surface may render an **anchor-derived** owner label. The rule fails loudly if a
+future surface reaches for the anchor.
+
+## 2.2a · The three owner types — amended 2026-08-27
+
+Disposition B at the Phase 3 stop admits the evidence the earlier two-type model
+did not have:
+
+| `owner.type` | Means | Read from | Population today |
+|---|---|---|---|
+| `quote` | Genuinely engagement-caused | n/a — nothing qualifies yet | **empty** |
+| `component_attachment` | Packaging-origin, authored against a component | `quote_charge_instances.owner_quote_leaf_id` (real FK) | empty until phase 4 |
+| `item_group` | Production economics, per BV-012 | `assembly_production_inputs.assembly_id` (real key) | **the entire existing population** |
+
+**Item Group ownership is no longer deferred** for the existing population. The
+round trip deferred it on the grounds of "no demand until a charge is genuinely
+caused by an assembly rather than a component in it." That demand was already
+present and unrecognised: BV-012 says the assembly IS the cause, and 104
+populated one-time fee columns are already stored against it.
+
+**Both live owner reads are real references.** Neither is anchor-derived, so the
+OD-028 exposure the original rule guarded against does not arise on either path.
+
+**Project is not a fallback.** If the Item Group caused the charge, Project is not
+its causal owner — a Project heading over Item Group economics would be the same
+class of false attribution the rule exists to prevent, pointing at a different
+wrong owner.
 
 ---
 
