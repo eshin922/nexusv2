@@ -1,3 +1,4 @@
+import type { PaymentTermsUnresolvedReason } from "@/lib/payment-terms-presentation";
 // Slice RI.6 — Customer-view schema slice.
 //
 // This module defines the customer-VISIBLE shape passed into the
@@ -105,6 +106,8 @@ export type CustomerViewQuote = {
    *  `provisional` = firm-wide default; NOT authority for a commitment, and
    *  `sendQuote` refuses to freeze it. */
   paymentTermsSource?: "frozen" | "governed" | "provisional";
+  /** Set only when the source is provisional. See payment-terms-presentation. */
+  paymentTermsUnresolvedReason?: PaymentTermsUnresolvedReason | null;
   leadTime: string | null;
   customerFacingNotes: string | null;
   incoterms: string | null;

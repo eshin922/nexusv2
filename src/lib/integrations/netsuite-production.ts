@@ -11,6 +11,7 @@ import {
   fetchSalesOrderTranid,
 } from "@/lib/netsuite/sales-orders";
 import { getRecord } from "@/lib/netsuite/client";
+import { searchNetsuiteCustomers } from "@/lib/netsuite/customer-search";
 
 export const productionNetSuite: NetSuiteOperations = {
   name: "netsuite",
@@ -22,8 +23,10 @@ export const productionNetSuite: NetSuiteOperations = {
   createSalesOrder,
   fetchSalesOrderTranid,
   readCustomerTerms: (id) =>
-    getRecord<{ terms?: { id?: string; refName?: string } | null }>(
-      "customer",
-      id,
-    ),
+    getRecord<{
+      terms?: { id?: string; refName?: string } | null;
+      entityId?: string | null;
+      companyName?: string | null;
+    }>("customer", id),
+  searchCustomers: searchNetsuiteCustomers,
 };

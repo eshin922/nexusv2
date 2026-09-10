@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { hubspotDealsCache, netsuiteCustomerMap } from "@/db/schema";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
+import type { PaymentTermsUnresolvedReason } from "@/lib/payment-terms-presentation";
 
 // C.1 — governed customer payment terms.
 //
@@ -26,11 +27,12 @@ export type GovernedPaymentTerms =
   | { status: "governed"; value: string; netsuiteCustomerId: string }
   | { status: "unresolved"; reason: UnresolvedReason; detail: string };
 
-export type UnresolvedReason =
-  | "no_company"
-  | "no_lineage"
-  | "no_terms_on_customer"
-  | "netsuite_unavailable";
+/**
+ * Re-exported so the resolver and the presentation layer cannot drift apart:
+ * a reason this file can return but the surface cannot describe would be a
+ * silent collapse back into an undifferentiated "provisional".
+ */
+export type UnresolvedReason = PaymentTermsUnresolvedReason;
 
 /** Injectable for tests — the real one calls NetSuite. */
 export type CustomerReader = (

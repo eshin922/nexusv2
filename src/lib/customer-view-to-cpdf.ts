@@ -41,6 +41,7 @@
 // The render tree's per-field null-guards already handle this
 // gracefully.
 
+import { presentPaymentTerms } from "@/lib/payment-terms-presentation";
 import type {
   CpdfData,
   CpdfCustomer,
@@ -124,7 +125,19 @@ export function customerViewToCpdf(
     // removes `todayIso` from the adapter's options if nothing else wants it.
     issued_date: view.quote.sentDate ?? opts.todayIso,
     valid_until: view.quote.validUntil ?? "",
-    payment_terms: view.quote.paymentTerms ?? "",
+    // The customer ARTIFACT, so the rule binds hardest here: a term prints
+    // only when an authority stands behind it. `sendQuote` fails closed on
+    // unresolved terms, so a sent PDF always carries a governed-then-frozen
+    // value; this guard is what makes that true of a PREVIEW render as well,
+    // rather than true only because of where the guard happens to sit.
+    payment_terms: (() => {
+      const t = presentPaymentTerms({
+        source: view.quote.paymentTermsSource,
+        value: view.quote.paymentTerms,
+        unresolvedReason: view.quote.paymentTermsUnresolvedReason,
+      });
+      return t.kind === "verified" ? t.value : "";
+    })(),
     lead_time: view.quote.leadTime ?? "",
     incoterms: view.quote.incoterms ?? "",
     customer_facing_notes: view.quote.customerFacingNotes,
