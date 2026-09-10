@@ -7,6 +7,8 @@
  * report the failure it excludes. The projection is where the value is
  * decided, and it is the seam the first pass of this work missed entirely.
  */
+// FIRST: refuses before `@/db` is evaluated and a pool is opened.
+import "./require-isolated.ts";
 import { resolveCustomerView } from "@/lib/customer-view-resolver";
 import { customerViewToCpdf } from "@/lib/customer-view-to-cpdf";
 import { resolveGovernedPaymentTerms, unresolvedTermsMessage } from "@/lib/netsuite/customer-terms";
@@ -21,7 +23,9 @@ const CASES = [
   { id: "alt", quote: "6b744fb8-94e5-477d-8379-ee3e2218e71e", expect: "Net 60" },
 ];
 
+const out: { id: string; category: string; verdict: string; detail: string }[] = [];
 function rec(id: string, verdict: string, detail: string) {
+  out.push({ id, category: "projection", verdict, detail });
   console.log(`${verdict.padEnd(7)} ${id.padEnd(6)} ${detail}`);
 }
 
@@ -69,4 +73,13 @@ rec(
   `unmapped quote at the Send gate -> status=${gate.status}; operator sentence="${message.slice(0, 96)}"`,
 );
 
-process.exit(0);
+// A gate that always exits 0 is a report, not a gate. BLOCKED counts as
+// failure here for the same reason a failed read is not a passing read: the
+// check did not establish its claim, and "could not tell" must never be
+// indistinguishable from "told us it was fine".
+const failCount = out.filter((r) => r.verdict === "FAIL").length;
+const blockedCount = out.filter((r) => r.verdict === "BLOCKED").length;
+console.log(
+  `\nPASS ${out.length - failCount - blockedCount}  FAIL ${failCount}  BLOCKED ${blockedCount}`,
+);
+process.exit(failCount + blockedCount > 0 ? 1 : 0);

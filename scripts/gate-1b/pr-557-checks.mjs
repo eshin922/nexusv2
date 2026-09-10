@@ -22,6 +22,43 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { extractPdfText } from "./pdf-text.mjs";
 
 const BASE = process.env.CHECK_BASE ?? "http://127.0.0.1:3100";
+
+// ── the permitted target is asserted, not assumed ─────────────────────────
+//
+// This script drives an application over HTTP and requests PDF renders. It has
+// no database handle, so the runtime guard the sibling scripts import does not
+// apply -- but `CHECK_BASE` can point anywhere, and pointing it at a deployed
+// environment would exercise real customer documents. Loopback only, and the
+// isolated providers must be declared, because a loopback app started from the
+// production profile is still the production profile.
+{
+  const host = new URL(BASE).hostname;
+  const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+  if (!loopback) {
+    console.error(
+      `[gate-1b] refusing to run against ${BASE}.\n` +
+        `  These checks render customer documents. CHECK_BASE must be a loopback\n` +
+        `  address serving the isolated validation app.`,
+    );
+    process.exit(2);
+  }
+  const kinds = [
+    "NEXUS_AUTH_PROVIDER",
+    "NEXUS_HUBSPOT_PROVIDER",
+    "NEXUS_NETSUITE_PROVIDER",
+    "NEXUS_ARTIFACT_PROVIDER",
+    "NEXUS_REALTIME_PROVIDER",
+  ];
+  const wrong = kinds.filter((k) => (process.env[k] ?? "").trim() !== "isolated");
+  if (wrong.length > 0) {
+    console.error(
+      `[gate-1b] refusing: these providers are not declared isolated: ${wrong.join(", ")}.\n` +
+        `  Launch with --env-file=.env.validation.local, or export the same values,\n` +
+        `  so the target the checks drive is the isolated one.`,
+    );
+    process.exit(2);
+  }
+}
 const ART = process.env.CHECK_ARTIFACTS ?? ".artifacts/pr-557";
 mkdirSync(ART, { recursive: true });
 
@@ -199,11 +236,42 @@ async function main() {
   }
 
   // ── access ──────────────────────────────────────────────────────────────
-  for (const path of wantDraftChecks ? ["/admin/netsuite-customer-map", "/admin/netsuite"] : []) {
-    const r = await get(path);
-    const expected = who === "admin" ? 200 : 307;
-    rec(`C:${who}:${path.includes("customer") ? "map" : "ns"}`,
-      r.status === expected ? "PASS" : "FAIL", `HTTP ${r.status} (expected ${expected})`);
+  //
+  // The identity is read from the APP, not from this process. `who` above is
+  // whatever env THIS script was launched with, and the app under test is a
+  // separate process that may have been started with a different one -- which
+  // is not hypothetical: a run with the script on `pm` against an app on
+  // `admin` reported two failures that were purely that mismatch.
+  //
+  // Asking the running application is the only reading that describes the
+  // thing being tested. If it cannot be determined the checks are BLOCKED,
+  // never assumed, because a wrong expectation produces a verdict about the
+  // harness wearing the costume of a verdict about the product.
+  if (wantDraftChecks) {
+    const home = await get("/");
+    const email = home.body.match(/[\w.+-]+@nexus-validation\.invalid/)?.[0] ?? null;
+    const appIdentity = email?.startsWith("admin@")
+      ? "admin"
+      : email?.startsWith("pm@")
+        ? "pm"
+        : null;
+
+    if (appIdentity === null) {
+      rec("C:identity", "BLOCKED",
+        `could not determine which identity the app at ${BASE} is serving (home HTTP ${home.status})`);
+    } else {
+      if (appIdentity !== who) {
+        rec("C:identity", "PASS",
+          `app is serving "${appIdentity}"; this process was launched as "${who}" — expectations follow the APP`);
+      }
+      for (const path of ["/admin/netsuite-customer-map", "/admin/netsuite"]) {
+        const r = await get(path);
+        const expected = appIdentity === "admin" ? 200 : 307;
+        rec(`C:${appIdentity}:${path.includes("customer") ? "map" : "ns"}`,
+          r.status === expected ? "PASS" : "FAIL",
+          `HTTP ${r.status} (expected ${expected} for ${appIdentity})`);
+      }
+    }
   }
 
   const summary = {

@@ -10,6 +10,8 @@
  * a refusal writes neither, and that a mapped customer then changes what the
  * quote prints.
  */
+// FIRST: refuses before `@/db` is evaluated and a pool is opened.
+import "./require-isolated.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { db } from "@/db";
 import { and, desc, eq } from "drizzle-orm";
