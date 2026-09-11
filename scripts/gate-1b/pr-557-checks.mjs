@@ -22,47 +22,61 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { extractPdfText } from "./pdf-text.mjs";
 
 const BASE = process.env.CHECK_BASE ?? "http://127.0.0.1:3100";
-
-// ── the permitted target is asserted, not assumed ─────────────────────────
-//
-// This script drives an application over HTTP and requests PDF renders. It has
-// no database handle, so the runtime guard the sibling scripts import does not
-// apply -- but `CHECK_BASE` can point anywhere, and pointing it at a deployed
-// environment would exercise real customer documents. Loopback only, and the
-// isolated providers must be declared, because a loopback app started from the
-// production profile is still the production profile.
-{
-  const host = new URL(BASE).hostname;
-  const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
-  if (!loopback) {
-    console.error(
-      `[gate-1b] refusing to run against ${BASE}.\n` +
-        `  These checks render customer documents. CHECK_BASE must be a loopback\n` +
-        `  address serving the isolated validation app.`,
-    );
-    process.exit(2);
-  }
-  const kinds = [
-    "NEXUS_AUTH_PROVIDER",
-    "NEXUS_HUBSPOT_PROVIDER",
-    "NEXUS_NETSUITE_PROVIDER",
-    "NEXUS_ARTIFACT_PROVIDER",
-    "NEXUS_REALTIME_PROVIDER",
-  ];
-  const wrong = kinds.filter((k) => (process.env[k] ?? "").trim() !== "isolated");
-  if (wrong.length > 0) {
-    console.error(
-      `[gate-1b] refusing: these providers are not declared isolated: ${wrong.join(", ")}.\n` +
-        `  Launch with --env-file=.env.validation.local, or export the same values,\n` +
-        `  so the target the checks drive is the isolated one.`,
-    );
-    process.exit(2);
-  }
-}
 const ART = process.env.CHECK_ARTIFACTS ?? ".artifacts/pr-557";
 mkdirSync(ART, { recursive: true });
 
-const Q = {
+// ── the permitted target is established FROM THE TARGET ───────────────────
+//
+// An earlier version read `NEXUS_*_PROVIDER` out of THIS process. Those
+// variables describe the shell that launched the script, not the server it is
+// pointed at, and the two are different processes -- so the check could be
+// perfectly isolated while the app it drove was not. Isolation now comes from
+// the target reporting its own runtime, and an unreachable or non-isolated
+// target is refused rather than inferred around.
+//
+// Loopback is still required first, because asking a remote host to describe
+// itself already sent it the request.
+async function establishTarget() {
+  const host = new URL(BASE).hostname;
+  if (!(host === "127.0.0.1" || host === "localhost" || host === "::1")) {
+    return { ok: false, detail: `${BASE} is not a loopback address. These checks render customer documents and drive real actions.` };
+  }
+
+  let body;
+  let status = 0;
+  try {
+    const res = await fetch(new URL("/api/validation-runtime", BASE));
+    status = res.status;
+    if (status !== 200) {
+      return {
+        ok: false,
+        detail: `target did not report runtime facts (HTTP ${status} from /api/validation-runtime). The probe does not exist outside isolated mode, so its ABSENCE is not evidence of isolation.`,
+      };
+    }
+    body = await res.json();
+  } catch (e) {
+    return { ok: false, detail: `could not reach ${BASE} to establish isolation: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  if (body?.mode !== "isolated") {
+    return { ok: false, detail: `target reports mode="${body?.mode}", not isolated.` };
+  }
+  const providers = body.providers ?? {};
+  const wrong = Object.entries(providers).filter(([, kind]) => kind !== "isolated");
+  if (wrong.length === 0 && Object.keys(providers).length === 0) {
+    return { ok: false, detail: "target reported no providers — facts are absent, not clean." };
+  }
+  if (wrong.length > 0) {
+    return { ok: false, detail: `target providers not isolated: ${wrong.map(([n, k]) => `${n}=${k}`).join(", ")}.` };
+  }
+  if (!body.database?.carriesValidationMarker) {
+    return { ok: false, detail: `target database "${body.database?.name}" does not carry the validation marker.` };
+  }
+  if (!body.identity?.role) {
+    return { ok: false, detail: "target reported no signed-in identity role." };
+  }
+  return { ok: true, facts: body };
+}const Q = {
   mapped: { p: "601459c0-a0d1-45e4-840d-dce22a558bc3", q: "f6f8a904-5cdd-4e70-8ed7-2cf5a267e6cd", term: "Net 30" },
   unmapped: { p: "89346554-e22d-4a6f-89eb-300157cd5cab", q: "e5129003-958b-40f0-8753-d2a90914363a", term: null },
   alt: { p: "ad1874ab-2f80-4af1-8a1a-c1964d7e852a", q: "6b744fb8-94e5-477d-8379-ee3e2218e71e", term: "Net 60" },
@@ -124,6 +138,15 @@ function receiptTerms(html) {
 }
 
 async function main() {
+  // BEFORE any document is requested.
+  const target = await establishTarget();
+  if (!target.ok) {
+    console.error(`[gate-1b] refusing: ${target.detail}`);
+    process.exit(2);
+  }
+  console.log(
+    `[gate-1b] target established · mode=${target.facts.mode} · db=${target.facts.database.name} · serving=${target.facts.identity.role} (${target.facts.identity.email})`,
+  );
   const who = process.env.NEXUS_VALIDATION_IDENTITY ?? "pm";
   // The frozen check needs the customer's CURRENT term overridden, which
   // changes what every DRAFT legitimately renders. Running both in one pass
@@ -131,6 +154,11 @@ async function main() {
   // so the two are separate runs over the same fixtures.
   const only = process.env.CHECK_ONLY ?? "all";
   const wantDraftChecks = only === "all";
+  // `preflight` runs target establishment and the access checks ALONE. The
+  // document checks render three PDFs per invocation, which would make a
+  // falsification sweep over the preflight cost minutes for evidence it does
+  // not use.
+  const wantAccess = only === "all" || only === "preflight";
 
   // ── terms in the rendered document, and the chrome beside it ────────────
   for (const [name, spec] of wantDraftChecks ? Object.entries(Q) : []) {
@@ -237,53 +265,41 @@ async function main() {
 
   // ── access ──────────────────────────────────────────────────────────────
   //
-  // The identity is read from the APP, not from this process. `who` above is
-  // whatever env THIS script was launched with, and the app under test is a
-  // separate process that may have been started with a different one -- which
-  // is not hypothetical: a run with the script on `pm` against an app on
-  // `admin` reported two failures that were purely that mismatch.
-  //
-  // Asking the running application is the only reading that describes the
-  // thing being tested. If it cannot be determined the checks are BLOCKED,
-  // never assumed, because a wrong expectation produces a verdict about the
-  // harness wearing the costume of a verdict about the product.
-  if (wantDraftChecks) {
-    const home = await get("/");
-    const email = home.body.match(/[\w.+-]+@nexus-validation\.invalid/)?.[0] ?? null;
-    const appIdentity = email?.startsWith("admin@")
-      ? "admin"
-      : email?.startsWith("pm@")
-        ? "pm"
-        : null;
-
-    if (appIdentity === null) {
+  // REQUESTED and OBSERVED are held apart on purpose. A PM run pointed at an
+  // admin session is a BLOCKED PM test -- not a passing admin test. Rewriting
+  // the expectation to match what was found would turn "I tested the wrong
+  // thing" into a green tick, which is the failure mode this whole file exists
+  // to prevent.
+  if (wantAccess) {
+    const requested = process.env.NEXUS_VALIDATION_IDENTITY ?? "pm";
+    const observed = target.facts.identity.role;
+    if (observed !== requested) {
       rec("C:identity", "BLOCKED",
-        `could not determine which identity the app at ${BASE} is serving (home HTTP ${home.status})`);
+        `requested "${requested}" but the target is serving "${observed}" (${target.facts.identity.email}). Point the check at an app started for "${requested}"; its expectations are NOT being rewritten to match.`);
     } else {
-      if (appIdentity !== who) {
-        rec("C:identity", "PASS",
-          `app is serving "${appIdentity}"; this process was launched as "${who}" — expectations follow the APP`);
-      }
+      rec("C:identity", "PASS",
+        `requested and observed identity agree: "${observed}" (${target.facts.identity.email})`);
       for (const path of ["/admin/netsuite-customer-map", "/admin/netsuite"]) {
         const r = await get(path);
-        const expected = appIdentity === "admin" ? 200 : 307;
-        rec(`C:${appIdentity}:${path.includes("customer") ? "map" : "ns"}`,
+        const expected = observed === "admin" ? 200 : 307;
+        rec(`C:${observed}:${path.includes("customer") ? "map" : "ns"}`,
           r.status === expected ? "PASS" : "FAIL",
-          `HTTP ${r.status} (expected ${expected} for ${appIdentity})`);
+          `HTTP ${r.status} (expected ${expected} for ${observed})`);
       }
     }
   }
 
   const summary = {
     category: "application",
-    identity: who,
+    requestedIdentity: who,
+    observedIdentity: target.facts.identity.role,
     scenario: process.env.NEXUS_FAKE_NETSUITE_SCENARIO ?? "success",
     pass: results.filter((r) => r.verdict === "PASS").length,
     fail: results.filter((r) => r.verdict === "FAIL").length,
     blocked: results.filter((r) => r.verdict === "BLOCKED").length,
     results,
   };
-  const sp = save(`summary-application-${who}-${only}.json`, JSON.stringify(summary, null, 2));
+  const sp = save(`summary-application-${target.facts.identity.role}-${only}.json`, JSON.stringify(summary, null, 2));
   console.log(`\nPASS ${summary.pass}  FAIL ${summary.fail}  BLOCKED ${summary.blocked}  [${sp}]`);
   process.exit(summary.fail + summary.blocked > 0 ? 1 : 0);
 }
