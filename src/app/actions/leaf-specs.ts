@@ -201,6 +201,14 @@ export async function updateLeafSpec(
         ERR.VALIDATION,
         "Specifications do not apply to this product category.",
       );
+    if (resolution.kind === "schema_pending")
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `"${resolution.value}" carries product specifications, but the field ` +
+          "set has not been built in Nexus yet. This is a missing schema, not " +
+          "an inapplicable one — the product is still created, classified and " +
+          "quoted normally.",
+      );
     if (resolution.kind === "unmapped")
       throw new ActionGuardError(
         ERR.VALIDATION,

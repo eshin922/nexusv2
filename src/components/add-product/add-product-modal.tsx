@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
+import { resolveSpecSchema } from "@/lib/product-structure/spec-schema-mapping";
 import { createLeaf, fetchHubspotProductTypes } from "@/app/actions/leaves";
 import {
   DIRECT_SERVICE_IDENTITIES,
@@ -71,7 +72,6 @@ export function AddProductModal({
 
   // LEAF form state
   const [leafName, setLeafName] = useState("");
-  const [leafTypeId, setLeafTypeId] = useState<string>("");
   // HubSpot's own classification, kept separate from the Nexus type above.
   // `hsTypeValue` holds the INTERNAL option value; the label is only ever
   // rendered. The two differ on the three largest categories, so conflating
@@ -114,7 +114,6 @@ export function AddProductModal({
   useEffect(() => {
     if (open) return;
     setLeafName("");
-    setLeafTypeId("");
     setLeafSku("");
     setLeafUnitCost("");
     setLeafUrl("");
@@ -176,7 +175,6 @@ export function AddProductModal({
     return () => clearTimeout(t);
   }, [toast]);
 
-  const selectedLeafType = leafTypes.find((t) => t.id === leafTypeId) ?? null;
   const isService = commercialKind === "service";
 
   function handleSubmitLeaf(option: "continue" | "defer") {
@@ -184,20 +182,20 @@ export function AddProductModal({
       setError("Leaf name is required.");
       return;
     }
-    // Leaf Product Type drives SPEC FIELDS, and the four it offers are all
-    // packaging — Primary, Secondary, Tertiary, Soft goods. None of them
-    // describes a service, and a service has no physical specification to
-    // enter: the Library already renders exactly this state as "Specs not
-    // applicable" for logistics leaves.
+    // NO Leaf Product Type requirement, and no Nexus taxonomy to satisfy.
+    // HubSpot owns product classification: `hubspotProductType` is what this
+    // form submits and what the Library, Setup and the spec-schema mapping all
+    // read. `leaves.product_type_id` is deliberately not consulted by the
+    // loader, and `createLeaf` stopped reading it at Step 8 -- so requiring it
+    // gated the submit on a value that went nowhere.
     //
-    // Requiring it made a Direct Service UNCREATABLE through the UI — the
-    // submit sat inert behind a picker with no correct answer. Found on the
-    // Stage 1+2 walk, which is the only place it could have been found: every
-    // unit test exercised the action, and the action never required it.
-    if (!isService && !leafTypeId) {
-      setError("Pick a Product Type.");
-      return;
-    }
+    // It offered four options, all packaging. Anything that is not packaging
+    // had no correct answer and the submit sat inert behind a picker that
+    // could not be satisfied. That made a Direct Service uncreatable, which
+    // was patched by exempting services -- and then made a BULK LUBRICANT
+    // uncreatable, because the exemption treated the symptom. A second product
+    // with no correct answer is not a second special case; it is the same
+    // defect, so the requirement is gone rather than carved around again.
     const fd = new FormData();
     fd.set("name", leafName.trim());
     // Step 8 · a Nexus leaf type is no longer sent. Classification travels as
@@ -283,16 +281,12 @@ export function AddProductModal({
               <LeafFields
                 name={leafName}
                 onName={setLeafName}
-                typeId={leafTypeId}
-                onTypeId={setLeafTypeId}
                 sku={leafSku}
                 onSku={setLeafSku}
                 unitCost={leafUnitCost}
                 onUnitCost={setLeafUnitCost}
                 url={leafUrl}
                 onUrl={setLeafUrl}
-                leafTypes={leafTypes}
-                selectedType={selectedLeafType}
                 hsTypeValue={hsTypeValue}
                 onHsTypeValue={setHsTypeValue}
                 commercialKind={commercialKind}
@@ -326,35 +320,22 @@ export function AddProductModal({
               >
                 Cancel
               </button>
-              {!isService && !leafTypeId ? (
-                <button
-                  type="button"
-                  className="a1v2-btn primary"
-                  disabled
-                  aria-disabled="true"
-                >
-                  Pick a Product Type
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="a1v2-btn ghost sm"
-                    onClick={() => handleSubmitLeaf("defer")}
-                    disabled={pending}
-                  >
-                    {pending ? "Adding…" : "Add leaf · specs empty"}
-                  </button>
-                  <button
-                    type="button"
-                    className="a1v2-btn primary"
-                    onClick={() => handleSubmitLeaf("continue")}
-                    disabled={pending}
-                  >
-                    {pending ? "Adding…" : "Continue to specs →"}
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                className="a1v2-btn ghost sm"
+                onClick={() => handleSubmitLeaf("defer")}
+                disabled={pending}
+              >
+                {pending ? "Adding…" : "Add leaf · specs empty"}
+              </button>
+              <button
+                type="button"
+                className="a1v2-btn primary"
+                onClick={() => handleSubmitLeaf("continue")}
+                disabled={pending}
+              >
+                {pending ? "Adding…" : "Continue to specs →"}
+              </button>
             </div>
           </div>
         </div>
@@ -373,16 +354,12 @@ export function AddProductModal({
 function LeafFields(props: {
   name: string;
   onName: (v: string) => void;
-  typeId: string;
-  onTypeId: (v: string) => void;
   sku: string;
   onSku: (v: string) => void;
   unitCost: string;
   onUnitCost: (v: string) => void;
   url: string;
   onUrl: (v: string) => void;
-  leafTypes: LeafSpecEntryProductType[];
-  selectedType: LeafSpecEntryProductType | null;
   /** HubSpot's `hs_product_type` INTERNAL value — never a label. */
   hsTypeValue: string;
   onHsTypeValue: (v: string) => void;
@@ -446,33 +423,11 @@ function LeafFields(props: {
       </>
       )}
       <div className="row-pair">
-        {/* Spec fields, and every option is packaging. A service has no
-            physical specification to enter — the Library renders that exact
-            state as "Specs not applicable" for logistics leaves — so the field
-            is not shown rather than shown-and-optional: a required-looking
-            control with no correct answer is what made a service uncreatable. */}
-        {props.commercialKind === "product" && (
-          <div className="field">
-            <span className="lbl req">Leaf Product Type</span>
-            <select
-              aria-label="Leaf Product Type"
-              value={props.typeId}
-              onChange={(e) => props.onTypeId(e.target.value)}
-            >
-              <option value="">— Pick a type —</option>
-              {props.leafTypes.map((t) => {
-                const meta = t.placeholder
-                  ? "fields TBD"
-                  : `${t.fieldSchema?.fields.length ?? 0} fields`;
-                return (
-                  <option key={t.id} value={t.id}>
-                    {t.name} · {meta}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        )}
+        {/* No Leaf Product Type control. It was a second, Nexus-owned product
+            taxonomy standing beside HubSpot's -- operator-selected, never
+            submitted, and offering only packaging. Classification comes from
+            `hs_product_type` above; what the spec step will do with it is
+            stated below rather than chosen here. */}
         <div className="field">
           <span className="lbl">SKU</span>
           <input
@@ -507,39 +462,64 @@ function LeafFields(props: {
           />
         </div>
       </div>
-      {props.selectedType ? (
-        <div
-          style={{
-            padding: "10px 14px",
-            background: "var(--paper-2)",
-            border: "1px solid var(--rule)",
-            borderRadius: 6,
-            fontSize: 11.5,
-            color: "var(--ink-3)",
-            lineHeight: 1.45,
-          }}
-        >
-          <strong style={{ color: "var(--ink)" }}>Next step:</strong>{" "}
-          {props.selectedType.placeholder ? (
-            <>
-              The{" "}
-              <code style={{ fontFamily: "var(--mono)" }}>
-                {props.selectedType.name}
-              </code>{" "}
-              field schema is pending Edward&apos;s input. Ship the leaf
-              empty for now; populate when fields land.
-            </>
-          ) : (
-            <>
-              Continue to specs renders the{" "}
-              <code style={{ fontFamily: "var(--mono)" }}>
-                {props.selectedType.name}
-              </code>{" "}
-              field set (
-              {props.selectedType.fieldSchema?.fields.length ?? 0} fields).
-            </>
-          )}
-        </div>
+      {/* WHAT THE SPEC STEP WILL DO, derived from the HubSpot classification.
+          Nothing is chosen here -- this states the consequence of the choice
+          made above, including when the consequence is that no schema exists.
+
+          `unmapped` and `no_schema` are held apart deliberately. "We have not
+          decided what specifications this category has" and "this category
+          legitimately has none" are different facts, and a product must never
+          be blocked, nor pushed into a packaging category, because the first
+          one is true of it. */}
+      {props.commercialKind === "product" && props.hsTypeValue ? (
+        (() => {
+          const resolution = resolveSpecSchema(props.hsTypeValue);
+          const label =
+            props.hsTypeOptions.find((o) => o.value === props.hsTypeValue)
+              ?.label ?? props.hsTypeValue;
+          const body =
+            resolution === null ? null : resolution.kind === "schema" ? (
+              <>
+                Continue to specs renders the{" "}
+                <code style={{ fontFamily: "var(--mono)" }}>
+                  {resolution.schemaId}
+                </code>{" "}
+                field set.
+              </>
+            ) : resolution.kind === "no_schema" ? (
+              <>
+                <code style={{ fontFamily: "var(--mono)" }}>{label}</code> has no
+                specification schema in Nexus. The leaf is created and attaches
+                to quotes normally; the spec step will show that specifications
+                are not captured for this category rather than an empty form.
+              </>
+            ) : (
+              <>
+                <code style={{ fontFamily: "var(--mono)" }}>{label}</code> is a
+                HubSpot category Nexus has not yet dispositioned. The leaf is
+                created and attaches to quotes normally, and its specifications
+                stay uncaptured until the category is mapped — it is not
+                reclassified as packaging to obtain a form.
+              </>
+            );
+          return body ? (
+            <div
+              data-testid="spec-consequence"
+              data-resolution={resolution?.kind ?? "no_type"}
+              style={{
+                padding: "10px 14px",
+                background: "var(--paper-2)",
+                border: "1px solid var(--rule)",
+                borderRadius: 6,
+                fontSize: 11.5,
+                color: "var(--ink-3)",
+                lineHeight: 1.45,
+              }}
+            >
+              <strong style={{ color: "var(--ink)" }}>Next step:</strong> {body}
+            </div>
+          ) : null;
+        })()
       ) : null}
     </>
   );

@@ -38,10 +38,23 @@ export type SpecSchemaId = "primary" | "secondary" | "tertiary";
 export type SpecSchemaResolution =
   | { kind: "schema"; schemaId: SpecSchemaId }
   | { kind: "no_schema" }
+  /**
+   * Dispositioned, and the disposition is "a schema is owed here".
+   *
+   * Distinct from `no_schema`, which asserts specifications legitimately do
+   * not apply. Bulk formulated material has viscosity, grade, INCI, density —
+   * saying "nothing is missing" about it is a false statement dressed as a
+   * finished one, and it was the reading an operator got when a bulk silicone
+   * lubricant could not be created.
+   *
+   * Distinct from `unmapped` too, which means nobody has looked. This means
+   * somebody looked and found the schema absent.
+   */
+  | { kind: "schema_pending"; value: string }
   | { kind: "unmapped"; value: string };
 
 /** Authoritative HubSpot internal value → Spec Schema, or explicit NO_SCHEMA. */
-const MAPPING: Record<string, SpecSchemaId | "NO_SCHEMA"> = {
+const MAPPING: Record<string, SpecSchemaId | "NO_SCHEMA" | "SCHEMA_PENDING"> = {
   // Packaging — a schema applies.
   Primary: "primary",
   Secondary: "secondary",
@@ -55,7 +68,11 @@ const MAPPING: Record<string, SpecSchemaId | "NO_SCHEMA"> = {
   // — a freight charge or a design service has no product specification, and
   // fabricating a schema to avoid an empty state would be inventing data.
   "Soft Goods and Accessories": "NO_SCHEMA",
-  "Raw ingredients": "NO_SCHEMA",
+  // Bulk formulated material — the catalog uses this for "Greens Bulk",
+  // "Protein Bulk", "Raw Material", "Hydration Raws". It plainly HAS
+  // specifications; Nexus has not implemented them. That is a gap, not an
+  // absence, and it must not read to an operator as "nothing is missing".
+  "Raw ingredients": "SCHEMA_PENDING",
   "Finished Goods": "NO_SCHEMA",
   "Filling and Packout Services": "NO_SCHEMA",
   "One Time Charges": "NO_SCHEMA",
@@ -82,6 +99,7 @@ export function resolveSpecSchema(
   const hit = MAPPING[productType];
   if (hit === undefined) return { kind: "unmapped", value: productType };
   if (hit === "NO_SCHEMA") return { kind: "no_schema" };
+  if (hit === "SCHEMA_PENDING") return { kind: "schema_pending", value: productType };
   return { kind: "schema", schemaId: hit };
 }
 

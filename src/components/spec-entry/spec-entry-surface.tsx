@@ -222,7 +222,7 @@ function NoSchemaPanel({
   state,
   typeValue,
 }: {
-  state: "schema" | "no_schema" | "unmapped" | "no_type";
+  state: "schema" | "no_schema" | "schema_pending" | "unmapped" | "no_type";
   typeValue: string | null;
 }) {
   if (state === "no_schema") {
@@ -232,6 +232,19 @@ function NoSchemaPanel({
         <p>
           {typeValue ?? "This category"} does not carry a product
           specification. Nothing is missing.
+        </p>
+      </div>
+    );
+  }
+  if (state === "schema_pending") {
+    return (
+      <div className="a1v2-empty">
+        <strong>Specification schema not implemented yet</strong>
+        <p>
+          {typeValue ?? "This category"} does carry product specifications —
+          Nexus has not built the field set for it. Nothing here says they are
+          unnecessary, and the product is created, classified and quoted
+          normally in the meantime.
         </p>
       </div>
     );
