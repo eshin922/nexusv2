@@ -89,12 +89,27 @@ leaf looks complete and points at someone else's record.
 
 Ownership requires positive evidence:
 
-1. **Correlation token, the only strong proof.** The create payload carries the
-   allocation id in a dedicated HubSpot property (e.g. `nexus_allocation_id`).
-   A product found by SKU whose token equals this allocation's id is
-   **provably** this intent's product. Adoption is then justified.
-   *This requires a HubSpot property to be created — an admin action, outside
-   this design's authority, and a prerequisite for automatic adoption.*
+1. **Correlation token — and only under two constraints.** The create payload
+   carries the allocation id in a dedicated HubSpot property
+   (e.g. `nexus_allocation_id`). A product whose token equals this allocation's
+   id is this intent's product.
+
+   The token is ownership evidence ONLY when both hold:
+
+   - **Unique to the intent.** It is the allocation id: one per creation
+     intent, never reused, never shared between intents. A token that could
+     belong to two intents proves nothing about either.
+   - **Controlled by the integration.** The property must be writable only by
+     this integration and not operator-editable in the HubSpot UI. If a person
+     can set it, a copied value forges ownership, and the strongest evidence in
+     this design becomes the easiest to fake.
+
+   If the property cannot be made integration-controlled, the token is
+   downgraded to corroboration and adoption is NOT available — the allocation
+   stays `conflicted` for a human. That is a prerequisite to settle before
+   implementation, not a detail to discover during it.
+
+   *Creating the property is an admin action outside this design.*
 
 2. **Absent the token, ownership cannot be established.** Creation timestamp
    inside the attempt window and matching name/cost are corroborating, not
@@ -105,7 +120,7 @@ So: **no token, no adoption.** The allocation goes to `conflicted`, which
 blocks completion and names what a human must resolve. Never auto-adopt by SKU
 alone.
 
-## 4 · Concurrency, crash recovery, and authoritative absence
+## 4 · Concurrency, crash recovery, and retry safety
 
 ### Intent is persisted before the external request
 
@@ -119,21 +134,56 @@ alternative is an in-flight request nobody remembers making.
 A competing worker must not issue a second create for the same intent. The
 claim is a conditional update, so it is decided by the database:
 
+**The claim to CREATE is restricted to one state.** Only `allocated` is
+create-eligible. A lease expiring never makes anything create-eligible:
+
 ```sql
+-- CREATE claim. `allocated` only.
 UPDATE sku_allocations
    SET state = 'create_in_flight',
-       claimed_by = $worker, claim_expires_at = now() + interval '2 minutes',
-       attempt_count = attempt_count + 1
- WHERE id = $id
-   AND (state = 'allocated'
-        OR (state = 'create_in_flight' AND claim_expires_at < now()))
-RETURNING id;
+       claim_id = $new_claim, claimed_by = $worker,
+       claim_expires_at = now() + $lease,
+       attempt_count = attempt_count + 1,
+       version = version + 1
+ WHERE id = $id AND state = 'allocated' AND version = $seen_version
+RETURNING id, claim_id, version;
 ```
 
-No row returned means another worker holds the claim; that worker waits or
-reports, and does not call HubSpot. An expired lease does NOT mean the request
-failed — it means the outcome is unknown, so the lease expiring routes to
-reconciliation, never to a fresh create.
+```sql
+-- RECONCILE claim. Expired in-flight work, and nothing else.
+UPDATE sku_allocations
+   SET state = 'create_uncertain',
+       claim_id = $new_claim, claimed_by = $worker,
+       claim_expires_at = now() + $lease,
+       version = version + 1
+ WHERE id = $id
+   AND state = 'create_in_flight'
+   AND claim_expires_at < now()
+   AND version = $seen_version
+RETURNING id, claim_id, version;
+```
+
+`complete` and `conflicted` are **terminal**. They appear in no claim
+predicate, so no lease expiry, retry sweep or operator action can return them
+to create-eligibility. A finished allocation cannot be un-finished by a clock.
+
+**Fencing on every subsequent write.** A worker that stalled past its lease
+must not overwrite a newer decision made in its absence:
+
+```sql
+UPDATE sku_allocations
+   SET state = $next, hubspot_product_id = $id, version = version + 1
+ WHERE id = $id AND claim_id = $my_claim AND version = $my_version;
+```
+
+Zero rows updated means the claim moved on. The stale worker reports and
+touches nothing — it does not retry, because the work it was doing is no longer
+its work. Without this, a delayed response from a worker everyone had written
+off can overwrite a `conflicted` verdict with a stale `complete`.
+
+An expired lease does NOT mean the request failed. It means the outcome is
+unknown, which is why it routes to reconciliation rather than to a fresh
+create.
 
 ### States
 
@@ -146,23 +196,103 @@ reconciliation, never to a fresh create.
 | `complete` | leaf and product both exist | none |
 | `conflicted` | SKU occupied, ownership unproven | human resolution |
 
-### What establishes authoritative absence
+### Retry safety rests on the constraint, not on timing
 
-**An empty search result does not, on its own.** HubSpot search is not
-guaranteed read-your-writes, so a product created moments earlier can be absent
-from a successful search.
+There is no "authoritative absence" in this design, and the earlier draft was
+wrong to define one. Repeated empty reads separated by a settle window are a
+heuristic dressed as a guarantee: they describe how long I guessed was long
+enough, and a guess about propagation is exactly the thing that fails under
+load, which is when it matters.
 
-Absence is authoritative only when ALL hold:
+**What is established**, by read-only probe rather than assumption:
+`GET /crm/v3/objects/products/{sku}?idProperty=hs_sku` returns **200 with the
+object** for a SKU that exists and **404** for one that does not. That is a
+direct object read keyed on the unique property — a different path from the
+`/search` index.
 
-- the search **succeeded** — an error is not an absence;
-- it ran after a settle window measured from the create attempt (a starting
-  figure to be validated against observed behaviour, not assumed);
-- it returned empty on **repeated** reads separated in time;
-- the read was a direct `hs_sku` lookup rather than a full-text query.
+**What is NOT established:** whether that lookup is read-your-writes. HubSpot
+publishes no guarantee I can cite, and confirming it empirically requires a
+write this design is not authorised to make. So the protocol below never needs
+it to be true.
 
-Anything short of that keeps the allocation uncertain. An uncertain allocation
-never creates. It is surfaced to an operator, because "we do not know" is a
-state a person can act on and a machine should not paper over.
+**The retry protocol.** Safety comes from `hs_sku` being unique-enforced, plus
+correlation-token reconciliation. Timing plays no part.
+
+1. On an uncertain outcome, retry the **create**, with the same allocated SKU.
+2. Outcomes, and only these:
+   - **Created.** The product is ours. Uniqueness guarantees this cannot be a
+     second copy — had one existed, the create would have been refused.
+   - **Duplicate refusal.** Someone holds the SKU. This routes to
+     **reconciliation** and never to adoption: read by `idProperty` and inspect
+     the correlation token. Token equal to this allocation → ours, from an
+     earlier attempt whose response we lost → adopt. Token absent or different
+     → **`conflicted`**, for a human.
+   - **Uncertain again.** Remain uncertain and retry later, bounded. Still
+     safe, by the same argument — a retry cannot create a second product.
+
+A duplicate response is never, by itself, grounds for adoption. It establishes
+occupancy, and §3 is what establishes ownership.
+
+**Why this is better than waiting.** The unsafe operation is creating a second
+product, and the constraint makes that impossible regardless of what any read
+returns or when. The design no longer has to be right about propagation delay,
+which means it cannot be wrong about it.
+
+**Falsifications required before this ships.** Each must be demonstrated to
+FAIL when the protection is removed, not merely to pass with it in place.
+
+*Allocation*
+
+- N concurrent calls, SAME attempt key → exactly one allocation row, one SKU, N
+  identical results.
+- N concurrent calls, DIFFERENT keys, same brand → N distinct SKUs, no
+  duplicate. Contiguity is NOT asserted: gaps are legitimate per §1.
+
+*Crash*
+
+- Process killed after the HubSpot request is issued and before the response is
+  recorded → the allocation is durable, sits in `create_in_flight`, and
+  recovery reconciles it. No second create is issued, and the SKU is not
+  reallocated.
+- Process killed between allocation and the first request → the allocation
+  remains `allocated` and is claimable exactly once.
+
+*Lease expiry*
+
+- An expired `create_in_flight` lease → the row becomes claimable for
+  RECONCILIATION only. A create claim against it returns zero rows.
+- A `complete` allocation whose lease has long expired → **not** create
+  eligible, not reconcile eligible. Terminal states are absent from every claim
+  predicate, and the test asserts zero rows for both.
+- Same for `conflicted`.
+
+*Delayed response — the fencing case*
+
+- Worker A stalls past its lease; worker B reconciles and records
+  `conflicted`; worker A then returns with a success response and attempts to
+  write `complete` → **zero rows updated**. A's claim_id and version no longer
+  match, so the stale decision cannot overwrite the newer one. A reports and
+  touches nothing.
+- The same shape with A returning a duplicate refusal after B recorded
+  `complete`.
+
+*External SKU conflict*
+
+- A SKU created outside Nexus occupying the counter's next value → allocation
+  advances past it rather than colliding, and records the external value.
+- A duplicate refusal on create where the occupying product carries NO
+  correlation token → `conflicted`. Not adopted.
+- A duplicate refusal where the token belongs to a DIFFERENT allocation →
+  `conflicted`. Not adopted.
+- A duplicate refusal where the token is this allocation's → adopted, and
+  exactly one product exists.
+
+*Retry safety*
+
+- Repeated create attempts with the same allocated SKU → at most one product
+  exists, regardless of how reads behave in between. This is the claim that
+  replaces the deleted "authoritative absence", and it must hold without any
+  timing assumption.
 
 ## 5 · Seeding is not a migration
 
