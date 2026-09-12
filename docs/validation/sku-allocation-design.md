@@ -134,8 +134,26 @@ alternative is an in-flight request nobody remembers making.
 A competing worker must not issue a second create for the same intent. The
 claim is a conditional update, so it is decided by the database:
 
-**The claim to CREATE is restricted to one state.** Only `allocated` is
-create-eligible. A lease expiring never makes anything create-eligible:
+**Two states may issue a create, and they are different transitions.** The
+earlier wording — "only `allocated` is create-eligible" — contradicted the
+retry protocol above, which re-issues a create during reconciliation. Both
+paths are listed here because a rule stated in one section and broken in
+another is worse than either version alone.
+
+| from | claim | issues | to |
+|---|---|---|---|
+| `allocated` | create claim | FIRST create | `create_in_flight` |
+| `create_in_flight`, lease expired | reconcile claim | nothing | `create_uncertain` |
+| `create_uncertain` | retry claim | SAME create, SAME SKU | `create_in_flight` |
+| `complete`, `conflicted` | — | never | terminal |
+
+**Neither create path may allocate a replacement SKU.** The SKU is fixed when
+the allocation row is written and is immutable for the life of the intent: a
+retry that minted a fresh SKU would abandon the identity whose uniqueness is
+the only thing making the retry safe.
+
+A lease expiring still never makes anything create-eligible DIRECTLY — it makes
+the row reconcilable, and reconciliation is what may then retry:
 
 ```sql
 -- CREATE claim. `allocated` only.
@@ -162,6 +180,29 @@ UPDATE sku_allocations
    AND version = $seen_version
 RETURNING id, claim_id, version;
 ```
+
+```sql
+-- RETRY claim. Reconciled work only, and bounded.
+UPDATE sku_allocations
+   SET state = 'create_in_flight',
+       claim_id = $new_claim, claimed_by = $worker,
+       claim_expires_at = now() + $lease,
+       attempt_count = attempt_count + 1,
+       version = version + 1
+ WHERE id = $id
+   AND state = 'create_uncertain'
+   AND attempt_count < $max_attempts
+   AND next_attempt_after <= now()
+   AND version = $seen_version
+RETURNING id, claim_id, version;
+```
+
+**Bounded, with backoff.** A duplicate refusal that cannot be resolved by the
+token, and a lookup that is temporarily unreadable, both set
+`next_attempt_after` on an increasing delay and leave the row
+`create_uncertain`. Exhausting `max_attempts` moves it to `conflicted` for a
+human rather than retrying forever — an unbounded retry against an external
+system is a load generator, not a recovery.
 
 `complete` and `conflicted` are **terminal**. They appear in no claim
 predicate, so no lease expiry, retry sweep or operator action can return them
@@ -237,6 +278,23 @@ occupancy, and §3 is what establishes ownership.
 product, and the constraint makes that impossible regardless of what any read
 returns or when. The design no longer has to be right about propagation delay,
 which means it cannot be wrong about it.
+
+**The boundary of that guarantee, stated plainly.** Duplicate prevention rests
+on HubSpot continuing to enforce uniqueness on the UNCHANGED SKU. Two things
+fall outside it:
+
+- **The SKU is edited externally.** If someone changes `hs_sku` on our product,
+  the value is free again and a retry will create a second product — correctly,
+  as far as the constraint is concerned, because nothing holds that value any
+  more.
+- **The product is deleted or archived externally.** Same result, same reason.
+
+Neither is prevented by this design, and neither should be reported as though
+it were. They are detected after the fact by the correlation token: a leaf
+whose recorded product no longer carries its SKU, or no longer exists, is a
+reconciliation finding for a human. `hasUniqueValue` is also a property
+setting, so a change to the property definition itself would remove the
+guarantee silently.
 
 **Falsifications required before this ships.** Each must be demonstrated to
 FAIL when the protection is removed, not merely to pass with it in place.
@@ -353,6 +411,22 @@ leaf NetSuite-ready; item resolution stays the separate gate it is today.
 The same product carrying its SKU in Nexus, HubSpot and NetSuite is the
 expected state. **Two distinct products sharing one is a conflict** that blocks
 completion — so readiness compares identities, not the presence of a value.
+
+## Prerequisites, in the order they block
+
+1. **`nexus_allocation_id` property**, created AND integration-controlled.
+   Without it adoption is unavailable and every uncertain create ends
+   `conflicted`. Blocks recovery, not allocation.
+2. **Production NetSuite survey.** Blocks counter seeding; the survey to date
+   is sandbox.
+3. **Registry contents adjudicated** — the 53 existing tokens, whether MISTR is
+   registered, and which shared namespace is approved. Blocks generated
+   allocation entirely; nothing can be issued without a token.
+4. **Reconciliation artifact reviewed**, including its normalized-collision
+   report. Blocks seeding.
+5. **Seeding**, as a separately approved operation. Blocks go-live.
+
+Items 1-3 are decisions. Items 4-5 are operations on those decisions.
 
 ## Outstanding, unapproved
 
