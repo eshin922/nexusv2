@@ -486,6 +486,13 @@ function LeafFields(props: {
                 </code>{" "}
                 field set.
               </>
+            ) : resolution.kind === "schema_pending" ? (
+              <>
+                <code style={{ fontFamily: "var(--mono)" }}>{label}</code> does
+                carry product specifications — Nexus has not built the field set
+                for it yet. The leaf is created and attaches to quotes normally,
+                and nothing here says its specifications are unnecessary.
+              </>
             ) : resolution.kind === "no_schema" ? (
               <>
                 <code style={{ fontFamily: "var(--mono)" }}>{label}</code> has no

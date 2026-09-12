@@ -136,17 +136,43 @@ export function specSchemaMappingIsExhaustive(
 export type PinnedSpecSchema =
   | SpecSchemaId
   | "no_schema"
+  | "schema_pending"
   | "unmapped"
   | "no_type";
 
-/** Resolution → stored pin. Total: every resolution has exactly one encoding. */
+/**
+ * Resolution → stored pin. Total, and now provably so.
+ *
+ * The previous version ended in a bare `return "unmapped"`. It was total over
+ * the three kinds that existed when it was written, and its comment said so —
+ * which is exactly why adding a fourth broke it SILENTLY. `schema_pending` was
+ * encoded as `unmapped`, so a quote pinned "a schema is owed here" and reloaded
+ * "nobody has looked at this category", losing the distinction at the moment it
+ * was persisted.
+ *
+ * The fall-through is replaced by an exhaustive switch with a `never` binding.
+ * A fifth kind is now a COMPILE error rather than a quiet re-labelling.
+ */
 export function encodePinnedSchema(
   resolution: SpecSchemaResolution | null,
 ): PinnedSpecSchema {
   if (resolution === null) return "no_type";
-  if (resolution.kind === "schema") return resolution.schemaId;
-  if (resolution.kind === "no_schema") return "no_schema";
-  return "unmapped";
+  switch (resolution.kind) {
+    case "schema":
+      return resolution.schemaId;
+    case "no_schema":
+      return "no_schema";
+    case "schema_pending":
+      return "schema_pending";
+    case "unmapped":
+      return "unmapped";
+    default: {
+      const unhandled: never = resolution;
+      throw new Error(
+        `[spec-schema] unencodable resolution: ${JSON.stringify(unhandled)}`,
+      );
+    }
+  }
 }
 
 /**
@@ -166,6 +192,8 @@ export function decodePinnedSchema(
 ): SpecSchemaResolution | null {
   if (!stored || stored === "no_type") return null;
   if (stored === "no_schema") return { kind: "no_schema" };
+  if (stored === "schema_pending")
+    return { kind: "schema_pending", value: derivedFrom ?? "" };
   if (stored === "unmapped")
     return { kind: "unmapped", value: derivedFrom ?? "" };
   if (stored === "primary" || stored === "secondary" || stored === "tertiary")
