@@ -54,12 +54,27 @@ export async function loadHubspotProductTypeOptions(): Promise<
   HubspotProductTypeOption[]
 > {
   if (cached) return cached;
+  // Through the composed provider, so an isolated runtime gets its own
+  // vocabulary instead of reaching for production credentials.
+  const { getApplicationDependencies } = await import(
+    "@/lib/integrations/composition"
+  );
+  const { hubspot } = await getApplicationDependencies();
+  const options = await hubspot.listProductTypeOptions();
+  cached = options;
+  return options;
+}
+
+/** The production read. Unchanged logic; it now lives behind the boundary. */
+export async function fetchHubspotProductTypeOptionsDirect(): Promise<
+  HubspotProductTypeOption[]
+> {
   const client = getProductsClient();
   const prop = await client.crm.properties.coreApi.getByName(
     "products",
     HS_PRODUCT_TYPE_PROPERTY,
   );
-  const options = (prop.options ?? [])
+  return (prop.options ?? [])
     // `hidden` options exist in the definition but are withdrawn from use;
     // offering one would let an operator classify a product under a value the
     // firm has retired.
@@ -70,8 +85,6 @@ export async function loadHubspotProductTypeOptions(): Promise<
       displayOrder: o.displayOrder ?? 0,
     }))
     .sort((a, b) => a.displayOrder - b.displayOrder);
-  cached = options;
-  return options;
 }
 
 /** Test seam — the module-level cache would otherwise leak between cases. */

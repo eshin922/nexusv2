@@ -457,6 +457,13 @@ const classifiedIdentityFiles = new Set([
   // BV-011 destinations the population reaches, joining `quote_leaves` to the
   // library by `leaf_id` for the service identity. Writes nothing.
   "scripts/gate-1b/bv011-representation-census.ts",
+  // CLASSIFIED -- the bounded #565 walk. Canonical identity throughout: it
+  // creates library leaves, attaches them with `attachQuoteProduct`, and reads
+  // back `quote_leaves.id` and `leaf_specs` by `leaf_id` + `quote_id`. It
+  // resolves no legacy junction and derives no economics from one; the only
+  // `assembly_leaf_inputs` access is by `tier_id`, to show packaging and
+  // manufacturing costs live in different tables.
+  "scripts/gate-1b/mistr-walk.ts",
   // CLASSIFIED — read-only Case 6 Mixed proof harness. Queries `assembly_leaves`
   // DELIBERATELY, and that is the point of the case: it must prove a top-level
   // Direct Product acquires NO junction while its Item Group siblings keep

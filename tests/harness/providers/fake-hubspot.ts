@@ -139,6 +139,19 @@ export const fakeHubSpot: HubSpotOperations = {
     const found = vendors.find((vendor) => vendor.id === companyId);
     return found ? { ...found } : null;
   },
+  async listProductTypeOptions() {
+    record("product-type-options", {});
+    fail("product-type-options");
+    // The governed vocabulary, mirroring the live option set. Every value the
+    // spec-schema mapping disposes appears here, so an isolated walk can
+    // classify a product exactly as production would.
+    return [
+      "Primary", "Secondary", "Tertiary Packaging", "Labels", "Cards, Booklets",
+      "Soft Goods and Accessories", "Raw ingredients", "Finished Goods",
+      "Filling and Packout Services", "One Time Charges", "Freight", "Design",
+      "R&D / Testing", "Third Party Logistics", "Turnkey", "Formulation",
+    ].map((value, i) => ({ label: value, value, displayOrder: i }));
+  },
   async createProduct(input) {
     const normalizedInput = normalizeHubSpotProductCreateInput(input);
     record("product-create", { ...normalizedInput });
