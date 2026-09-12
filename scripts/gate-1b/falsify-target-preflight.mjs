@@ -16,22 +16,38 @@
  * Cases 2 and 3 need the real isolated app, since the claim is about the
  * identity it actually serves.
  */
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 
 const REAL = process.env.CHECK_BASE ?? "http://127.0.0.1:3100";
+// Every case exercises the PREFLIGHT. Rendering three PDFs per case would
+// cost minutes for evidence none of these assertions use.
+process.env.CHECK_ONLY = "preflight";
 const results = [];
 function check(label, ok, detail) {
   results.push({ label, ok });
   console.log(`${ok ? "CAUGHT " : "MISSED "} ${label.padEnd(52)} ${detail}`);
 }
 
+/**
+ * ASYNC, and that is the whole point.
+ *
+ * The first version used `spawnSync`, which blocks the parent event loop --
+ * including the stub HTTP server this file starts to BE the target under test.
+ * The child could never connect, every case reported `fetch failed`, and the
+ * exit codes were right while all six assertions missed. A harness that cannot
+ * reach its own subject reports the shape of a pass.
+ */
 function runChecks(env) {
-  const r = spawnSync("node", ["scripts/gate-1b/pr-557-checks.mjs"], {
-    env: { ...process.env, ...env },
-    encoding: "utf8",
+  return new Promise((resolve) => {
+    const child = spawn("node", ["scripts/gate-1b/pr-557-checks.mjs"], {
+      env: { ...process.env, ...env },
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    child.on("close", (code) => resolve({ code, out }));
   });
-  return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
 /** A localhost target that honestly reports it is NOT isolated. */
@@ -65,11 +81,11 @@ function stub(payload, status = 200) {
     database: { name: "postgres", carriesValidationMarker: false },
     identity: { email: "someone@thedps.co", role: "admin" },
   });
-  const r = runChecks({ CHECK_BASE: base });
+  const r = await runChecks({ CHECK_BASE: base });
   server.close();
   check(
     "non-isolated localhost target is refused",
-    r.code !== 0 && /not isolated|mode="production"/.test(r.out),
+    r.code !== 0 && /refusing: target reports mode="production"/.test(r.out),
     `exit=${r.code}`,
   );
 }
@@ -77,7 +93,7 @@ function stub(payload, status = 200) {
 // ── 1b · a target that cannot describe itself is refused, not assumed ─────
 {
   const { server, base } = await stub(null, 404);
-  const r = runChecks({ CHECK_BASE: base });
+  const r = await runChecks({ CHECK_BASE: base });
   server.close();
   check(
     "target without runtime facts is refused (404 is not a pass)",
@@ -94,18 +110,18 @@ function stub(payload, status = 200) {
     database: { name: "postgres", carriesValidationMarker: false },
     identity: { email: "pm@nexus-validation.invalid", role: "pm" },
   });
-  const r = runChecks({ CHECK_BASE: base });
+  const r = await runChecks({ CHECK_BASE: base });
   server.close();
   check(
     "isolated mode on a non-validation database is refused",
-    r.code !== 0 && /validation marker/.test(r.out),
+    r.code !== 0 && /does not carry the validation marker/.test(r.out),
     `exit=${r.code}`,
   );
 }
 
 // ── 2 · requested PM, observed ADMIN ──────────────────────────────────────
 {
-  const r = runChecks({ CHECK_BASE: REAL, NEXUS_VALIDATION_IDENTITY: "pm" });
+  const r = await runChecks({ CHECK_BASE: REAL, NEXUS_VALIDATION_IDENTITY: "pm" });
   const blocked = /BLOCKED\s+C:identity/.test(r.out);
   const notRewritten = !/C:admin:map/.test(r.out);
   check(
@@ -122,7 +138,7 @@ function stub(payload, status = 200) {
 
 // ── 3 · matching runs pass ────────────────────────────────────────────────
 {
-  const r = runChecks({ CHECK_BASE: REAL, NEXUS_VALIDATION_IDENTITY: "admin" });
+  const r = await runChecks({ CHECK_BASE: REAL, NEXUS_VALIDATION_IDENTITY: "admin" });
   check(
     "matching ADMIN run passes",
     r.code === 0 && /C:admin:map/.test(r.out),
@@ -130,11 +146,6 @@ function stub(payload, status = 200) {
   );
 }
 
-console.log(
-  "\\nNOTE: the matching PM run is exercised separately, against an app started" +
-    "\\nfor pm — identity is a property of the running server, so it cannot be" +
-    "\\nswitched from here.",
-);
 
 const missed = results.filter((r) => !r.ok);
 console.log(
