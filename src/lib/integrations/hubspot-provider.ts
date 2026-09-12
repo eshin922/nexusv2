@@ -88,6 +88,21 @@ export interface HubSpotOperations {
     limit?: number;
     includeArchived?: boolean;
   }): Promise<HubSpotProductPage>;
+  /**
+   * The governed `hs_product_type` option set.
+   *
+   * OD-023 again, in a second place. `loadHubspotProductTypeOptions` called
+   * `getProductsClient()` directly, so the vocabulary was fetched from real
+   * HubSpot no matter what the runtime had composed. In the isolated harness
+   * that throws for want of a token -- which made `createLeaf` unrunnable
+   * there, and is exactly why the defect survived: the walk that would have
+   * caught it could not execute.
+   *
+   * A boundary one caller can route around is a boundary for the others only.
+   */
+  listProductTypeOptions(): Promise<
+    { label: string; value: string; displayOrder: number }[]
+  >;
   listDealStages(): Promise<HubSpotStage[]>;
   getDealStage(dealId: string): Promise<HubSpotStage>;
   updateDealStage(

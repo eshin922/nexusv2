@@ -139,6 +139,39 @@ export const fakeHubSpot: HubSpotOperations = {
     const found = vendors.find((vendor) => vendor.id === companyId);
     return found ? { ...found } : null;
   },
+  async listProductTypeOptions() {
+    record("product-type-options", {});
+    fail("product-type-options");
+    // MIRRORS THE LIVE OPTION SET, captured read-only from the production
+    // portal on 2026-09-12: 15 non-hidden options, in display order.
+    //
+    // The previous list here was written from the spec-schema MAPPING, which
+    // is a different thing and diverges from the catalog in both directions.
+    // A fixture invented from a sibling module is not a fixture of the system:
+    // it would let an isolated walk classify a product under a value
+    // production does not offer, and hide two values production does.
+    //
+    // `label` and `value` are kept DISTINCT because two of them diverge. The
+    // internal value is what is stored and mapped, so a label-keyed fixture
+    // would resolve nothing for the two largest packaging categories.
+    return [
+      ["Primary", "Primary Packaging"],
+      ["Secondary", "Secondary Packaging"],
+      ["Labels", "Labels"],
+      ["Corrugated", "Corrugated"],
+      ["Soft Goods and Accessories", "Soft Goods and Accessories"],
+      ["Freight", "Freight"],
+      ["One Time Charges", "One Time Charges"],
+      ["Third Party Logistics", "Third Party Logistics"],
+      ["Design", "Design"],
+      ["Cards, Booklets", "Cards, Booklets"],
+      ["Filling and Packout Services", "Filling and Packout Services"],
+      ["Formulation", "Formulation"],
+      ["R&D / Testing", "R&D / Testing"],
+      ["Raw ingredients", "Raw ingredients"],
+      ["Preliminary", "Preliminary"],
+    ].map(([value, label], i) => ({ label, value, displayOrder: i }));
+  },
   async createProduct(input) {
     const normalizedInput = normalizeHubSpotProductCreateInput(input);
     record("product-create", { ...normalizedInput });

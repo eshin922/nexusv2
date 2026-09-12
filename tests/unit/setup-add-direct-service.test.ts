@@ -152,25 +152,53 @@ test("the ordinary create flow is product-only", async () => {
   assert.doesNotMatch(modal, /DIRECT_SERVICE_IDENTITIES\.map/);
 });
 
-test("the Product-Type gate keeps the walk finding, for a future admin path", async () => {
-  // WALK FINDING, retained rather than reverted. `Leaf Product Type` offers
-  // only packaging — Primary / Secondary / Tertiary / Soft goods — and
-  // requiring it for a service left the submit inert behind a picker with NO
-  // CORRECT ANSWER. Every unit test passed while that was true, because they
-  // exercised the action and the action never required a spec type.
+test("classification comes from HubSpot, and no Nexus taxonomy gates creation", async () => {
+  // SUPERSEDED WALK FINDING. The previous shape kept a `Leaf Product Type`
+  // requirement and exempted services from it, on the reasoning that the
+  // branch should stay correct for a future admin path.
   //
-  // The ordinary flow can no longer reach it, but the branch is left correct
-  // so an admin maintenance path does not rediscover the defect.
+  // That exemption treated the symptom. The picker offered only packaging —
+  // Primary / Secondary / Tertiary / Soft goods — so EVERY product that is not
+  // packaging had no correct answer, and the next one to arrive was a bulk
+  // lubricant: a real operator, blocked, on a real quote. A second product
+  // with no correct answer is not a second special case.
+  //
+  // HubSpot owns product classification. `hubspotProductType` is what the form
+  // submits and what the Library, Setup and the spec-schema mapping read;
+  // `leaves.product_type_id` is not consulted by the loader and `createLeaf`
+  // stopped reading it at Step 8. Nexus does not maintain a competing
+  // operator-selected taxonomy.
   const modal = await code("components/add-product/add-product-modal.tsx");
-  assert.match(modal, /if \(!isService && !leafTypeId\) \{/);
-  assert.match(modal, /\{!isService && !leafTypeId \? \(/);
-  assert.match(
-    modal,
-    /props\.commercialKind === "product" && \([\s\S]{0,200}?Leaf Product Type/,
-  );
-  // And the union is preserved so the gate is not narrowed to a constant — a
-  // gate the compiler folds flat is one nobody notices losing.
+
+  // No gate, and no control to satisfy.
+  assert.doesNotMatch(modal, /if \(!isService && !leafTypeId\) \{/);
+  assert.doesNotMatch(modal, /Pick a Product Type/);
+  assert.doesNotMatch(modal, /aria-label="Leaf Product Type"/);
+  assert.doesNotMatch(modal, /leafTypeId/);
+
+  // Classification is submitted as the HubSpot INTERNAL value, which differs
+  // from the display label.
+  assert.match(modal, /fd\.set\("hubspotProductType"/);
+
+  // And the spec consequence is DERIVED from that selection rather than chosen
+  // beside it.
+  assert.match(modal, /resolveSpecSchema\(props\.hsTypeValue\)/);
+
+  // The union is preserved so the service branch is not narrowed to a constant
+  // — a gate the compiler folds flat is one nobody notices losing.
   assert.match(modal, /useState<"product" \| "service">\("product"\)/);
+});
+
+test("missing spec coverage is explicit, and never blocks or reclassifies", async () => {
+  // The two unmapped-ish outcomes are held apart on the surface. "We have not
+  // decided what specifications this category has" and "this category
+  // legitimately has none" are different facts about a product, and a product
+  // must never be blocked, nor pushed into a packaging category, because the
+  // first is true of it.
+  const modal = await code("components/add-product/add-product-modal.tsx");
+  assert.match(modal, /resolution\.kind === "no_schema"/);
+  assert.match(modal, /not yet dispositioned/);
+  assert.match(modal, /created and attaches\s*\n?\s*\*?\s*to quotes normally|created and attaches to quotes normally/);
 });
 
 test("the action still supports service creation, as the governed writer", async () => {
