@@ -5286,7 +5286,45 @@ was a different door.
   and the surface states that, with the count of quotes it will not touch,
   rather than leaving the operator to infer it.
 
+**Concurrency.** The edit takes two transaction-scoped advisory locks — one on
+the leaf, one on the normalised SKU being claimed — and checks the row version
+the form was loaded from before writing. Each covers a different failure, and
+neither substitutes for the other:
+
+- The SKU lock stops two products completing the SAME SKU at once.
+  `leaves_sku_idx` is not unique, so the uniqueness check is otherwise a read
+  with nothing holding the value between the check and the write, and both
+  claimants commit.
+- The version check stops a lost update. Serialising two edits decides their
+  ORDER; it does not stop the second from carrying a whole row built on a read
+  taken before the first. Both still succeed and the earlier change is simply
+  gone. The leaf lock is what makes the version comparison and the write see
+  the same row.
+
+Both are falsified in `scripts/gate-1b/library-edit-walk.ts`: with either
+removed, the corresponding case fails.
+
+**Still open — a database-level SKU constraint.** The advisory lock is an
+application-level guarantee. The structural one is a unique partial index on
+`leaves.sku`, which is a TIGHTENING migration against the shared production
+database and needs a duplicate survey first. Not attempted here.
+
+**HubSpot failure handling.** An update that fails is adjudicated rather than
+assumed. A 4xx is a rejection and "nothing was changed" may be stated. Anything
+else is UNCERTAIN and the product is read back by id: if the values landed, the
+local row catches up and the audit records `hubspot_reconciled`; if they did
+not, the refusal says a read-back established it; if the read-back ALSO fails,
+the refusal says the outcome is unknown and does not claim otherwise. If HubSpot
+applies and the local transaction then fails, the operator is told the two
+disagree — not that nothing happened.
+
 **Out of scope, and still open:** repair of existing production records. 58
 Library leaves currently hold no SKU, 7 of them already attached to quotes.
 Nothing here backfills them; the surface now makes correcting them possible,
 and which of them SHOULD be corrected is a separate data decision.
+
+**Unproven, and left that way.** Two `MISTR - 4oz Lube Silicone` products exist,
+created 31 seconds apart with different HubSpot ids. That is confirmed. The
+absent edit path is a plausible cause and is NOT established as the cause;
+nothing in the record connects them, and the story being coherent is not
+evidence. The duplicates are reported; their origin is open.

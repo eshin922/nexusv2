@@ -1562,6 +1562,7 @@ export function LibraryBrowseModal({
             hubspotProductType: r.hubspotProductType ?? null,
             hubspotProductId: r.hubspotProductId ?? null,
             attachedQuoteCount: r.totalRefs ?? 0,
+            updatedAt: r.updatedAt ?? null,
           };
         })()}
         typeOptions={hsTypeOptions}

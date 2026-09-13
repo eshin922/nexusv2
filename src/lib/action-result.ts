@@ -55,6 +55,18 @@ export const ERR = {
    */
   PRICING_STALE: "PRICING_STALE",
   COSTS_STALE: "COSTS_STALE",
+  /**
+   * An edit was submitted against a version of a row that has since moved.
+   *
+   * A business refusal, not a fault, and the same family as the two above. It
+   * exists because serialising concurrent edits is not enough on its own: a
+   * form carries a WHOLE row, so a second operator submitting from a stale
+   * read overwrites fields they never touched -- silently, with both writes
+   * succeeding and one change simply gone. A lock decides the ORDER; only a
+   * version check decides whether the second writer was still describing the
+   * row they believed they were editing.
+   */
+  STALE_WRITE: "STALE_WRITE",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().

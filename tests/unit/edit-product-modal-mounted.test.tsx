@@ -34,6 +34,7 @@ const skuLess: EditProductTarget = {
   hubspotProductType: "Raw ingredients",
   hubspotProductId: "99800000001",
   attachedQuoteCount: 0,
+  updatedAt: "2026-09-13T10:00:00.000Z",
 };
 
 const established: EditProductTarget = {
@@ -235,5 +236,43 @@ test("a product cannot be saved without a name", async () => {
   const m = await mount(view({ target: { ...skuLess, name: "" } }));
   const save = m.byTestId("edit-product-save") as HTMLButtonElement;
   assert.equal(save.disabled, true);
+  await m.unmount();
+});
+
+test("the edit carries the version it was populated from", async () => {
+  // Optimistic concurrency starts here. A form that does not say which version
+  // it was written against cannot be refused when the row has moved, and the
+  // second operator's save silently overwrites the first's.
+  const calls: Record<string, string>[] = [];
+  const save: UpdateProductService = async (fd) => {
+    calls.push(Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v)])));
+    return { ok: true, data: { leafId: "leaf-1", syncedToHubspot: true } };
+  };
+  const m = await mount(view({ save }));
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  assert.equal(calls[0].expectedUpdatedAt, "2026-09-13T10:00:00.000Z");
+  await m.unmount();
+});
+
+test("a stale-write refusal is shown, and the operator's edit is not lost", async () => {
+  const save: UpdateProductService = async () => ({
+    ok: false,
+    error: {
+      code: "STALE_WRITE",
+      message:
+        "This product changed while you were editing it. Nothing was saved, because saving would have overwritten that change with the values you loaded before it. Reload the product and re-apply your edit.",
+    },
+  });
+  const m = await mount(view({ save }));
+  await m.type('[data-testid="edit-sku"]', "DPS-MISTR-1006");
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  const err = m.byTestId("edit-product-error");
+  assert.ok(err);
+  assert.match(err!.textContent ?? "", /changed while you were editing/);
+  // The typing survives the refusal, so re-applying is a reload away rather
+  // than a retype.
+  assert.equal((m.byTestId("edit-sku") as HTMLInputElement).value, "DPS-MISTR-1006");
   await m.unmount();
 });

@@ -25,7 +25,11 @@ import {
   type LibraryBrowseResult,
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
-import { mapLeafToHubspotCreate } from "@/lib/hubspot-mapper";
+import { mapLeafToHubspotCreate, mapLeafToHubspotUpdate } from "@/lib/hubspot-mapper";
+import {
+  hubspotUpdateLanded,
+  hubspotWriteOutcomeOf,
+} from "@/lib/integrations/hubspot-provider";
 import { hasUsableSku } from "@/lib/product-structure/attachment-eligibility";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { revalidatePath } from "next/cache";
@@ -301,8 +305,11 @@ export async function createLeaf(
  * attach it and told the operator to "Add a SKU to the product in the Library",
  * naming a mechanism that was not there.
  *
- * Recreating was the only route, which is how two `MISTR - 4oz Lube Silicone`
- * products came to exist 31 seconds apart with different HubSpot ids.
+ * Recreating was the only route available. Two `MISTR - 4oz Lube Silicone`
+ * products do exist, 31 seconds apart with different HubSpot ids -- that is
+ * confirmed. WHY they were created is not: nothing in the record establishes
+ * that the missing edit path produced them, and the plausibility of the story
+ * is not evidence for it. The duplicates are reported; their cause is open.
  *
  * ── WHAT IT DELIBERATELY WILL NOT DO ──────────────────────────────────────
  *
@@ -319,9 +326,18 @@ export async function createLeaf(
  * FUTURE attachments, which is what makes this master data rather than a
  * global edit.
  */
-export async function updateLeaf(
-  formData: FormData,
-): Promise<ActionResult<{ leafId: string; syncedToHubspot: boolean }>> {
+export async function updateLeaf(formData: FormData): Promise<
+  ActionResult<{
+    leafId: string;
+    syncedToHubspot: boolean;
+    /**
+     * How the HubSpot write was ESTABLISHED to have ended, not how it
+     * appeared to end. "reconciled" means the call failed and a read-back
+     * proved it had applied anyway.
+     */
+    hubspotOutcome: "applied" | "reconciled" | "not_linked";
+  }>
+> {
   return runAction(async () => {
     const user = await ensureUser();
     await assertCanCreateLeaves();
@@ -329,8 +345,17 @@ export async function updateLeaf(
     const leafId = String(formData.get("leafId") ?? "").trim();
     if (!leafId) throw new ActionGuardError(ERR.VALIDATION, "leafId is required.");
 
-    const [existing] = await db.select().from(leaves).where(eq(leaves.id, leafId)).limit(1);
-    if (!existing) throw new ActionGuardError(ERR.NOT_FOUND, "Product not found.");
+    // REQUIRED, not optional. An optional version token protects only the
+    // callers that remember to send one, and the callers that forget lose
+    // other people's edits silently -- which is the failure this exists to
+    // prevent. Refusing loudly is the only version of this that works.
+    const expectedVersion = String(formData.get("expectedUpdatedAt") ?? "").trim();
+    if (!expectedVersion) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "expectedUpdatedAt is required: an edit must say which version of the product it was written against.",
+      );
+    }
 
     const name = String(formData.get("name") ?? "").trim();
     if (!name) throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
@@ -340,9 +365,19 @@ export async function updateLeaf(
     const url = String(formData.get("url") ?? "").trim() || null;
     const unitCostRaw = String(formData.get("unitCost") ?? "").trim();
     const unitCost = unitCostRaw === "" ? null : unitCostRaw;
-
+    if (unitCost !== null && !/^\d+(\.\d+)?$/.test(unitCost)) {
+      // Checked here rather than left to the column. An unparseable cost would
+      // otherwise fail at the UPDATE -- after HubSpot had already been written
+      // -- turning an operator typo into a divergence between two catalogs.
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `"${unitCost}" is not a unit cost. Enter a number, or leave it empty.`,
+      );
+    }
     const hsTypeRaw = String(formData.get("hubspotProductType") ?? "").trim();
     const hubspotProductType = hsTypeRaw === "" ? null : hsTypeRaw;
+
+    // Read-only and slow; done before the lock so it is not held across it.
     if (hubspotProductType) {
       const options = await loadHubspotProductTypeOptions();
       if (!isKnownHubspotProductTypeValue(hubspotProductType, options)) {
@@ -353,107 +388,250 @@ export async function updateLeaf(
       }
     }
 
-    // ── the SKU rule ──────────────────────────────────────────────────────
-    const hadSku = hasUsableSku(existing.sku);
-    if (hadSku && sku !== existing.sku) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `This product's SKU is already established as "${existing.sku}". ` +
-          "Downstream identity may depend on it -- quotes already sent, and the " +
-          "NetSuite item it resolves to -- so replacing it is a separate " +
-          "controlled correction, not an ordinary edit.",
-      );
-    }
-    if (sku !== null) {
-      // Uniqueness on the COMPLETE NORMALIZED value, across the catalog. A
-      // brand prefix is formatting; it is not the constraint.
-      const normalized = sku.toUpperCase();
-      const clash = await db
-        .select({ id: leaves.id, name: leaves.name, sku: leaves.sku })
-        .from(leaves)
-        .where(sql`upper(btrim(${leaves.sku})) = ${normalized} and ${leaves.id} <> ${leafId}`)
-        .limit(1);
-      if (clash.length > 0) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          `SKU "${sku}" already belongs to "${clash[0].name}". A SKU identifies ` +
-            "one product; two products cannot share one.",
-        );
-      }
-    }
+    const { hubspot } = await getApplicationDependencies();
 
-    // ── HubSpot first, because it is the catalog authority ────────────────
-    //
-    // The EXISTING product is updated by id. No second product is created, so
-    // the Nexus and HubSpot identities both survive the edit.
-    let syncedToHubspot = false;
-    if (existing.hubspotProductId) {
-      const hubspotInput = mapLeafToHubspotCreate({
-        name,
-        sku,
-        unitCost,
-        url,
-        hubspotProductType,
+    // Set inside the transaction, read in the catch outside it. The whole
+    // point of this flag is to survive a rollback: once HubSpot has moved,
+    // a local failure is a DIVERGENCE, not a no-op, and the operator must be
+    // told which of those two happened.
+    let hubspotApplied = false;
+    let hubspotReconciled = false;
+
+    try {
+      const result = await db.transaction(async (tx) => {
+        // ── CONCURRENCY ─────────────────────────────────────────────────
+        //
+        // Two locks, taken in a fixed order (leaf, then SKU) so they cannot
+        // deadlock against each other.
+        //
+        // The LEAF lock serialises the whole edit -- validation, the HubSpot
+        // call and the local write. Without it those three steps interleave,
+        // and the failure is not that the last writer wins locally: it is
+        // that HubSpot and Nexus can pick DIFFERENT winners. A resolving
+        // before B at HubSpot and after B locally leaves the two catalogs
+        // permanently disagreeing about the same product, with no error
+        // anywhere and nothing to indicate it.
+        //
+        // The SKU lock covers the CLAIM. `leaves_sku_idx` is not unique, so
+        // the uniqueness check is a read with nothing holding the value
+        // between the check and the write: two products completing the same
+        // SKU concurrently both pass and both commit. Locking the normalised
+        // value makes the second claimant wait and then see the first.
+        //
+        // The cost is honest and worth naming: a database connection is held
+        // for the duration of a HubSpot round trip. At this pool size that is
+        // acceptable for an operator-paced edit, and it is the price of not
+        // losing a claim. A unique partial index is the structural version of
+        // the SKU half; it is a tightening migration against a shared
+        // production database and needs a duplicate survey first.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`leaf:${leafId}`}, 0))`,
+        );
+        if (sku !== null) {
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${`sku:${sku.toUpperCase()}`}, 0))`,
+          );
+        }
+
+        // Re-read UNDER the lock. The row read before it is a row that may
+        // already have moved.
+        const [existing] = await tx
+          .select()
+          .from(leaves)
+          .where(eq(leaves.id, leafId))
+          .limit(1);
+        if (!existing) throw new ActionGuardError(ERR.NOT_FOUND, "Product not found.");
+
+        // ── OPTIMISTIC CONCURRENCY ──────────────────────────────────────
+        //
+        // Checked INSIDE the lock, which is the only place the answer is
+        // stable. The lock guarantees this comparison and the write that
+        // follows it see the same row; without it the row could move between
+        // the two and the check would certify a version that no longer
+        // applies.
+        const currentVersion = existing.updatedAt
+          ? new Date(existing.updatedAt).toISOString()
+          : null;
+        if (currentVersion !== expectedVersion) {
+          throw new ActionGuardError(
+            ERR.STALE_WRITE,
+            "This product changed while you were editing it. Nothing was saved, " +
+              "because saving would have overwritten that change with the values " +
+              "you loaded before it. Reload the product and re-apply your edit.",
+          );
+        }
+
+        const hadSku = hasUsableSku(existing.sku);
+        if (hadSku && sku !== existing.sku) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            `This product's SKU is already established as "${existing.sku}". ` +
+              "Downstream identity may depend on it -- quotes already sent, and the " +
+              "NetSuite item it resolves to -- so replacing it is a separate " +
+              "controlled correction, not an ordinary edit.",
+          );
+        }
+
+        if (sku !== null) {
+          // Uniqueness on the COMPLETE NORMALIZED value, across the catalog.
+          // A brand prefix is formatting; it is not the constraint.
+          const normalized = sku.toUpperCase();
+          const clash = await tx
+            .select({ id: leaves.id, name: leaves.name, sku: leaves.sku })
+            .from(leaves)
+            .where(
+              sql`upper(btrim(${leaves.sku})) = ${normalized} and ${leaves.id} <> ${leafId}`,
+            )
+            .limit(1);
+          if (clash.length > 0) {
+            throw new ActionGuardError(
+              ERR.VALIDATION,
+              `SKU "${sku}" already belongs to "${clash[0].name}". A SKU identifies ` +
+                "one product; two products cannot share one.",
+            );
+          }
+        }
+
+        // ── HUBSPOT ─────────────────────────────────────────────────────
+        if (existing.hubspotProductId) {
+          const productId = existing.hubspotProductId;
+          const update = mapLeafToHubspotUpdate({
+            name,
+            sku,
+            unitCost,
+            url,
+            hubspotProductType,
+          });
+          try {
+            await hubspot.updateProduct(productId, update);
+            hubspotApplied = true;
+          } catch (e) {
+            const outcome = hubspotWriteOutcomeOf(e);
+            const detail = e instanceof Error ? e.message : String(e);
+
+            if (outcome === "rejected") {
+              // HubSpot answered and refused. "Nothing was changed" is
+              // established here, so it is safe to say.
+              throw new ActionGuardError(
+                ERR.HUBSPOT,
+                `HubSpot refused the update, so nothing was changed. ${detail}`,
+              );
+            }
+
+            // UNCERTAIN. The request may have applied before the failure, so
+            // the outcome is adjudicated against the product itself --
+            // BY ITS EXISTING ID, which is also what makes a retry safe:
+            // the update is idempotent and cannot mint a second product.
+            let snapshot;
+            try {
+              snapshot = await hubspot.getProduct(productId);
+            } catch {
+              // The read could not be performed. Three outcomes, not two:
+              // this is the third, and collapsing it into "nothing changed"
+              // would be asserting a fact nobody established.
+              throw new ActionGuardError(
+                ERR.HUBSPOT,
+                "HubSpot did not confirm the update and could not be read back, " +
+                  "so whether it applied is UNKNOWN. Nexus was not changed. " +
+                  `Retrying is safe -- it updates the same product by id and cannot create a second. (${detail})`,
+              );
+            }
+
+            if (snapshot && hubspotUpdateLanded(snapshot, update)) {
+              // It applied. Continuing is what stops Nexus being left behind
+              // a change that already happened.
+              hubspotApplied = true;
+              hubspotReconciled = true;
+            } else {
+              throw new ActionGuardError(
+                ERR.HUBSPOT,
+                "HubSpot could not be updated. A read-back confirms nothing was " +
+                  `changed there, and Nexus was not changed either. Try again. (${detail})`,
+              );
+            }
+          }
+        }
+
+        // ── LOCAL, ATOMIC WITH ITS AUDIT ────────────────────────────────
+        //
+        // Same transaction. A row that moved with no audit row is a change
+        // nobody can account for afterwards, and two statements outside a
+        // transaction can produce exactly that.
+        const before = {
+          name: existing.name,
+          sku: existing.sku,
+          url: existing.url,
+          unit_cost: existing.unitCost,
+          hubspot_product_type: existing.hubspotProductType,
+        };
+        const after = {
+          name,
+          sku,
+          url,
+          unit_cost: unitCost,
+          hubspot_product_type: hubspotProductType,
+        };
+
+        await tx
+          .update(leaves)
+          .set({ name, sku, url, unitCost, hubspotProductType, updatedAt: new Date() })
+          .where(eq(leaves.id, leafId));
+
+        const changed = Object.keys(after).filter(
+          (k) =>
+            (before as Record<string, unknown>)[k] !==
+            (after as Record<string, unknown>)[k],
+        );
+
+        await writeAuditEntry(
+          {
+            userId: user.id,
+            entityType: "leaf",
+            entityId: leafId,
+            action: "leaf_updated",
+            diffJson: {
+              changed_fields: changed,
+              before,
+              after,
+              sku_completed: !hadSku && sku !== null,
+              hubspot_product_id: existing.hubspotProductId,
+              synced_to_hubspot: hubspotApplied,
+              // Recorded because the difference matters later: this edit was
+              // only known to have reached HubSpot because it was read back.
+              hubspot_reconciled: hubspotReconciled,
+            },
+          },
+          tx,
+        );
+
+        return {
+          leafId,
+          syncedToHubspot: hubspotApplied,
+          hubspotOutcome: (existing.hubspotProductId
+            ? hubspotReconciled
+              ? "reconciled"
+              : "applied"
+            : "not_linked") as "applied" | "reconciled" | "not_linked",
+        };
       });
-      try {
-        const { hubspot } = await getApplicationDependencies();
-        await hubspot.updateProduct(existing.hubspotProductId, hubspotInput);
-        syncedToHubspot = true;
-      } catch (e) {
-        // Visible and retryable. The local row is NOT written: a Nexus row
-        // that moved while HubSpot did not is a silent divergence between two
-        // catalogs, and the operator would have no way to see it. Refusing
-        // leaves one consistent state and a button they can press again.
+
+      revalidatePath("/");
+      return result;
+    } catch (e) {
+      // HubSpot moved and the local half did not. Reporting this as a plain
+      // failure would tell the operator nothing changed while one of the two
+      // catalogs already holds the new values.
+      if (hubspotApplied && !(e instanceof ActionGuardError)) {
         throw new ActionGuardError(
-          ERR.VALIDATION,
-          `HubSpot could not be updated, so nothing was changed. Try again. (${
-            e instanceof Error ? e.message : String(e)
-          })`,
+          ERR.DATA_INTEGRITY,
+          "HubSpot was updated but Nexus could not record it, so the two now " +
+            "disagree about this product. Nothing was lost: retry to bring Nexus " +
+            "into line -- the HubSpot update is by id and repeating it is safe. " +
+            `(${e instanceof Error ? e.message : String(e)})`,
         );
       }
+      throw e;
     }
-
-    const before = {
-      name: existing.name,
-      sku: existing.sku,
-      url: existing.url,
-      unit_cost: existing.unitCost,
-      hubspot_product_type: existing.hubspotProductType,
-    };
-    const after = {
-      name,
-      sku,
-      url,
-      unit_cost: unitCost,
-      hubspot_product_type: hubspotProductType,
-    };
-
-    await db
-      .update(leaves)
-      .set({ name, sku, url, unitCost, hubspotProductType, updatedAt: new Date() })
-      .where(eq(leaves.id, leafId));
-
-    const changed = Object.keys(after).filter(
-      (k) => (before as Record<string, unknown>)[k] !== (after as Record<string, unknown>)[k],
-    );
-
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "leaf",
-      entityId: leafId,
-      action: "leaf_updated",
-      diffJson: {
-        changed_fields: changed,
-        before,
-        after,
-        sku_completed: !hadSku && sku !== null,
-        hubspot_product_id: existing.hubspotProductId,
-        synced_to_hubspot: syncedToHubspot,
-      },
-    });
-
-    revalidatePath("/");
-    return { leafId, syncedToHubspot };
   });
 }
 

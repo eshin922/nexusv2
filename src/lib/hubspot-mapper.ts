@@ -3,6 +3,7 @@ import type { HubspotProductRaw } from "./hubspot";
 import {
   normalizeHubSpotProductCreateInput,
   type HubSpotProductCreateInput,
+  type HubSpotProductUpdateInput,
 } from "./integrations/hubspot-provider";
 
 // slice-hubspot-bidirectional — field-mapping translator between
@@ -147,4 +148,34 @@ export function mapLeafToHubspotCreate(input: {
   if (input.hubspotProductType) out.hs_product_type = input.hubspotProductType;
   if (input.price !== undefined && input.price !== null) out.price = input.price;
   return normalizeHubSpotProductCreateInput(out);
+}
+
+/**
+ * The Library edit, as a HubSpot update.
+ *
+ * Every field this surface authors is addressed explicitly, so an emptied
+ * field CLEARS rather than silently persisting its old value. `price` is
+ * never addressed: the edit surface does not author price, and the create
+ * mapper's 0.00 default would otherwise overwrite a real price on every edit.
+ *
+ * `hs_sku` is the exception to "empty means clear". A null SKU here means the
+ * product still has none, which is a state to leave alone -- not an
+ * instruction to blank HubSpot's. Clearing an established SKU is refused by
+ * the action before it reaches this mapper, so the case where null WOULD mean
+ * "unset it" cannot arise.
+ */
+export function mapLeafToHubspotUpdate(input: {
+  name: string;
+  sku: string | null;
+  unitCost: string | null;
+  url: string | null;
+  hubspotProductType: string | null;
+}): HubSpotProductUpdateInput {
+  return {
+    name: input.name,
+    hs_sku: input.sku ?? undefined,
+    hs_url: input.url,
+    hs_cost_of_goods_sold: input.unitCost,
+    hs_product_type: input.hubspotProductType,
+  };
 }

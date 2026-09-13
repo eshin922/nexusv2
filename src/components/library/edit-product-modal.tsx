@@ -31,6 +31,8 @@ export type EditProductTarget = {
   hubspotProductType: string | null;
   hubspotProductId: string | null;
   attachedQuoteCount: number;
+  /** The row version this form was populated from. */
+  updatedAt: string | null;
 };
 
 export type ProductTypeOption = { label: string; value: string };
@@ -85,6 +87,10 @@ export function EditProductModal({
     setError(null);
     const fd = new FormData();
     fd.set("leafId", target.leafId);
+    // The version the form was POPULATED from, not a fresh read: the
+    // question the server has to answer is whether the row still looks
+    // like what this operator was editing.
+    fd.set("expectedUpdatedAt", target.updatedAt ?? "");
     fd.set("name", name.trim());
     fd.set("sku", established ? (target.sku ?? "") : sku.trim());
     fd.set("url", url.trim());

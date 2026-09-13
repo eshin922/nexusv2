@@ -5,7 +5,7 @@ import type {
   HubSpotOperations,
   HubSpotStage,
 } from "@/lib/integrations/hubspot-provider";
-import { normalizeHubSpotProductCreateInput } from "../../../src/lib/integrations/hubspot-provider.ts";
+import { normalizeHubSpotProductCreateInput, toHubSpotProductUpdateProperties } from "../../../src/lib/integrations/hubspot-provider.ts";
 
 export type FakeHubSpotCall = {
   operation: string;
@@ -33,6 +33,40 @@ const vendors = [
   { id: "900000000000002", name: "Validation Contract Manufacturer" },
 ] as const;
 let productSequence = 0;
+
+/**
+ * Products the fake actually holds.
+ *
+ * The fake used to be stateless: `updateProduct` echoed its own input back,
+ * so a read-back could only ever agree with the write, and reconciling an
+ * uncertain outcome was untestable by construction. A control that cannot
+ * disagree cannot establish anything.
+ */
+const productStore = new Map<string, Record<string, string>>();
+
+export function __fakeHubspotProduct(id: string): Record<string, string> | null {
+  const p = productStore.get(id);
+  return p ? { ...p } : null;
+}
+
+/**
+ * HubSpot's own update semantics, so the fake can be wrong the same way the
+ * real thing would be: an omitted property is untouched, and "" clears one.
+ */
+function applyMerge(
+  id: string,
+  current: Record<string, string>,
+  incoming: Record<string, string>,
+): Record<string, string> {
+  const merged = { ...current };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (v === "") delete merged[k];
+    else merged[k] = v;
+  }
+  productStore.set(id, merged);
+  return merged;
+}
+
 
 function catalogSize(kind: "active" | "archived"): number {
   const key = kind === "active"
@@ -100,6 +134,7 @@ export function resetFakeHubSpot() {
   dealStages.clear();
   dealAmounts.clear();
   productSequence = 0;
+  productStore.clear();
 }
 
 export const fakeHubSpot: HubSpotOperations = {
@@ -185,23 +220,72 @@ export const fakeHubSpot: HubSpotOperations = {
       ["Tertiary Packaging", "Tertiary Packaging"],
     ].map(([value, label], i) => ({ label, value, displayOrder: i }));
   },
-  async updateProduct(hubspotProductId: string, input) {
-    const normalizedInput = normalizeHubSpotProductCreateInput(input);
-    record("product-update", { hubspotProductId, ...normalizedInput });
+  async updateProduct(hubspotProductId, input) {
+    const properties = toHubSpotProductUpdateProperties(input);
+    record("product-update", { hubspotProductId, ...properties });
     fail("product-update");
-    // A scenario for the synchronization failure the edit surface must show
-    // and allow retrying. Without it the recovery half of that behaviour is
-    // unreachable in the harness.
-    if (scenario() === "product-update-fails") {
-      throw new Error("HubSpot fake product-update failure");
+
+    const current = productStore.get(hubspotProductId) ?? {};
+
+    // A flat refusal: HubSpot answered and said no. Nothing applied, and a
+    // caller may say so.
+    //
+    // NOT named `product-update-fails`. The shared `fail()` helper throws for
+    // `${operation}-fails` before this branch is ever reached, so a scenario
+    // under that name can only ever produce a status-less error -- which is
+    // the UNCERTAIN case, not this one. Naming it that way left this branch
+    // unreachable and the rejected path with no coverage at all, while the
+    // walk line that appeared to test it passed on the other path's message.
+    if (scenario() === "product-update-rejected") {
+      throw Object.assign(new Error("Property values were not valid"), {
+        code: 400,
+      });
     }
+
+    // UNCERTAIN, and the write DID apply. This is the case that makes
+    // "nothing was changed" a false statement: the caller sees only a
+    // timeout, while HubSpot holds the new values. Reconciliation is the
+    // only thing that can tell the two uncertain cases apart.
+    if (scenario() === "product-update-uncertain-applied") {
+      applyMerge(hubspotProductId, current, properties);
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    // UNCERTAIN, and the write did NOT apply.
+    if (scenario() === "product-update-uncertain-lost") {
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    // UNCERTAIN, and the read-back ALSO fails -- genuinely indeterminate.
+    if (scenario() === "product-update-indeterminate") {
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    const merged = applyMerge(hubspotProductId, current, properties);
     return {
       id: hubspotProductId,
-      hs_sku: normalizedInput.hs_sku ?? null,
-      name: normalizedInput.name,
-      price: normalizedInput.price,
-      submittedProperties: { ...normalizedInput } as Record<string, string>,
-      responseBody: { id: hubspotProductId } as Record<string, unknown>,
+      hs_sku: merged.hs_sku ?? null,
+      name: merged.name ?? "",
+      price: merged.price ?? null,
+      submittedProperties: { ...properties },
+      responseBody: { id: hubspotProductId, properties: { ...merged } },
+    };
+  },
+
+  async getProduct(hubspotProductId) {
+    record("product-get", { hubspotProductId });
+    if (scenario() === "product-update-indeterminate") {
+      // The read could not be performed. NOT an authoritative absence.
+      throw new Error("HubSpot fake read failure");
+    }
+    const p = productStore.get(hubspotProductId);
+    if (!p) return null;
+    return {
+      id: hubspotProductId,
+      archived: false,
+      properties: Object.fromEntries(
+        Object.entries(p).map(([k, v]) => [k, v === "" ? null : v]),
+      ),
     };
   },
   async createProduct(input) {
@@ -213,6 +297,14 @@ export const fakeHubSpot: HubSpotOperations = {
     }
     productSequence += 1;
     const id = `998${String(productSequence).padStart(12, "0")}`;
+    productStore.set(
+      id,
+      Object.fromEntries(
+        Object.entries(normalizedInput)
+          .filter(([, v]) => v !== undefined && v !== null)
+          .map(([k, v]) => [k, String(v)]),
+      ),
+    );
     return {
       id,
       hs_sku: normalizedInput.hs_sku ?? null,
