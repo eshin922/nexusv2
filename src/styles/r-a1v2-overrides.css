@@ -639,8 +639,14 @@
 
 /* SECONDARY — visible at rest, so discoverability never depends on hover, but
  * outlined rather than filled so it cannot read as a peer of Add.
- * A pencil, not a gear: this edits product specifications, not settings. */
-.lib-edit-specs.lib-icon-btn {
+ *
+ * BOTH edit controls share this treatment. They are peers of each other and
+ * subordinates of Add, and a pencil that inherited the bare default while the
+ * checklist beside it carried a border would read as two different KINDS of
+ * control rather than two destinations of one kind. The icons carry the
+ * difference; the chrome must not add a second, contradictory signal. */
+.lib-edit-specs.lib-icon-btn,
+.lib-edit-product.lib-icon-btn {
   background: none;
   border: 1px solid var(--rule);
   color: var(--ink-3);
@@ -648,7 +654,8 @@
   text-transform: none;
   letter-spacing: 0;
 }
-.lib-edit-specs.lib-icon-btn:hover {
+.lib-edit-specs.lib-icon-btn:hover,
+.lib-edit-product.lib-icon-btn:hover {
   color: var(--ink);
   border-color: var(--ink-4);
   background: var(--paper-2);

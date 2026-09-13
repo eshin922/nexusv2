@@ -7,6 +7,7 @@ import {
   getWriteClient,
   loadPipelineStagesForLabel,
   createProduct,
+  updateProduct,
   listProducts,
   resolveVendorCompany,
   searchVendorCompanies,
@@ -21,6 +22,7 @@ export const productionHubSpot: HubSpotOperations = {
   searchVendors: searchVendorCompanies,
   resolveVendor: resolveVendorCompany,
   createProduct,
+  updateProduct,
   listProducts,
   listProductTypeOptions: async () => {
     const { fetchHubspotProductTypeOptionsDirect } = await import(

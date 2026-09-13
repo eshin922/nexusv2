@@ -185,6 +185,25 @@ export const fakeHubSpot: HubSpotOperations = {
       ["Tertiary Packaging", "Tertiary Packaging"],
     ].map(([value, label], i) => ({ label, value, displayOrder: i }));
   },
+  async updateProduct(hubspotProductId: string, input) {
+    const normalizedInput = normalizeHubSpotProductCreateInput(input);
+    record("product-update", { hubspotProductId, ...normalizedInput });
+    fail("product-update");
+    // A scenario for the synchronization failure the edit surface must show
+    // and allow retrying. Without it the recovery half of that behaviour is
+    // unreachable in the harness.
+    if (scenario() === "product-update-fails") {
+      throw new Error("HubSpot fake product-update failure");
+    }
+    return {
+      id: hubspotProductId,
+      hs_sku: normalizedInput.hs_sku ?? null,
+      name: normalizedInput.name,
+      price: normalizedInput.price,
+      submittedProperties: { ...normalizedInput } as Record<string, string>,
+      responseBody: { id: hubspotProductId } as Record<string, unknown>,
+    };
+  },
   async createProduct(input) {
     const normalizedInput = normalizeHubSpotProductCreateInput(input);
     record("product-create", { ...normalizedInput });

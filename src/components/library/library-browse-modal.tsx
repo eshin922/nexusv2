@@ -14,6 +14,8 @@ import type {
   LibraryBrowseRow,
 } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
+import { EditProductModal } from "./edit-product-modal";
+import { updateLeaf } from "@/app/actions/leaves";
 import {
   fetchHubspotProductTypes,
   fetchLibraryBrowse,
@@ -57,6 +59,56 @@ export type AssemblyTarget = {
   // assembly-tree-view.tsx call site.
   leafCount: number;
 };
+
+/**
+ * Row icons, drawn rather than typed.
+ *
+ * A glyph like "☑" renders as a colour emoji on some platforms and a hairline
+ * box on others, and at 14px the difference decides whether an operator can
+ * tell two controls apart. These are three and four strokes respectively --
+ * enough to read as "a checklist" and "a pencil" at row size, and nothing more.
+ */
+function ChecklistIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M2 4.2 L3.4 5.6 L6 3" />
+      <path d="M8.5 4.4 H14" />
+      <path d="M2 10.2 L3.4 11.6 L6 9" />
+      <path d="M8.5 10.4 H14" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M11.1 2.4 L13.6 4.9" />
+      <path d="M12.4 1.1 L14.9 3.6 L5.6 12.9 L2.2 13.8 L3.1 10.4 Z" />
+    </svg>
+  );
+}
 
 export function LibraryBrowseModal({
   mode = "group",
@@ -175,6 +227,8 @@ export function LibraryBrowseModal({
   const [createOpen, setCreateOpen] = useState(false);
   const [specOpen, setSpecOpen] = useState(false);
   const [specLeafId, setSpecLeafId] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editLeafId, setEditLeafId] = useState<string | null>(null);
   // slice-library-modal-polish Step 4 — attach-target picker menu
   // open state. Click .lib-target-select toggles; click outside or
   // selecting an item closes. Single source of truth for the
@@ -1333,7 +1387,16 @@ export function LibraryBrowseModal({
                             aria-disabled={
                               !attachReady || !row.eligibility.attachable
                             }
-                            aria-label={`Add product ${row.name}`}
+                            aria-label={
+                              // The accessible name matches the DESTINATION,
+                              // because "add" alone does not say where and the
+                              // two destinations are different acts.
+                              mode === "service" || mode === "direct"
+                                ? `Add ${row.name} to quote`
+                                : `Add ${row.name} to item group${
+                                    targetAssembly?.sku ? ` ${targetAssembly.sku}` : ""
+                                  }`
+                            }
                             title={
                               // A disabled control must say why (Pattern 47f).
                               // The server's own message is reused verbatim, so
@@ -1341,12 +1404,10 @@ export function LibraryBrowseModal({
                               // hover it here or trigger the refusal.
                               !row.eligibility.attachable
                                 ? row.eligibility.message
-                                : mode === "service"
-                                  ? "Add this service to the quote"
-                                  : mode === "direct"
-                                    ? "Add this product to the quote"
+                                : mode === "service" || mode === "direct"
+                                  ? "Add to quote"
                                   : targetAssemblyId
-                                    ? `Add to ${targetAssembly?.sku}`
+                                    ? `Add to item group ${targetAssembly?.sku}`
                                     : "Create an item group first to enable adding"
                             }
                           >
@@ -1365,6 +1426,15 @@ export function LibraryBrowseModal({
                             visible focus ring and an accessible name. Hover
                             carries no part of the discoverability — it is
                             always rendered. */}
+                        {/* THREE ACTIONS, one per thing an operator does to a
+                            row, each with its own icon and its own words.
+
+                            The specs control used to be the PENCIL, which is
+                            the universal "edit this thing" affordance -- so a
+                            product whose name or SKU was wrong offered an
+                            edit icon that opened a specification form. There
+                            was no product edit at all; the pencil was the only
+                            edit-looking control and it went somewhere else. */}
                         <button
                           type="button"
                           className="lib-edit-specs lib-icon-btn"
@@ -1372,10 +1442,29 @@ export function LibraryBrowseModal({
                             setSpecLeafId(row.leafId);
                             setSpecOpen(true);
                           }}
-                          aria-label={`Edit default specs for ${row.name}`}
-                          title="Edit default specs"
+                          aria-label={`Edit specifications for ${row.name}`}
+                          title="Edit specifications"
+                          data-testid={`edit-specs-${row.leafId}`}
                         >
-                          <span aria-hidden="true">✎</span>
+                          <ChecklistIcon />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="lib-edit-product lib-icon-btn"
+                          onClick={() => {
+                            setEditLeafId(row.leafId);
+                            setEditOpen(true);
+                          }}
+                          aria-label={`Edit product ${row.name}`}
+                          title={
+                            row.eligibility.attachable
+                              ? "Edit product"
+                              : "Edit product — complete its SKU here"
+                          }
+                          data-testid={`edit-product-${row.leafId}`}
+                        >
+                          <PencilIcon />
                         </button>
                       </span>
                     </div>
@@ -1458,6 +1547,41 @@ export function LibraryBrowseModal({
         leafId={specLeafId}
         open={specOpen}
         onClose={() => setSpecOpen(false)}
+      />
+      <EditProductModal
+        open={editOpen}
+        target={(() => {
+          const r = rows.find((x) => x.leafId === editLeafId);
+          if (!r) return null;
+          return {
+            leafId: r.leafId,
+            name: r.name,
+            sku: r.sku ?? null,
+            url: r.url ?? null,
+            unitCost: r.unitCost ?? null,
+            hubspotProductType: r.hubspotProductType ?? null,
+            hubspotProductId: r.hubspotProductId ?? null,
+            attachedQuoteCount: r.totalRefs ?? 0,
+          };
+        })()}
+        typeOptions={hsTypeOptions}
+        save={updateLeaf}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => {
+          // Reload so the row reflects what was saved, and so a completed SKU
+          // flips the attach control from refused to available IN PLACE --
+          // which is the point of the edit. Eligibility is computed by the
+          // loader, so a stale row would keep refusing a product that now
+          // qualifies.
+          startTransition(async () => {
+            const refreshed = await browse({ search, scopeFilter });
+            if (refreshed.ok) {
+              setRows(refreshed.data.rows);
+              setTotal(refreshed.data.total);
+            }
+          });
+          setToast("Product updated");
+        }}
       />
       {toast ? (
         <div className="a1v2-toast" role="status" aria-live="polite">

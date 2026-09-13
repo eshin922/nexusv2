@@ -311,6 +311,12 @@ const classifiedIdentityFiles = new Set([
   // Library spec editor names `leafId` because a Library product IS a leaf; it
   // holds no quote identity, which is what makes it Library scope.
   "src/components/library/library-spec-modal.tsx",
+  // CLASSIFIED — canonical only, and deliberately quote-free. The product-edit
+  // surface names `leafId` because a Library product IS a leaf. It edits master
+  // data and holds no quote identity: a change here reaches future attachments
+  // and rewrites no snapshot, so there is no quote-side identity for it to
+  // resolve or to confuse with the leaf's own.
+  "src/components/library/edit-product-modal.tsx",
   // CLASSIFIED — read-only evidence, canonical only. The B-3 falsification
   // harness builds fixtures keyed by (quote_id, leaf_id) and never touches the
   // legacy junction or maps between identity spaces.
@@ -464,6 +470,15 @@ const classifiedIdentityFiles = new Set([
   // `assembly_leaf_inputs` access is by `tier_id`, to show packaging and
   // manufacturing costs live in different tables.
   "scripts/gate-1b/mistr-walk.ts",
+  // CLASSIFIED -- the #567 Library-edit walk. Canonical identity throughout,
+  // and identity preservation is the CLAIM under test rather than an incidental
+  // property: it creates a library leaf, edits it through `updateLeaf`, and
+  // asserts `leaves.id` and `hubspot_product_id` are unchanged across the edit
+  // while the SKU is completed -- the whole point being that a stranded product
+  // is corrected in place rather than recreated. Attachment goes through
+  // `attachQuoteProduct` and reads back `quote_leaves.id`. It resolves no legacy
+  // junction and derives no economics from one.
+  "scripts/gate-1b/library-edit-walk.ts",
   // CLASSIFIED — read-only Case 6 Mixed proof harness. Queries `assembly_leaves`
   // DELIBERATELY, and that is the point of the case: it must prove a top-level
   // Direct Product acquires NO junction while its Item Group siblings keep

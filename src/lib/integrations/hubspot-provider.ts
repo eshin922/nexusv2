@@ -83,6 +83,18 @@ export interface HubSpotOperations {
   createProduct(
     input: HubSpotProductCreateInput,
   ): Promise<HubSpotProductCreateResult>;
+  /**
+   * Update an EXISTING product in place.
+   *
+   * Takes the HubSpot id, because the whole point is that no second product
+   * is created. A create-on-edit would fork catalog identity: the leaf would
+   * point at one record while quotes, Sales Orders and the operator's memory
+   * pointed at another.
+   */
+  updateProduct(
+    hubspotProductId: string,
+    input: HubSpotProductCreateInput,
+  ): Promise<HubSpotProductCreateResult>;
   listProducts(opts?: {
     after?: string;
     limit?: number;

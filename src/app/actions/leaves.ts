@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leaves, productTypes } from "@/db/schema";
 import {
@@ -26,6 +26,7 @@ import {
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { mapLeafToHubspotCreate } from "@/lib/hubspot-mapper";
+import { hasUsableSku } from "@/lib/product-structure/attachment-eligibility";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { revalidatePath } from "next/cache";
 
@@ -289,6 +290,173 @@ export async function createLeaf(
  * tolerance per Pattern 32 (pre-production engineering tolerance);
  * v1.1+ bidirectional sync candidate.
  */
+/**
+ * Correct an existing Library product.
+ *
+ * ── WHY THIS EXISTS ───────────────────────────────────────────────────────
+ *
+ * It did not. `leaves.ts` exported create, restore and two reads, and nothing
+ * that could change a product after it was made. So a product created without
+ * a SKU could never acquire one -- while `attachment-eligibility` refused to
+ * attach it and told the operator to "Add a SKU to the product in the Library",
+ * naming a mechanism that was not there.
+ *
+ * Recreating was the only route, which is how two `MISTR - 4oz Lube Silicone`
+ * products came to exist 31 seconds apart with different HubSpot ids.
+ *
+ * ── WHAT IT DELIBERATELY WILL NOT DO ──────────────────────────────────────
+ *
+ * REPLACE AN ESTABLISHED SKU. Assigning a SKU to a product that has none is a
+ * completion; changing one that downstream identity already depends on is a
+ * different operation with a different blast radius -- frozen quotes, NetSuite
+ * items and an operator's own memory may all point at the old value. It is
+ * refused here and needs its own controlled path.
+ *
+ * TOUCH HISTORY. This writes `leaves` only. Frozen quote snapshots and
+ * `leaf_specs` pins are untouched: a pin records what classification resolved
+ * to AT THE MOMENT OF ATTACHMENT, and rewriting it would change what a quote
+ * is recorded as having been built from. A reclassification here reaches
+ * FUTURE attachments, which is what makes this master data rather than a
+ * global edit.
+ */
+export async function updateLeaf(
+  formData: FormData,
+): Promise<ActionResult<{ leafId: string; syncedToHubspot: boolean }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    await assertCanCreateLeaves();
+
+    const leafId = String(formData.get("leafId") ?? "").trim();
+    if (!leafId) throw new ActionGuardError(ERR.VALIDATION, "leafId is required.");
+
+    const [existing] = await db.select().from(leaves).where(eq(leaves.id, leafId)).limit(1);
+    if (!existing) throw new ActionGuardError(ERR.NOT_FOUND, "Product not found.");
+
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) throw new ActionGuardError(ERR.VALIDATION, "Product name is required.");
+
+    const skuRaw = String(formData.get("sku") ?? "").trim();
+    const sku = skuRaw === "" ? null : skuRaw;
+    const url = String(formData.get("url") ?? "").trim() || null;
+    const unitCostRaw = String(formData.get("unitCost") ?? "").trim();
+    const unitCost = unitCostRaw === "" ? null : unitCostRaw;
+
+    const hsTypeRaw = String(formData.get("hubspotProductType") ?? "").trim();
+    const hubspotProductType = hsTypeRaw === "" ? null : hsTypeRaw;
+    if (hubspotProductType) {
+      const options = await loadHubspotProductTypeOptions();
+      if (!isKnownHubspotProductTypeValue(hubspotProductType, options)) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `"${hubspotProductType}" is not a current HubSpot product type.`,
+        );
+      }
+    }
+
+    // ── the SKU rule ──────────────────────────────────────────────────────
+    const hadSku = hasUsableSku(existing.sku);
+    if (hadSku && sku !== existing.sku) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `This product's SKU is already established as "${existing.sku}". ` +
+          "Downstream identity may depend on it -- quotes already sent, and the " +
+          "NetSuite item it resolves to -- so replacing it is a separate " +
+          "controlled correction, not an ordinary edit.",
+      );
+    }
+    if (sku !== null) {
+      // Uniqueness on the COMPLETE NORMALIZED value, across the catalog. A
+      // brand prefix is formatting; it is not the constraint.
+      const normalized = sku.toUpperCase();
+      const clash = await db
+        .select({ id: leaves.id, name: leaves.name, sku: leaves.sku })
+        .from(leaves)
+        .where(sql`upper(btrim(${leaves.sku})) = ${normalized} and ${leaves.id} <> ${leafId}`)
+        .limit(1);
+      if (clash.length > 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `SKU "${sku}" already belongs to "${clash[0].name}". A SKU identifies ` +
+            "one product; two products cannot share one.",
+        );
+      }
+    }
+
+    // ── HubSpot first, because it is the catalog authority ────────────────
+    //
+    // The EXISTING product is updated by id. No second product is created, so
+    // the Nexus and HubSpot identities both survive the edit.
+    let syncedToHubspot = false;
+    if (existing.hubspotProductId) {
+      const hubspotInput = mapLeafToHubspotCreate({
+        name,
+        sku,
+        unitCost,
+        url,
+        hubspotProductType,
+      });
+      try {
+        const { hubspot } = await getApplicationDependencies();
+        await hubspot.updateProduct(existing.hubspotProductId, hubspotInput);
+        syncedToHubspot = true;
+      } catch (e) {
+        // Visible and retryable. The local row is NOT written: a Nexus row
+        // that moved while HubSpot did not is a silent divergence between two
+        // catalogs, and the operator would have no way to see it. Refusing
+        // leaves one consistent state and a button they can press again.
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `HubSpot could not be updated, so nothing was changed. Try again. (${
+            e instanceof Error ? e.message : String(e)
+          })`,
+        );
+      }
+    }
+
+    const before = {
+      name: existing.name,
+      sku: existing.sku,
+      url: existing.url,
+      unit_cost: existing.unitCost,
+      hubspot_product_type: existing.hubspotProductType,
+    };
+    const after = {
+      name,
+      sku,
+      url,
+      unit_cost: unitCost,
+      hubspot_product_type: hubspotProductType,
+    };
+
+    await db
+      .update(leaves)
+      .set({ name, sku, url, unitCost, hubspotProductType, updatedAt: new Date() })
+      .where(eq(leaves.id, leafId));
+
+    const changed = Object.keys(after).filter(
+      (k) => (before as Record<string, unknown>)[k] !== (after as Record<string, unknown>)[k],
+    );
+
+    await writeAuditEntry({
+      userId: user.id,
+      entityType: "leaf",
+      entityId: leafId,
+      action: "leaf_updated",
+      diffJson: {
+        changed_fields: changed,
+        before,
+        after,
+        sku_completed: !hadSku && sku !== null,
+        hubspot_product_id: existing.hubspotProductId,
+        synced_to_hubspot: syncedToHubspot,
+      },
+    });
+
+    revalidatePath("/");
+    return { leafId, syncedToHubspot };
+  });
+}
+
 export async function restoreLeaf(
   leafId: string,
 ): Promise<ActionResult<{ leafId: string }>> {

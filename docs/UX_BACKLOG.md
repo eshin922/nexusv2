@@ -5238,3 +5238,55 @@ warning.
 This is why O5 does not certify a multi-value specification. Its scope asked
 for one *if the live schema provides one*; it does not, and inventing a field
 to cover it would have certified a fixture rather than the product.
+
+## Library products could not be edited after creation — FIXED (#567)
+
+**Operator report (2026-09-13).** Products created in the Library could not
+be corrected afterwards. A product created without a SKU was stranded: the
+Library refused to attach it, and the refusal named a mechanism that did not
+exist.
+
+**What the refusal said, and why it was worse than a plain failure:**
+
+> This product has no SKU, so its downstream item identity is unavailable and
+> it cannot be sent to NetSuite. **Add a SKU to the product in the Library**,
+> then attach it.
+
+The instruction was correct about what was needed and wrong about it being
+available. `src/app/actions/leaves.ts` exported `createLeaf`, `restoreLeaf`
+and two reads. There was no update path at all, so the sentence named a
+workflow that had never been built — and an operator following it looked for
+a control that was not there, which is a more expensive failure than being
+told plainly that nothing could be done.
+
+**The second half of the defect: the pencil went somewhere else.** The only
+edit-looking affordance on a Library row was a pencil, and it opened the
+SPECIFICATION editor. So a product whose NAME or SKU was wrong offered the
+universal "edit this thing" icon, and it led to a form about something else.
+The absence of a product edit and the mislabelling of the specs control
+compounded: there was no way in, and the thing that looked like the way in
+was a different door.
+
+**Fixed by:**
+
+- `updateLeaf` — name, classification, unit cost, URL, and the missing SKU.
+  HubSpot is written FIRST and a failure refuses the whole edit, so the local
+  row and HubSpot cannot disagree about a product's identity. Audited as
+  `leaf_updated`, with `sku_completed` marking the completion specifically.
+- Three row actions, three destinations: checklist → Edit specifications,
+  pencil → Edit product, plus → Add to quote / Add to item group *(named)*.
+- Completing a missing SKU is ordinary editing. REPLACING an established one
+  is refused here and stays a separate controlled correction — downstream
+  identity may already depend on it (quotes already sent, the NetSuite item
+  it resolves to).
+- Uniqueness is enforced on the NORMALIZED value across the whole catalog, so
+  `edit-mu0f...` cannot join `EDIT-MU0F...`.
+- The edit reaches future attachments only. Quote snapshots and spec pins are
+  historical records of what a quote was built from and are not rewritten —
+  and the surface states that, with the count of quotes it will not touch,
+  rather than leaving the operator to infer it.
+
+**Out of scope, and still open:** repair of existing production records. 58
+Library leaves currently hold no SKU, 7 of them already attached to quotes.
+Nothing here backfills them; the surface now makes correcting them possible,
+and which of them SHOULD be corrected is a separate data decision.
