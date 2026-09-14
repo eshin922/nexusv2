@@ -135,13 +135,19 @@ export async function seedFixtureWorld(runId: string): Promise<FixtureManifest> 
   try {
     await sql.begin(async (tx) => {
       await tx`
+          -- can_create_leaves is FALSE for the PM, matching production: no
+          -- surface grants that column and no real PM holds it. It was seeded
+          -- true here, which made the harness's PM permitted where every
+          -- production PM was refused -- so a PM-permission failure was
+          -- unreachable from the isolated environment by construction, and one
+          -- reached an operator before any walk could see it.
           insert into users (
             id, clerk_user_id, email, name, role, hubspot_owner_id,
             can_create_leaves
           )
           values
             (${pmId}, 'validation_clerk_pm', 'pm@nexus-validation.invalid',
-             'Validation PM', 'pm', 'validation_hs_owner_pm', true),
+             'Validation PM', 'pm', 'validation_hs_owner_pm', false),
             (${adminId}, 'validation_clerk_admin', 'admin@nexus-validation.invalid',
              'Validation Admin', 'admin', 'validation_hs_owner_admin', true)
           on conflict (clerk_user_id) do update set

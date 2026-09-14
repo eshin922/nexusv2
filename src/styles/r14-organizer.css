@@ -647,3 +647,65 @@
   padding: 12px 16px;
   border-top: 1px solid var(--r14-rule-softer);
 }
+
+/* Row names are the links now; the row itself is not.
+   Inherit colour so the table keeps its register, and underline on hover so
+   the two clickable names in a row are identifiable as clickable. */
+.r14-rowlink {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+.r14-rowlink:hover .r14-product,
+.r14-rowlink:hover .r14-quote { text-decoration: underline; }
+.r14-rowlink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Resume — where the operator was, under what the work needs.
+   Quieter than .r14-next by construction: no left accent bar, one line,
+   and it renders only when there is a visit to return to. */
+.r14-resume {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 10px 16px;
+  border: 1px solid var(--r14-rule-softer);
+  border-radius: 8px;
+  background: var(--paper);
+  color: inherit;
+  text-decoration: none;
+}
+.r14-resume:hover { background: var(--paper-2); }
+.r14-resume-label {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--r14-faint);
+  flex: none;
+}
+.r14-resume-where { font-size: 13px; min-width: 0; }
+.r14-resume-sep { color: var(--r14-faint); }
+.r14-resume-change {
+  font-size: 12px;
+  color: var(--r14-faint);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.r14-resume-cta {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+.r14-resume:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

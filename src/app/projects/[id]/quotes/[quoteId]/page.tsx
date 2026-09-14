@@ -35,6 +35,7 @@ import { AddTierButton } from "./add-tier-button";
 import { TierRow } from "./tier-row";
 import { TierPresetPicker } from "./tier-preset-picker";
 import { NotesEditor } from "./notes-editor";
+import { canEditLibraryProduct } from "@/lib/permissions/library-product";
 
 export default async function QuoteBuilderPage({
   params,
@@ -290,7 +291,13 @@ export default async function QuoteBuilderPage({
           quoteId={quoteId}
           itemGroupCategories={productTypeOptions.itemGroupCategories}
           leafTypes={productTypeOptions.leafTypes}
-          permissions={{ canCreateLeaves: user.canCreateLeaves }}
+          // Both capabilities come from the SAME functions the server guards
+          // call, so the affordance and the action cannot disagree about who
+          // may do what. Computing either one inline here is how they drifted.
+          permissions={{
+            canCreateLeaves: user.canCreateLeaves,
+            canEditProduct: canEditLibraryProduct(user),
+          }}
           // OD-032 · what each component ALREADY owns, with full identity.
           // Without this the sheet believed every component owned nothing, so
           // a second charge of a type submitted with no label and silently

@@ -18,7 +18,10 @@ import {
   DIRECT_SERVICE_IDENTITIES,
   type DirectServiceIdentity,
 } from "@/lib/product-structure/direct-service";
-import { assertCanCreateLeaves } from "@/lib/spec-permission-guard";
+import {
+  assertCanCreateLeaves,
+  assertCanEditLibraryProduct,
+} from "@/lib/spec-permission-guard";
 import {
   loadLibraryBrowse,
   type LibraryBrowseFilters,
@@ -1203,8 +1206,14 @@ export async function updateLeaf(
   formData: FormData,
 ): Promise<ActionResult<LeafEditOutcome>> {
   return runAction(async () => {
-    const user = await ensureUser();
-    await assertCanCreateLeaves();
+    // Editing a product -- including completing a missing SKU -- no longer
+    // shares the CREATION grant. `users.can_create_leaves` has no admin
+    // surface, so the shared guard resolved in practice to "admins only": a PM
+    // was refused at save, after the form had already let her type the SKU.
+    //
+    // This does not relax which edits are legal. Replacing an ESTABLISHED SKU
+    // is refused below for every caller regardless of role.
+    const user = await assertCanEditLibraryProduct();
 
     const leafId = String(formData.get("leafId") ?? "").trim();
     if (!leafId) throw new ActionGuardError(ERR.VALIDATION, "leafId is required.");
@@ -1264,8 +1273,11 @@ export async function retryLeafEdit(
   formData: FormData,
 ): Promise<ActionResult<LeafEditOutcome>> {
   return runAction(async () => {
-    const user = await ensureUser();
-    await assertCanCreateLeaves();
+    // Same guard as `updateLeaf`: a retry re-sends an edit this person was
+    // already permitted to make. Leaving it on the creation grant would have
+    // let someone save an edit and then be refused the recovery for it,
+    // stranding the attempt it exists to settle.
+    const user = await assertCanEditLibraryProduct();
 
     const leafId = String(formData.get("leafId") ?? "").trim();
     if (!leafId) throw new ActionGuardError(ERR.VALIDATION, "leafId is required.");

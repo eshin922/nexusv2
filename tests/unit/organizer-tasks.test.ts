@@ -517,3 +517,83 @@ test("no open handoff raises no freight task", () => {
     false,
   );
 });
+
+// ── destinations ──────────────────────────────────────────────────────────
+//
+// Every task carries a CTA naming an action, so its href has to reach the
+// place that action is performed. The Quote umbrella is five sub-tabs behind
+// one route defaulting to Preview, which makes "the right route" and "the
+// right destination" different claims -- these assert the second one.
+
+test("a rejected approval opens Pricing, where re-pricing happens", () => {
+  const [t] = tasksForQuote(
+    clean({
+      approvals: [
+        { tierId: "t1", tierLabel: "50k", kind: "rejected", rejectionReason: "too thin" },
+      ],
+    }),
+    NOW,
+  ).filter((x) => x.kind === "approval_rejected");
+  assert.equal(t.cta, "Re-price or re-request");
+  assert.equal(t.href, "/projects/p1/quotes/q1/pricing");
+});
+
+test("a failed push opens the Sales Order sub-tab, which holds the retry", () => {
+  const [t] = tasksForQuote(clean({ pushFailed: true }), NOW).filter(
+    (x) => x.kind === "push_failed",
+  );
+  assert.equal(t.cta, "Retry push");
+  // Not the bare route: that lands on Preview, one surface short of the
+  // retry, with nothing saying which tab to open.
+  assert.equal(t.href, "/projects/p1/quotes/q1/quote?tab=tier");
+});
+
+test("follow-up tasks open Client Review, where the follow-up is logged", () => {
+  const silent = tasksForQuote(
+    clean({
+      status: "sent",
+      sentAt: new Date(NOW.getTime() - 5 * 86_400_000),
+      acceptedAt: null,
+    }),
+    NOW,
+  ).filter((x) => x.kind === "customer_silent");
+  assert.equal(silent.length, 1);
+  assert.equal(silent[0].href, "/projects/p1/quotes/q1/quote?tab=review");
+
+  const expiring = tasksForQuote(
+    clean({
+      status: "sent",
+      sentAt: new Date(NOW.getTime() - 86_400_000),
+      acceptedAt: null,
+      validUntil: new Date(NOW.getTime() + 2 * 86_400_000),
+    }),
+    NOW,
+  ).filter((x) => x.kind === "quote_expiring");
+  assert.equal(expiring.length, 1);
+  assert.equal(expiring[0].href, "/projects/p1/quotes/q1/quote?tab=review");
+});
+
+test("every task href is rooted at its own project and quote", () => {
+  // The row above these used to send every click to one place. This asserts
+  // the general property that replaced it: a task points at ITS work.
+  const tasks = tasksForQuote(
+    clean({
+      quoteId: "q-9",
+      projectId: "p-9",
+      status: "sent",
+      sentAt: new Date(NOW.getTime() - 5 * 86_400_000),
+      pushFailed: true,
+      approvals: [
+        { tierId: "t1", tierLabel: "50k", kind: "rejected", rejectionReason: null },
+      ],
+    }),
+    NOW,
+  );
+  assert.ok(tasks.length >= 3, "expected several kinds at once");
+  for (const t of tasks) {
+    assert.ok(
+      t.href.startsWith("/projects/p-9/quotes/q-9/"),
+      `${t.kind} pointed at ${t.href}`,
+    );
+  }
+});

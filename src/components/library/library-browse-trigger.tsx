@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { LibraryBrowseModal, type AssemblyTarget } from "./library-browse-modal";
+import type { LibraryPermissions } from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 impl-5 Step 4 — Library browse trigger.
 //
@@ -55,7 +56,7 @@ export function LibraryBrowseTrigger({
   /** Overrides the default button weight for non-card-head placements. */
   className?: string;
   fullLeafTypes: LeafSpecEntryProductType[];
-  permissions: { canCreateLeaves: boolean };
+  permissions: LibraryPermissions;
 }) {
   const [open, setOpen] = useState(false);
   const isDirect = mode === "direct";

@@ -79,7 +79,9 @@
     "validation:sku-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-allocation-walk.ts",
     "probe:hubspot-property-capability": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/gate-1b/hubspot-property-capability-probe.ts",
     "validation:sku-create-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-create-path-walk.ts",
+    "validation:library-edit-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/library-product-edit-walk.ts",
     "support:sku-unresolved": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/admin/list-unresolved-sku-allocations.ts",
+    "walk:library-edit-permission": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/gate-1b/library-edit-permission-walk.ts",
     "survey:netsuite-skus": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.local scripts/gate-1b/netsuite-sku-inventory-survey.ts"
   },
   "dependencies": {
