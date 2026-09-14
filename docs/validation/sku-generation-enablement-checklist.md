@@ -3,23 +3,31 @@
 The machinery is built and tested in isolation. This is what must happen before
 a single identifier can be issued, and what has already been established.
 
-**No seeding, enablement, or record change has been performed.** The schema
-migration (0125) is applied and the production NetSuite survey is done — both
-read-only or additive, and neither turns anything on. No scope grant, no
-property creation, no SKU assignment, no backfill.
+**GENERATION IS LIVE as of 2026-09-14.** All four conditions are satisfied: the
+migration is applied, 19 brand tokens are approved, their counters are seeded
+from a three-way reconciliation, and `SKU_GENERATION_ENABLED=1` is set for
+Production. Section 4 is the record of the last two.
+
+Still not done, and still deliberate: no scope grant, no HubSpot property
+creation, no SKU assignment to any existing product, no backfill.
 
 ---
 
-## Why nothing can fire yet
+## What has to be true before anything can fire
 
-Generation requires three independent conditions, and production satisfies
-none of them:
+Generation requires three independent conditions. **All three are now
+satisfied** — this section is kept because the shape of the gate is the point,
+not because anything is still missing:
 
 | condition | production today |
 |---|---|
-| the brand token is `approved` in `sku_brand_registry` | table does not exist; migration unapplied |
-| its counter is seeded in `sku_counters` | same |
-| `SKU_GENERATION_ENABLED=1` | unset |
+| the brand token is `approved` in `sku_brand_registry` | 19 tokens approved (section 4) |
+| its counter is seeded in `sku_counters` | 19 counters seeded (section 4) |
+| `SKU_GENERATION_ENABLED=1` | set, Production only |
+
+A token outside those 19 still cannot issue anything, and neither can one whose
+counter is unseeded. Enabling the flag did not open the namespace; it opened
+exactly the nineteen that were adjudicated.
 
 This is deliberate. A flag alone would be one edit away from live; an unseeded
 counter cannot issue a number that does not exist. Applying migration 0125 to
@@ -159,11 +167,17 @@ The production finding stands.*
 
 ---
 
-## 3 · Registry entries and counter seeds, for approval
+## 3 · Registry entries and counter seeds — 19 APPROVED 2026-09-14
 
 Proposed from the HubSpot product-library **folder** each product sits in — a
 structural record an operator filed it under, never the spelling of the token.
-Approval is per-entry and separate from this implementation.
+Approval was per-entry and separate from this implementation.
+
+**19 of these were approved and seeded on 2026-09-14 — see section 4 for what
+was written.** The numbers below are the snapshot the adjudication was made
+against; the numbers actually seeded were re-measured at write time and are
+recorded in section 4. Everything in 3b and 3c remains unadjudicated and cannot
+issue anything.
 
 ### 3a · Reconciled entries and final seeds
 
@@ -291,7 +305,7 @@ have seeded at 1001: one below an item that already exists. The survey was not
 a formality, and the same shape could exist for a token nobody has proposed
 yet.
 
-### 3d · MISTR — proposed future namespace
+### 3d · MISTR — APPROVED and seeded 2026-09-14
 
 Registering `MISTR` collides with nothing: **zero** `DPS-MISTR-*` identifiers
 exist in either system. Its 21 existing products carry six inconsistent shapes
@@ -321,8 +335,122 @@ Proposed entry:
 | token | `MISTR` |
 | customer_label | heymistr.com |
 | hubspot_company_id | `36909687931` |
-| status | `proposed` — cannot allocate until approved |
-| counter | none. Seeding needs item 1 |
+| status | `approved` 2026-09-14 |
+| counter | **1001** — nothing in any of the three systems, so the 1001 floor applies |
+
+---
+
+## 4 · Seeding and enablement — DONE 2026-09-14
+
+### the maxima were re-measured, not transcribed
+
+Section 3a was already a dated snapshot, and the rule banked with it says a seed
+must come from a fresh reading rather than from that table. So all three systems
+were re-read in the hour the counters were written:
+
+| system | population | how |
+|---|---|---|
+| Nexus | 1,052 leaf SKUs | read by the seeding script, in the run that wrote |
+| HubSpot | 1,079 products, 11 pages, paging exhausted | same run |
+| production NetSuite, account 7924416 | 1,403 items, 8 pages, inactives included, all types | authenticated browser session, read-only |
+
+The NetSuite figure moved (1,401 to 1,403) and **no registered token's maximum
+moved with it**. All 54 tokens matched the recorded snapshot exactly. That is a
+result rather than a formality: it was unknown until measured, and the whole
+reason for re-measuring is that it could have been otherwise.
+
+Coverage is provable rather than asserted. The eight page boundaries are
+contiguous end-to-start, and the `DPS-` block sits wholly inside pages 3 and 4
+with non-DPS names on both sides, so no `DPS-` item can fall outside what was
+read.
+
+Two traps were caught during the survey, both worth recording because each
+returns a plausible number rather than an error:
+
+- the Items list opened with a remembered **Kit/Package** filter and reported
+  `TOTAL: 0`, which reads as "there are none" rather than "you filtered them
+  out" — the same shape as the `NonInvtPart` filter that produced a confident
+  wrong total on the first survey.
+- `&size=1500` was silently ignored; the page kept its own `size=200`. Only
+  comparing row count against `TOTAL` distinguishes "one page held everything"
+  from "one page is all you were given".
+
+### what was written
+
+Through `npm run admin:sku-registry`, the governed path: registration and
+seeding are separate phases, the NetSuite survey arrives as a file that must
+name its account and declare its own coverage, and it is refused past a
+freshness limit. Each refusal was exercised rather than assumed — stale, sandbox
+account, `complete: false`, and no file at all each exit non-zero.
+
+19 registry rows, status `approved`, approver and timestamp recorded, and 19
+counters, written in one transaction:
+
+| token | customer | company id | counter |
+|---|---|---|---|
+| `SPJ` | Smart Pressed Juice | 17493436983 | **1016** |
+| `TUBE` | Bryght | 15122910741 | **1022** |
+| `LEM` | Lemme | 11075059228 | **1013** |
+| `LMER` | La Mer | 17952713000 | **1006** |
+| `DRSQ` | Dr. Squatch | 10427807265 | **1005** |
+| `LOOV` | LOOV | 18603946796 | **1005** |
+| `VOL` | Volta | 18363861820 | **1005** |
+| `REJ` | Rejuvica | 15931327282 | **1004** |
+| `EL` | Extract Labs | 19122235830 | **1003** |
+| `KUJU` | Kuju | 18233927554 | **1003** |
+| `YUNI` | YUNI Beauty | 10427868808 | **1003** |
+| `FACE` | Facetory | 15340903790 | **1002** |
+| `KIT` | Kitsch | 15532964962 | **1002** |
+| `MOT` | Motivated | 17078076774 | **1002** |
+| `MYTH` | Mythologie | 10427985012 | **1002** |
+| `NEW` | New U Life | 18680822828 | **1002** |
+| `OUT` | The Outset | 15341254760 | **1002** |
+| `PCW` | Perfect Coffee Water | 19507987774 | **1002** |
+| `MISTR` | heymistr.com | 36909687931 | **1001** |
+
+`DPS`, `ES`, `WL` and every other token are deliberately UNREGISTERED and cannot
+issue anything.
+
+MISTR maps to `36909687931` (heymistr.com). The second company record,
+`48843403658`, is recorded in that row's evidence as deliberately NOT merged or
+aliased — which record is the customer remains unadjudicated, and picking one
+quietly would have settled it.
+
+### the seeding rule gained a floor, and the dry run is why
+
+`max(nexus, hubspot, netsuite) + 1` is right only for a namespace that already
+has items. MISTR has none in any of the three, so the rule yielded **1**, and
+`DPS-MISTR-0001` is not what the convention produces — every customer namespace
+in the catalog begins at 1001.
+
+Fixed as a FLOOR rather than as a special case for the empty namespace, because
+a floor can only ever RAISE a seed and therefore cannot mint a collision. The
+other eighteen are unchanged by it. Each counter's `seed_basis` records the rule
+it was computed under, both measurement timestamps, the account, and the
+population sizes, so the number can be re-derived rather than trusted.
+
+### enablement
+
+`SKU_GENERATION_ENABLED=1`, added as a **Config** variable rather than a Secret
+— it is a feature flag and the value should stay readable — scoped to
+**Production** only. Current `main` was redeployed to activate it.
+
+Verified on the deployed surface by inspection only. No SKU was generated and no
+product was created or edited, because generating one writes a real reservation
+row:
+
+| check | result |
+|---|---|
+| Create new product | Auto-generate SKU present and enabled |
+| Edit product, SKU missing | present and enabled; field editable |
+| Edit product, SKU established | control ABSENT; field disabled; "Established..." hint shown |
+| SKU typed by hand | control disappears on the first keystroke, returns when cleared |
+
+The last two are the protections that matter. The control returns `null` rather
+than rendering disabled in both cases — a disabled button beside a filled field
+still advertises that generating over it is a thing one might do. And the server
+refuses an established-SKU replacement independently, for every caller and every
+role, so the UI is the second line rather than the only one.
 
 ---
 
@@ -330,17 +458,23 @@ Proposed entry:
 
 1. ~~**Production inventory**~~ — DONE (§1, 2026-09-14). The seeds in §3a are
    three-way reconciled and final.
-   **Registry adjudication remains**: which tokens are approved (§3a), the two
-   ambiguous mappings (§3b), and whether MISTR is registered (§3d). Nothing can
-   be issued without an approved token.
+   **Registry adjudication is DONE for 19 tokens** (§4), MISTR among them.
+   What remains unadjudicated: the two ambiguous mappings (§3b) and the 25
+   unfiled tokens (§3c). Neither can issue anything, which is the correct
+   state rather than an outstanding task.
 2. ~~**Approved schema migration**~~ — DONE. 0125 applied 2026-09-14; the tables
    were created empty, which turns nothing on.
-3. **Approved seeding**, as a separately authorised operation, above every
-   system.
-4. **Enable the flag** — `SKU_GENERATION_ENABLED=1`.
+3. ~~**Approved seeding**~~ — DONE (section 4, 2026-09-14). 19 tokens
+   registered and their counters seeded above every system, in that order,
+   each a separately authorised operation.
+4. ~~**Enable the flag**~~ — DONE (section 4). `SKU_GENERATION_ENABLED=1`,
+   Production only. Preview and Development remain unset, so a preview
+   deployment cannot mint an identifier against the live counters.
 
 Any one of them missing leaves generation refusing, which is the correct
-behaviour rather than a failure.
+behaviour rather than a failure. That is still true of every token OUTSIDE the
+approved nineteen.
 
 The HubSpot property is deliberately absent from this sequence: the
 implementation does not use it (§2).
+
