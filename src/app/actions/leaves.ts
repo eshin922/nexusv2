@@ -457,11 +457,7 @@ async function applyLeafEdit(opts: {
         // The retry is about to dispatch. Counted here, in the committed
         // claim, so an interruption mid-call cannot leave it looking as
         // though nothing was sent.
-        .set({
-          version: open.version + 1,
-          dispatchedCount: open.dispatchedCount + 1,
-          updatedAt: new Date(),
-        })
+        .set({ version: open.version + 1, updatedAt: new Date() })
         .where(
           and(
             eq(leafEditAttempts.id, retryOf.id),
@@ -582,7 +578,7 @@ async function applyLeafEdit(opts: {
     // sent. The partial unique index makes it exclusive.
     let attemptId = retryOf?.id ?? null;
     let claimedVersion = retryOf ? retryOf.version + 1 : 1;
-    let dispatched = retryOf && open ? open.dispatchedCount + 1 : 0;
+    let dispatched = retryOf && open ? open.dispatchedCount : 0;
     let answered = retryOf && open ? open.answeredCount : 0;
     if (!retryOf) {
       const [row] = await tx
@@ -593,15 +589,11 @@ async function applyLeafEdit(opts: {
           attempted: values,
           submitted,
           outcome: "pending",
-          // UNCERTAINTY IS PERSISTED BEFORE DISPATCH. The request is about to
-          // be sent and is unanswered until a response proves otherwise, so
-          // the record says so from the moment it exists. A process that dies
-          // during the call leaves an attempt that correctly reads as having
-          // one request outstanding.
-          //
-          // Only dispatched when the product actually has a HubSpot
-          // counterpart -- there is nothing to be uncertain about otherwise.
-          dispatchedCount: existing.hubspotProductId ? 1 : 0,
+          // NOT counted here. A dispatch is counted immediately before the
+          // request actually goes out -- see `recordDispatch`. Counting it at
+          // claim time would invent an unanswered request for a retry that
+          // never sends one, because its preliminary read found the values
+          // already present.
           createdBy: userId,
         })
         .returning({
@@ -637,7 +629,6 @@ async function applyLeafEdit(opts: {
   const {
     attemptId,
     claimedVersion,
-    dispatched,
     answered,
     priorObserved,
     existing,
@@ -646,6 +637,8 @@ async function applyLeafEdit(opts: {
     submitted,
     hadSku,
   } = claim;
+  // Advanced when a dispatch is actually recorded, just before the write.
+  let dispatched = claim.dispatched;
   const productId = existing.hubspotProductId;
   let hubspotOutcome: LeafEditOutcome["hubspotOutcome"] = "not_linked";
   /**
@@ -674,6 +667,25 @@ async function applyLeafEdit(opts: {
     if (alreadyHeld) {
       hubspotOutcome = "already_held";
     } else {
+      // COUNTED HERE, AND COMMITTED BEFORE THE REQUEST GOES OUT.
+      //
+      // Immediately before an actual write, so a retry satisfied by its
+      // preliminary read never manufactures an unanswered request -- and
+      // durably before sending, so a process that dies mid-call leaves an
+      // attempt that correctly reads as having one outstanding.
+      //
+      // Conditional on still owning the claim: if it matches nothing, this
+      // worker has been superseded and must not send at all.
+      const owns = await recordDispatch(attemptId, claimedVersion, dispatched + 1);
+      if (!owns) {
+        throw new ActionGuardError(
+          ERR.STALE_WRITE,
+          "This edit was superseded before it was sent. Nothing was sent. " +
+            "Reload the product.",
+        );
+      }
+      dispatched += 1;
+
       try {
         await hubspot.updateProduct(productId, update);
         hubspotOutcome = "applied";
@@ -882,9 +894,13 @@ async function applyLeafEdit(opts: {
     if (e instanceof ActionGuardError) throw e;
     // HubSpot moved and the local half did not. The claim STAYS OPEN, so the
     // next edit is refused and the saved edit can be retried to converge.
+    // The answer is PRESERVED across the rollback. HubSpot responded; the
+    // local settle failed. Losing the count here would reclassify an answered
+    // request as unknown and hold a product that has nothing outstanding.
     await markDiverged(
       attemptId,
       claimedVersion,
+      answered + (answeredForThisRequest ? 1 : 0),
       Object.fromEntries(
         Object.entries(submitted).map(([k, v]) => [k, v === "" ? null : v]),
       ),
@@ -914,6 +930,33 @@ async function fencedAttemptUpdate(
   const rows = await db
     .update(leafEditAttempts)
     .set({ ...set, version: version + 1, updatedAt: new Date() })
+    .where(
+      and(
+        eq(leafEditAttempts.id, attemptId),
+        eq(leafEditAttempts.version, version),
+        isNull(leafEditAttempts.resolvedAt),
+      ),
+    )
+    .returning({ id: leafEditAttempts.id });
+  return rows.length > 0;
+}
+
+/**
+ * Count a dispatch, without taking the version.
+ *
+ * Deliberately does NOT bump `version`: this is the same worker continuing,
+ * not a new one claiming. It is conditional on the version it already holds,
+ * so a superseded worker learns it no longer owns the claim BEFORE it sends
+ * anything.
+ */
+async function recordDispatch(
+  attemptId: string,
+  version: number,
+  dispatchedCount: number,
+): Promise<boolean> {
+  const rows = await db
+    .update(leafEditAttempts)
+    .set({ dispatchedCount, updatedAt: new Date() })
     .where(
       and(
         eq(leafEditAttempts.id, attemptId),
@@ -975,11 +1018,13 @@ async function keepUnconfirmed(
 async function markDiverged(
   attemptId: string,
   version: number,
+  answeredCount: number,
   observed: Record<string, string | null>,
   detail: string,
 ): Promise<boolean> {
   return fencedAttemptUpdate(attemptId, version, {
     outcome: "diverged",
+    answeredCount,
     observed,
     reason: `local write failed after HubSpot applied: ${detail}`,
   });

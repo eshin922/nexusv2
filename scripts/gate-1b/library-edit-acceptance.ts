@@ -29,6 +29,7 @@ import { createLeaf, retryLeafEdit, updateLeaf } from "@/app/actions/leaves";
 import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 import {
+  __fakeHubspotCallCount,
   __fakeHubspotLandInflight,
   __fakeHubspotProduct,
 } from "../../tests/harness/providers/fake-hubspot.ts";
@@ -464,19 +465,22 @@ async function main() {
     }
   }
 
-  // ── 8c · AN ANSWERED FAILURE RECOVERS NORMALLY ──────────────────────────
+  // ── 8c · ANSWERED, THEN A ONE-SHOT LOCAL FAILURE ────────────────────────
   //
-  // The case that must NOT be caught by the hold above, and in practice the
-  // likeliest failure: HubSpot answered and applied the edit, and only the
-  // local write failed -- a database blip after a successful call. Nothing is
-  // outstanding, so the retry releases and the product is editable again with
-  // no decision required of anyone.
+  // The path this design exists to serve, end to end and for real:
   //
-  // The state is CONSTRUCTED rather than provoked. Reaching it needs a
-  // transient local fault between a successful remote call and the commit, and
-  // the harness has no way to inject one; a permanent fault would fail the
-  // retry too and test nothing. What is under test is the behaviour given the
-  // state, and that is exercised for real.
+  //   HubSpot succeeds  ->  the local settle fails once  ->  the retry finds
+  //   the values already there and sends NOTHING  ->  both catalogs agree, the
+  //   claim closes, ordinary editing works.
+  //
+  // Two placements have to be right for this to come out. The dispatch is
+  // counted at the WRITE, so the retry's preliminary read does not invent an
+  // unanswered request. And the answer is preserved across the rollback, so a
+  // request HubSpot responded to is not reclassified as unknown.
+  //
+  // The local failure is injected as a real database constraint, dropped
+  // immediately afterwards -- a genuine error on the genuine path, rather than
+  // a hook in the action for a test to pull.
   {
     const fresh = await createLeaf(
       form({ name: `ACC · answered (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
@@ -486,61 +490,84 @@ async function main() {
     } else {
       const id = fresh.data.leafId;
       const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hsId = r0!.hubspotProductId!;
       const okSku = `ACC-${STAMP}-OK`;
-      const wanted = {
-        name: `ACC · answered recovered (${STAMP})`,
-        sku: okSku,
-        url: null,
-        unitCost: "3.00",
-        hubspotProductType: "Labels",
-      };
+      const wanted = `ACC · answered wanted (${STAMP})`;
 
-      await db.insert(leafEditAttempts).values({
-        leafId: id,
-        hubspotProductId: r0!.hubspotProductId,
-        attempted: wanted,
-        submitted: {
-          name: wanted.name,
-          hs_sku: okSku,
-          hs_cost_of_goods_sold: "3.00",
-          hs_product_type: "Labels",
-          hs_url: "",
-        },
-        outcome: "diverged",
-        // HubSpot ANSWERED. One request dispatched, one answered: nothing is
-        // in flight.
-        dispatchedCount: 1,
-        answeredCount: 1,
-        reason: "acceptance: HubSpot applied it; the local write failed",
-        createdBy: (await db.select({ id: users.id }).from(users).limit(1))[0]!.id,
-      });
-
-      const blockedFirst = await updateLeaf(
-        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "ACC · answered different", sku: okSku, hubspotProductType: "Labels", unitCost: "9.00", url: "" }),
+      // DDL takes no bound parameters, so the literal is inlined. Both halves
+      // are values this script generated; nothing here comes from outside.
+      const cname = `acc_oneshot_${STAMP.toLowerCase()}`;
+      await db.execute(
+        sql.raw(
+          `alter table leaves add constraint ${cname} check (name <> '${wanted}')`,
+        ),
       );
-      const retry = await retryLeafEdit(form({ leafId: id }));
-      const openLeft = await db
+      const failed = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: wanted, sku: okSku, hubspotProductType: "Labels", unitCost: "3.00", url: "" }),
+      );
+      await db.execute(sql.raw(`alter table leaves drop constraint ${cname}`));
+
+      const [afterFail] = await db
         .select()
         .from(leafEditAttempts)
         .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const [localAfterFail] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const remoteAfterFail = __fakeHubspotProduct(hsId);
+
+      // HubSpot moved, Nexus did not, and the answer survived the rollback.
+      const answeredPreserved =
+        afterFail?.outcome === "diverged" &&
+        afterFail?.dispatchedCount === 1 &&
+        afterFail?.answeredCount === 1;
+
+      const blockedMeanwhile = !(
+        await updateLeaf(
+          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "ACC · answered different", sku: okSku, hubspotProductType: "Labels", unitCost: "9.00", url: "" }),
+        )
+      ).ok;
+
+      const writesBefore = __fakeHubspotCallCount("product-update");
+      const retry = await retryLeafEdit(form({ leafId: id }));
+      const writesAfter = __fakeHubspotCallCount("product-update");
+
+      const [afterRetry] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(hsId);
+
       const nextEdit = await updateLeaf(
         form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `ACC · answered edited (${STAMP})`, sku: okSku, hubspotProductType: "Labels", unitCost: "4.00", url: "" }),
       );
-      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const [final] = await db.select().from(leaves).where(eq(leaves.id, id));
 
       rec(
         "ANSWERED",
-        !blockedFirst.ok &&
+        !failed.ok &&
+          localAfterFail?.name !== wanted &&
+          remoteAfterFail?.name === wanted &&
+          answeredPreserved &&
+          blockedMeanwhile &&
           retry.ok &&
-          retry.data.hubspotOutcome !== "converged_unknown" &&
-          openLeft.length === 0 &&
+          retry.data.hubspotOutcome === "already_held" &&
+          writesAfter === writesBefore &&
+          !afterRetry &&
+          end?.name === wanted &&
+          endRemote?.name === wanted &&
           nextEdit.ok &&
-          end?.name === `ACC · answered edited (${STAMP})`
+          final?.name === `ACC · answered edited (${STAMP})`
           ? "PASS"
           : "FAIL",
-        `a different edit was blocked first=${!blockedFirst.ok} · the retry released it=` +
-          `${retry.ok ? retry.data.hubspotOutcome : retry.error.code} · nothing left open=` +
-          `${openLeft.length === 0} · editable again with no decision needed=${nextEdit.ok}`,
+        `HubSpot applied it and the local write failed once · the answer survived ` +
+          `the rollback (${afterFail?.outcome} dispatched=${afterFail?.dispatchedCount} ` +
+          `answered=${afterFail?.answeredCount}) · a different edit was blocked ` +
+          `meanwhile=${blockedMeanwhile} · the retry sent ${
+            writesAfter - writesBefore
+          } writes (${retry.ok ? retry.data.hubspotOutcome : retry.error.code}) · ` +
+          `the claim closed=${!afterRetry} · both catalogs agree=${
+            end?.name === wanted && endRemote?.name === wanted
+          } · ordinary editing works=${nextEdit.ok}`,
       );
     }
   }
