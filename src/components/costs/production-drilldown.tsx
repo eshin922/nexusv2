@@ -131,7 +131,14 @@ const VIRTUAL_LINES: VirtualLine[] = [
   { field: "otherServiceTotal", name: "Other service fee total", category: "Other", kind: "one_time_fee" },
 ];
 
-const DEBOUNCE_MS = 500;
+// AUTOSAVE COMMITS ON BLUR, NOT WHILE TYPING.
+//
+// A debounce fires mid-entry: every pause sends a request whose response then
+// argues with the keyboard, and a value typed in pieces gets interrupted or
+// clipped. Leaving the field is the operator saying they are done with it.
+//
+// Explicit Save forms and immediate controls keep their own behaviour.
+
 
 function num(v: string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -962,7 +969,8 @@ function ProductionTierCell({
       });
     }
     if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
+    // No timer: the write happens when the cell is left. See the banner at
+    // the top of this file.
   }
 
   // The input always shows the persisted total. The per-unit value below is
@@ -990,6 +998,13 @@ function ProductionTierCell({
         }
         disabled={disabled}
         onChange={(e) => handleChange(e.target.value)}
+        onBlur={fireSave}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
         placeholder="—"
         title={
           line.kind === "one_time_fee"

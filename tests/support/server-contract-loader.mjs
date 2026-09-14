@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
@@ -18,7 +18,11 @@ function resolveAlias(specifier) {
   const rest = specifier.slice(2);
   const base = new URL(rest, SRC);
   for (const candidate of [base.href, `${base.href}.ts`, `${base.href}.tsx`]) {
-    if (existsSync(fileURLToPath(candidate))) return candidate;
+    // Must be a FILE. `@/x` where `src/x/` is a directory used to resolve to
+    // the directory itself, which the loader then tried to read as a module
+    // (EISDIR) instead of falling through to the index resolution below.
+    const path = fileURLToPath(candidate);
+    if (existsSync(path) && statSync(path).isFile()) return candidate;
   }
   // Directory import — mirror the bundler's index resolution.
   for (const index of ["index.ts", "index.tsx"]) {
@@ -32,6 +36,25 @@ export async function resolve(specifier, context, nextResolve) {
   if (specifier === "server-only") {
     return {
       url: "data:text/javascript,export {};",
+      shortCircuit: true,
+    };
+  }
+
+  // `next/cache` exists only inside the Next runtime. A client component that
+  // imports a server action pulls it in transitively at module load, which is
+  // enough to stop the module being importable here at all -- so the cache
+  // primitives are stubbed as no-ops. Nothing under test calls them; they are
+  // in the graph, not on the path.
+  if (specifier === "next/cache") {
+    return {
+      url:
+        "data:text/javascript," +
+        encodeURIComponent(
+          "export const revalidatePath = () => {};" +
+            "export const revalidateTag = () => {};" +
+            "export const unstable_cache = (fn) => fn;" +
+            "export const unstable_noStore = () => {};",
+        ),
       shortCircuit: true,
     };
   }

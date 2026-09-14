@@ -11,7 +11,14 @@ type Tier = {
   recommended: boolean;
 };
 
-const DEBOUNCE_MS = 500;
+// AUTOSAVE COMMITS ON BLUR, NOT WHILE TYPING.
+//
+// A debounce fires mid-entry: every pause sends a request whose response then
+// argues with the keyboard, and a value typed in pieces gets interrupted or
+// clipped. Leaving the field is the operator saying they are done with it.
+//
+// Explicit Save forms and immediate controls keep their own behaviour.
+
 
 // §6.b path-B migration commit 4 — Tier row renders canonical
 // .r7b-tier-row structure (7bsetup.jsx TierRail rows lines 284-300
@@ -59,20 +66,24 @@ export function TierRow({
 
   type Overrides = Partial<{ label: string; qty: string }>;
 
-  function scheduleLabelQtySave(overrides: Overrides = {}) {
+  const lastSavedRef = useRef({ label: tier.label, qty: String(tier.qty ?? "") });
+
+  function commitLabelQty(overrides: Overrides = {}) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const s = { ...stateRef.current, ...overrides };
-      const fd = new FormData();
-      fd.set("tierId", tier.id);
-      fd.set("label", s.label);
-      fd.set("qty", s.qty);
-      startTransition(async () => {
-        const r = await updateTier(fd);
-        if (!r.ok) setSaveError(r.error.message);
-        else setSaveError(null);
-      });
-    }, DEBOUNCE_MS);
+    const s = { ...stateRef.current, ...overrides };
+    if (s.label === lastSavedRef.current.label && s.qty === lastSavedRef.current.qty) {
+      return;
+    }
+    lastSavedRef.current = { label: s.label, qty: s.qty };
+    const fd = new FormData();
+    fd.set("tierId", tier.id);
+    fd.set("label", s.label);
+    fd.set("qty", s.qty);
+    startTransition(async () => {
+      const r = await updateTier(fd);
+      if (!r.ok) setSaveError(r.error.message);
+      else setSaveError(null);
+    });
   }
 
   function handleDelete() {
@@ -93,10 +104,13 @@ export function TierRow({
           maxLength={TIER_LABEL_MAX}
           value={label}
           disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setLabel(v);
-            scheduleLabelQtySave({ label: v });
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={() => commitLabelQty()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
           }}
           aria-label="Tier label"
         />
@@ -125,10 +139,13 @@ export function TierRow({
           placeholder="—"
           value={qty}
           disabled={disabled}
-          onChange={(e) => {
-            const v = e.target.value;
-            setQty(v);
-            scheduleLabelQtySave({ qty: v });
+          onChange={(e) => setQty(e.target.value)}
+          onBlur={() => commitLabelQty()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
           }}
           aria-label="Quantity"
         />

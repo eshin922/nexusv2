@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { LeafSpecField } from "@/lib/leaf-spec-loader";
 import { resolveFieldControl } from "@/lib/spec-field-control";
-import { updateLeafSpec } from "@/app/actions/leaf-specs";
+/**
+ * The save, supplied by the caller.
+ *
+ * Declared structurally and passed in rather than imported here, so this
+ * module does not pull a server action -- and with it the database -- into
+ * every graph that renders a field. That is also what makes the behaviour
+ * testable: what happens to keystrokes landing WHILE a save is in flight
+ * cannot be observed without controlling when the save resolves.
+ */
+export type SpecSaveService = (
+  formData: FormData,
+) => Promise<
+  { ok: true; data: unknown } | { ok: false; error: { code: string; message: string } }
+>;
 
 // Phase A.1 v2 impl-3 Step 4-5 — SpecPanel field-grid renderer
 // with per-field autosave (Pattern 47).
@@ -21,13 +34,28 @@ import { updateLeafSpec } from "@/app/actions/leaf-specs";
 //   - debounced server save (500ms after last keystroke per field)
 //   - `disabled={readOnly}` ONLY — never `disabled={readOnly || pending}`
 //     on inputs/textareas (causes focus loss on the saving frame)
+//   - a completed save NEVER writes the server snapshot back over the input.
+//     The snapshot is older than anything typed while the request was in
+//     flight, and putting it back drops those keystrokes silently.
 //   - "saving…" / "saved" status renders alongside the cell, not on it
 //
 // Per-field debounced save: each field has its own timeout. When
 // PMs hop between fields rapidly, each field's pending save fires
 // independently. No global "saving" state — per-cell granularity.
 
-const SAVE_DEBOUNCE_MS = 500;
+/**
+ * Fields with text the operator has not left yet.
+ *
+ * "Done" closes the surface, and a field still under the cursor has not
+ * blurred. Flushing through this registry writes it before the modal goes,
+ * rather than relying on the incidental blur a click produces.
+ */
+const pendingSpecCommits = new Set<() => void>();
+
+/** Commit every field that has uncommitted text. Safe to call repeatedly. */
+export function flushPendingSpecEdits(): void {
+  for (const commit of [...pendingSpecCommits]) commit();
+}
 
 export function SpecPanel({
   title,
@@ -38,6 +66,7 @@ export function SpecPanel({
   filled,
   total,
   readOnly,
+  save,
 }: {
   title: string;
   fields: LeafSpecField[];
@@ -47,6 +76,7 @@ export function SpecPanel({
   filled: number;
   total: number;
   readOnly: boolean;
+  save: SpecSaveService;
 }) {
   return (
     <div className="a1v2-spec-panel">
@@ -65,6 +95,7 @@ export function SpecPanel({
             leafId={leafId}
             initialValue={normalizeInitial(initialValues[f.key])}
             readOnly={readOnly}
+            save={save}
           />
         ))}
       </div>
@@ -72,71 +103,132 @@ export function SpecPanel({
   );
 }
 
-function SpecCell({
+export function SpecCell({
   scope,
   field,
   leafId,
   initialValue,
   readOnly,
+  save,
 }: {
   field: LeafSpecField;
   scope: { quoteId: string } | { library: true };
   leafId: string;
   initialValue: string;
   readOnly: boolean;
+  save: SpecSaveService;
 }) {
   const [draft, setDraft] = useState<string>(initialValue);
   const [pending, startTransition] = useTransition();
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync from server-snapshot prop when value changes externally
-  // (e.g., realtime reconcile). Don't clobber user typing if a
-  // save is in flight.
+  // ── WHAT THE PROP LAST SAID, AND WHERE THE OPERATOR HAS GOT TO ──────────
+  //
+  // `initialValue` is an RSC snapshot: it means "this was the value when the
+  // parent last rendered", and says nothing about what has been typed since.
+  const lastPropRef = useRef(initialValue);
+  // The text on screen, readable synchronously. `draft` is state and lags a
+  // render, which is too slow for a blur handler to act on.
+  const latestRef = useRef(initialValue);
+  // The last value a save was issued for. Anything else on screen is
+  // uncommitted.
+  const committedRef = useRef(initialValue);
+
+  // Adopt an EXTERNAL change only, and never over uncommitted text.
+  //
+  // The prop must actually have CHANGED. An earlier version listed `pending`
+  // here and reset the draft whenever a save finished, which wrote the
+  // snapshot back over whatever had been typed in the meantime.
   useEffect(() => {
-    if (pending) return;
+    if (initialValue === lastPropRef.current) return;
+    lastPropRef.current = initialValue;
+    if (latestRef.current !== committedRef.current) return;
+    latestRef.current = initialValue;
+    committedRef.current = initialValue;
     setDraft(initialValue);
-  }, [initialValue, pending]);
+  }, [initialValue]);
 
+  // ── SAVING HAPPENS WHEN THE OPERATOR LEAVES THE FIELD ───────────────────
+  //
+  // Not while they are typing. A value like "129.1 x 92.3 x 13.5" is entered
+  // in pieces with pauses and corrections, and every pause used to fire a
+  // request whose response then argued with the keyboard. Committing on blur
+  // means the field is written once, with what the operator actually finished
+  // typing.
+  const commit = useCallback((): void => {
+    const value = latestRef.current;
+    if (value === committedRef.current) return;
+    committedRef.current = value;
+
+    const fd = new FormData();
+    fd.set("leafId", leafId);
+    // The scope travels with every write. A form that omitted it would be
+    // refused rather than defaulted.
+    if ("library" in scope) fd.set("scope", "library");
+    else {
+      fd.set("scope", "quote");
+      fd.set("quoteId", scope.quoteId);
+    }
+    fd.set("fieldKey", field.key);
+    fd.set("value", value);
+
+    startTransition(async () => {
+      setError(null);
+      const result = await save(fd);
+      if (!result.ok) {
+        // Leave the text alone. It is what the operator entered, and it is
+        // the only copy -- reverting it here would destroy the thing they
+        // would otherwise retry by leaving the field again.
+        committedRef.current = "\u0000never";
+        setError(result.error.message);
+        return;
+      }
+      setSavedAt(Date.now());
+    });
+  }, [field.key, leafId, save, scope]);
+
+  // Registered so "Done" can flush a field the operator is still inside.
+  // Clicking Done blurs the input first in a browser, but that is a detail of
+  // how the click happens rather than a guarantee -- and the close must not
+  // race the write it triggers.
+  // Registered ONCE, for the life of the field.
+  //
+  // Registering `commit` itself re-ran this on every render that changed its
+  // identity -- `scope` is a fresh object literal at most call sites -- and
+  // the cleanup then committed mid-keystroke, which is the behaviour this
+  // whole change removes. The registration holds a stable wrapper; the ref
+  // keeps it pointed at the current closure.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
   useEffect(() => {
+    const entry = () => commitRef.current();
+    pendingSpecCommits.add(entry);
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      // Leaving the surface is leaving the field: an unmount with text still
+      // uncommitted would otherwise drop it silently.
+      entry();
+      pendingSpecCommits.delete(entry);
     };
   }, []);
-
-  function scheduleSave(value: string) {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      const fd = new FormData();
-      fd.set("leafId", leafId);
-      // The scope travels with every write. A form that omitted it would be
-      // refused rather than defaulted.
-      if ("library" in scope) fd.set("scope", "library");
-      else {
-        fd.set("scope", "quote");
-        fd.set("quoteId", scope.quoteId);
-      }
-      fd.set("fieldKey", field.key);
-      fd.set("value", value);
-      startTransition(async () => {
-        setError(null);
-        const result = await updateLeafSpec(fd);
-        if (!result.ok) {
-          setError(result.error.message);
-          return;
-        }
-        setSavedAt(Date.now());
-      });
-    }, SAVE_DEBOUNCE_MS);
-  }
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) {
     const v = e.target.value;
+    latestRef.current = v;
     setDraft(v);
-    scheduleSave(v);
+  }
+
+  function handleKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) {
+    // Enter commits a single-line field. In a textarea it is a newline and
+    // must stay one.
+    if (e.key === "Enter" && e.currentTarget.tagName !== "TEXTAREA") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
   }
 
   const control = resolveFieldControl(field);
@@ -148,6 +240,8 @@ function SpecCell({
         <textarea
           value={draft}
           onChange={handleChange}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
           disabled={readOnly}
           placeholder="—"
           rows={2}
@@ -157,6 +251,8 @@ function SpecCell({
           type={control}
           value={draft}
           onChange={handleChange}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
           disabled={readOnly}
           placeholder="—"
         />

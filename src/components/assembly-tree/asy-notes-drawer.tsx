@@ -28,7 +28,14 @@ import { updateAssemblyNotes } from "@/app/actions/assemblies";
 //     `pending`. The "saving…" / "saved" status renders alongside
 //     the textarea, not on it
 
-const SAVE_DEBOUNCE_MS = 500;
+// AUTOSAVE COMMITS ON BLUR, NOT WHILE TYPING.
+//
+// A debounce fires mid-entry: every pause sends a request whose response then
+// argues with the keyboard, and a value typed in pieces gets interrupted or
+// clipped. Leaving the field is the operator saying they are done with it.
+//
+// Explicit Save forms and immediate controls keep their own behaviour.
+
 
 export function AsyNotesTrigger({
   assemblyId,
@@ -91,24 +98,35 @@ export function AsyNotesDrawerPanel({
     };
   }, []);
 
+  const latestRef = useRef(draft);
+  const committedRef = useRef(draft);
+
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const v = e.target.value;
+    latestRef.current = v;
     setDraft(v);
+  }
+
+  function commit() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      const fd = new FormData();
-      fd.set("assemblyId", assemblyId);
-      fd.set("internalNotes", v);
-      startTransition(async () => {
-        setError(null);
-        const result = await updateAssemblyNotes(fd);
-        if (!result.ok) {
-          setError(result.error.message);
-          return;
-        }
-        setSavedAt(Date.now());
-      });
-    }, SAVE_DEBOUNCE_MS);
+    const v = latestRef.current;
+    if (v === committedRef.current) return;
+    committedRef.current = v;
+    const fd = new FormData();
+    fd.set("assemblyId", assemblyId);
+    fd.set("internalNotes", v);
+    startTransition(async () => {
+      setError(null);
+      const result = await updateAssemblyNotes(fd);
+      if (!result.ok) {
+        // The text stays as typed -- it is the only copy, and leaving the
+        // field again is how the operator retries.
+        committedRef.current = "\u0000never";
+        setError(result.error.message);
+        return;
+      }
+      setSavedAt(Date.now());
+    });
   }
 
   return (
@@ -129,6 +147,7 @@ export function AsyNotesDrawerPanel({
         id={`asy-notes-ta-${assemblyId}`}
         value={draft}
         onChange={handleChange}
+        onBlur={commit}
         disabled={disabled}
         placeholder="Notes about this item group — sourcing dependencies, customer phone notes, R&D blockers…"
         rows={3}

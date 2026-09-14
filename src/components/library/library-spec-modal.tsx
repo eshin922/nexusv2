@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchLibraryDefaultSpecs } from "@/app/actions/leaf-specs";
 import { SpecEntrySurface } from "@/components/spec-entry/spec-entry-surface";
+import { flushPendingSpecEdits } from "@/components/spec-entry/spec-panel";
 import type { LeafSpecEntryData } from "@/lib/leaf-spec-loader";
 
 // B-3 · Step 3 — Library default specs, edited as a SUB-FLOW over the Library.
@@ -106,7 +107,17 @@ export function LibrarySpecModal({
           <span className="left">
             ⌥ Changes apply to future quote attachments only
           </span>
-          <button type="button" className="a1v2-btn primary" onClick={onClose}>
+          <button
+            type="button"
+            className="a1v2-btn primary"
+            onClick={() => {
+              // The operator may still be inside a field. Write it before the
+              // surface goes: closing is how they signal they are finished,
+              // not a reason to discard the last thing they typed.
+              flushPendingSpecEdits();
+              onClose();
+            }}
+          >
             Done
           </button>
         </div>
