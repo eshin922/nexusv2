@@ -70,6 +70,66 @@ function relative(d: Date, now: number): string {
   return `${Math.floor(days / 30)}mo`;
 }
 
+/**
+ * Which columns can be ordered, and by what.
+ *
+ * VALUE IS ABSENT ON PURPOSE. That column renders an em-dash for every row --
+ * v1 persists no governed pointer saying which tier a deal is worth, so there
+ * is no figure behind it. A clickable header there would be a control that
+ * reorders nothing, which is worse than no control: it says data exists.
+ *
+ * Rows with no quote have no value for the quote-derived columns. They sort to
+ * the END in both directions rather than being treated as empty-string or
+ * epoch-zero, because "no quote yet" is an absence, not a low value.
+ */
+const SORTABLE = {
+  deal: { label: "Deal", initial: "asc" },
+  stage: { label: "Stage", initial: "asc" },
+  quote: { label: "Latest quote", initial: "asc" },
+  status: { label: "Status", initial: "asc" },
+  updated: { label: "Updated", initial: "desc" },
+} as const;
+
+type SortKey = keyof typeof SORTABLE;
+type SortDir = "asc" | "desc";
+
+function sortValue(p: OrganizerProject, key: SortKey): string | number | null {
+  switch (key) {
+    case "deal":
+      return p.dealName.toLowerCase();
+    case "stage":
+      return p.dealStage ? p.dealStage.toLowerCase() : null;
+    case "quote":
+      return p.latestQuote ? p.latestQuote.scenarioLabel.toLowerCase() : null;
+    case "status":
+      return p.latestQuote ? p.latestQuote.status : null;
+    case "updated":
+      return p.latestQuote ? p.latestQuote.updatedAt.getTime() : null;
+  }
+}
+
+function compareBy(key: SortKey, dir: SortDir) {
+  return (a: OrganizerProject, b: OrganizerProject): number => {
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    // Absences last, whichever way the column is pointing.
+    if (av === null && bv === null) return a.dealName.localeCompare(b.dealName);
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    const base =
+      typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv));
+    // Deal name breaks ties, so the order is stable and reproducible rather
+    // than dependent on however the rows arrived.
+    return base !== 0
+      ? dir === "asc"
+        ? base
+        : -base
+      : a.dealName.localeCompare(b.dealName);
+  };
+}
+
 export function OrganizerSurface({
   data,
   userName,
@@ -82,6 +142,19 @@ export function OrganizerSurface({
   const router = useRouter();
   const [filter, setFilter] = useState<"all" | (typeof GROUP_ORDER)[number]>("all");
   const [query, setQuery] = useState("");
+  // Newest first, which is what someone opening this page is looking for.
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "updated",
+    dir: "desc",
+  });
+
+  function toggleSort(key: SortKey) {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: SORTABLE[key].initial },
+    );
+  }
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: data.projects.length };
@@ -102,10 +175,16 @@ export function OrganizerSurface({
     });
   }, [data.projects, filter, query]);
 
+  // Sorted WITHIN each group. The grouping is the page's structure -- what
+  // needs you, what is with the customer -- and ordering rows is not a reason
+  // to flatten it.
   const grouped = GROUP_ORDER.map((g) => ({
     key: g,
     ...GROUP_META[g],
-    rows: visible.filter((p) => p.group === g),
+    rows: visible
+      .filter((p) => p.group === g)
+      .slice()
+      .sort(compareBy(sort.key, sort.dir)),
   })).filter((g) => g.rows.length > 0);
 
   const needsYouDeals = data.projects.filter((p) => p.group === "needs_you").length;
@@ -196,12 +275,13 @@ export function OrganizerSurface({
           {/* ── table ───────────────────────────────────────────────────── */}
           <div className="r14-card">
             <div className="r14-grid r14-thead">
-              <div>Deal</div>
-              <div>Stage</div>
-              <div>Latest quote</div>
+              <SortHeader k="deal" sort={sort} onSort={toggleSort} />
+              <SortHeader k="stage" sort={sort} onSort={toggleSort} />
+              <SortHeader k="quote" sort={sort} onSort={toggleSort} />
+              {/* Not sortable: every row renders an em-dash. See SORTABLE. */}
               <div className="r14-num">Value</div>
-              <div>Status</div>
-              <div className="r14-num">Updated</div>
+              <SortHeader k="status" sort={sort} onSort={toggleSort} />
+              <SortHeader k="updated" sort={sort} onSort={toggleSort} numeric />
             </div>
 
             {grouped.map((g) => (
@@ -364,5 +444,49 @@ function ProjectRow({ project: p, now }: { project: OrganizerProject; now: numbe
         {q ? relative(q.updatedAt, now) : "—"}
       </div>
     </Link>
+  );
+}
+
+/**
+ * One column heading, as a button.
+ *
+ * `aria-sort` carries the state for assistive technology; the arrow carries it
+ * for everyone else. The inactive columns show no arrow rather than a dimmed
+ * one -- a permanent row of arrows reads as decoration and stops meaning
+ * "this is the column in use".
+ */
+function SortHeader({
+  k,
+  sort,
+  onSort,
+  numeric,
+}: {
+  k: SortKey;
+  sort: { key: SortKey; dir: SortDir };
+  onSort: (k: SortKey) => void;
+  numeric?: boolean;
+}) {
+  const active = sort.key === k;
+  return (
+    <div
+      className={numeric ? "r14-num" : undefined}
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        className={`r14-sort${active ? " is-active" : ""}`}
+        onClick={() => onSort(k)}
+        aria-label={`Sort by ${SORTABLE[k].label}${
+          active ? (sort.dir === "asc" ? ", ascending" : ", descending") : ""
+        }`}
+      >
+        <span>{SORTABLE[k].label}</span>
+        {active && (
+          <span className="r14-sort-arrow" aria-hidden="true">
+            {sort.dir === "asc" ? "\u25B2" : "\u25BC"}
+          </span>
+        )}
+      </button>
+    </div>
   );
 }
