@@ -5365,6 +5365,16 @@ Consequences:
 - amendments are **persisted before anything is sent**, and version-bumped. A
   correction accepted in one request and applied from another process's memory
   is a correction an interruption can lose;
+- every write to an attempt carries **the version its worker claimed**, so a
+  worker that has been superseded mid-flight cannot resolve or alter it. The
+  `resolved` guard alone is not enough: it only covers the case where the new
+  owner has already closed the attempt, and an owner that leaves it OPEN —
+  an amended recovery held for confirmation — is exactly where a stale write
+  lands;
+- **a rejected retry does not clear the earlier uncertainty.** "This retry was
+  rejected" is a fact about the retry and establishes nothing about the
+  original request, which may still have applied. The claim stays open and the
+  product stays held;
 - the SKU is pinned during recovery; the correctable fields may be amended,
   because a recorded attempt can be unrecoverable on its own terms and
   replaying it verbatim would lock the product behind its own attempt forever.
@@ -5372,6 +5382,29 @@ Consequences:
 If HubSpot applies and the local transaction then fails, the operator is told
 the two disagree — not that nothing happened — and the attempt is preserved the
 same way.
+
+**The ordering no local mechanism can reach.** An amended recovery can be
+accepted by HubSpot while the ORIGINAL request is still in flight. If the
+original lands afterwards, HubSpot holds the original values and Nexus holds
+the amended ones — and the lock, the claim and the version fence are all on the
+wrong side of the wire to prevent it. HubSpot CRM offers no If-Match, no ETag
+and no documented ordering guarantee to lean on instead.
+
+So an amended recovery **does not declare itself settled**. It writes the local
+row, holds the claim at `awaiting_confirmation`, and ordinary editing stays
+blocked until `confirmLeafEdit` reads the product and adjudicates:
+
+| read-back | outcome |
+|---|---|
+| holds the expected values | resolved; the product is released |
+| holds something else | **diverged**, recorded with what it actually holds; the product stays held |
+| cannot be read | nothing decided, nothing written, still held |
+
+Confirmation is a deliberate, explicit act rather than a timer or a background
+sweep — "enough time has passed" is not evidence that a request has stopped
+being in flight. A recovery that re-sends the SAME values needs none of this: a
+late original carrying identical values is harmless, and only an amended
+recovery is held.
 
 **The refresh participates in the same contract.** `pullProductsBatch` writes
 the same columns the edit authors. It takes the same leaf lock, declines any

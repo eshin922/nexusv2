@@ -18,7 +18,12 @@ import { assertRuntimeSafety } from "@/lib/config/runtime-config";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { assemblies, auditLog, leafEditAttempts, leaves, quotes, users } from "@/db/schema";
-import { createLeaf, retryLeafEdit, updateLeaf } from "@/app/actions/leaves";
+import {
+  confirmLeafEdit,
+  createLeaf,
+  retryLeafEdit,
+  updateLeaf,
+} from "@/app/actions/leaves";
 import { pullProductsBatch } from "@/lib/hubspot-pull";
 import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
@@ -26,6 +31,7 @@ import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachmen
 // rather than trusting the echo of the request that was sent to it.
 import {
   __fakeHubspotCallCount,
+  __fakeHubspotLandInflight,
   __fakeHubspotProduct,
 } from "../../tests/harness/providers/fake-hubspot.ts";
 import { spawn } from "node:child_process";
@@ -984,14 +990,23 @@ async function main() {
       child.stdout.on("data", (d) => (childOut += String(d)));
       child.stderr.on("data", (d) => (childOut += String(d)));
 
-      // Wait for the claim to be committed and the remote call to be in
-      // flight, then kill without warning.
+      // Kill on the CLAIM, not on a clock.
+      //
+      // A fixed sleep makes this a race: process startup varies by seconds,
+      // and on a warm machine the child finishes its whole edit before the
+      // timer fires -- so the case passes or fails on timing rather than on
+      // what it means to test. Polling for the committed claim and killing the
+      // instant it appears puts the SIGKILL inside the remote call every time.
       const killedAt = Date.now();
-      await new Promise((r) => setTimeout(r, 2500));
-      const claimVisible = await db
-        .select()
-        .from(leafEditAttempts)
-        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      let claimVisible: (typeof leafEditAttempts.$inferSelect)[] = [];
+      for (let i = 0; i < 400; i++) {
+        claimVisible = await db
+          .select()
+          .from(leafEditAttempts)
+          .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+        if (claimVisible.length > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
       child.kill("SIGKILL");
       await new Promise((r) => setTimeout(r, 500));
 
@@ -1024,7 +1039,8 @@ async function main() {
           endRemote?.hs_sku === claimedSku
           ? "PASS"
           : "FAIL",
-        `child killed ${Date.now() - killedAt}ms in, without completing=${!completedAnyway} · ` +
+        `child killed ${Date.now() - killedAt}ms in, the moment its claim appeared, ` +
+          `without completing=${!completedAnyway} · ` +
           `a committed claim survived it=${claimVisible.length === 1} (outcome=${claimVisible[0]?.outcome}) · ` +
           `ordinary editing blocked=${blocked} · recovery settled both at ` +
           `"${end?.sku}"/"${endRemote?.hs_sku}"`,
@@ -1095,6 +1111,347 @@ async function main() {
         `the edit landed during the catalog read and survived=${survived} ` +
           `(name="${end?.name}" sku="${end?.sku}") · refresh declined it=` +
           `${declined} (skippedStale=${pullRes.skippedStale} updated=${pullRes.updated})`,
+      );
+    }
+  }
+
+  // ── 12j · A SUPERSEDED WORKER MUST NOT RESOLVE THE ATTEMPT ──────────────
+  //
+  // A first edit claims the product and goes slow. While it is out at HubSpot,
+  // a recovery takes the claim over. The original then comes back and tries to
+  // settle -- on the strength of an outcome that is no longer the current one.
+  //
+  // Every write to the attempt carries the version its worker claimed, so the
+  // superseded one matches zero rows and changes nothing. Without that fence
+  // it would resolve, or re-open, an attempt that now belongs to someone else.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · superseded (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("SUPERSEDED:resolved", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hubspotId = r0!.hubspotProductId!;
+
+      // The original: claims, then sits in a slow HubSpot call.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-slow";
+      const originalPromise = updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · original (${STAMP})`, sku: `EW-${STAMP}-SUP`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+
+      // The recovery takes the claim over while it is out there.
+      await new Promise((r) => setTimeout(r, 500));
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const recovery = await retryLeafEdit(form({ leafId: id }));
+
+      const original = await originalPromise;
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const attempts = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(eq(leafEditAttempts.leafId, id));
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(hubspotId);
+
+      // The recovery settled it. The superseded original must not have
+      // re-opened it, re-resolved it, or moved its outcome.
+      const single = attempts.length === 1;
+      const resolvedByRecovery =
+        single && attempts[0].resolvedAt !== null && attempts[0].outcome !== "diverged";
+      const originalRefused = !original.ok;
+
+      rec(
+        "SUPERSEDED:resolved",
+        recovery.ok && originalRefused && single && resolvedByRecovery && end?.sku === `EW-${STAMP}-SUP`
+          ? "PASS"
+          : "FAIL",
+        `recovery applied=${recovery.ok} · the superseded original was refused=${originalRefused}` +
+          `${original.ok ? "" : ` (${original.error.code})`} · ` +
+          `attempt rows=${attempts.length} outcome=${attempts[0]?.outcome} ` +
+          `resolution=${attempts[0]?.resolution} · local sku="${end?.sku}" remote sku="${endRemote?.hs_sku}"`,
+      );
+    }
+  }
+
+  // ── 12j2 · A SUPERSEDED WORKER MUST NOT ALTER AN ATTEMPT THAT IS STILL OPEN
+  //
+  // The case above is settled by the `resolved` guard alone: the new owner had
+  // already closed the attempt, so the stale worker found nothing to write to.
+  // That is NOT evidence that the version fence does anything, and removing
+  // the fence leaves it passing.
+  //
+  // This is the shape where the fence is the only thing standing there. The
+  // new owner leaves the attempt OPEN -- an amended recovery, held for
+  // confirmation -- and the superseded worker then comes back on a FAILURE
+  // path. Without the version, its `markUnconfirmed` matches the open row and
+  // overwrites the held state, destroying the expectation confirmation needs
+  // and replacing an adjudicated outcome with a stale one.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · fence (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("SUPERSEDED:open", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+
+      // The original claims, goes out to HubSpot, and will fail when it gets
+      // back -- by which time it no longer owns the attempt.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-slow-then-lost";
+      const originalPromise = updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · fence original (${STAMP})`, sku: `EW-${STAMP}-FEN`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+
+      // Take the claim over the moment it appears.
+      for (let i = 0; i < 200; i++) {
+        const seen = await db
+          .select()
+          .from(leafEditAttempts)
+          .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+        if (seen.length > 0) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const recovery = await retryLeafEdit(
+        form({ leafId: id, name: `EW · fence amended (${STAMP})`, unitCost: "9.00" }),
+      );
+
+      const [heldBefore] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      // Now the superseded original comes back, and fails.
+      const original = await originalPromise;
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const [heldAfter] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      const wasHeld = heldBefore?.outcome === "awaiting_confirmation";
+      const stillHeld = heldAfter?.outcome === "awaiting_confirmation";
+      const expectationIntact = Boolean(heldAfter?.expected);
+      // Confirmation must still work -- which it cannot if the held state was
+      // overwritten.
+      const confirmed = await confirmLeafEdit(form({ leafId: id }));
+
+      rec(
+        "SUPERSEDED:open",
+        recovery.ok &&
+          !original.ok &&
+          wasHeld &&
+          stillHeld &&
+          expectationIntact &&
+          confirmed.ok
+          ? "PASS"
+          : "FAIL",
+        `the new owner held it=${wasHeld} · the superseded original failed=${!original.ok}` +
+          `${original.ok ? "" : ` (${original.error.code})`} · ` +
+          `the held state survived it=${stillHeld} (outcome=${heldAfter?.outcome}) · ` +
+          `its expectation survived=${expectationIntact} · confirmation still works=` +
+          `${confirmed.ok ? confirmed.data.state : confirmed.error.code}`,
+      );
+    }
+  }
+
+  // ── 12k · A REJECTED RETRY DOES NOT CLEAR THE EARLIER UNCERTAINTY ───────
+  //
+  // "This retry was rejected" is a fact about the retry. It establishes
+  // nothing whatever about the original request, whose outcome was never
+  // confirmed and which may still have applied. Closing the claim on the
+  // strength of it would discard that and unblock ordinary editing over a
+  // remote state nobody has looked at.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · rejected retry (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("RETRY:rejected", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-lost";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · rejected retry (${STAMP})`, sku: `EW-${STAMP}-REJ`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-rejected";
+      const retry = await retryLeafEdit(form({ leafId: id }));
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const [attempt] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      // And ordinary editing must STILL be blocked.
+      const ordinary = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · overwrite", sku: `EW-${STAMP}-OTHER2`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+
+      const msg = retry.ok ? "" : retry.error.message;
+      const saysOnlyAboutTheRetry =
+        /does NOT establish anything about the earlier request/i.test(msg);
+      const stillOpen = Boolean(attempt) && attempt?.outcome === "unconfirmed";
+      const stillBlocked = !ordinary.ok && ordinary.error.code === "UNCONFIRMED_EDIT";
+
+      rec(
+        "RETRY:rejected",
+        !retry.ok && saysOnlyAboutTheRetry && stillOpen && stillBlocked ? "PASS" : "FAIL",
+        `retry refused · says it is only about the retry=${saysOnlyAboutTheRetry} · ` +
+          `the claim is still open as ${attempt?.outcome ?? "RESOLVED"} · ` +
+          `ordinary editing still blocked=${stillBlocked}`,
+      );
+    }
+  }
+
+  // ── 12l · THE ORIGINAL LANDS AFTER AN AMENDED RECOVERY ──────────────────
+  //
+  // The ordering no local mechanism can prevent, because it is decided on the
+  // far side: original in flight → amended recovery accepted → original lands
+  // last, overwriting it.
+  //
+  // So an amended recovery does not get to declare itself settled. It holds
+  // the claim at `awaiting_confirmation`, keeps ordinary editing blocked, and
+  // confirmation is what adjudicates -- reporting a DIVERGENCE with what
+  // HubSpot actually holds, rather than a success nobody checked.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · ordering (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("ORDERING:late-original", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hubspotId = r0!.hubspotProductId!;
+      const originalName = `EW · ordering original (${STAMP})`;
+      const amendedName = `EW · ordering amended (${STAMP})`;
+
+      // The original is accepted by HubSpot but does not land yet.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-inflight";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: originalName, sku: `EW-${STAMP}-ORD`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+
+      // The operator amends and recovers; that request succeeds.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const recovered = await retryLeafEdit(
+        form({ leafId: id, name: amendedName, unitCost: "2.00" }),
+      );
+
+      const [afterRecovery] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const [heldAttempt] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      // Editing must stay blocked while the ordering is unresolved.
+      const blockedWhileHeld = !(
+        await updateLeaf(
+          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · edit during hold", sku: `EW-${STAMP}-ORD`, hubspotProductType: "Labels", unitCost: "3.00", url: "" }),
+        )
+      ).ok;
+
+      // NOW the original lands, after the recovery.
+      const landed = __fakeHubspotLandInflight(hubspotId);
+
+      const confirmed = await confirmLeafEdit(form({ leafId: id }));
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(hubspotId);
+      const [afterConfirm] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const stillBlocked = !(
+        await updateLeaf(
+          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · edit after confirm", sku: `EW-${STAMP}-ORD`, hubspotProductType: "Labels", unitCost: "4.00", url: "" }),
+        )
+      ).ok;
+
+      const heldNotSettled =
+        recovered.ok &&
+        recovered.data.hubspotOutcome === "awaiting_confirmation" &&
+        heldAttempt?.outcome === "awaiting_confirmation";
+      const detected =
+        confirmed.ok &&
+        confirmed.data.state === "diverged" &&
+        afterConfirm?.outcome === "diverged";
+      const catalogsDisagree =
+        end?.name === amendedName && endRemote?.name === originalName;
+
+      rec(
+        "ORDERING:late-original",
+        landed &&
+          heldNotSettled &&
+          blockedWhileHeld &&
+          detected &&
+          catalogsDisagree &&
+          stillBlocked
+          ? "PASS"
+          : "FAIL",
+        `amended recovery held rather than settled=${heldNotSettled} ` +
+          `(${recovered.ok ? recovered.data.hubspotOutcome : recovered.error.code}) · ` +
+          `blocked while held=${blockedWhileHeld} · the late original landed=${landed} · ` +
+          `confirmation detected the divergence=${detected} · ` +
+          `local="${end?.name}" remote="${endRemote?.name}" · still blocked after=${stillBlocked}`,
+      );
+    }
+  }
+
+  // ── 12m · THE SAME ORDERING, RESOLVED IN TIME ───────────────────────────
+  //
+  // The control for the case above. Nothing lands late, confirmation finds
+  // HubSpot holding the recovered values, the claim resolves and the product
+  // is released -- so the hold is a real adjudication and not a state
+  // everything falls into.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · ordering ok (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("ORDERING:confirmed", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const amendedName = `EW · ordering ok amended (${STAMP})`;
+
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-lost";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · ordering ok (${STAMP})`, sku: `EW-${STAMP}-OK`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const recovered = await retryLeafEdit(
+        form({ leafId: id, name: amendedName, unitCost: "7.00" }),
+      );
+      const confirmed = await confirmLeafEdit(form({ leafId: id }));
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const openAfter = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const nowEditable = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · released (${STAMP})`, sku: `EW-${STAMP}-OK`, hubspotProductType: "Labels", unitCost: "8.00", url: "" }),
+      );
+
+      rec(
+        "ORDERING:confirmed",
+        recovered.ok &&
+          recovered.data.hubspotOutcome === "awaiting_confirmation" &&
+          confirmed.ok &&
+          confirmed.data.state === "resolved" &&
+          openAfter.length === 0 &&
+          nowEditable.ok
+          ? "PASS"
+          : "FAIL",
+        `held for confirmation=${recovered.ok ? recovered.data.hubspotOutcome : "no"} · ` +
+          `confirmation resolved it=${confirmed.ok ? confirmed.data.state : confirmed.error.code} · ` +
+          `claims left open=${openAfter.length} · the product is editable again=${nowEditable.ok}`,
       );
     }
   }

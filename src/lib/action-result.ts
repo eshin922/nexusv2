@@ -76,6 +76,16 @@ export const ERR = {
    * The remedy is to recover the preserved edit, not to try a different one.
    */
   UNCONFIRMED_EDIT: "UNCONFIRMED_EDIT",
+  /**
+   * A recovery was accepted remotely, and an earlier request to the same
+   * product may still land after it.
+   *
+   * Separate from UNCONFIRMED_EDIT because the remedy is different: there is
+   * nothing left to retry, only something to CHECK. Offering "recover" here
+   * would invite re-sending a request that already succeeded, which is how the
+   * ordering hazard gets worse rather than better.
+   */
+  AWAITING_CONFIRMATION: "AWAITING_CONFIRMATION",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().

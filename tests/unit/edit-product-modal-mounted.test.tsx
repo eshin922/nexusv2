@@ -49,10 +49,16 @@ const ok: UpdateProductService = async () => ({
   data: { leafId: "leaf-1", syncedToHubspot: true },
 });
 
+type ConfirmService = (fd: FormData) => Promise<
+  | { ok: true; data: { leafId: string; state: "resolved" | "diverged" } }
+  | { ok: false; error: { code: string; message: string } }
+>;
+
 function view(over: {
   target?: EditProductTarget;
   save?: UpdateProductService;
   recover?: UpdateProductService;
+  confirm?: ConfirmService;
   onSaved?: (id: string) => void;
   onClose?: () => void;
 }) {
@@ -63,6 +69,7 @@ function view(over: {
       typeOptions={TYPES}
       save={over.save ?? ok}
       recover={over.recover}
+      confirm={over.confirm}
       onClose={over.onClose ?? (() => {})}
       onSaved={over.onSaved ?? (() => {})}
     />
@@ -360,5 +367,110 @@ test("no recovery control is offered for an ordinary failure", async () => {
     false,
     "an ordinary failure stays retryable",
   );
+  await m.unmount();
+});
+
+// ── an accepted recovery is not a settled one ─────────────────────────────
+
+const awaiting: UpdateProductService = async () => ({
+  ok: false,
+  error: {
+    code: "AWAITING_CONFIRMATION",
+    message:
+      "A recovery of this product was accepted by HubSpot, but an earlier request to it may still land afterwards — nothing here can rule that out. Confirm it before editing again.",
+  },
+});
+
+test("awaiting confirmation offers a CHECK, not another retry", async () => {
+  // The remedy is different, so the control has to be. Offering "recover"
+  // here would invite re-sending a request that already succeeded, which
+  // makes the ordering hazard worse rather than better.
+  const m = await mount(
+    view({
+      save: awaiting,
+      recover: ok,
+      confirm: async () => ({ ok: true, data: { leafId: "leaf-1", state: "resolved" } }),
+    }),
+  );
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+
+  assert.ok(m.byTestId("edit-product-confirm"), "the check must be reachable");
+  assert.equal(m.byTestId("edit-product-recover"), null, "and a retry must not be");
+  assert.equal(
+    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
+    true,
+  );
+  await m.unmount();
+});
+
+test("a check that finds a DIVERGENCE says so, and does not close", async () => {
+  // The failure this guards is reporting "confirmed" for a check that came
+  // back bad -- the same class of error the whole surface exists to avoid.
+  let closed = false;
+  const m = await mount(
+    view({
+      save: awaiting,
+      confirm: async () => ({ ok: true, data: { leafId: "leaf-1", state: "diverged" } }),
+      onClose: () => (closed = true),
+    }),
+  );
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  await m.click('[data-testid="edit-product-confirm"]');
+  await flush();
+
+  const err = m.byTestId("edit-product-error");
+  assert.match(err!.textContent ?? "", /does not hold the recovered values/i);
+  assert.match(err!.textContent ?? "", /stays held/i);
+  assert.equal(closed, false);
+  assert.equal(
+    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
+    true,
+    "a diverged product must not be editable from here",
+  );
+  await m.unmount();
+});
+
+test("a check that comes back clean closes the surface", async () => {
+  let saved: string | null = null;
+  const m = await mount(
+    view({
+      save: awaiting,
+      confirm: async () => ({ ok: true, data: { leafId: "leaf-1", state: "resolved" } }),
+      onSaved: (id) => (saved = id),
+    }),
+  );
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  await m.click('[data-testid="edit-product-confirm"]');
+  await flush();
+  assert.equal(saved, "leaf-1");
+  await m.unmount();
+});
+
+test("an unreadable check changes nothing and stays open", async () => {
+  const m = await mount(
+    view({
+      save: awaiting,
+      confirm: async () => ({
+        ok: false,
+        error: {
+          code: "HUBSPOT_ERROR",
+          message:
+            "HubSpot could not be read, so what it holds is still unknown. Nothing was changed and this product stays held.",
+        },
+      }),
+    }),
+  );
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  await m.click('[data-testid="edit-product-confirm"]');
+  await flush();
+  assert.match(
+    m.byTestId("edit-product-error")!.textContent ?? "",
+    /still unknown/i,
+  );
+  assert.ok(m.byTestId("edit-product-confirm"), "the check stays available");
   await m.unmount();
 });

@@ -2788,9 +2788,21 @@ export const leafEditAttempts = pgTable(
      * be performed. NULL is "not observed", never "absent".
      */
     observed: jsonb("observed"),
-    /** `pending` | `unconfirmed` | `diverged` */
+    /**
+     * `pending` | `unconfirmed` | `awaiting_confirmation` | `diverged`
+     *
+     * `awaiting_confirmation` exists because an AMENDED recovery cannot
+     * declare itself settled. The original request may still be in flight and
+     * may land after it, leaving HubSpot holding the original values and Nexus
+     * the amended ones. That ordering is decided on the far side, so no local
+     * lock prevents it, and HubSpot CRM offers nothing to rely on -- no
+     * If-Match, no ETag, no documented ordering. A recovery re-sending the
+     * SAME values is unaffected; only an amended one is held open.
+     */
     outcome: text("outcome").notNull().default("pending"),
     reason: text("reason"),
+    /** What HubSpot should hold once everything settles; compared on confirm. */
+    expected: jsonb("expected"),
     /**
      * Bumped on every amendment. A recovery names the version it was composed
      * against, so two operators amending one attempt cannot silently overwrite

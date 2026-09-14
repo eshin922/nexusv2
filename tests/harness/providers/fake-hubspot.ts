@@ -59,6 +59,24 @@ const deferredWrites = new Map<string, Record<string, string>>();
 const callCounts = new Map<string, number>();
 
 /**
+ * Requests HubSpot has accepted but not yet applied.
+ *
+ * Distinct from `deferredWrites`, which a read releases: these land only when
+ * the test says so, which is what makes "the original arrives after the
+ * recovery" reproducible rather than a matter of timing luck.
+ */
+const inflightWrites = new Map<string, Record<string, string>>();
+
+/** Land a request that was left in flight. */
+export function __fakeHubspotLandInflight(id: string): boolean {
+  const pending = inflightWrites.get(id);
+  if (!pending) return false;
+  inflightWrites.delete(id);
+  applyMerge(id, productStore.get(id) ?? {}, pending);
+  return true;
+}
+
+/**
  * How many times an operation has been CALLED.
  *
  * A recovery that re-sends and a recovery that read first both end with the
@@ -163,6 +181,7 @@ export function resetFakeHubSpot() {
   productStore.clear();
   deferredWrites.clear();
   callCounts.clear();
+  inflightWrites.clear();
 }
 
 export const fakeHubSpot: HubSpotOperations = {
@@ -294,6 +313,15 @@ export const fakeHubSpot: HubSpotOperations = {
       throw Object.assign(new Error("socket hang up"), { code: undefined });
     }
 
+    // STILL IN FLIGHT. Armed here and released only by an explicit call, so a
+    // read-back sees the product unchanged and the write lands whenever the
+    // test decides -- including AFTER a later request has already been
+    // accepted. That ordering is the one no local mechanism can prevent.
+    if (scenario() === "product-update-inflight") {
+      inflightWrites.set(hubspotProductId, { ...properties });
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
     // UNCERTAIN now, APPLIED shortly afterwards. Armed here and released by
     // the next read, so the read-back that adjudicates this failure sees the
     // product unchanged and every read after it sees the write.
@@ -306,6 +334,20 @@ export const fakeHubSpot: HubSpotOperations = {
     // something else queues behind it.
     if (scenario() === "product-update-slow") {
       await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    // Slow, and then a status-less failure. Lets a worker be superseded while
+    // it is out at HubSpot and then come back to take a FAILURE path -- which
+    // is where a stale write to the attempt would land.
+    if (scenario() === "product-update-slow-then-lost") {
+      await new Promise((r) => setTimeout(r, 3000));
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    // Long enough that a caller cannot finish before a watcher reacts to its
+    // claim appearing.
+    if (scenario() === "product-update-verylong") {
+      await new Promise((r) => setTimeout(r, 60_000));
     }
 
     // UNCERTAIN, and the read-back ALSO fails -- genuinely indeterminate.

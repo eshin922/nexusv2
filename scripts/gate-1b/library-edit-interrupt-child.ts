@@ -44,7 +44,11 @@ fd.set("hubspotProductType", "Labels");
 fd.set("unitCost", "4.00");
 fd.set("url", "");
 
-process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-slow";
+// LONG on purpose. The parent kills as soon as it SEES the claim, so this
+// only has to outlast that poll -- and a call that can finish first turns
+// the whole case into a race the parent sometimes loses, which is how a
+// flaky control ends up being reported as evidence.
+process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-verylong";
 console.log("CHILD:starting");
 
 // Deliberately un-awaited in a way that keeps the process alive: the parent
