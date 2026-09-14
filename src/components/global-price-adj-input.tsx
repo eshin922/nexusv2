@@ -12,7 +12,6 @@ import {
 } from "@/lib/costing-store";
 import { validatePercentDecimal } from "@/lib/percent-validation";
 
-const DEBOUNCE_MS = 500;
 
 // Display convention (per CLAUDE.md percent rule): UI shows percent values
 // (e.g. "5" for 5%); the action layer divides by 100 to store as decimal
@@ -60,6 +59,7 @@ export function GlobalPriceAdjInput({
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRef = useRef(value);
 
   // Slice 8 sub-step 5: optimistic store push on every onChange. The
   // store recompute fans out into every subscribed margin display
@@ -70,11 +70,10 @@ export function GlobalPriceAdjInput({
   // Validate, push optimistically, and schedule save. Empty → 0%.
   // Returns true on success, false on validation failure (caller
   // bails on save scheduling).
-  function pushAndScheduleSave(percentDisplay: string): boolean {
+  function pushLocally(percentDisplay: string): boolean {
     if (percentDisplay === "") {
       setValidationError(null);
       updateGlobalAdj(0);
-      scheduleSave(percentDisplay);
       return true;
     }
     const decimal = Number(percentDisplay) / 100;
@@ -85,7 +84,6 @@ export function GlobalPriceAdjInput({
     }
     setValidationError(null);
     updateGlobalAdj(r.normalized);
-    scheduleSave(percentDisplay);
     return true;
   }
 
@@ -114,9 +112,21 @@ export function GlobalPriceAdjInput({
     });
   }
 
-  function scheduleSave(v: string) {
+  // AUTOSAVE COMMITS ON BLUR, NOT WHILE TYPING.
+  //
+  // The optimistic store push above still runs on every keystroke -- that is
+  // local feedback and costs nothing. The SERVER write waits until the field
+  // is left, so a figure typed in pieces ("12", "12.", "12.5") is written
+  // once, as what the operator finished entering.
+  const committedRef = useRef(value);
+
+  function commit() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fireSave(v), DEBOUNCE_MS);
+    const v = latestRef.current;
+    if (v === committedRef.current) return;
+    if (validationError) return;
+    committedRef.current = v;
+    fireSave(v);
   }
 
   // Slice 9.2 — apply the quote-wide system suggestion via the
@@ -177,8 +187,16 @@ export function GlobalPriceAdjInput({
               disabled={disabled}
               onChange={(e) => {
                 const v = e.target.value;
+                latestRef.current = v;
                 setValue(v);
-                pushAndScheduleSave(v);
+                pushLocally(v);
+              }}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
               }}
               placeholder="0"
               className="w-24 rounded border border-gray-300 bg-white px-2 py-1 text-right text-sm focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"

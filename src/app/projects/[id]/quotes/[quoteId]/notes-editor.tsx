@@ -4,7 +4,17 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { updateQuoteNotes } from "@/app/actions/quotes";
 
-const DEBOUNCE_MS = 800;
+// AUTOSAVE COMMITS ON BLUR, NOT WHILE TYPING.
+//
+// A debounce fires mid-sentence: every pause sends a request whose response
+// then argues with the keyboard, and values entered in pieces -- a dimension
+// like "129.1 x 92.3 x 13.5", a note written a clause at a time -- get
+// interrupted or clipped. Leaving the field is the operator saying they are
+// done with it, and that is when it is written.
+//
+// Explicit Save forms and immediate controls (checkboxes, selects, sliders)
+// keep their own behaviour; this applies to free typing only.
+
 
 // §6.b path-B migration commit 5/5 — Notes split renders canonical
 // .r7b-notes / .r7b-note-zone structure (7bsetup.jsx NotesSection
@@ -48,6 +58,7 @@ export function NotesEditor({
   const [pending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef({ internal, customer });
   const stateRef = useRef({ internal, customer });
   stateRef.current = { internal, customer };
 
@@ -73,9 +84,17 @@ export function NotesEditor({
     });
   }
 
-  function scheduleSave(overrides: Overrides = {}) {
+  // Committed when the operator leaves the field. `debounceRef` is retained
+  // only to cancel anything already queued by an older render.
+  function commitIfChanged(overrides: Overrides = {}) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fireSave(overrides), DEBOUNCE_MS);
+    const s = { ...stateRef.current, ...overrides };
+    if (s.internal === lastSavedRef.current.internal &&
+        s.customer === lastSavedRef.current.customer) {
+      return;
+    }
+    lastSavedRef.current = { internal: s.internal, customer: s.customer };
+    fireSave(overrides);
   }
 
   return (
@@ -93,11 +112,8 @@ export function NotesEditor({
           <textarea
             value={internal}
             disabled={disabled}
-            onChange={(e) => {
-              const v = e.target.value;
-              setInternal(v);
-              scheduleSave({ internal: v });
-            }}
+            onChange={(e) => setInternal(e.target.value)}
+            onBlur={() => commitIfChanged()}
             placeholder="e.g., 'Customer requested matte tube finish in Apr 24 call; pending sourcing confirm.'"
           />
           <div className="helper">
@@ -123,11 +139,8 @@ export function NotesEditor({
           <textarea
             value={customer}
             disabled={disabled}
-            onChange={(e) => {
-              const v = e.target.value;
-              setCustomer(v);
-              scheduleSave({ customer: v });
-            }}
+            onChange={(e) => setCustomer(e.target.value)}
+            onBlur={() => commitIfChanged()}
             placeholder="e.g., 'Pricing valid for 30 days. Lead time begins after artwork approval.'"
           />
           <div className="helper">

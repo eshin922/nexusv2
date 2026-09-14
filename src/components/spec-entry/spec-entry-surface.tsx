@@ -5,6 +5,10 @@ import type {
 } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "@/components/assembly-tree/completeness-chip";
 import { SpecPanel } from "./spec-panel";
+// The action lives with the surface, not with the field renderer: a
+// component that imports it drags the database into every graph that
+// renders a spec input, including tests.
+import { updateLeafSpec } from "@/app/actions/leaf-specs";
 import { PlaceholderPanel } from "./placeholder-panel";
 
 // Phase A.1 v2 impl-3 Step 3 — SpecEntry surface (server wrapper).
@@ -126,6 +130,7 @@ export function SpecEntrySurface({
           ) : productType.fieldSchema ? (
             // Scenarios ⑤/⑥ — SpecPanel field grid (Step 4-5).
             <SpecPanel
+              save={updateLeafSpec}
               scope={scope}
               title={productType.name}
               fields={productType.fieldSchema.fields}

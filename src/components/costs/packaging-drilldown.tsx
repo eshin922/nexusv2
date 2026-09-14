@@ -107,7 +107,14 @@ type LineForUI = {
   cells: Map<string, { rowId: string; unitCost: string | null }>;
 };
 
-const DEBOUNCE_MS = 500;
+// AUTOSAVE COMMITS ON BLUR, NOT WHILE TYPING.
+//
+// A debounce fires mid-entry: every pause sends a request whose response then
+// argues with the keyboard, and a value typed in pieces gets interrupted or
+// clipped. Leaving the field is the operator saying they are done with it.
+//
+// Explicit Save forms and immediate controls keep their own behaviour.
+
 
 function num(v: string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -1344,7 +1351,9 @@ function PackagingTierCell({
       updatePackagingCell(cell.rowId, { unitCost: numeric });
     }
     if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(fireSave, DEBOUNCE_MS);
+    // No timer: the write happens when the cell is left. The markup control
+    // in this same file already committed on blur; the cost cell did not,
+    // which is the inconsistency this removes.
   }
 
   // The landed value beside the input.
@@ -1387,6 +1396,13 @@ function PackagingTierCell({
         value={unitCost}
         disabled={disabled}
         onChange={(e) => handleChange(e.target.value)}
+        onBlur={fireSave}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
         placeholder="—"
         style={{
           background: "transparent",

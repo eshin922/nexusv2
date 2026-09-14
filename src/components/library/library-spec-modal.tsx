@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchLibraryDefaultSpecs } from "@/app/actions/leaf-specs";
 import { SpecEntrySurface } from "@/components/spec-entry/spec-entry-surface";
+import { flushPendingSpecEdits } from "@/components/spec-entry/spec-panel";
 import type { LeafSpecEntryData } from "@/lib/leaf-spec-loader";
 
 // B-3 · Step 3 — Library default specs, edited as a SUB-FLOW over the Library.
@@ -30,6 +31,7 @@ export function LibrarySpecModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const [closing, setClosing] = useState(false);
   const [data, setData] = useState<LeafSpecEntryData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,8 +108,26 @@ export function LibrarySpecModal({
           <span className="left">
             ⌥ Changes apply to future quote attachments only
           </span>
-          <button type="button" className="a1v2-btn primary" onClick={onClose}>
-            Done
+          <button
+            type="button"
+            className="a1v2-btn primary"
+            disabled={closing}
+            onClick={() => {
+              // The operator may still be inside a field. Write it before the
+              // surface goes -- and WAIT for the answer. Closing on the
+              // strength of a request that was merely issued would take the
+              // editor away from someone whose save is about to fail, along
+              // with the only copy of what they typed.
+              setClosing(true);
+              void flushPendingSpecEdits().then((allSaved) => {
+                setClosing(false);
+                if (allSaved) onClose();
+                // On failure the modal stays, the text stays, and the cell
+                // shows why. Leaving the field again retries it.
+              });
+            }}
+          >
+            {closing ? "Saving…" : "Done"}
           </button>
         </div>
       </div>
