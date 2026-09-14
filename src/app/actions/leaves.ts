@@ -26,6 +26,12 @@ import {
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { bindAllocationToLeaf } from "@/lib/sku/bind";
+import {
+  holdAllocationUnresolved,
+  markAllocationDispatched,
+  requireAllocationUsable,
+  assertSkuFree,
+} from "@/lib/sku/create-guard";
 import { mapLeafToHubspotCreate, mapLeafToHubspotUpdate } from "@/lib/hubspot-mapper";
 import {
   hubspotUpdateLanded,
@@ -202,6 +208,25 @@ export async function createLeaf(
     let hubspotSubmittedProperties: Record<string, string> | null = null;
     let hubspotResponseBody: Record<string, unknown> | null = null;
 
+    // ── the SKU must be free before anything external happens ──────────
+    //
+    // Checked against BOTH the catalog and outstanding reservations, and for
+    // typed SKUs as much as generated ones. Create previously checked neither,
+    // relying on HubSpot to reject a duplicate -- which is a rule enforced in
+    // the wrong catalog, and silent about a number Nexus has reserved but not
+    // yet applied.
+    if (sku !== null) {
+      await assertSkuFree(sku, { ignoreAllocationId: skuAllocationId });
+    }
+
+    // A reservation that is not usable stops the create BEFORE HubSpot is
+    // called. A `conflicted` one means a previous attempt left an unresolved
+    // outcome, and re-running blind is the specific thing that created two
+    // products 31 seconds apart.
+    if (skuAllocationId) {
+      await requireAllocationUsable(skuAllocationId, sku);
+    }
+
     if (!isService) {
       const hubspotInput = mapLeafToHubspotCreate({
         name,
@@ -210,6 +235,13 @@ export async function createLeaf(
         url,
         hubspotProductType,
       });
+
+      // Recorded durably BEFORE the request leaves. A crash between here and
+      // the response leaves a reservation that says it was dispatched, which
+      // is the difference between "never sent" and "sent, outcome unknown" --
+      // and only the first of those is safe to retry.
+      if (skuAllocationId) await markAllocationDispatched(skuAllocationId);
+
       try {
         const { hubspot } = await getApplicationDependencies();
         const result = await hubspot.createProduct(hubspotInput);
@@ -217,13 +249,38 @@ export async function createLeaf(
         hubspotSubmittedProperties = result.submittedProperties;
         hubspotResponseBody = result.responseBody;
       } catch (err) {
-        // HubSpot failures (network, 4xx, 5xx) surface as VALIDATION
-        // so the modal UI can render the message inline. No local
-        // row created.
-        const message =
-          err instanceof Error
-            ? `Could not create product in HubSpot: ${err.message}`
-            : "Could not create product in HubSpot (unknown error).";
+        // REJECTED means HubSpot answered and refused: no product was made, so
+        // the reservation stays usable and the operator can fix the input and
+        // try again. Anything else -- timeout, 5xx, a plain Error with no
+        // classification -- is UNCERTAIN, and a product may exist.
+        const outcome =
+          (err as { outcome?: string } | null)?.outcome === "rejected"
+            ? "rejected"
+            : "uncertain";
+        const detail =
+          err instanceof Error ? err.message : "unknown error";
+
+        if (skuAllocationId && outcome === "uncertain") {
+          // Held, not abandoned and not adopted. A product carrying this SKU
+          // may exist in HubSpot; finding out is a human's job, and creating
+          // again is refused until they do.
+          await holdAllocationUnresolved(skuAllocationId, {
+            note: `create dispatched, outcome unknown: ${detail}`,
+            hubspotProductId: null,
+          });
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            `HubSpot did not answer this create: ${detail}. A product carrying ` +
+              `this SKU may already exist there. The reservation is held and ` +
+              `will not be reissued -- someone has to look before this is retried.`,
+          );
+        }
+        if (skuAllocationId) {
+          // Answered and refused. Clear the dispatch mark so a corrected
+          // retry is an ordinary attempt rather than an unresolved one.
+          await markAllocationDispatched(skuAllocationId, { clear: true });
+        }
+        const message = `Could not create product in HubSpot: ${detail}`;
         throw new ActionGuardError(ERR.VALIDATION, message);
       }
     }
@@ -233,7 +290,9 @@ export async function createLeaf(
     // the catalog while its reservation still reads `allocated` -- a free
     // reservation whose number is in use, which is the one state the
     // allocations table exists to make impossible.
-    const { newRow, bindOutcome } = await db.transaction(async (tx) => {
+    let created: { newRow: typeof leaves.$inferSelect; bindOutcome: string | null };
+    try {
+      created = await db.transaction(async (tx) => {
       const inserted = await tx
         .insert(leaves)
         .values({
@@ -261,8 +320,23 @@ export async function createLeaf(
             hubspotProductId: row.hubspotProductId,
           })
         : null;
-      return { newRow: row, bindOutcome: outcome };
-    });
+        return { newRow: row, bindOutcome: outcome as string | null };
+      });
+    } catch (err) {
+      // HubSpot holds a product and Nexus does not. The reservation records
+      // exactly that, WITH the product id, so a human can see what exists
+      // without the system deciding on its own that the product is ours.
+      if (skuAllocationId) {
+        await holdAllocationUnresolved(skuAllocationId, {
+          note:
+            `HubSpot product created; local save failed: ` +
+            `${err instanceof Error ? err.message : "unknown error"}`,
+          hubspotProductId,
+        });
+      }
+      throw err;
+    }
+    const { newRow, bindOutcome } = created;
 
     // Audit: `leaf_create` per CLAUDE.md namespace. `source:
     // 'nexus_authored'` distinguishes PM-driven creates from

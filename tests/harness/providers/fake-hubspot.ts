@@ -168,6 +168,23 @@ function record(operation: string, input: Record<string, unknown>) {
 
 function fail(operation: string) {
   const selected = scenario();
+  // ANSWERED-AND-REFUSED, distinct from the uncertain failures below.
+  //
+  // The distinction is not decorative: a caller must be able to tell a create
+  // HubSpot rejected -- no product made, safe to retry -- from one it never
+  // answered, where a product may exist. Production carries that on
+  // `HubspotError.outcome`, so the fake carries it too. A plain Error here
+  // would classify as uncertain, and the rejected path would be exercised by
+  // nothing.
+  if (selected === `${operation}-rejected`) {
+    const err = new Error(`HubSpot fake ${operation} rejected (HTTP 400)`) as Error & {
+      outcome: string;
+      status: number;
+    };
+    err.outcome = "rejected";
+    err.status = 400;
+    throw err;
+  }
   if (selected === "unauthorized") throw new Error("HubSpot fake unauthorized");
   if (selected === "timeout") throw new Error("HubSpot fake timeout");
   if (selected === "rate-limit") throw new Error("HubSpot fake rate limit");
@@ -179,6 +196,29 @@ function fail(operation: string) {
 
 export function readFakeHubSpotCalls(): readonly FakeHubSpotCall[] {
   return calls;
+}
+
+/**
+ * Select a failure scenario for subsequent calls, or clear it.
+ *
+ * The fake reads `NEXUS_FAKE_HUBSPOT_SCENARIO`; this sets it in-process so a
+ * walk can move between scenarios without re-spawning.
+ */
+/**
+ * Move the fake's product-id sequence.
+ *
+ * The seeded fixtures were themselves created through this fake, so a walk
+ * that starts the sequence at zero mints ids the fixtures already hold. A walk
+ * needing ids of its own starts the sequence above that range rather than
+ * deleting fixture rows to make room.
+ */
+export function setFakeHubSpotProductSequence(next: number) {
+  productSequence = next;
+}
+
+export function setFakeHubSpotScenario(name: string | null) {
+  if (name === null) delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+  else process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = name;
 }
 
 export function resetFakeHubSpot() {

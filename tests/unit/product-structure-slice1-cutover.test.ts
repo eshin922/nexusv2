@@ -15,6 +15,8 @@ const classifiedIdentityFiles = new Set([
   // quote's use of it.
   "src/lib/sku/bind.ts",
   "scripts/gate-1b/sku-allocation-walk.ts",
+  "scripts/gate-1b/sku-create-path-walk.ts",
+  "scripts/admin/list-unresolved-sku-allocations.ts",
   "src/app/actions/assemblies.ts", "src/app/actions/assembly-leaf-inputs.ts",
   // Client Target authority. Uses BOTH source identities on purpose and keeps
   // them apart: `assemblies.id` addresses an Item Group finished good and a

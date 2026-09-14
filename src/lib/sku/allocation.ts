@@ -68,7 +68,8 @@ export type AllocationRefusal =
   | { kind: "brand_not_registered"; message: string; token: string }
   | { kind: "brand_not_approved"; message: string; token: string }
   | { kind: "counter_not_seeded"; message: string; token: string }
-  | { kind: "exhausted"; message: string; token: string };
+  | { kind: "exhausted"; message: string; token: string }
+  | { kind: "unresolved"; message: string; token: string };
 
 export type AllocationOutcome =
   | { ok: true; sku: string; allocationId: string; token: string; number: number }
@@ -185,6 +186,25 @@ export async function allocateSku(args: {
     .where(eq(skuAllocations.attemptKey, args.attemptKey))
     .limit(1);
   if (existing) {
+    // A HELD reservation is not handed back as though it were usable. An
+    // earlier attempt on this intent left an outcome nobody has resolved, and
+    // returning it here would put the identifier back in the field and invite
+    // exactly the blind retry the hold exists to stop.
+    if (existing.state === "conflicted" || existing.state === "abandoned") {
+      return {
+        ok: false,
+        refusal: {
+          kind: "unresolved",
+          token: existing.token,
+          message:
+            `An earlier attempt with this SKU is unresolved` +
+            (existing.hubspotProductId
+              ? ` — HubSpot product ${existing.hubspotProductId} may already carry it`
+              : "") +
+            `. It will not be reissued; someone has to check what exists first.`,
+        },
+      };
+    }
     return {
       ok: true,
       sku: existing.sku,
