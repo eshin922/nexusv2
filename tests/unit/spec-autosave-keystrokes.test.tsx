@@ -168,3 +168,118 @@ test("the input is never disabled while saving", async () => {
   await flush();
   await m.unmount();
 });
+
+// ── Done waits for the answer ─────────────────────────────────────────────
+
+test("Done reports failure, so the caller can keep the editor open", async () => {
+  // The close is decided on this result. Firing the write and assuming would
+  // take the editor away from someone whose save is about to fail -- along
+  // with the only copy of what they typed.
+  const m = await mount(
+    view({
+      save: async () => ({
+        ok: false as const,
+        error: { code: "HUBSPOT_ERROR", message: "Could not save." },
+      }),
+    }),
+  );
+  await typeInto(m, "129.1 x 92.3 x 13.5");
+  const allSaved = await flushPendingSpecEdits();
+  await flush();
+
+  assert.equal(allSaved, false, "a failed save must not report success");
+  assert.equal(
+    input(m).value,
+    "129.1 x 92.3 x 13.5",
+    "the entered text must survive the failure",
+  );
+  assert.match(m.text(), /Could not save\./);
+  await m.unmount();
+});
+
+test("Done reports success only once the save has landed", async () => {
+  const gate = deferred<SaveResult>();
+  const m = await mount(view({ save: async () => gate.promise }));
+  await typeInto(m, "129.1");
+
+  let settled: boolean | null = null;
+  const done = flushPendingSpecEdits().then((r) => {
+    settled = r;
+    return r;
+  });
+  await flush();
+  assert.equal(settled, null, "Done resolved before the save answered");
+
+  gate.resolve(OK);
+  await done;
+  assert.equal(settled, true);
+  await m.unmount();
+});
+
+test("a failed save is retried by leaving the field again", async () => {
+  let attempts = 0;
+  const m = await mount(
+    view({
+      save: async () => {
+        attempts += 1;
+        return attempts === 1
+          ? { ok: false as const, error: { code: "X", message: "Could not save." } }
+          : OK;
+      },
+    }),
+  );
+  await typeInto(m, "129.1");
+  assert.equal(await flushPendingSpecEdits(), false);
+  await flush();
+  await blur(m);
+  assert.equal(attempts, 2, "leaving the field again must re-send it");
+  await m.unmount();
+});
+
+// ── a late snapshot never wins over a newer edit ──────────────────────────
+
+test("A's snapshot arriving after B was sent does not revert the field", async () => {
+  // edit A -> blur -> A still in flight -> edit B -> blur -> A's revalidated
+  // snapshot arrives as a prop. B is what the operator last asked for, and B
+  // is what must stand.
+  const gateA = deferred<SaveResult>();
+  const sent: string[] = [];
+  const m = await mount(
+    view({
+      initialValue: "",
+      save: async (fd) => {
+        const v = String(fd.get("value"));
+        sent.push(v);
+        return v === "A" ? gateA.promise : OK;
+      },
+    }),
+  );
+
+  await typeInto(m, "A");
+  await blur(m); // A is sent and left outstanding
+  await m.type("input, textarea", "B");
+  await blur(m); // B is sent
+  await flush();
+  assert.deepEqual(sent, ["A", "B"]);
+
+  // A's response lands, and its revalidation delivers A as the prop.
+  gateA.resolve(OK);
+  await flush();
+  await m.update(view({ initialValue: "A", save: async () => OK }));
+
+  assert.equal(input(m).value, "B", "a late snapshot of A reverted the field");
+  await m.unmount();
+});
+
+test("a genuine later external change is still adopted afterwards", async () => {
+  // The guard rejects echoes of values this field sent -- not everything.
+  const m = await mount(view({ initialValue: "" }));
+  await typeInto(m, "A");
+  await blur(m);
+  await flush();
+  await m.update(view({ initialValue: "A" })); // our own echo, ignored
+  assert.equal(input(m).value, "A");
+  await m.update(view({ initialValue: "someone else" }));
+  assert.equal(input(m).value, "someone else");
+  await m.unmount();
+});

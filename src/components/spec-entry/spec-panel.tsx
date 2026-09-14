@@ -50,11 +50,19 @@ export type SpecSaveService = (
  * blurred. Flushing through this registry writes it before the modal goes,
  * rather than relying on the incidental blur a click produces.
  */
-const pendingSpecCommits = new Set<() => void>();
+const pendingSpecCommits = new Set<() => Promise<boolean>>();
 
-/** Commit every field that has uncommitted text. Safe to call repeatedly. */
-export function flushPendingSpecEdits(): void {
-  for (const commit of [...pendingSpecCommits]) commit();
+/**
+ * Commit every field that has uncommitted text, and report whether they all
+ * landed. Safe to call repeatedly.
+ *
+ * Returns false if any save failed. The caller is closing a surface on the
+ * strength of this, so it has to wait for the answer rather than fire the
+ * writes and assume.
+ */
+export async function flushPendingSpecEdits(): Promise<boolean> {
+  const results = await Promise.all([...pendingSpecCommits].map((c) => c()));
+  return results.every(Boolean);
 }
 
 export function SpecPanel({
@@ -134,6 +142,15 @@ export function SpecCell({
   // The last value a save was issued for. Anything else on screen is
   // uncommitted.
   const committedRef = useRef(initialValue);
+  // Saves issued and not yet answered.
+  const inFlightRef = useRef(0);
+  // Values this field has itself sent and then moved past.
+  //
+  // A save triggers a revalidation, so its snapshot comes back as a prop --
+  // and it can arrive after a LATER edit has already been sent. Adopting it
+  // would put the field back to a value the operator has already replaced,
+  // which is the same reversion as before wearing a different hat.
+  const supersededRef = useRef<Set<string>>(new Set());
 
   // Adopt an EXTERNAL change only, and never over uncommitted text.
   //
@@ -143,7 +160,13 @@ export function SpecCell({
   useEffect(() => {
     if (initialValue === lastPropRef.current) return;
     lastPropRef.current = initialValue;
+    // Uncommitted typing is newer than any snapshot.
     if (latestRef.current !== committedRef.current) return;
+    // A save of ours is still out. Anything arriving now predates its answer,
+    // so it cannot be a later state than what we last sent.
+    if (inFlightRef.current > 0) return;
+    // A late echo of something we already replaced.
+    if (supersededRef.current.has(initialValue)) return;
     latestRef.current = initialValue;
     committedRef.current = initialValue;
     setDraft(initialValue);
@@ -156,9 +179,11 @@ export function SpecCell({
   // request whose response then argued with the keyboard. Committing on blur
   // means the field is written once, with what the operator actually finished
   // typing.
-  const commit = useCallback((): void => {
+  const commit = useCallback(async (): Promise<boolean> => {
     const value = latestRef.current;
-    if (value === committedRef.current) return;
+    if (value === committedRef.current) return true;
+    // What we are moving away from is now a stale snapshot if it comes back.
+    supersededRef.current.add(committedRef.current);
     committedRef.current = value;
 
     const fd = new FormData();
@@ -173,19 +198,29 @@ export function SpecCell({
     fd.set("fieldKey", field.key);
     fd.set("value", value);
 
-    startTransition(async () => {
-      setError(null);
-      const result = await save(fd);
-      if (!result.ok) {
-        // Leave the text alone. It is what the operator entered, and it is
-        // the only copy -- reverting it here would destroy the thing they
-        // would otherwise retry by leaving the field again.
-        committedRef.current = "\u0000never";
-        setError(result.error.message);
-        return;
-      }
-      setSavedAt(Date.now());
+    // Awaited, so "Done" can wait for it and close only if it worked.
+    inFlightRef.current += 1;
+    let ok = true;
+    await new Promise<void>((resolve) => {
+      startTransition(async () => {
+        setError(null);
+        const result = await save(fd);
+        if (!result.ok) {
+          // Leave the text alone. It is what the operator entered and the only
+          // copy -- reverting it would destroy the thing they would otherwise
+          // retry. Clearing the committed marker is what makes leaving the
+          // field again re-send it.
+          committedRef.current = "\u0000never";
+          setError(result.error.message);
+          ok = false;
+        } else {
+          setSavedAt(Date.now());
+        }
+        inFlightRef.current -= 1;
+        resolve();
+      });
     });
+    return ok;
   }, [field.key, leafId, save, scope]);
 
   // Registered so "Done" can flush a field the operator is still inside.
@@ -207,7 +242,7 @@ export function SpecCell({
     return () => {
       // Leaving the surface is leaving the field: an unmount with text still
       // uncommitted would otherwise drop it silently.
-      entry();
+      void entry();
       pendingSpecCommits.delete(entry);
     };
   }, []);
@@ -240,7 +275,7 @@ export function SpecCell({
         <textarea
           value={draft}
           onChange={handleChange}
-          onBlur={commit}
+          onBlur={() => void commit()}
           onKeyDown={handleKeyDown}
           disabled={readOnly}
           placeholder="—"
@@ -251,7 +286,7 @@ export function SpecCell({
           type={control}
           value={draft}
           onChange={handleChange}
-          onBlur={commit}
+          onBlur={() => void commit()}
           onKeyDown={handleKeyDown}
           disabled={readOnly}
           placeholder="—"
