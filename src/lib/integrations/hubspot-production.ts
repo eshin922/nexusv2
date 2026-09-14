@@ -22,6 +22,12 @@ export const productionHubSpot: HubSpotOperations = {
   resolveVendor: resolveVendorCompany,
   createProduct,
   listProducts,
+  listProductTypeOptions: async () => {
+    const { fetchHubspotProductTypeOptionsDirect } = await import(
+      "@/lib/hubspot-product-type-vocabulary"
+    );
+    return fetchHubspotProductTypeOptionsDirect();
+  },
   listDealStages: loadPipelineStagesForLabel,
   getDealStage,
   updateDealStage,

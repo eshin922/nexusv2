@@ -73,7 +73,12 @@ export type LeafSpecEntryData = {
    * Those need different copy and different operator action, so the surface is
    * told which it is rather than inferring it from an absence.
    */
-  specSchemaState: "schema" | "no_schema" | "unmapped" | "no_type";
+  specSchemaState:
+    | "schema"
+    | "no_schema"
+    | "schema_pending"
+    | "unmapped"
+    | "no_type";
   // Current leaf_spec row (is_current=true). Null when no spec
   // values yet (TypePicker empty state OR a typed leaf that hasn't
   // had any field filled).

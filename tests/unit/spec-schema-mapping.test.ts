@@ -56,12 +56,51 @@ test("4 · Labels and Cards, Booklets -> Secondary Spec Schema", () => {
 });
 
 // ---------------------------------------------------- 5-6 · the three states
-test("5 · service and commercial types -> explicit NO_SCHEMA", () => {
+test("5 · services and charges -> explicit NO_SCHEMA", () => {
+  // A freight charge, a tooling fee and a design service have no product
+  // specification. NO_SCHEMA is the finished answer for each: "nothing is
+  // missing" is TRUE of them.
+  //
+  // `Formulation` belongs here on catalog evidence, not on its label — the one
+  // product carrying it is "OTC - Formulation Fee", a charge. `Turnkey` is a
+  // commercial bundle of other things rather than a thing with a spec.
   for (const v of [
     "Filling and Packout Services", "One Time Charges", "Freight", "Design",
     "R&D / Testing", "Third Party Logistics", "Turnkey", "Formulation",
-    "Soft Goods and Accessories", "Raw ingredients", "Finished Goods",
   ]) {
+    assert.equal(resolveSpecSchema(v)?.kind, "no_schema", v);
+  }
+});
+
+test("5b · physical material with an unbuilt field set -> SCHEMA_PENDING", () => {
+  // `Raw ingredients` is bulk formulated MATERIAL. The catalog uses it for
+  // "Greens Bulk", "Protein Bulk", "Raw Material", "Hydration Raws" — 46
+  // products. Such a thing has viscosity, grade, INCI, density; Nexus has
+  // simply not built the field set.
+  //
+  // It was NO_SCHEMA, which told an operator "specifications are not
+  // applicable — nothing is missing". That is a false statement wearing the
+  // shape of a finished one, and it surfaced when a bulk silicone lubricant
+  // could not be created at all.
+  const r = resolveSpecSchema("Raw ingredients");
+  assert.equal(r?.kind, "schema_pending");
+  assert.equal(r?.kind === "schema_pending" ? r.value : null, "Raw ingredients");
+});
+
+test("5c · two categories are still NO_SCHEMA and are NOT yet adjudicated", () => {
+  // Deliberately unchanged, and deliberately recorded rather than moved
+  // quietly with `Raw ingredients`.
+  //
+  // `Finished Goods` is packaged sellable product ("Brain Stems 100ml (FG)")
+  // and `Soft Goods and Accessories` is bags and cases — both arguably carry
+  // specifications, so both may belong in SCHEMA_PENDING. Which is a business
+  // classification call, not an engineering one, and making it silently while
+  // fixing the lubricant would be exactly the move this mapping exists to
+  // prevent.
+  //
+  // This test fails the moment someone changes them, which is the point: the
+  // change should arrive with a decision attached.
+  for (const v of ["Finished Goods", "Soft Goods and Accessories"]) {
     assert.equal(resolveSpecSchema(v)?.kind, "no_schema", v);
   }
 });

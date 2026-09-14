@@ -139,6 +139,52 @@ export const fakeHubSpot: HubSpotOperations = {
     const found = vendors.find((vendor) => vendor.id === companyId);
     return found ? { ...found } : null;
   },
+  async listProductTypeOptions() {
+    record("product-type-options", {});
+    fail("product-type-options");
+    // MIRRORS THE PRODUCTION OPTION SET -- portal 21497798 (STANDARD),
+    // 16 non-hidden options, captured read-only 2026-09-12.
+    //
+    // TWO corrections are recorded here because both were mine.
+    //
+    // First, the original list was written from the spec-schema MAPPING. That
+    // is a sibling module, not the system, and a fixture invented from one is
+    // not a fixture of the other.
+    //
+    // Second, the replacement was captured from the DEV portal (46710404,
+    // SANDBOX) and labelled production. `getProductsClient()` selects its
+    // token on `NODE_ENV !== "production"`, so a script run from a shell
+    // reaches the sandbox -- and the adapter being named "production" proves
+    // nothing about where it points. The two portals genuinely differ: the
+    // sandbox carries `Corrugated` and `Preliminary`, production carries
+    // `Finished Goods`, `Turnkey` and `Tertiary Packaging`. Reading the wrong
+    // one produced a confident report of a mapping divergence that does not
+    // exist in production.
+    //
+    // The destination is now established by portal id, not by a name.
+    //
+    // THREE label/value pairs diverge in production -- one more than the
+    // sandbox has. `Logistics` is the label for `Third Party Logistics`, and a
+    // label-keyed fixture would silently resolve nothing for it.
+    return [
+      ["Cards, Booklets", "Cards, Booklets"],
+      ["Design", "Design"],
+      ["Filling and Packout Services", "Filling and Packout Services"],
+      ["Formulation", "Formulation"],
+      ["Freight", "Freight"],
+      ["Labels", "Labels"],
+      ["Third Party Logistics", "Logistics"],
+      ["One Time Charges", "One Time Charges"],
+      ["Primary", "Primary Packaging"],
+      ["R&D / Testing", "R&D / Testing"],
+      ["Raw ingredients", "Raw ingredients"],
+      ["Secondary", "Secondary Packaging"],
+      ["Soft Goods and Accessories", "Soft Goods and Accessories"],
+      ["Finished Goods", "Finished Goods"],
+      ["Turnkey", "Turnkey"],
+      ["Tertiary Packaging", "Tertiary Packaging"],
+    ].map(([value, label], i) => ({ label, value, displayOrder: i }));
+  },
   async createProduct(input) {
     const normalizedInput = normalizeHubSpotProductCreateInput(input);
     record("product-create", { ...normalizedInput });

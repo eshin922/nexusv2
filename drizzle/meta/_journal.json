@@ -841,6 +841,13 @@
       "when": 1789029120000,
       "tag": "0121_destination_unresolved_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1789115520000,
+      "tag": "0122_spec_schema_pending_pin",
+      "breakpoints": true
     }
   ]
 }
