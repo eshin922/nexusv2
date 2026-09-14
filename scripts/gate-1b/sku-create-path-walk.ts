@@ -26,8 +26,17 @@ const check = (name: string, pass: boolean, detail = "") => {
 process.env.SKU_GENERATION_ENABLED = "1";
 const { allocateSku } = await import("../../src/lib/sku/allocation.ts");
 const { createLeaf } = await import("../../src/app/actions/leaves.ts");
-const { setFakeHubSpotScenario, resetFakeHubSpot, setFakeHubSpotProductSequence } =
-  await import("../../tests/harness/providers/fake-hubspot.ts");
+const {
+  setFakeHubSpotScenario,
+  resetFakeHubSpot,
+  setFakeHubSpotProductSequence,
+  readFakeHubSpotCalls,
+} = await import("../../tests/harness/providers/fake-hubspot.ts");
+const { claimAllocationForDispatch } = await import("../../src/lib/sku/create-guard.ts");
+
+/** How many product-creates the fake has actually been asked to perform. */
+const createCount = () =>
+  readFakeHubSpotCalls().filter((c) => c.operation === "product-create").length;
 
 // The seeded fixtures were created through this same fake, so its ids from
 // zero are already taken. Start well above them.
@@ -174,15 +183,70 @@ check(
   (await sql`select count(*)::int n from leaves where sku = ${a4.sku}`)[0].n === 0,
 );
 
-// ═══ 5 · the support listing sees them ═══════════════════════════════════
+// ═══ 5 · the claim is enforced, not merely recorded ══════════════════════
+console.log("\n── killed after claiming, then retried ────────────────────");
+// Execution stopping after the claim is simulated by taking the claim and
+// never proceeding -- which is exactly the state a killed process leaves. The
+// retry then goes through the REAL createLeaf.
+const a5 = await allocFor("killed-after-claim");
+const claimed = await claimAllocationForDispatch(a5.allocationId);
+check("the claim succeeds for an unused reservation", claimed);
+
+const beforeRetry = createCount();
+const r5 = await createLeaf(form({ sku: a5.sku, skuAllocationId: a5.allocationId }));
+check("the retry is refused", !r5.ok, r5.ok ? "SUCCEEDED" : r5.error.code);
+check(
+  "NO second HubSpot create was issued",
+  createCount() === beforeRetry,
+  `${createCount() - beforeRetry} create(s) issued`,
+);
+check(
+  "and no product was written locally",
+  (await sql`select count(*)::int n from leaves where sku = ${a5.sku}`)[0].n === 0,
+);
+
+console.log("\n── the claim cannot be taken twice ────────────────────────");
+check(
+  "a second claim on the same reservation fails",
+  (await claimAllocationForDispatch(a5.allocationId)) === false,
+);
+
+console.log("\n── concurrent submissions ─────────────────────────────────");
+// Two callers submit the same intent at the same moment. Exactly one may
+// reach HubSpot; the other must be refused before it gets there.
+const a6 = await allocFor("concurrent");
+const beforeConcurrent = createCount();
+const both = await Promise.all([
+  createLeaf(form({ sku: a6.sku, skuAllocationId: a6.allocationId })),
+  createLeaf(form({ sku: a6.sku, skuAllocationId: a6.allocationId })),
+]);
+const okCount = both.filter((r) => r.ok).length;
+check("exactly one caller succeeded", okCount === 1, `${okCount} succeeded`);
+check(
+  "exactly ONE HubSpot create was issued for the pair",
+  createCount() - beforeConcurrent === 1,
+  `${createCount() - beforeConcurrent} issued`,
+);
+check(
+  "exactly one product exists for that SKU",
+  (await sql`select count(*)::int n from leaves where sku = ${a6.sku}`)[0].n === 1,
+);
+const s6 = await row(a6.allocationId);
+check("the reservation ends applied", s6.state === "applied", String(s6.state));
+
+// ═══ 6 · the support listing sees them ═══════════════════════════════════
 console.log("\n── the support listing ────────────────────────────────────");
 const unresolved = await sql`
   select sku, state, hubspot_product_id, note from sku_allocations
-  where state = 'conflicted' or (state = 'allocated' and note like 'dispatched:%')`;
+  where state = 'conflicted'`;
 check(
   "both held reservations appear in the unresolved set",
   unresolved.some((u) => u.sku === a1.sku) && unresolved.some((u) => u.sku === a4.sku),
   `${unresolved.length} unresolved`,
+);
+check(
+  "so does the one abandoned mid-flight by a killed process",
+  unresolved.some((u) => u.sku === a5.sku),
 );
 check(
   "and the one with a known product id carries it",

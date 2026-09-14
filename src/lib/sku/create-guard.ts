@@ -14,18 +14,37 @@ import { ActionGuardError, ERR } from "@/lib/action-result";
  * "Never sent" is safe to retry. "Sent, outcome unknown" is not, and the whole
  * reason to record the difference is that the two look identical afterwards.
  *
+ * ── THE CLAIM IS A STATE TRANSITION, NOT A NOTE ──────────────────────────
+ *
+ * Dispatch is claimed by moving the reservation OUT of `allocated` in a single
+ * conditional UPDATE. That is what makes it enforced rather than merely
+ * visible: a marker that leaves the state usable stops nothing, because the
+ * next caller reads the same usable state and proceeds. Two concurrent callers
+ * both match `state = allocated` only if the write is not conditional on it;
+ * being conditional, exactly one row is updated and exactly one caller
+ * continues.
+ *
+ * A process that dies after claiming leaves the reservation claimed. That is
+ * the correct outcome, not a leak: the request may have reached HubSpot, so
+ * the state that means "outcome unresolved" is precisely the state it should
+ * be left in.
+ *
  * ── NOTHING HERE ADOPTS AN EXTERNAL PRODUCT ──────────────────────────────
  *
  * When an outcome is unknown the reservation is HELD with whatever is known --
  * including the HubSpot product id when there is one -- and creation is
  * refused until a person resolves it. `hs_sku` carries `hasUniqueValue`, so
- * HubSpot rejects a duplicate rather than returning the existing product;
- * there is no safe automatic recovery, and claiming one anyway is how two
- * products end up 31 seconds apart.
+ * HubSpot rejects a duplicate rather than returning the existing product, and
+ * there is no safe automatic recovery.
  */
 
-/** Marker written into `note` while a create is in flight. */
-const DISPATCH_PREFIX = "dispatched:";
+/**
+ * Marker distinguishing a reservation claimed and still in flight from one
+ * whose failure has been settled. Both are `conflicted` -- both are unresolved
+ * -- and the note is for the human reading the listing, never for control
+ * flow.
+ */
+const INFLIGHT_PREFIX = "inflight:";
 
 /**
  * Refuse a SKU that is already taken — in the catalog OR by an outstanding
@@ -136,25 +155,59 @@ export async function requireAllocationUsable(
 }
 
 /**
- * Record that a create is about to leave, or clear that mark.
+ * Atomically claim a reservation for one dispatch.
  *
- * Deliberately written into `note` rather than a new column: this release adds
- * no migration, and the distinction it carries -- dispatched versus not -- is
- * only consulted by a human reading the support listing. The states that
- * machinery reads are still the `state` column.
+ * Returns true only for the caller whose UPDATE matched. The condition
+ * `state = 'allocated'` is what makes this a claim: Postgres serialises the
+ * two writers on the row, the second sees the state the first left, and its
+ * WHERE no longer matches. No advisory lock is needed because the row itself
+ * is the lock.
+ *
+ * A false return means someone else holds it -- a concurrent submission, or a
+ * previous attempt that never resolved. Either way this caller must not call
+ * HubSpot.
+ *
+ * The claimed state is `conflicted`, reusing the state that already means
+ * "unresolved, needs a human". While the request is in flight the outcome IS
+ * unresolved, and if the process dies here that is exactly what it should be
+ * left as. No migration is required to say so.
  */
-export async function markAllocationDispatched(
+export async function claimAllocationForDispatch(
   allocationId: string,
-  opts: { clear?: boolean } = {},
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const claimed = await db
     .update(skuAllocations)
     .set({
-      note: opts.clear ? null : `${DISPATCH_PREFIX}${new Date().toISOString()}`,
+      state: "conflicted",
+      note: `${INFLIGHT_PREFIX}${new Date().toISOString()}`,
       updatedAt: new Date(),
     })
     .where(
       and(eq(skuAllocations.id, allocationId), eq(skuAllocations.state, "allocated")),
+    )
+    .returning({ id: skuAllocations.id });
+  return claimed.length === 1;
+}
+
+/**
+ * Release a claim after an ANSWERED refusal.
+ *
+ * HubSpot replied and made nothing, so the outcome is resolved and the
+ * reservation goes back to usable. Conditional on the in-flight marker still
+ * being ours, so a settle that happened in between is never overwritten.
+ */
+export async function releaseAllocationAfterRejection(
+  allocationId: string,
+): Promise<void> {
+  await db
+    .update(skuAllocations)
+    .set({ state: "allocated", note: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(skuAllocations.id, allocationId),
+        eq(skuAllocations.state, "conflicted"),
+        sql`${skuAllocations.note} like ${INFLIGHT_PREFIX + "%"}`,
+      ),
     );
 }
 

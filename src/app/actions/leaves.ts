@@ -27,8 +27,9 @@ import {
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { bindAllocationToLeaf } from "@/lib/sku/bind";
 import {
+  claimAllocationForDispatch,
   holdAllocationUnresolved,
-  markAllocationDispatched,
+  releaseAllocationAfterRejection,
   requireAllocationUsable,
   assertSkuFree,
 } from "@/lib/sku/create-guard";
@@ -221,8 +222,7 @@ export async function createLeaf(
 
     // A reservation that is not usable stops the create BEFORE HubSpot is
     // called. A `conflicted` one means a previous attempt left an unresolved
-    // outcome, and re-running blind is the specific thing that created two
-    // products 31 seconds apart.
+    // outcome, and re-running blind on it could create a second product.
     if (skuAllocationId) {
       await requireAllocationUsable(skuAllocationId, sku);
     }
@@ -236,11 +236,24 @@ export async function createLeaf(
         hubspotProductType,
       });
 
-      // Recorded durably BEFORE the request leaves. A crash between here and
-      // the response leaves a reservation that says it was dispatched, which
-      // is the difference between "never sent" and "sent, outcome unknown" --
-      // and only the first of those is safe to retry.
-      if (skuAllocationId) await markAllocationDispatched(skuAllocationId);
+      // CLAIMED before the request leaves, in one conditional UPDATE, and the
+      // call happens only if the claim succeeded. A marker that left the
+      // reservation usable would stop nothing: the next caller would read the
+      // same usable state and dispatch again.
+      //
+      // Losing the claim means a concurrent submission holds it, or a previous
+      // attempt never resolved. Both are reasons not to call HubSpot.
+      if (skuAllocationId) {
+        const claimed = await claimAllocationForDispatch(skuAllocationId);
+        if (!claimed) {
+          throw new ActionGuardError(
+            ERR.DATA_INTEGRITY,
+            "Another create is already using this SKU reservation, or an " +
+              "earlier one never resolved. Nothing was sent. " +
+              "Support listing: npm run support:sku-unresolved",
+          );
+        }
+      }
 
       try {
         const { hubspot } = await getApplicationDependencies();
@@ -276,9 +289,10 @@ export async function createLeaf(
           );
         }
         if (skuAllocationId) {
-          // Answered and refused. Clear the dispatch mark so a corrected
-          // retry is an ordinary attempt rather than an unresolved one.
-          await markAllocationDispatched(skuAllocationId, { clear: true });
+          // Answered and refused: the outcome IS resolved and nothing was
+          // made, so the claim is released and a corrected retry is an
+          // ordinary attempt rather than an unresolved one.
+          await releaseAllocationAfterRejection(skuAllocationId);
         }
         const message = `Could not create product in HubSpot: ${detail}`;
         throw new ActionGuardError(ERR.VALIDATION, message);
@@ -318,6 +332,12 @@ export async function createLeaf(
             leafId: row.id,
             savedSku: row.sku,
             hubspotProductId: row.hubspotProductId,
+            // This caller holds the dispatch claim, so it binds FROM the
+            // claimed state. A service create never claims one -- no HubSpot
+            // call is made for it -- and binds from `allocated`. Named rather
+            // than inferred, because binding from the wrong state would either
+            // skip a claim or resolve somebody else's unresolved reservation.
+            fromState: isService ? "allocated" : "conflicted",
           })
         : null;
         return { newRow: row, bindOutcome: outcome as string | null };

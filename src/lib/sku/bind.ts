@@ -43,6 +43,14 @@ export async function bindAllocationToLeaf(
     leafId: string;
     savedSku: string | null;
     hubspotProductId: string | null;
+    /**
+     * The state the caller expects to be binding FROM. `createLeaf` holds a
+     * dispatch claim, so it binds from `conflicted`; every other caller binds
+     * from an unclaimed `allocated`. Explicit because binding from the wrong
+     * state would either skip a claim or silently resolve someone else's
+     * unresolved reservation.
+     */
+    fromState?: "allocated" | "conflicted";
   },
 ): Promise<BindOutcome> {
   const [row] = await tx
@@ -59,7 +67,8 @@ export async function bindAllocationToLeaf(
     return "sku_mismatch";
   }
 
-  if (row.state !== "allocated") {
+  const expected = args.fromState ?? "allocated";
+  if (row.state !== expected) {
     // Already applied (a retry), or deliberately conflicted/abandoned. Either
     // way this save does not get to change it.
     return "already_bound";
@@ -77,7 +86,7 @@ export async function bindAllocationToLeaf(
     .where(
       and(
         eq(skuAllocations.id, args.allocationId),
-        eq(skuAllocations.state, "allocated"),
+        eq(skuAllocations.state, expected),
       ),
     );
   return "bound";

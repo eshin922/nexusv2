@@ -34,7 +34,6 @@ const rows = await sql`
   from sku_allocations a
   left join users u on u.id = a.allocated_by_user_id
   where a.state = 'conflicted'
-     or (a.state = 'allocated' and a.note like 'dispatched:%')
   order by a.updated_at desc
 `;
 
@@ -46,8 +45,13 @@ if (rows.length === 0) {
 
 console.log(`\n${rows.length} unresolved SKU reservation(s):\n`);
 for (const r of rows) {
-  const dispatched = r.state === "allocated" && String(r.note ?? "").startsWith("dispatched:");
-  console.log(`  ${r.sku}   [${dispatched ? "DISPATCHED, NO OUTCOME" : String(r.state).toUpperCase()}]`);
+  // A claim still in flight and a settled failure are BOTH `conflicted` --
+  // both unresolved, both refusing further creates. The note is what tells a
+  // reader which; nothing reads it for control flow.
+  const inflight = String(r.note ?? "").startsWith("inflight:");
+  console.log(
+    `  ${r.sku}   [${inflight ? "CLAIMED, NO OUTCOME RECORDED" : "UNRESOLVED"}]`,
+  );
   console.log(`    allocation   ${r.id}`);
   console.log(`    intent       ${r.attempt_key}`);
   console.log(`    by           ${r.allocated_by ?? "unknown"} at ${r.allocated_at?.toISOString?.() ?? r.allocated_at}`);
@@ -61,6 +65,10 @@ console.log(
   [
     "These are held, not lost. Each number stays spent -- reserved SKUs are",
     "never reissued -- and creation on them is refused until resolved.",
+    "",
+    "CLAIMED, NO OUTCOME RECORDED means a create was claimed and the process",
+    "did not survive to record what happened. The request may or may not have",
+    "reached HubSpot, which is why it is held rather than retried.",
     "",
     "To resolve one: search HubSpot for the SKU above.",
     "  * a product carrying it exists  -> the create landed. Decide whether that",
