@@ -67,6 +67,15 @@ export const ERR = {
    * row they believed they were editing.
    */
   STALE_WRITE: "STALE_WRITE",
+  /**
+   * The product carries an edit whose remote outcome was never confirmed.
+   *
+   * A business refusal. Ordinary editing is declined because the remote state
+   * is unknown: writing over it would overwrite whatever is actually there --
+   * including a SKU the catalog may have assigned that Nexus never recorded.
+   * The remedy is to recover the preserved edit, not to try a different one.
+   */
+  UNCONFIRMED_EDIT: "UNCONFIRMED_EDIT",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().

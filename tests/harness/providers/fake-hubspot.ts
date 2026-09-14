@@ -44,6 +44,18 @@ let productSequence = 0;
  */
 const productStore = new Map<string, Record<string, string>>();
 
+/**
+ * A write that has not finished yet.
+ *
+ * A request that times out is not a request that stopped. The read-back can
+ * legitimately show the product unchanged and the write can land afterwards,
+ * which is the case that makes "the read-back says nothing changed" a
+ * statement about a MOMENT rather than an outcome. Armed by the `late`
+ * scenario and applied by the first read that follows it -- so that read sees
+ * the old state, and every later one sees the new.
+ */
+const deferredWrites = new Map<string, Record<string, string>>();
+
 export function __fakeHubspotProduct(id: string): Record<string, string> | null {
   const p = productStore.get(id);
   return p ? { ...p } : null;
@@ -135,6 +147,7 @@ export function resetFakeHubSpot() {
   dealAmounts.clear();
   productSequence = 0;
   productStore.clear();
+  deferredWrites.clear();
 }
 
 export const fakeHubSpot: HubSpotOperations = {
@@ -256,6 +269,30 @@ export const fakeHubSpot: HubSpotOperations = {
       throw Object.assign(new Error("socket hang up"), { code: undefined });
     }
 
+    // UNCERTAIN, and the write applied IN PART. The read-back will not match
+    // the requested state, and it will not show the product unchanged either
+    // -- so neither "it landed" nor "nothing happened" is true of it.
+    if (scenario() === "product-update-partial") {
+      const partial: Record<string, string> = {};
+      if (properties.name !== undefined) partial.name = properties.name;
+      applyMerge(hubspotProductId, current, partial);
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    // UNCERTAIN now, APPLIED shortly afterwards. Armed here and released by
+    // the next read, so the read-back that adjudicates this failure sees the
+    // product unchanged and every read after it sees the write.
+    if (scenario() === "product-update-late") {
+      deferredWrites.set(hubspotProductId, { ...properties });
+      throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    // A write that takes a long time. Used to hold the edit's lock open while
+    // something else queues behind it.
+    if (scenario() === "product-update-slow") {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
     // UNCERTAIN, and the read-back ALSO fails -- genuinely indeterminate.
     if (scenario() === "product-update-indeterminate") {
       throw Object.assign(new Error("socket hang up"), { code: undefined });
@@ -279,12 +316,21 @@ export const fakeHubSpot: HubSpotOperations = {
       throw new Error("HubSpot fake read failure");
     }
     const p = productStore.get(hubspotProductId);
-    if (!p) return null;
+    // Answer from the state as it stands, THEN release any deferred write.
+    // The adjudicating read sees the product unchanged; the next one sees the
+    // write that was still in flight when it was asked.
+    const answer = p ? { ...p } : null;
+    const late = deferredWrites.get(hubspotProductId);
+    if (late) {
+      deferredWrites.delete(hubspotProductId);
+      applyMerge(hubspotProductId, p ?? {}, late);
+    }
+    if (!answer) return null;
     return {
       id: hubspotProductId,
       archived: false,
       properties: Object.fromEntries(
-        Object.entries(p).map(([k, v]) => [k, v === "" ? null : v]),
+        Object.entries(answer).map(([k, v]) => [k, v === "" ? null : v]),
       ),
     };
   },

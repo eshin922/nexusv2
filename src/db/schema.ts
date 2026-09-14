@@ -2740,6 +2740,57 @@ export const leaves = pgTable(
   ],
 );
 
+/**
+ * An edit whose remote outcome was never confirmed.
+ *
+ * A read-back that does not match the requested state establishes exactly one
+ * thing: the requested state is NOT CONFIRMED. It does not establish that
+ * nothing changed -- the write may have applied in part, or the product may
+ * hold values something else put there.
+ *
+ * Discarding the edit at that point loses the only record of what was
+ * attempted and leaves the next edit free to overwrite a remote state nobody
+ * has looked at. Keeping it means a retry replays THE RECORDED EDIT rather
+ * than re-sending whatever is on screen later, which may be different.
+ *
+ * At most one OPEN attempt per leaf (partial unique index): two competing
+ * records of what a product is supposed to be cannot both be recovered.
+ */
+export const leafEditAttempts = pgTable(
+  "leaf_edit_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leafId: uuid("leaf_id")
+      .notNull()
+      .references(() => leaves.id, { onDelete: "cascade" }),
+    hubspotProductId: text("hubspot_product_id"),
+    /** What the operator asked for, in Nexus terms. A retry replays this. */
+    attempted: jsonb("attempted").notNull(),
+    /** What was sent to HubSpot, as properties. */
+    submitted: jsonb("submitted").notNull(),
+    /**
+     * What HubSpot held when read back, or NULL when the read-back could not
+     * be performed. NULL is "not observed", never "absent".
+     */
+    observed: jsonb("observed"),
+    /** `unconfirmed` | `diverged` */
+    outcome: text("outcome").notNull(),
+    reason: text("reason").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolution: text("resolution"),
+  },
+  (t) => [
+    uniqueIndex("leaf_edit_attempts_open_idx")
+      .on(t.leafId)
+      .where(sql`resolved_at is null`),
+    index("leaf_edit_attempts_leaf_idx").on(t.leafId, t.createdAt),
+  ],
+);
+
 // ---------- assembly_leaves (M:N junction; Phase A.1 v2) ----------
 
 // Junction table linking assemblies (per-quote ASYs) to leaves

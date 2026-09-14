@@ -47,6 +47,7 @@ export function EditProductModal({
   target,
   typeOptions,
   save,
+  recover,
   onClose,
   onSaved,
 }: {
@@ -54,6 +55,15 @@ export function EditProductModal({
   target: EditProductTarget | null;
   typeOptions: ProductTypeOption[];
   save: UpdateProductService;
+  /**
+   * Settle an edit whose remote outcome was never confirmed.
+   *
+   * Separate from `save` because it is a different operation: it replays the
+   * RECORDED attempt rather than submitting what is on screen, and the SKU is
+   * pinned. Without it the refusal names a remedy the operator has no control
+   * for -- which is the shape of the original defect, one layer up.
+   */
+  recover?: UpdateProductService;
   onClose: () => void;
   onSaved: (leafId: string) => void;
 }) {
@@ -62,7 +72,9 @@ export function EditProductModal({
   const [url, setUrl] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const [hsType, setHsType] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code: string; message: string } | null>(
+    null,
+  );
   const [pending, startSave] = useTransition();
 
   // The SKU is ESTABLISHED if the product already had one when the form
@@ -81,6 +93,31 @@ export function EditProductModal({
   }, [open, target]);
 
   if (!open || !target) return null;
+
+  function submitRecovery() {
+    if (!target || !recover) return;
+    setError(null);
+    const fd = new FormData();
+    fd.set("leafId", target.leafId);
+    // The correctable fields travel; the SKU does not. A recorded attempt can
+    // be unrecoverable on its own terms -- a value that could not be stored is
+    // in the record and fails identically on every replay -- so the operator
+    // can amend those. The SKU is the identity-bearing field and is pinned
+    // server-side to what was recorded, or to what HubSpot was seen to hold.
+    fd.set("name", name.trim());
+    fd.set("url", url.trim());
+    fd.set("unitCost", unitCost.trim());
+    fd.set("hubspotProductType", hsType);
+    startSave(async () => {
+      const res = await recover(fd);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onSaved(res.data.leafId);
+      onClose();
+    });
+  }
 
   function submit() {
     if (!target) return;
@@ -101,7 +138,7 @@ export function EditProductModal({
       if (!res.ok) {
         // Stays open, with the reason where the click happened, and the
         // control usable again. A synchronization failure is retryable.
-        setError(res.error.message);
+        setError(res.error);
         return;
       }
       onSaved(res.data.leafId);
@@ -227,7 +264,7 @@ export function EditProductModal({
                 lineHeight: 1.45,
               }}
             >
-              {error}
+              {error.message}
             </p>
           )}
         </div>
@@ -244,12 +281,29 @@ export function EditProductModal({
           >
             Cancel
           </button>
+          {error?.code === "UNCONFIRMED_EDIT" && recover && (
+            <button
+              type="button"
+              className="a1v2-btn"
+              data-testid="edit-product-recover"
+              onClick={submitRecovery}
+              disabled={pending}
+            >
+              {pending ? "Recovering…" : "Recover the unconfirmed edit"}
+            </button>
+          )}
           <button
             type="button"
             className="a1v2-btn primary"
             data-testid="edit-product-save"
             onClick={submit}
-            disabled={pending || name.trim() === ""}
+            disabled={
+              pending ||
+              name.trim() === "" ||
+              // Saving over an unconfirmed remote state is the thing being
+              // prevented; the way forward is the recovery beside it.
+              error?.code === "UNCONFIRMED_EDIT"
+            }
           >
             {pending ? "Saving…" : "Save product"}
           </button>

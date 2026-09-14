@@ -5304,19 +5304,63 @@ neither substitutes for the other:
 Both are falsified in `scripts/gate-1b/library-edit-walk.ts`: with either
 removed, the corresponding case fails.
 
-**Still open — a database-level SKU constraint.** The advisory lock is an
-application-level guarantee. The structural one is a unique partial index on
-`leaves.sku`, which is a TIGHTENING migration against the shared production
-database and needs a duplicate survey first. Not attempted here.
+**Still open — catalog-wide SKU uniqueness.** Explicitly OPEN, and not closed
+by this work.
+
+The advisory lock makes `updateLeaf` safe against itself. It does not make the
+catalog unique, because it is not the only writer:
+
+| writer | enforces uniqueness |
+|---|---|
+| `updateLeaf` | yes — checked under a SKU lock |
+| `createLeaf` | **no** |
+| `pullProductsBatch` | **no** — writes HubSpot's value verbatim |
+| `leaves_sku_idx` | **no** — the index is not unique |
+
+The structural guarantee is a unique partial index on `leaves.sku`. The
+read-only survey (`scripts/gate-1b/sku-duplicate-survey.ts`, run against
+production 2026-09-13) found **1110 products, 1050 carrying a SKU, 0 duplicate
+groups** on either the raw or the normalised value — so the index *would* build
+today.
+
+It is still not proposed. Two of the three writers do not enforce uniqueness, so
+the index would start refusing writes those paths currently make: that is a
+change to their behaviour, not a constraint on data, and it belongs with the
+work that makes them enforce it. Uniqueness stays open until every writer does.
 
 **HubSpot failure handling.** An update that fails is adjudicated rather than
 assumed. A 4xx is a rejection and "nothing was changed" may be stated. Anything
-else is UNCERTAIN and the product is read back by id: if the values landed, the
-local row catches up and the audit records `hubspot_reconciled`; if they did
-not, the refusal says a read-back established it; if the read-back ALSO fails,
-the refusal says the outcome is unknown and does not claim otherwise. If HubSpot
-applies and the local transaction then fails, the operator is told the two
-disagree — not that nothing happened.
+else is UNCERTAIN and the product is read back by id.
+
+A read-back that does not match establishes exactly one thing: **the requested
+state is not confirmed.** It does not establish that nothing changed — the write
+may have applied in part, or the product may hold values something else put
+there. So the edit is PRESERVED in `leaf_edit_attempts` rather than discarded,
+and:
+
+- ordinary editing of that product is refused until the attempt is settled,
+  because writing over an unconfirmed remote state would overwrite whatever is
+  actually there — including a SKU the catalog may have issued that Nexus never
+  recorded. Local state cannot answer that, since local state is exactly what
+  failed to be written;
+- recovery replays **the recorded edit**, not whatever is on screen later. It
+  re-reads the product first, because a request that timed out is not a request
+  that stopped and the write may have completed late;
+- the SKU is pinned during recovery; the correctable fields may be amended,
+  because a recorded attempt can be unrecoverable on its own terms and
+  replaying it verbatim would lock the product behind its own attempt forever.
+
+If HubSpot applies and the local transaction then fails, the operator is told
+the two disagree — not that nothing happened — and the attempt is preserved the
+same way.
+
+**The refresh participates in the same contract.** `pullProductsBatch` writes
+the same columns the edit authors. It now takes the same leaf lock AND a
+version compare-and-swap against the row as it stood when the refresh read it.
+The lock alone is not sufficient: the batch and the row are both read before
+the lock is requested, so acquiring it says nothing about what changed while
+queueing for it. Rows declined as stale are counted and named in the batch
+audit rather than silently skipped.
 
 **Out of scope, and still open:** repair of existing production records. 58
 Library leaves currently hold no SKU, 7 of them already attached to quotes.

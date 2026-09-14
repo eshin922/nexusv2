@@ -52,6 +52,7 @@ const ok: UpdateProductService = async () => ({
 function view(over: {
   target?: EditProductTarget;
   save?: UpdateProductService;
+  recover?: UpdateProductService;
   onSaved?: (id: string) => void;
   onClose?: () => void;
 }) {
@@ -61,6 +62,7 @@ function view(over: {
       target={over.target ?? skuLess}
       typeOptions={TYPES}
       save={over.save ?? ok}
+      recover={over.recover}
       onClose={over.onClose ?? (() => {})}
       onSaved={over.onSaved ?? (() => {})}
     />
@@ -274,5 +276,89 @@ test("a stale-write refusal is shown, and the operator's edit is not lost", asyn
   // The typing survives the refusal, so re-applying is a reload away rather
   // than a retype.
   assert.equal((m.byTestId("edit-sku") as HTMLInputElement).value, "DPS-MISTR-1006");
+  await m.unmount();
+});
+
+// ── an unconfirmed edit is recoverable, and not writable over ─────────────
+
+const unconfirmed: UpdateProductService = async () => ({
+  ok: false,
+  error: {
+    code: "UNCONFIRMED_EDIT",
+    message:
+      "An earlier edit to this product was never confirmed in HubSpot, so what HubSpot holds is not known to match what Nexus holds. HubSpot currently holds the SKU \"DPS-9\" for this product. Recover that edit before making another.",
+  },
+});
+
+test("an unconfirmed edit offers recovery instead of another save", async () => {
+  // The original defect was a refusal naming a mechanism that did not exist.
+  // A refusal that says "recover that edit" with no control to do it is the
+  // same defect one layer up.
+  const m = await mount(view({ save: unconfirmed, recover: ok }));
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+
+  const err = m.byTestId("edit-product-error");
+  assert.match(err!.textContent ?? "", /never confirmed/);
+  assert.ok(m.byTestId("edit-product-recover"), "the remedy must be reachable");
+  assert.equal(
+    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
+    true,
+    "saving over an unconfirmed remote state is the thing being prevented",
+  );
+  await m.unmount();
+});
+
+test("the refusal names the SKU HubSpot already holds", async () => {
+  // Local state cannot answer what the catalog issued -- local state is
+  // exactly what failed to be written -- so the refusal carries it.
+  const m = await mount(view({ save: unconfirmed, recover: ok }));
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  assert.match(m.byTestId("edit-product-error")!.textContent ?? "", /DPS-9/);
+  await m.unmount();
+});
+
+test("recovery sends the correctable fields and NOT the SKU", async () => {
+  // A recorded attempt can be unrecoverable on its own terms, so the operator
+  // may amend the correctable fields. The SKU is pinned server-side; the form
+  // must not offer one, or a recovery becomes a way to change identity.
+  const calls: Record<string, string>[] = [];
+  const recover: UpdateProductService = async (fd) => {
+    calls.push(Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v)])));
+    return { ok: true, data: { leafId: "leaf-1", syncedToHubspot: true } };
+  };
+  const m = await mount(view({ save: unconfirmed, recover }));
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  await m.type('[data-testid="edit-unit-cost"]', "2.50");
+  await m.click('[data-testid="edit-product-recover"]');
+  await flush();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].leafId, "leaf-1");
+  assert.equal(calls[0].unitCost, "2.50", "a correctable field travels");
+  assert.equal("sku" in calls[0], false, "the identity-bearing field does not");
+  await m.unmount();
+});
+
+test("no recovery control is offered for an ordinary failure", async () => {
+  const m = await mount(
+    view({
+      save: async () => ({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "bad" },
+      }),
+      recover: ok,
+    }),
+  );
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  assert.equal(m.byTestId("edit-product-recover"), null);
+  assert.equal(
+    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
+    false,
+    "an ordinary failure stays retryable",
+  );
   await m.unmount();
 });

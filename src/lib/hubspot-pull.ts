@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, leaves, users } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
@@ -40,6 +40,13 @@ export type PullBatchResult = {
   added: number;
   updated: number;
   archivedCount: number;
+  /**
+   * Products this refresh declined to overwrite because they changed after
+   * its snapshot was taken. Reported rather than silently dropped: a refresh
+   * that quietly skips products is indistinguishable from one with nothing
+   * to do.
+   */
+  skippedStale: number;
   nextAfter: string | null;
   rootAuditId: string;
   timings: PullBatchTimings;
@@ -85,6 +92,7 @@ export async function pullProductsBatch(
           added: 0,
           updated: 0,
           archived: 0,
+          skipped_stale: 0,
           started_at: startedAt.toISOString(),
           completed_at: new Date().toISOString(),
           next_after: null,
@@ -108,6 +116,7 @@ export async function pullProductsBatch(
       added: 0,
       updated: 0,
       archivedCount: 0,
+      skippedStale: 0,
       nextAfter: null,
       rootAuditId: rootAudit,
       timings,
@@ -137,13 +146,16 @@ export async function pullProductsBatch(
       id: leaves.id,
       hubspotProductId: leaves.hubspotProductId,
       archived: leaves.archived,
+      // The version this refresh OBSERVED. Carried into the transaction so
+      // the write can be conditional on the row not having moved since.
+      updatedAt: leaves.updatedAt,
     })
     .from(leaves)
     .where(inArray(leaves.hubspotProductId, productIds));
   const existingByHubspotId = new Map(
     existing.map((e) => [
       e.hubspotProductId as string,
-      { id: e.id, wasArchived: e.archived },
+      { id: e.id, wasArchived: e.archived, observedVersion: e.updatedAt },
     ]),
   );
   const lookupMs = Math.round(performance.now() - lookupStartedAt);
@@ -163,6 +175,14 @@ export async function pullProductsBatch(
   let added = 0;
   let updated = 0;
   let archivedCount = 0;
+  /**
+   * Rows this refresh DECLINED to overwrite because they changed after its
+   * snapshot was taken. Counted and reported rather than silently skipped: a
+   * refresh that quietly drops products is indistinguishable from one that
+   * had nothing to do.
+   */
+  let skippedStale = 0;
+  const skippedProductIds: string[] = [];
   let rootAuditId = "";
 
   const databaseStartedAt = performance.now();
@@ -189,6 +209,22 @@ export async function pullProductsBatch(
     // PVS-020: issue independent per-product mutations together so postgres-js
     // can pipeline them on the transaction connection. The former serial loop
     // paid one network round trip per Product before the UI saw batch progress.
+    // Locks taken UP FRONT and in sorted order. Two refreshes running
+    // concurrently would otherwise request the same set in whatever order
+    // their promises happened to resolve, which is a deadlock with no
+    // deterministic trigger. An edit only ever holds one leaf lock and then a
+    // SKU lock, and takes no second leaf lock, so it cannot close a cycle
+    // with this.
+    const lockIds = mappedEntries
+      .map(({ mapped }) => existingByHubspotId.get(mapped.hubspotProductId)?.id)
+      .filter((id): id is string => Boolean(id))
+      .sort();
+    for (const id of lockIds) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`leaf:${id}`}, 0))`,
+      );
+    }
+
     await Promise.all(mappedEntries.map(async ({ mapped }) => {
       const prev = existingByHubspotId.get(mapped.hubspotProductId);
 
@@ -203,7 +239,25 @@ export async function pullProductsBatch(
         // hubspotProductType IS written, because it is HubSpot's own
         // classification stored verbatim rather than a translation of it. The
         // two columns coexist; neither derives from the other.
-        await tx
+        // ── THE REFRESH PARTICIPATES IN THE EDIT CONTRACT ───────────
+        //
+        // This writes the same columns the Library edit authors, so it has to
+        // be bound by the same two rules -- otherwise the lock an edit takes
+        // protects it from other edits and from nothing else.
+        //
+        // The LOCK serialises against an in-flight edit. Without it the
+        // refresh can land between an edit's read and its write, and the edit
+        // -- whose version check has already passed -- then overwrites the
+        // refresh.
+        //
+        // The VERSION is what makes the lock sufficient. The batch and this
+        // row were both read BEFORE the lock was requested, so waiting for it
+        // means waiting while the row may change. Acquiring the lock proves
+        // nothing about what happened while queueing for it; only the version
+        // does. `WHERE updated_at = <observed>` is a compare-and-swap: if the
+        // row moved, zero rows are affected and the stale snapshot is
+        // declined rather than applied over the newer edit.
+        const claimed = await tx
           .update(leaves)
           .set({
             name: mapped.name,
@@ -219,7 +273,22 @@ export async function pullProductsBatch(
             hubspotProductType: mapped.hubspotProductType,
             updatedAt: new Date(),
           })
-          .where(eq(leaves.id, prev.id));
+          .where(
+            prev.observedVersion
+              ? and(
+                  eq(leaves.id, prev.id),
+                  eq(leaves.updatedAt, prev.observedVersion),
+                )
+              : eq(leaves.id, prev.id),
+          )
+          .returning({ id: leaves.id });
+
+        if (claimed.length === 0) {
+          skippedStale++;
+          skippedProductIds.push(mapped.hubspotProductId);
+          return;
+        }
+
         updated++;
         if (mapped.archived) archivedCount++;
 
@@ -304,6 +373,11 @@ export async function pullProductsBatch(
           added,
           updated,
           archived: archivedCount,
+          // Named in the audit, not only returned. A refresh that declined to
+          // overwrite newer edits made a decision, and the record has to show
+          // which products it left alone.
+          skipped_stale: skippedStale,
+          skipped_product_ids: skippedProductIds,
           started_at: startedAt.toISOString(),
           completed_at: new Date().toISOString(),
           next_after: batch.nextAfter,
@@ -334,6 +408,7 @@ export async function pullProductsBatch(
     added,
     updated,
     archivedCount,
+    skippedStale,
     nextAfter: batch.nextAfter,
     rootAuditId,
     timings,
