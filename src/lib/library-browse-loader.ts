@@ -98,6 +98,13 @@ export type LibraryBrowseRow = {
   // no longer filters archived out; client derives readiness from
   // (archived flag, target-ASY membership).
   archived: boolean;
+  /**
+   * The row version the operator is looking at, for optimistic
+   * concurrency on edit. Sent back with the edit and compared under the
+   * lock: an edit built on a superseded read is refused rather than
+   * silently overwriting whatever moved in between.
+   */
+  updatedAt: string | null;
   totalRefs: number;
   totalScenarios: number;
   attachedAssemblyIdsInTargetQuote: string[];
@@ -407,6 +414,7 @@ export async function loadLibraryBrowse(
       url: r.url,
       hubspotProductId: r.hubspotProductId,
       archived: r.archived,
+      updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
       // The gate's own verdict, not a re-derivation of it — and BOTH
       // destinations, because the modal's "adding to" target changes on the
       // client without a refetch. Precomputing one would go stale, and having

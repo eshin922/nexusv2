@@ -5238,3 +5238,165 @@ warning.
 This is why O5 does not certify a multi-value specification. Its scope asked
 for one *if the live schema provides one*; it does not, and inventing a field
 to cover it would have certified a fixture rather than the product.
+
+## Library products could not be edited after creation — FIXED (#567)
+
+**Operator report (2026-09-13).** Products created in the Library could not
+be corrected afterwards. A product created without a SKU was stranded: the
+Library refused to attach it, and the refusal named a mechanism that did not
+exist.
+
+**What the refusal said, and why it was worse than a plain failure:**
+
+> This product has no SKU, so its downstream item identity is unavailable and
+> it cannot be sent to NetSuite. **Add a SKU to the product in the Library**,
+> then attach it.
+
+The instruction was correct about what was needed and wrong about it being
+available. `src/app/actions/leaves.ts` exported `createLeaf`, `restoreLeaf`
+and two reads. There was no update path at all, so the sentence named a
+workflow that had never been built — and an operator following it looked for
+a control that was not there, which is a more expensive failure than being
+told plainly that nothing could be done.
+
+**The second half of the defect: the pencil went somewhere else.** The only
+edit-looking affordance on a Library row was a pencil, and it opened the
+SPECIFICATION editor. So a product whose NAME or SKU was wrong offered the
+universal "edit this thing" icon, and it led to a form about something else.
+The absence of a product edit and the mislabelling of the specs control
+compounded: there was no way in, and the thing that looked like the way in
+was a different door.
+
+**Fixed by:**
+
+- `updateLeaf` — name, classification, unit cost, URL, and the missing SKU.
+  HubSpot is written FIRST and a failure refuses the whole edit, so the local
+  row and HubSpot cannot disagree about a product's identity. Audited as
+  `leaf_updated`, with `sku_completed` marking the completion specifically.
+- Three row actions, three destinations: checklist → Edit specifications,
+  pencil → Edit product, plus → Add to quote / Add to item group *(named)*.
+- Completing a missing SKU is ordinary editing. REPLACING an established one
+  is refused here and stays a separate controlled correction — downstream
+  identity may already depend on it (quotes already sent, the NetSuite item
+  it resolves to).
+- Uniqueness is enforced on the NORMALIZED value across the whole catalog, so
+  `edit-mu0f...` cannot join `EDIT-MU0F...`.
+- The edit reaches future attachments only. Quote snapshots and spec pins are
+  historical records of what a quote was built from and are not rewritten —
+  and the surface states that, with the count of quotes it will not touch,
+  rather than leaving the operator to infer it.
+
+**Concurrency.** The edit takes two transaction-scoped advisory locks — one on
+the leaf, one on the normalised SKU being claimed — and checks the row version
+the form was loaded from before writing. Each covers a different failure, and
+neither substitutes for the other:
+
+- The SKU lock stops two products completing the SAME SKU at once.
+  `leaves_sku_idx` is not unique, so the uniqueness check is otherwise a read
+  with nothing holding the value between the check and the write, and both
+  claimants commit.
+- The version check stops a lost update. Serialising two edits decides their
+  ORDER; it does not stop the second from carrying a whole row built on a read
+  taken before the first. Both still succeed and the earlier change is simply
+  gone. The leaf lock is what makes the version comparison and the write see
+  the same row.
+
+Both are falsified in `scripts/gate-1b/library-edit-walk.ts`: with either
+removed, the corresponding case fails.
+
+**Still open — catalog-wide SKU uniqueness.** Explicitly OPEN, and not closed
+by this work.
+
+The advisory lock makes `updateLeaf` safe against itself. It does not make the
+catalog unique, because it is not the only writer:
+
+| writer | enforces uniqueness |
+|---|---|
+| `updateLeaf` | yes — checked under a SKU lock |
+| `createLeaf` | **no** |
+| `pullProductsBatch` | **no** — writes HubSpot's value verbatim |
+| `leaves_sku_idx` | **no** — the index is not unique |
+
+The structural guarantee is a unique partial index on `leaves.sku`. The
+read-only survey (`scripts/gate-1b/sku-duplicate-survey.ts`, run against
+production 2026-09-13) found **1110 products, 1050 carrying a SKU, 0 duplicate
+groups** on either the raw or the normalised value — so the index *would* build
+today.
+
+It is still not proposed. Two of the three writers do not enforce uniqueness, so
+the index would start refusing writes those paths currently make: that is a
+change to their behaviour, not a constraint on data, and it belongs with the
+work that makes them enforce it. Uniqueness stays open until every writer does.
+
+**HubSpot failure handling, and the remedy.** An update that fails is
+adjudicated rather than assumed. A 4xx is a rejection and "nothing was changed"
+may be stated. Anything else is UNCERTAIN, and the product is read back by id:
+if the values landed, the local row catches up; if they did not, or the
+read-back itself fails, the outcome is not confirmed and that is all that is
+claimed.
+
+**The edit is saved before the request is sent.** A record written after a
+failure is written too late twice over: the failed transaction releases its
+lock before the record exists, so another edit can write over an unconfirmed
+remote state, and a process that dies during the call leaves no trace at all.
+
+**The remedy is an identical replay.** `retryLeafEdit` re-sends exactly what
+was submitted — the product id and nothing from the current form. It reads the
+product first, so a request that completed late costs no second write. A
+DIFFERENT edit is refused until the saved one has gone through.
+
+**Answered and unanswered failures are different, and are treated differently.**
+A retry succeeding establishes that *a request carrying those values* was
+accepted. It establishes nothing about an earlier request that was never
+answered and may still be in flight — and releasing the claim would let a
+different edit follow, which that earlier request could land on top of.
+
+| the failure | what is outstanding | the remedy |
+|---|---|---|
+| **answered** — HubSpot applied it, the local write failed (`diverged`) | nothing | retry; it releases; the product is editable again with no decision required |
+| **unanswered** — no response, or a read-back that settles nothing (`unconfirmed`) | possibly the original request | retry converges both catalogs (`converged_unknown`) and the product **stays held**; releasing is a recorded decision |
+
+**Why there is no confirmation step and no amendment path.** An earlier design
+let the operator amend while retrying. That makes the retry a *different*
+request, which reintroduces the ordering hazard, and managing it needed a
+confirmation read — which establishes agreement at an instant, not that an
+older request can no longer arrive. Removing amendments removes the hazard at
+its root.
+
+**Operational consequence, and the support procedure.** After an *unanswered*
+failure the product takes no new edits until the saved one is retried, and the
+retry converges the values without releasing the block. Releasing it is
+`npm run admin:release-unanswered`, which requires a leaf, a user and a written
+reason, and records all three.
+
+**The residual risk.** That release does not establish that the original
+request finished — nothing available does. HubSpot CRM publishes no
+request-status API, no conditional writes and no maximum request lifetime, so
+neither another read nor more waiting is evidence. After release, the next
+different edit to that product can be overwritten by the original landing late,
+and the two catalogs would then disagree with nothing reporting it.
+
+**The probability is not quantified and cannot be from here.** Nothing in this
+design should be read as a claim that the window is short, that the situation
+is rare, or that the exposure is small — those would be guesses wearing the
+clothes of evidence. What is known: the values at stake are the ones already
+saved, and a divergence is repairable by editing the product again once someone
+notices.
+
+**This is a release decision, and it is open.** The alternative to the recorded
+admin release is automatic release on retry success — simpler for operators,
+and it accepts the same unquantified risk silently instead of deliberately.
+Recommendation: keep the admin step, so the acceptance is conscious and
+attributed. If the unanswered case turns out to be frequent enough that the
+step becomes a burden, that is the signal to revisit.
+
+**Out of scope, and still open:** repair of existing production records. 58
+Library leaves currently hold no SKU, 7 of them already attached to quotes.
+Nothing here backfills them; the surface now makes correcting them possible,
+and which of them SHOULD be corrected is a separate data decision.
+
+**Unproven, and left that way.** Two `MISTR - 4oz Lube Silicone` products exist,
+created 31 seconds apart with different HubSpot ids. That is confirmed. The
+absent edit path is a plausible cause and is NOT established as the cause;
+nothing in the record connects them, and the story being coherent is not
+evidence. The duplicates are reported; their origin is open.

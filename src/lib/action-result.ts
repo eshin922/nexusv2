@@ -55,6 +55,46 @@ export const ERR = {
    */
   PRICING_STALE: "PRICING_STALE",
   COSTS_STALE: "COSTS_STALE",
+  /**
+   * An edit was submitted against a version of a row that has since moved.
+   *
+   * A business refusal, not a fault, and the same family as the two above. It
+   * exists because serialising concurrent edits is not enough on its own: a
+   * form carries a WHOLE row, so a second operator submitting from a stale
+   * read overwrites fields they never touched -- silently, with both writes
+   * succeeding and one change simply gone. A lock decides the ORDER; only a
+   * version check decides whether the second writer was still describing the
+   * row they believed they were editing.
+   */
+  STALE_WRITE: "STALE_WRITE",
+  /**
+   * The product carries an edit whose remote outcome was never confirmed.
+   *
+   * A business refusal. Ordinary editing is declined because the remote state
+   * is unknown: writing over it would overwrite whatever is actually there --
+   * including a SKU the catalog may have assigned that Nexus never recorded.
+   * The remedy is to recover the preserved edit, not to try a different one.
+   */
+  UNCONFIRMED_EDIT: "UNCONFIRMED_EDIT",
+  /**
+   * A recovery was accepted remotely, and an earlier request to the same
+   * product may still land after it.
+   *
+   * Separate from UNCONFIRMED_EDIT because the remedy is different: there is
+   * nothing left to retry, only something to CHECK. Offering "recover" here
+   * would invite re-sending a request that already succeeded, which is how the
+   * ordering hazard gets worse rather than better.
+   */
+  /**
+   * An amended recovery moved the remote state while an older request to the
+   * same product may still be in flight, and nothing available establishes
+   * that it can no longer arrive.
+   *
+   * Not a transient state to retry past. Editing stays blocked until a
+   * reconciliation basis exists -- see ORDERING_RECONCILIATION_REQUIREMENTS.
+   * Reading the product again reports a moment, which is not the same claim.
+   */
+  ORDERING_UNRESOLVED: "ORDERING_UNRESOLVED",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().

@@ -3,8 +3,15 @@ import { Client } from "@hubspot/api-client";
 import type {
   HubSpotProductCreateInput,
   HubSpotProductCreateResult,
+  HubSpotProductUpdateInput,
+  HubSpotProductSnapshot,
+  HubspotWriteOutcome,
 } from "@/lib/integrations/hubspot-provider";
-import { normalizeHubSpotProductCreateInput } from "@/lib/integrations/hubspot-provider";
+import {
+  normalizeHubSpotProductCreateInput,
+  toHubSpotProductUpdateProperties,
+  classifyHubspotWriteOutcome,
+} from "@/lib/integrations/hubspot-provider";
 import {
   composeContactName,
   selectContact,
@@ -41,12 +48,23 @@ export type ProductDetail = ProductSummary & {
 
 export class HubspotError extends Error {
   readonly cause?: unknown;
-  constructor(message: string, cause?: unknown) {
+  readonly status: number | null;
+  readonly outcome: HubspotWriteOutcome;
+  constructor(
+    message: string,
+    cause?: unknown,
+    outcome: HubspotWriteOutcome = "uncertain",
+    status: number | null = null,
+  ) {
     super(message);
     this.name = "HubspotError";
     this.cause = cause;
+    this.outcome = outcome;
+    this.status = status;
   }
 }
+
+
 
 let _readClient: Client | null = null;
 let _writeClient: Client | null = null;
@@ -678,6 +696,46 @@ export async function getProduct(productId: string): Promise<ProductDetail | nul
   };
 }
 
+/**
+ * Read a product's raw properties back by id.
+ *
+ * Distinct from `getProduct`, which projects a `ProductDetail` for display.
+ * Reconciling an uncertain write needs the properties AS SUBMITTED, because
+ * the question being asked is "did the values I sent land", and a projection
+ * that renames or drops fields cannot answer it.
+ *
+ * Returns null ONLY for an authoritative 404. Any other failure throws: a read
+ * that could not be performed is not evidence that the product is absent, and
+ * a caller that conflates the two will report a deletion it never observed.
+ */
+export async function getProductSnapshot(
+  productId: string,
+): Promise<HubSpotProductSnapshot | null> {
+  const c = getProductsClient();
+  try {
+    const p = await c.crm.products.basicApi.getById(productId, [
+      ...PRODUCT_PROPERTIES,
+    ]);
+    const props = (p.properties ?? {}) as Record<string, string | null | undefined>;
+    const properties: Record<string, string | null> = {};
+    for (const [k, v] of Object.entries(props)) properties[k] = v ?? null;
+    return {
+      id: p.id,
+      archived: Boolean((p as { archived?: boolean }).archived),
+      properties,
+    };
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code;
+    if (code === 404) return null;
+    throw new HubspotError(
+      `Failed to read product ${productId}`,
+      err,
+      "uncertain",
+      typeof code === "number" ? code : null,
+    );
+  }
+}
+
 // Phase 1 — exact-match SKU lookup for the modal's blur duplicate
 // check. Returns the first product whose hs_sku === sku. The
 // search-by-keyword path doesn't enforce exact matching (it does
@@ -773,6 +831,89 @@ export async function listProducts(opts: {
   }
 }
 
+/**
+ * Update an existing product. Mirrors `createProduct` deliberately -- same
+ * normalization, same property filtering, same error surfacing -- so the two
+ * cannot drift into treating the same input differently.
+ *
+ * The id is the subject, never a property. `hs_object_id` is read-only and a
+ * PATCH carrying it would be refused; the record is addressed by path.
+ */
+/**
+ * Surface the SDK's status + HubSpot-side reason, so the action layer can tell
+ * an operator WHY (HBS-2 CB smoke observation, 2026-06-15).
+ *
+ * Defensive about shape: `@hubspot/api-client` may carry `.code` (HTTP status)
+ * and `.body.message` (HubSpot reason); a fetch error carries only `.message`.
+ * Raw text is capped at 200 characters so a verbose response body does not end
+ * up inline in an error a person has to read.
+ *
+ * Shared by create and update deliberately. They are the same class of failure
+ * and an operator should not have to learn two vocabularies for it -- and a
+ * duplicated handler is one that drifts.
+ */
+function describeHubspotProductError(
+  operation: "create" | "updateProduct",
+  err: unknown,
+): HubspotError {
+  const status =
+    typeof (err as { code?: unknown })?.code === "number"
+      ? (err as { code: number }).code
+      : null;
+  const hubBody = (err as { body?: { message?: unknown } })?.body;
+  const hubMessage =
+    hubBody && typeof hubBody.message === "string" ? hubBody.message : null;
+  const fallbackMessage = err instanceof Error ? err.message : String(err);
+  const composed = [status ? `HTTP ${status}` : null, hubMessage ?? fallbackMessage]
+    .filter(Boolean)
+    .join(" · ");
+  const detail = composed.length > 200 ? composed.slice(0, 197) + "…" : composed;
+  const verb = operation === "create" ? "create" : "update";
+  return new HubspotError(
+    detail || `Failed to ${verb} HubSpot product`,
+    err,
+    classifyHubspotWriteOutcome(status),
+    status,
+  );
+}
+
+/**
+ * Update an existing product IN PLACE.
+ *
+ * Only the fields the caller addressed are sent. An omitted field is left
+ * alone; an explicit null clears. See `toHubSpotProductUpdateProperties` for
+ * why an update cannot reuse the create input, and why no price is
+ * transmitted here.
+ */
+export async function updateProduct(
+  hubspotProductId: string,
+  input: HubSpotProductUpdateInput,
+): Promise<HubSpotProductCreateResult> {
+  const c = getProductsClient();
+  const properties = toHubSpotProductUpdateProperties(input);
+  if (Object.keys(properties).length === 0)
+    throw new HubspotError(
+      "updateProduct requires at least one property",
+      undefined,
+      "rejected",
+    );
+  try {
+    const resp = await c.crm.products.basicApi.update(hubspotProductId, {
+      properties,
+    });
+    return {
+      id: resp.id,
+      hs_sku: resp.properties?.hs_sku ?? null,
+      name: resp.properties?.name ?? properties.name ?? "",
+      price: resp.properties?.price ?? null,
+      submittedProperties: { ...properties },
+      responseBody: JSON.parse(JSON.stringify(resp)) as Record<string, unknown>,
+    };
+  } catch (err) {
+    throw describeHubspotProductError("updateProduct", err);
+  }
+}
+
 export async function createProduct(
   input: HubSpotProductCreateInput,
 ): Promise<HubSpotProductCreateResult> {
@@ -798,31 +939,7 @@ export async function createProduct(
       responseBody: JSON.parse(JSON.stringify(resp)) as Record<string, unknown>,
     };
   } catch (err) {
-    // Surface the SDK's status + HubSpot-side reason so the
-    // action-layer error message tells PM *why* (HBS-2 CB smoke
-    // observation, 2026-06-15). Defensive against multiple SDK
-    // error shapes: @hubspot/api-client may carry `.code` (HTTP
-    // status) + `.body.message` (HubSpot reason); fetch errors
-    // carry just `.message`. Cap raw text at 200 chars to avoid
-    // dumping verbose response bodies inline.
-    const status =
-      typeof (err as { code?: unknown })?.code === "number"
-        ? (err as { code: number }).code
-        : null;
-    const hubBody = (err as { body?: { message?: unknown } })?.body;
-    const hubMessage =
-      hubBody && typeof hubBody.message === "string" ? hubBody.message : null;
-    const fallbackMessage =
-      err instanceof Error ? err.message : String(err);
-    const composed = [
-      status ? `HTTP ${status}` : null,
-      hubMessage ?? fallbackMessage,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const detail =
-      composed.length > 200 ? composed.slice(0, 197) + "…" : composed;
-    throw new HubspotError(detail || "Failed to create HubSpot product", err);
+    throw describeHubspotProductError("create", err);
   }
 }
 

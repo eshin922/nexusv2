@@ -2740,6 +2740,103 @@ export const leaves = pgTable(
   ],
 );
 
+/**
+ * An edit whose remote outcome was never confirmed.
+ *
+ * A read-back that does not match the requested state establishes exactly one
+ * thing: the requested state is NOT CONFIRMED. It does not establish that
+ * nothing changed -- the write may have applied in part, or the product may
+ * hold values something else put there.
+ *
+ * Discarding the edit at that point loses the only record of what was
+ * attempted and leaves the next edit free to overwrite a remote state nobody
+ * has looked at. Keeping it means a retry replays THE RECORDED EDIT rather
+ * than re-sending whatever is on screen later, which may be different.
+ *
+ * At most one OPEN attempt per leaf (partial unique index): two competing
+ * records of what a product is supposed to be cannot both be recovered. That
+ * index is also what makes the pre-call insert a CLAIM -- a concurrent edit
+ * cannot open a second one.
+ *
+ * The row is written and committed BEFORE the remote call, not after it fails.
+ * Recording it afterwards leaves two holes: the edit's lock is released by the
+ * rollback before the record exists, so another edit can slip in and write
+ * over the unconfirmed state; and a process that dies between the request and
+ * the record leaves no trace of it at all.
+ */
+export const leafEditAttempts = pgTable(
+  "leaf_edit_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leafId: uuid("leaf_id")
+      .notNull()
+      .references(() => leaves.id, { onDelete: "cascade" }),
+    hubspotProductId: text("hubspot_product_id"),
+    /** What the operator asked for, in Nexus terms. A recovery replays this. */
+    attempted: jsonb("attempted").notNull(),
+    /** What was sent to HubSpot, as properties. */
+    submitted: jsonb("submitted").notNull(),
+    /**
+     * What HubSpot held when read back, or NULL when the read-back could not
+     * be performed. NULL is "not observed", never "absent".
+     */
+    observed: jsonb("observed"),
+    /**
+     * `pending` | `diverged` | `unconfirmed` | `converged_unknown`
+     *
+     * The distinction that matters is ANSWERED vs UNANSWERED, not applied vs
+     * not-applied -- see `unanswered`.
+     */
+    outcome: text("outcome").notNull().default("pending"),
+    reason: text("reason"),
+    /**
+     * Requests dispatched, and requests answered. An attempt has an unresolved
+     * request whenever `dispatchedCount > answeredCount`.
+     *
+     * Counted rather than flagged: a flag cannot preserve an EARLIER
+     * unresolved request when a later one is answered. A retry returning 2xx
+     * answers itself and nothing else, so (2,1) still has one outstanding --
+     * the case a boolean would clear.
+     *
+     * `dispatchedCount` is incremented BEFORE the request is sent, in the
+     * committed claim transaction. Incrementing it afterwards would leave a
+     * process interrupted mid-call looking as though it never dispatched, so
+     * a retry would release it.
+     *
+     * `answeredCount` is incremented ONLY on a definitive response for that
+     * request. A read-back showing the values present is evidence about the
+     * object, not about which request put them there, so it does not count.
+     */
+    dispatchedCount: integer("dispatched_count").notNull().default(0),
+    answeredCount: integer("answered_count").notNull().default(0),
+    /** Set by the documented support procedure; the residual risk accepted. */
+    releasedWithRiskBy: uuid("released_with_risk_by"),
+    releasedWithRiskAt: timestamp("released_with_risk_at", { withTimezone: true }),
+    releasedWithRiskNote: text("released_with_risk_note"),
+    /**
+     * Claimed by whoever is working the attempt. A retry takes it, and every
+     * later write carries it, so a worker whose claim has been taken over
+     * cannot resolve or alter it.
+     */
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolution: text("resolution"),
+  },
+  (t) => [
+    uniqueIndex("leaf_edit_attempts_open_idx")
+      .on(t.leafId)
+      .where(sql`resolved_at is null`),
+    index("leaf_edit_attempts_leaf_idx").on(t.leafId, t.createdAt),
+  ],
+);
+
 // ---------- assembly_leaves (M:N junction; Phase A.1 v2) ----------
 
 // Junction table linking assemblies (per-quote ASYs) to leaves

@@ -294,7 +294,7 @@ test("the Library's visible Type is HubSpot's classification, not the Nexus taxo
   );
 });
 
-test("Library Edit specs is a subordinate control, not a peer or a column", async () => {
+test("Library row actions are three distinct controls, subordinate to Add", async () => {
   const src = await read("src/components/library/library-browse-modal.tsx");
   // Inside the existing action cell — no sixth column, no widened modal.
   assert.match(src, /className="lib-edit-specs lib-icon-btn"/);
@@ -303,16 +303,29 @@ test("Library Edit specs is a subordinate control, not a peer or a column", asyn
   assert.doesNotMatch(src, /target="_blank"/);
   // Keyboard-reachable with an explicit accessible name; discoverability never
   // depends on hover.
-  assert.match(src, /aria-label=\{`Edit default specs for \$\{row\.name\}`\}/);
-  // Both controls carry their own accessible name, because the glyph is
+  assert.match(src, /aria-label=\{`Edit specifications for \$\{row\.name\}`\}/);
+  // THREE actions, three destinations. The pencil is the product edit; it was
+  // previously the SPECS control, which is why a product with a wrong name or
+  // a missing SKU offered the universal edit affordance and it went somewhere
+  // else. Each carries its own accessible name, because the glyph is
   // aria-hidden and a "+" would otherwise be the whole label.
-  assert.match(src, /aria-label=\{`Add product \$\{row\.name\}`\}/);
+  assert.match(src, /aria-label=\{`Edit product \$\{row\.name\}`\}/);
+  assert.match(src, /className="lib-edit-product lib-icon-btn"/);
+  // The add control names its DESTINATION, which differs by mode: "add" alone
+  // does not say where, and the two destinations are different acts.
+  assert.match(src, /`Add \$\{row\.name\} to quote`/);
+  assert.match(src, /`Add \$\{row\.name\} to item group/);
   const css = await read("src/styles/r-a1v2-overrides.css");
   // The hit target is the control, not the glyph, and focus is visible on both.
   assert.match(css, /\.lib-icon-btn \{[^}]*width: 28px;[^}]*height: 28px/);
   assert.match(css, /\.lib-icon-btn:focus-visible \{[^}]*outline: 2px solid var\(--accent\)/);
-  // Secondary is outlined rather than filled, so it cannot read as a peer.
-  assert.match(css, /\.lib-edit-specs\.lib-icon-btn \{[^}]*background: none/);
+  // Secondary is outlined rather than filled, so it cannot read as a peer of
+  // Add -- and BOTH edit controls take that treatment, so the pencil cannot
+  // inherit the bare default and read as a different kind of control.
+  assert.match(
+    css,
+    /\.lib-edit-specs\.lib-icon-btn,\s*\n\.lib-edit-product\.lib-icon-btn \{[^}]*background: none/,
+  );
 });
 
 test("the Library spec editor stacks over the browse modal", async () => {
