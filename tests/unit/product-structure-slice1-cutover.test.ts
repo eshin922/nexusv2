@@ -317,6 +317,11 @@ const classifiedIdentityFiles = new Set([
   // and rewrites no snapshot, so there is no quote-side identity for it to
   // resolve or to confuse with the leaf's own.
   "src/components/library/edit-product-modal.tsx",
+  // CLASSIFIED -- canonical only. The HubSpot refresh keys leaves by
+  // `hubspot_product_id` and by `leaves.id`; `leafId` appears because it reads
+  // `leaf_edit_attempts.leaf_id` to see which products carry an unsettled edit
+  // claim it must not write over. No junction, no per-SKU economics.
+  "src/lib/hubspot-pull.ts",
   // CLASSIFIED — read-only evidence, canonical only. The B-3 falsification
   // harness builds fixtures keyed by (quote_id, leaf_id) and never touches the
   // legacy junction or maps between identity spaces.
@@ -479,6 +484,11 @@ const classifiedIdentityFiles = new Set([
   // `attachQuoteProduct` and reads back `quote_leaves.id`. It resolves no legacy
   // junction and derives no economics from one.
   "scripts/gate-1b/library-edit-walk.ts",
+  // CLASSIFIED -- the child half of the #567 interruption case. Canonical
+  // identity only: it takes a `leafId` on argv and calls `updateLeaf`. It
+  // resolves no junction and derives no economics; its entire purpose is to be
+  // killed mid-flight so the parent can assert what survived.
+  "scripts/gate-1b/library-edit-interrupt-child.ts",
   // CLASSIFIED — read-only Case 6 Mixed proof harness. Queries `assembly_leaves`
   // DELIBERATELY, and that is the point of the case: it must prove a top-level
   // Direct Product acquires NO junction while its Item Group siblings keep

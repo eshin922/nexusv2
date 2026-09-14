@@ -340,25 +340,21 @@ export type LeafEditOutcome = {
   syncedToHubspot: boolean;
   /**
    * How the HubSpot write was ESTABLISHED to have ended, not how it appeared
-   * to end. `reconciled` means the call failed and a read-back proved it had
-   * applied anyway; `recovered` means a previously unconfirmed attempt was
-   * replayed and settled.
+   * to end.
+   *
+   *   applied        the call returned
+   *   reconciled     the call failed and a read-back proved it had applied
+   *   already_held   a recovery read the product first and found the recorded
+   *                  values already there -- nothing was re-sent
+   *   recovered      a recovery re-sent the recorded edit and it applied
+   *   not_linked     the product has no HubSpot counterpart
    */
-  hubspotOutcome: "applied" | "reconciled" | "recovered" | "not_linked";
-};
-
-/**
- * An edit whose remote outcome was never confirmed, kept so it can be
- * recovered rather than guessed at later.
- */
-type RecordableAttempt = {
-  leafId: string;
-  hubspotProductId: string | null;
-  attempted: LeafEditValues;
-  submitted: Record<string, string>;
-  observed: Record<string, string | null> | null;
-  outcome: "unconfirmed" | "diverged";
-  reason: string;
+  hubspotOutcome:
+    | "applied"
+    | "reconciled"
+    | "already_held"
+    | "recovered"
+    | "not_linked";
 };
 
 function describeObservedSku(
@@ -370,265 +366,357 @@ function describeObservedSku(
   return ` HubSpot currently holds the SKU "${remote}" for this product.`;
 }
 
-async function recordAttempt(userId: string, a: RecordableAttempt): Promise<void> {
-  // Its OWN transaction. The edit's transaction has rolled back by the time
-  // this runs -- that is precisely why there is something to record -- so
-  // writing the attempt inside it would roll the record back too.
-  await db.transaction(async (tx) => {
-    await tx
-      .insert(leafEditAttempts)
-      .values({
-        leafId: a.leafId,
-        hubspotProductId: a.hubspotProductId,
-        attempted: a.attempted,
-        submitted: a.submitted,
-        observed: a.observed,
-        outcome: a.outcome,
-        reason: a.reason,
-        createdBy: userId,
-      })
-      // One OPEN attempt per product. A second would mean two competing
-      // records of what the product is supposed to be, and a recovery could
-      // not say which it was recovering. The first one stands until resolved.
-      .onConflictDoNothing();
-    await writeAuditEntry(
-      {
-        userId,
-        entityType: "leaf",
-        entityId: a.leafId,
-        action: "leaf_edit_unconfirmed",
-        diffJson: {
-          outcome: a.outcome,
-          reason: a.reason,
-          attempted: a.attempted,
-          submitted: a.submitted,
-          observed: a.observed,
-          hubspot_product_id: a.hubspotProductId,
-        },
-      },
-      tx,
-    );
-  });
-}
-
 /**
- * The core of an edit, shared by the operator's save and by the recovery of a
- * previously unconfirmed one.
+ * The core of an edit, shared by the operator's save and by the recovery of an
+ * edit whose remote outcome was never confirmed.
  *
- * `recovery` is the open attempt being replayed. When it is set, the open
- * attempt does NOT block the write -- it is the thing being resolved.
+ * ── THREE PHASES, AND WHY THE MIDDLE ONE HOLDS NO TRANSACTION ────────────
+ *
+ *   A · claim      lock, validate, and COMMIT the intent. Short.
+ *   B · remote     the HubSpot call. No lock, no transaction, no connection.
+ *   C · settle     lock again, write locally, resolve the intent. Short.
+ *
+ * The intent is committed in A -- before the request is issued -- because a
+ * record written after a failure is written too late twice over. A's rollback
+ * would release the lock before the record existed, letting another edit write
+ * over an unconfirmed remote state; and a process that dies during B would
+ * leave no trace at all. A committed `pending` row closes both: it is a claim
+ * other writers can see, and it outlives the process that made it.
+ *
+ * It also removes the cost the previous shape had to pay -- a database
+ * connection held open across a remote round trip.
  */
 async function applyLeafEdit(opts: {
   userId: string;
   leafId: string;
   values: LeafEditValues;
   expectedVersion: string | null;
-  recovery: { id: string } | null;
+  recovery: { id: string; version: number } | null;
 }): Promise<LeafEditOutcome> {
-  const { userId, leafId, values, expectedVersion, recovery } = opts;
-  const { name, sku, url, unitCost, hubspotProductType } = values;
+  const { userId, leafId, expectedVersion, recovery } = opts;
   const { hubspot } = await getApplicationDependencies();
 
-  let hubspotApplied = false;
-  let hubspotReconciled = false;
-  let attemptToRecord: RecordableAttempt | null = null;
+  const lockLeaf = sql`select pg_advisory_xact_lock(hashtextextended(${`leaf:${leafId}`}, 0))`;
 
-  try {
-    const result = await db.transaction(async (tx) => {
-      // ── CONCURRENCY ─────────────────────────────────────────────────
-      //
-      // Two locks, in a fixed order (leaf, then SKU) so they cannot deadlock.
-      //
-      // The LEAF lock serialises the whole edit -- validation, the HubSpot
-      // call and the local write -- and is what makes the version comparison
-      // below and the write that follows it see the same row.
-      //
-      // The SKU lock covers the CLAIM. `leaves_sku_idx` is not unique, so the
-      // uniqueness check is otherwise a read with nothing holding the value
-      // between the check and the write: two products completing the same SKU
-      // concurrently both pass and both commit.
-      //
-      // The cost is honest: a database connection is held across a HubSpot
-      // round trip. At this pool size that is acceptable for an
-      // operator-paced edit, and it is the price of not losing a claim.
+  // ── PHASE A · CLAIM ───────────────────────────────────────────────────
+  const claim = await db.transaction(async (tx) => {
+    await tx.execute(lockLeaf);
+    if (opts.values.sku !== null) {
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`leaf:${leafId}`}, 0))`,
+        sql`select pg_advisory_xact_lock(hashtextextended(${`sku:${opts.values.sku.toUpperCase()}`}, 0))`,
       );
-      if (sku !== null) {
-        await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${`sku:${sku.toUpperCase()}`}, 0))`,
+    }
+
+    // Re-read UNDER the lock. The row read before it may already have moved.
+    const [existing] = await tx
+      .select()
+      .from(leaves)
+      .where(eq(leaves.id, leafId))
+      .limit(1);
+    if (!existing) throw new ActionGuardError(ERR.NOT_FOUND, "Product not found.");
+
+    const [open] = await tx
+      .select()
+      .from(leafEditAttempts)
+      .where(
+        and(eq(leafEditAttempts.leafId, leafId), isNull(leafEditAttempts.resolvedAt)),
+      )
+      .limit(1);
+
+    if (recovery) {
+      // ── THE RECOVERY MUST STILL BE THE OPEN ONE ──────────────────────
+      //
+      // Checked HERE, under the lock, not when the attempt was loaded. A
+      // recovery that read an open attempt and then queued behind another
+      // recovery of the same attempt would otherwise find it resolved,
+      // satisfy "no open attempt", and proceed -- skipping the version
+      // protection it is exempt from precisely because it was supposed to be
+      // replaying a live one.
+      if (!open || open.id !== recovery.id) {
+        throw new ActionGuardError(
+          ERR.STALE_WRITE,
+          "This unconfirmed edit has already been settled, by another recovery " +
+            "or by someone else. Nothing was sent. Reload the product to see " +
+            "where it ended up.",
         );
       }
-
-      // Re-read UNDER the lock. The row read before it is a row that may
-      // already have moved.
-      const [existing] = await tx
-        .select()
-        .from(leaves)
-        .where(eq(leaves.id, leafId))
-        .limit(1);
-      if (!existing) throw new ActionGuardError(ERR.NOT_FOUND, "Product not found.");
-
-      // ── AN UNRESOLVED ATTEMPT BLOCKS ORDINARY EDITING ───────────────
+      // ── CLAIM THE RECOVERY, DO NOT MERELY OBSERVE IT ─────────────────
       //
-      // The product has a remote state nobody has confirmed. Editing over it
-      // would overwrite whatever is actually there -- including, specifically,
-      // a SKU that HubSpot may have assigned or accepted while Nexus does not
-      // know about it. Local state cannot answer that question, because local
-      // state is exactly what failed to be written.
-      const [open] = await tx
-        .select()
-        .from(leafEditAttempts)
+      // Reading "still open" is not enough. The attempt is not resolved until
+      // phase C, so two recoveries that both read it here BOTH see it open,
+      // both pass, and both send -- the lock serialises them and changes
+      // nothing, because neither has done anything the other can see.
+      //
+      // Bumping the version under the lock is the thing the other one can
+      // see. The second names a version that no longer matches, matches zero
+      // rows, and stops before the remote call.
+      const claimed = await tx
+        .update(leafEditAttempts)
+        .set({ version: open.version + 1, updatedAt: new Date() })
         .where(
           and(
-            eq(leafEditAttempts.leafId, leafId),
+            eq(leafEditAttempts.id, recovery.id),
+            eq(leafEditAttempts.version, recovery.version),
             isNull(leafEditAttempts.resolvedAt),
           ),
         )
-        .limit(1);
-      if (open && open.id !== recovery?.id) {
-        const observed = open.observed as Record<string, string | null> | null;
+        .returning({ id: leafEditAttempts.id });
+      if (claimed.length === 0) {
         throw new ActionGuardError(
-          ERR.UNCONFIRMED_EDIT,
-          "An earlier edit to this product was never confirmed in HubSpot, so " +
-            "what HubSpot holds is not known to match what Nexus holds." +
-            describeObservedSku(observed) +
-            " Recover that edit before making another -- editing over an " +
-            "unconfirmed state would overwrite whatever is actually there.",
+          ERR.STALE_WRITE,
+          "This unconfirmed edit has already been settled, or is being " +
+            "recovered by someone else. Nothing was sent. Reload the product " +
+            "to see where it ended up.",
         );
       }
-
-      // ── OPTIMISTIC CONCURRENCY ──────────────────────────────────────
+    } else if (open && open.outcome === "pending") {
+      // A CLAIM THAT HAS NOT COME BACK. Which is all that is known.
       //
-      // Checked INSIDE the lock, the only place the answer is stable. A
-      // recovery skips it: it is replaying a recorded edit, not submitting
-      // one written against a version of the row.
-      if (!recovery) {
-        const currentVersion = existing.updatedAt
-          ? new Date(existing.updatedAt).toISOString()
-          : null;
-        if (currentVersion !== expectedVersion) {
-          throw new ActionGuardError(
-            ERR.STALE_WRITE,
-            "This product changed while you were editing it. Nothing was saved, " +
-              "because saving would have overwritten that change with the values " +
-              "you loaded before it. Reload the product and re-apply your edit.",
-          );
-        }
-      }
+      // It may be an edit still running, or one whose process died between
+      // its remote call and its local write. Nothing at read time separates
+      // those, and a timer would not separate them either -- it would just
+      // dress a guess up as a fact. So the refusal claims neither.
+      //
+      // Recovery is offered for both, because recovering is safe against a
+      // live edit as well as an abandoned one: it takes the claim exclusively
+      // by version, and phase C resolves conditionally, so whichever settles
+      // first wins and the other aborts before writing anything.
+      throw new ActionGuardError(
+        ERR.UNCONFIRMED_EDIT,
+        "This product has an edit that was claimed and has not been settled. " +
+          "It may still be running, or it may have been interrupted -- nothing " +
+          "here can tell those apart. Nothing was saved. Try again in a moment, " +
+          "or recover the claimed edit if it was interrupted.",
+      );
+    } else if (open) {
+      // An unresolved attempt blocks ordinary editing: the product has a
+      // remote state nobody has confirmed, and editing over it would
+      // overwrite whatever is actually there -- including a SKU HubSpot may
+      // have issued that Nexus never recorded. Local state cannot answer
+      // that, because local state is exactly what failed to be written.
+      const observed = open.observed as Record<string, string | null> | null;
+      throw new ActionGuardError(
+        ERR.UNCONFIRMED_EDIT,
+        "An earlier edit to this product was never confirmed in HubSpot, so " +
+          "what HubSpot holds is not known to match what Nexus holds." +
+          describeObservedSku(observed) +
+          " Recover that edit before making another -- editing over an " +
+          "unconfirmed state would overwrite whatever is actually there.",
+      );
+    }
 
-      const hadSku = hasUsableSku(existing.sku);
-      if (hadSku && sku !== existing.sku) {
+    if (!recovery) {
+      const currentVersion = existing.updatedAt
+        ? new Date(existing.updatedAt).toISOString()
+        : null;
+      if (currentVersion !== expectedVersion) {
+        throw new ActionGuardError(
+          ERR.STALE_WRITE,
+          "This product changed while you were editing it. Nothing was saved, " +
+            "because saving would have overwritten that change with the values " +
+            "you loaded before it. Reload the product and re-apply your edit.",
+        );
+      }
+    }
+
+    // A recovery's values come from the PERSISTED attempt, amendments
+    // included, read here under the lock. Not from the caller's memory: an
+    // amendment accepted in one request and applied from another process's
+    // copy is an amendment that can be lost.
+    const values: LeafEditValues = recovery
+      ? {
+          ...(open!.attempted as LeafEditValues),
+          ...((open!.amended as Partial<LeafEditValues> | null) ?? {}),
+          // Never amendable. The SKU is the identity-bearing field and is the
+          // reason ordinary editing is blocked in the first place.
+          sku: (open!.attempted as LeafEditValues).sku,
+        }
+      : opts.values;
+
+    const hadSku = hasUsableSku(existing.sku);
+    if (hadSku && values.sku !== existing.sku) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `This product's SKU is already established as "${existing.sku}". ` +
+          "Downstream identity may depend on it -- quotes already sent, and the " +
+          "NetSuite item it resolves to -- so replacing it is a separate " +
+          "controlled correction, not an ordinary edit.",
+      );
+    }
+
+    if (values.sku !== null) {
+      const normalized = values.sku.toUpperCase();
+      const clash = await tx
+        .select({ id: leaves.id, name: leaves.name, sku: leaves.sku })
+        .from(leaves)
+        .where(
+          sql`upper(btrim(${leaves.sku})) = ${normalized} and ${leaves.id} <> ${leafId}`,
+        )
+        .limit(1);
+      if (clash.length > 0) {
         throw new ActionGuardError(
           ERR.VALIDATION,
-          `This product's SKU is already established as "${existing.sku}". ` +
-            "Downstream identity may depend on it -- quotes already sent, and the " +
-            "NetSuite item it resolves to -- so replacing it is a separate " +
-            "controlled correction, not an ordinary edit.",
+          `SKU "${values.sku}" already belongs to "${clash[0].name}". A SKU ` +
+            "identifies one product; two products cannot share one.",
         );
       }
 
-      if (sku !== null) {
-        // Uniqueness on the COMPLETE NORMALIZED value, across the catalog. A
-        // brand prefix is formatting; it is not the constraint.
-        const normalized = sku.toUpperCase();
-        const clash = await tx
-          .select({ id: leaves.id, name: leaves.name, sku: leaves.sku })
-          .from(leaves)
-          .where(
-            sql`upper(btrim(${leaves.sku})) = ${normalized} and ${leaves.id} <> ${leafId}`,
-          )
-          .limit(1);
-        if (clash.length > 0) {
+      // ── AN OPEN ATTEMPT IS ALSO A CLAIM ON ITS SKU ─────────────────
+      //
+      // `leaves.sku` does not carry the claim until phase C, so two products
+      // completing the same SKU at once BOTH read it free -- the SKU lock
+      // serialises them and they still both pass, because the first has not
+      // written anything the second can see. The attempt row is what the
+      // first wrote, and checking it is what makes the lock mean something.
+      //
+      // It also covers the case `leaves` never will: a claim whose process
+      // died mid-flight still holds the SKU until someone settles it.
+      const claimedElsewhere = await tx
+        .select({
+          id: leafEditAttempts.id,
+          leafId: leafEditAttempts.leafId,
+          attempted: leafEditAttempts.attempted,
+        })
+        .from(leafEditAttempts)
+        .where(
+          and(
+            isNull(leafEditAttempts.resolvedAt),
+            sql`${leafEditAttempts.leafId} <> ${leafId}`,
+            sql`upper(btrim(coalesce(${leafEditAttempts.amended}->>'sku', ${leafEditAttempts.attempted}->>'sku'))) = ${normalized}`,
+          ),
+        )
+        .limit(1);
+      if (claimedElsewhere.length > 0) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `SKU "${values.sku}" is already claimed by another product whose edit ` +
+            "is in progress or unconfirmed. A SKU identifies one product; that " +
+            "claim has to be settled before this one can take it.",
+        );
+      }
+    }
+
+    const update = mapLeafToHubspotUpdate(values);
+    const submitted = toHubSpotProductUpdateProperties(update);
+
+    // THE CLAIM ITSELF. Committed with this transaction, before anything is
+    // sent. The partial unique index makes it exclusive.
+    let attemptId = recovery?.id ?? null;
+    if (!recovery) {
+      const [row] = await tx
+        .insert(leafEditAttempts)
+        .values({
+          leafId,
+          hubspotProductId: existing.hubspotProductId,
+          attempted: values,
+          submitted,
+          outcome: "pending",
+          createdBy: userId,
+        })
+        .returning({ id: leafEditAttempts.id });
+      attemptId = row.id;
+    }
+
+    return {
+      attemptId: attemptId!,
+      existing,
+      values,
+      update,
+      submitted,
+      hadSku,
+    };
+  });
+
+  // ── PHASE B · REMOTE ──────────────────────────────────────────────────
+  const { attemptId, existing, values, update, submitted, hadSku } = claim;
+  const productId = existing.hubspotProductId;
+  let hubspotOutcome: LeafEditOutcome["hubspotOutcome"] = "not_linked";
+
+  if (productId) {
+    // A RECOVERY READS BEFORE IT WRITES.
+    //
+    // The outstanding request may have completed after the read-back that
+    // failed to see it -- a request that timed out is not a request that
+    // stopped. Re-sending would work by idempotence, but it would also mean
+    // this path never actually establishes what HubSpot holds, and a case
+    // that only passes because the write is repeatable is not evidence that
+    // the read happened.
+    let alreadyHeld = false;
+    if (recovery) {
+      try {
+        const snap = await hubspot.getProduct(productId);
+        alreadyHeld = Boolean(snap && hubspotUpdateLanded(snap, update));
+      } catch {
+        // Unreadable. Fall through and send; the outcome is adjudicated the
+        // same way any other uncertain write is.
+      }
+    }
+
+    if (alreadyHeld) {
+      hubspotOutcome = "already_held";
+    } else {
+      try {
+        await hubspot.updateProduct(productId, update);
+        hubspotOutcome = recovery ? "recovered" : "applied";
+      } catch (e) {
+        const verdict = hubspotWriteOutcomeOf(e);
+        const detail = e instanceof Error ? e.message : String(e);
+
+        if (verdict === "rejected") {
+          // HubSpot answered and refused. Nothing applied -- so the claim is
+          // released rather than left standing over a product that never
+          // moved.
+          await settleAttempt(attemptId, {
+            resolution: "rejected",
+            reason: detail,
+          });
           throw new ActionGuardError(
-            ERR.VALIDATION,
-            `SKU "${sku}" already belongs to "${clash[0].name}". A SKU identifies ` +
-              "one product; two products cannot share one.",
+            ERR.HUBSPOT,
+            `HubSpot refused the update, so nothing was changed. ${detail}`,
           );
         }
-      }
 
-      // ── HUBSPOT ─────────────────────────────────────────────────────
-      const update = mapLeafToHubspotUpdate({
-        name,
-        sku,
-        unitCost,
-        url,
-        hubspotProductType,
-      });
-      const submitted = toHubSpotProductUpdateProperties(update);
-
-      if (existing.hubspotProductId) {
-        const productId = existing.hubspotProductId;
+        let observed: Record<string, string | null> | null = null;
+        let readable = true;
         try {
-          await hubspot.updateProduct(productId, update);
-          hubspotApplied = true;
-        } catch (e) {
-          const outcome = hubspotWriteOutcomeOf(e);
-          const detail = e instanceof Error ? e.message : String(e);
-
-          if (outcome === "rejected") {
-            // HubSpot answered and refused. "Nothing was changed" is
-            // established here, so it is safe to say -- and there is nothing
-            // unconfirmed to preserve.
-            throw new ActionGuardError(
-              ERR.HUBSPOT,
-              `HubSpot refused the update, so nothing was changed. ${detail}`,
-            );
-          }
-
-          // UNCERTAIN. Adjudicated against the product itself, BY ITS
-          // EXISTING ID -- which is also what makes a retry safe: the update
-          // is idempotent and cannot mint a second product.
-          let snapshot: Awaited<ReturnType<typeof hubspot.getProduct>> | null = null;
-          let readable = true;
-          try {
-            snapshot = await hubspot.getProduct(productId);
-          } catch {
-            readable = false;
-          }
-
-          if (readable && snapshot && hubspotUpdateLanded(snapshot, update)) {
-            hubspotApplied = true;
-            hubspotReconciled = true;
+          const snap = await hubspot.getProduct(productId);
+          observed = snap?.properties ?? null;
+          if (snap && hubspotUpdateLanded(snap, update)) {
+            hubspotOutcome = "reconciled";
           } else {
-            // NOT CONFIRMED -- which is all that has been established.
-            //
-            // This is NOT "nothing changed". The write may have applied in
-            // part; the product may hold values something else put there;
-            // the read may not have happened at all. Each of those is a
-            // different fact and none of them is "unchanged", so the edit is
-            // PRESERVED rather than discarded and the message says what is
-            // actually known.
-            attemptToRecord = {
-              leafId,
-              hubspotProductId: productId,
-              attempted: values,
-              submitted,
-              observed: readable ? (snapshot?.properties ?? null) : null,
-              outcome: "unconfirmed",
-              reason: readable
-                ? `read-back did not match the requested state: ${detail}`
-                : `read-back could not be performed: ${detail}`,
-            };
+            readable = true;
+            await markUnconfirmed(attemptId, observed, true, detail);
             throw new ActionGuardError(
               ERR.HUBSPOT,
-              readable
-                ? "HubSpot did not confirm this update. Reading the product back " +
-                  "shows it does NOT hold the requested values -- it may have " +
-                  "applied in part, or hold values from elsewhere. Nexus was not " +
-                  "changed. Your edit has been kept: recover it to retry exactly " +
-                  `what you asked for. (${detail})`
-                : "HubSpot did not confirm this update and could not be read back, " +
-                  "so whether it applied is UNKNOWN. Nexus was not changed. Your " +
-                  "edit has been kept: recover it to retry exactly what you asked " +
-                  `for. (${detail})`,
+              "HubSpot did not confirm this update. Reading the product back " +
+                "shows it does NOT hold the requested values -- it may have " +
+                "applied in part, or hold values from elsewhere. Nexus was not " +
+                "changed. Your edit has been kept: recover it to retry exactly " +
+                `what you asked for. (${detail})`,
             );
           }
+        } catch (readErr) {
+          if (readErr instanceof ActionGuardError) throw readErr;
+          readable = false;
+          await markUnconfirmed(attemptId, null, false, detail);
+          throw new ActionGuardError(
+            ERR.HUBSPOT,
+            "HubSpot did not confirm this update and could not be read back, " +
+              "so whether it applied is UNKNOWN. Nexus was not changed. Your " +
+              "edit has been kept: recover it to retry exactly what you asked " +
+              `for. (${detail})`,
+          );
         }
+        void readable;
       }
+    }
+  }
 
-      // ── LOCAL, ATOMIC WITH ITS AUDIT ────────────────────────────────
+  // ── PHASE C · SETTLE ──────────────────────────────────────────────────
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(lockLeaf);
+
       const before = {
         name: existing.name,
         sku: existing.sku,
@@ -637,24 +725,52 @@ async function applyLeafEdit(opts: {
         hubspot_product_type: existing.hubspotProductType,
       };
       const after = {
-        name,
-        sku,
-        url,
-        unit_cost: unitCost,
-        hubspot_product_type: hubspotProductType,
+        name: values.name,
+        sku: values.sku,
+        url: values.url,
+        unit_cost: values.unitCost,
+        hubspot_product_type: values.hubspotProductType,
       };
+
+      // RESOLVE FIRST, AND CONDITIONALLY. If this claim has already been
+      // settled -- by a recovery that overtook a slow live edit, or by
+      // anything else -- then this process no longer speaks for the product
+      // and must not write to it. Matching zero rows is the signal, and it
+      // has to be read before the row is touched rather than after.
+      const settled = await tx
+        .update(leafEditAttempts)
+        .set({
+          resolvedAt: new Date(),
+          resolution: hubspotOutcome,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(leafEditAttempts.id, attemptId),
+            isNull(leafEditAttempts.resolvedAt),
+          ),
+        )
+        .returning({ id: leafEditAttempts.id });
+      if (settled.length === 0) {
+        throw new ActionGuardError(
+          ERR.STALE_WRITE,
+          "This edit was settled by someone else while it was in flight. " +
+            "HubSpot holds what was sent; Nexus was not written by this " +
+            "attempt. Reload the product to see where it ended up.",
+        );
+      }
 
       await tx
         .update(leaves)
-        .set({ name, sku, url, unitCost, hubspotProductType, updatedAt: new Date() })
+        .set({
+          name: values.name,
+          sku: values.sku,
+          url: values.url,
+          unitCost: values.unitCost,
+          hubspotProductType: values.hubspotProductType,
+          updatedAt: new Date(),
+        })
         .where(eq(leaves.id, leafId));
-
-      if (recovery) {
-        await tx
-          .update(leafEditAttempts)
-          .set({ resolvedAt: new Date(), resolution: "recovered" })
-          .where(eq(leafEditAttempts.id, recovery.id));
-      }
 
       const changed = Object.keys(after).filter(
         (k) =>
@@ -672,73 +788,99 @@ async function applyLeafEdit(opts: {
             changed_fields: changed,
             before,
             after,
-            sku_completed: !hadSku && sku !== null,
-            hubspot_product_id: existing.hubspotProductId,
-            synced_to_hubspot: hubspotApplied,
-            hubspot_reconciled: hubspotReconciled,
-            recovered_attempt_id: recovery?.id ?? null,
+            sku_completed: !hadSku && values.sku !== null,
+            hubspot_product_id: productId,
+            synced_to_hubspot: productId !== null,
+            hubspot_outcome: hubspotOutcome,
+            attempt_id: attemptId,
+            submitted,
           },
         },
         tx,
       );
-
-      return {
-        leafId,
-        syncedToHubspot: hubspotApplied,
-        hubspotOutcome: (!existing.hubspotProductId
-          ? "not_linked"
-          : recovery
-            ? "recovered"
-            : hubspotReconciled
-              ? "reconciled"
-              : "applied") as LeafEditOutcome["hubspotOutcome"],
-      };
     });
-
-    revalidatePath("/");
-    return result;
   } catch (e) {
-    if (attemptToRecord) {
-      await recordAttempt(userId, attemptToRecord);
-      throw e;
-    }
-    // HubSpot moved and the local half did not. Reporting this as a plain
-    // failure would tell the operator nothing changed while one of the two
-    // catalogues already holds the new values -- and would leave the next
-    // edit free to overwrite them.
-    if (hubspotApplied && !(e instanceof ActionGuardError)) {
-      await recordAttempt(userId, {
-        leafId,
-        hubspotProductId: null,
-        attempted: values,
-        submitted: toHubSpotProductUpdateProperties(
-          mapLeafToHubspotUpdate({ name, sku, unitCost, url, hubspotProductType }),
-        ),
-        // HubSpot applied the requested values, so the requested state IS what
-        // it holds. Recorded as observed because that is what was established.
-        observed: Object.fromEntries(
-          Object.entries(
-            toHubSpotProductUpdateProperties(
-              mapLeafToHubspotUpdate({ name, sku, unitCost, url, hubspotProductType }),
-            ),
-          ).map(([k, v]) => [k, v === "" ? null : v]),
-        ),
-        outcome: "diverged",
-        reason: `local write failed after HubSpot applied: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
-      });
-      throw new ActionGuardError(
-        ERR.DATA_INTEGRITY,
-        "HubSpot was updated but Nexus could not record it, so the two now " +
-          "disagree about this product. Your edit has been kept: recover it to " +
-          "bring Nexus into line. Editing this product normally is blocked until " +
-          "then, so the values HubSpot already holds are not overwritten. " +
-          `(${e instanceof Error ? e.message : String(e)})`,
-      );
-    }
-    throw e;
+    // A deliberate abort is not a divergence: the claim was already settled
+    // by whoever won, and re-opening it would manufacture an unresolved state
+    // out of an orderly one.
+    if (e instanceof ActionGuardError) throw e;
+    // HubSpot moved and the local half did not. The claim STAYS OPEN, which
+    // is what keeps the next edit from overwriting values HubSpot already
+    // holds -- and it was already durable before any of this began.
+    await markDiverged(
+      attemptId,
+      Object.fromEntries(
+        Object.entries(submitted).map(([k, v]) => [k, v === "" ? null : v]),
+      ),
+      e instanceof Error ? e.message : String(e),
+    );
+    throw new ActionGuardError(
+      ERR.DATA_INTEGRITY,
+      "HubSpot was updated but Nexus could not record it, so the two now " +
+        "disagree about this product. Your edit has been kept: recover it to " +
+        "bring Nexus into line. Editing this product normally is blocked until " +
+        "then, so the values HubSpot already holds are not overwritten. " +
+        `(${e instanceof Error ? e.message : String(e)})`,
+    );
   }
+
+  revalidatePath("/");
+  return {
+    leafId,
+    syncedToHubspot: productId !== null,
+    hubspotOutcome,
+  };
+}
+
+/** Close a claim that turned out to protect nothing. */
+async function settleAttempt(
+  attemptId: string,
+  opts: { resolution: string; reason: string },
+): Promise<void> {
+  await db
+    .update(leafEditAttempts)
+    .set({
+      resolvedAt: new Date(),
+      resolution: opts.resolution,
+      reason: opts.reason,
+      updatedAt: new Date(),
+    })
+    .where(eq(leafEditAttempts.id, attemptId));
+}
+
+async function markUnconfirmed(
+  attemptId: string,
+  observed: Record<string, string | null> | null,
+  readable: boolean,
+  detail: string,
+): Promise<void> {
+  await db
+    .update(leafEditAttempts)
+    .set({
+      outcome: "unconfirmed",
+      observed,
+      reason: readable
+        ? `read-back did not match the requested state: ${detail}`
+        : `read-back could not be performed: ${detail}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(leafEditAttempts.id, attemptId));
+}
+
+async function markDiverged(
+  attemptId: string,
+  observed: Record<string, string | null>,
+  detail: string,
+): Promise<void> {
+  await db
+    .update(leafEditAttempts)
+    .set({
+      outcome: "diverged",
+      observed,
+      reason: `local write failed after HubSpot applied: ${detail}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(leafEditAttempts.id, attemptId));
 }
 
 function readLeafEditValues(formData: FormData): LeafEditValues {
@@ -816,15 +958,17 @@ export async function updateLeaf(
 /**
  * Recover an edit whose remote outcome was never confirmed.
  *
- * Replays THE RECORDED ATTEMPT. Not "PATCH the same product id again" -- the
- * values on screen may since have changed, and re-sending those would replace
- * an unconfirmed remote state with a different one rather than settling the
- * one that is actually outstanding.
+ * Replays THE RECORDED ATTEMPT, read under the lock at the moment it is
+ * applied -- not values carried from the request that composed it.
  *
  * The product is read back FIRST, because the outstanding write may have
- * completed late: a request that timed out is not a request that stopped.
- * If HubSpot already holds the recorded values, nothing is re-sent and the
- * local row simply catches up.
+ * completed late. If HubSpot already holds the recorded values, nothing is
+ * re-sent.
+ *
+ * Amendments are PERSISTED before anything is sent. A correction accepted in
+ * one request and applied from another process's memory is a correction that
+ * an interruption can lose, and the whole point of this path is that an
+ * interruption loses nothing.
  */
 export async function retryLeafEdit(
   formData: FormData,
@@ -836,80 +980,108 @@ export async function retryLeafEdit(
     const leafId = String(formData.get("leafId") ?? "").trim();
     if (!leafId) throw new ActionGuardError(ERR.VALIDATION, "leafId is required.");
 
-    const [open] = await db
-      .select()
-      .from(leafEditAttempts)
-      .where(
-        and(eq(leafEditAttempts.leafId, leafId), isNull(leafEditAttempts.resolvedAt)),
-      )
-      .limit(1);
-    if (!open) {
-      throw new ActionGuardError(
-        ERR.NOT_FOUND,
-        "There is no unconfirmed edit to recover for this product.",
+    const amendment = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`leaf:${leafId}`}, 0))`,
       );
-    }
+      const [open] = await tx
+        .select()
+        .from(leafEditAttempts)
+        .where(
+          and(eq(leafEditAttempts.leafId, leafId), isNull(leafEditAttempts.resolvedAt)),
+        )
+        .limit(1);
+      if (!open) {
+        throw new ActionGuardError(
+          ERR.NOT_FOUND,
+          "There is no unconfirmed edit to recover for this product.",
+        );
+      }
 
-    const recorded = open.attempted as LeafEditValues;
-    const observed = open.observed as Record<string, string | null> | null;
+      const recorded = open.attempted as LeafEditValues;
+      const observed = open.observed as Record<string, string | null> | null;
 
-    // ── THE SKU IS PINNED; THE REST MAY BE CORRECTED ────────────────────
-    //
-    // A recovery replays the RECORDED edit -- but a recorded edit can be
-    // unrecoverable on its own terms. The local write may have failed
-    // precisely because one of its values could not be stored, and replaying
-    // it verbatim then fails identically every time, leaving the product
-    // permanently locked behind its own unresolved attempt.
-    //
-    // So the correctable fields may be amended, and the IDENTITY-BEARING one
-    // may not. The SKU comes from the record -- or from what HubSpot was
-    // observed to hold, which outranks it -- and a recovery that tries to
-    // change it is refused. That is the difference between recovering the
-    // edit and re-PATCHing the same product id with different values.
-    const pinnedSku = observed?.hs_sku ?? recorded.sku;
-    const submittedSku = String(formData.get("sku") ?? "").trim();
-    if (submittedSku !== "" && pinnedSku !== null && submittedSku !== pinnedSku) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `Recovery cannot change the SKU. This product's unconfirmed edit is for ` +
-          `"${pinnedSku}"${
-            observed?.hs_sku ? " and HubSpot already holds it" : ""
-          }; recovering settles that, and replacing it is a separate controlled ` +
-          "correction.",
-      );
-    }
+      // ── THE SKU IS PINNED ────────────────────────────────────────────
+      //
+      // A recovery replays the recorded edit. The correctable fields may be
+      // amended, because a recorded attempt can be unrecoverable on its own
+      // terms -- the value that broke the local write is IN the record and
+      // fails identically on every replay, which would lock the product
+      // behind its own attempt forever. The identity-bearing field may not.
+      const pinnedSku = observed?.hs_sku ?? recorded.sku;
+      const submittedSku = String(formData.get("sku") ?? "").trim();
+      if (submittedSku !== "" && pinnedSku !== null && submittedSku !== pinnedSku) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `Recovery cannot change the SKU. This product's unconfirmed edit is for ` +
+            `"${pinnedSku}"${
+              observed?.hs_sku ? " and HubSpot already holds it" : ""
+            }; recovering settles that, and replacing it is a separate ` +
+            "controlled correction.",
+        );
+      }
 
-    const amend = (key: string, fallback: string | null): string | null => {
-      const raw = formData.get(key);
-      if (raw === null) return fallback;
-      const v = String(raw).trim();
-      return v === "" ? null : v;
-    };
-    const unitCost = amend("unitCost", recorded.unitCost);
-    if (unitCost !== null && !/^\d+(\.\d+)?$/.test(unitCost)) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        `"${unitCost}" is not a unit cost. Enter a number, or leave it empty.`,
-      );
-    }
+      // Only fields the caller actually supplied become amendments.
+      const amended: Partial<LeafEditValues> = {};
+      for (const key of ["name", "url", "unitCost", "hubspotProductType"] as const) {
+        const raw = formData.get(key);
+        if (raw === null) continue;
+        const v = String(raw).trim();
+        const next = v === "" ? null : v;
+        if (key === "name" && next === null) continue;
+        if (next !== recorded[key]) {
+          (amended as Record<string, string | null>)[key] = next;
+        }
+      }
+      if (
+        amended.unitCost !== undefined &&
+        amended.unitCost !== null &&
+        !/^\d+(\.\d+)?$/.test(amended.unitCost)
+      ) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `"${amended.unitCost}" is not a unit cost. Enter a number, or leave it empty.`,
+        );
+      }
 
-    const values: LeafEditValues = {
-      name: String(formData.get("name") ?? "").trim() || recorded.name,
-      sku: pinnedSku,
-      url: amend("url", recorded.url),
-      unitCost,
-      hubspotProductType: amend(
-        "hubspotProductType",
-        recorded.hubspotProductType,
-      ),
-    };
+      let version = open.version;
+      if (Object.keys(amended).length > 0) {
+        // Persisted, and version-bumped, BEFORE anything is sent. Two
+        // operators amending the same attempt cannot silently overwrite one
+        // another: the loser's recovery names a version that no longer
+        // matches and is refused.
+        const merged = {
+          ...((open.amended as Partial<LeafEditValues> | null) ?? {}),
+          ...amended,
+        };
+        version = open.version + 1;
+        await tx
+          .update(leafEditAttempts)
+          .set({ amended: merged, version, updatedAt: new Date() })
+          .where(
+            and(
+              eq(leafEditAttempts.id, open.id),
+              eq(leafEditAttempts.version, open.version),
+              isNull(leafEditAttempts.resolvedAt),
+            ),
+          );
+      }
+
+      return { id: open.id, version };
+    });
 
     return applyLeafEdit({
       userId: user.id,
       leafId,
-      values,
+      values: {
+        name: "",
+        sku: null,
+        url: null,
+        unitCost: null,
+        hubspotProductType: null,
+      },
       expectedVersion: null,
-      recovery: { id: open.id },
+      recovery: amendment,
     });
   });
 }

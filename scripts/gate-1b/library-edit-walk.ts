@@ -24,7 +24,11 @@ import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 // The fake's own store, so the walk can ask HubSpot what it actually holds
 // rather than trusting the echo of the request that was sent to it.
-import { __fakeHubspotProduct } from "../../tests/harness/providers/fake-hubspot.ts";
+import {
+  __fakeHubspotCallCount,
+  __fakeHubspotProduct,
+} from "../../tests/harness/providers/fake-hubspot.ts";
+import { spawn } from "node:child_process";
 
 /**
  * #567 acceptance: an EXISTING SKU-less product is corrected in place.
@@ -367,8 +371,12 @@ async function main() {
     // change its author never saw -- which is a lost update whichever way the
     // two happen to be ordered.
     const refusals = results.filter((r) => !r.ok);
+    // Either refusal is correct and they mean different things: the loser was
+    // either written against a version that moved, or blocked by the winner's
+    // claim. What matters is that it did NOT apply.
     const staleRefusal =
-      refusals.length === 1 && refusals[0].error.code === "STALE_WRITE";
+      refusals.length === 1 &&
+      ["STALE_WRITE", "UNCONFIRMED_EDIT"].includes(refusals[0].error.code);
     const winnerIsWhole =
       // Whoever won wrote a coherent row: their own edit, and nothing of the
       // other's silently mixed in.
@@ -383,7 +391,7 @@ async function main() {
       okCount === 1 && staleRefusal && winnerIsWhole && agreesWithHubspot && after?.sku === sku
         ? "PASS"
         : "FAIL",
-      `${okCount}/2 accepted · the loser was refused as stale=${staleRefusal}` +
+      `${okCount}/2 accepted · the loser was refused without applying=${staleRefusal}` +
         (refusals[0] ? ` (${refusals[0].error.code})` : "") +
         ` · the winner's row is its own edit=${winnerIsWhole} (name="${after?.name}" cost=${after?.unitCost})` +
         ` · hubspot agrees=${agreesWithHubspot}` +
@@ -818,6 +826,279 @@ async function main() {
     }
   }
 
+  // ── 12f · TWO CONCURRENT RECOVERIES ─────────────────────────────────────
+  //
+  // Both read the same open attempt, then race. Exactly one may apply.
+  //
+  // The hazard is specific: a recovery is EXEMPT from the product version
+  // check, because it is replaying a recorded edit rather than submitting one
+  // written against a version of the row. So a recovery that finds its
+  // attempt already settled -- and proceeds anyway because "no open attempt"
+  // reads as "nothing blocking" -- writes with no version protection at all.
+  // The check that the attempt is still open, and still the same one, is the
+  // only thing standing there.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · double recovery (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("RECOVER:concurrent", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hubspotId = r0!.hubspotProductId!;
+      const target = `EW · double recovered (${STAMP})`;
+
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-lost";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: target, sku: `EW-${STAMP}-DBL`, hubspotProductType: "Labels", unitCost: "2.00", url: "" }),
+      );
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const [openBefore] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      const both = await Promise.all([
+        retryLeafEdit(form({ leafId: id })),
+        retryLeafEdit(form({ leafId: id })),
+      ]);
+      const accepted = both.filter((r) => r.ok).length;
+      const refusedAsSettled = both.some(
+        (r) => !r.ok && /already been settled|being\s+recovered by someone else/i.test(r.error.message),
+      );
+
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(hubspotId);
+      const stillOpen = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      rec(
+        "RECOVER:concurrent",
+        Boolean(openBefore) &&
+          accepted === 1 &&
+          refusedAsSettled &&
+          end?.name === target &&
+          endRemote?.name === target &&
+          stillOpen.length === 0
+          ? "PASS"
+          : "FAIL",
+        `${accepted}/2 recoveries applied · the loser was refused as already settled=${refusedAsSettled} · ` +
+          `local="${end?.name}" remote="${endRemote?.name}" · open attempts left=${stillOpen.length}`,
+      );
+    }
+  }
+
+  // ── 12g · RECOVERY READS BEFORE IT WRITES ───────────────────────────────
+  //
+  // The outstanding request completed after the read-back that failed to see
+  // it. A recovery that simply re-sends would also end correct -- the update
+  // is idempotent -- and would establish nothing about whether it looked
+  // first. So the assertion is on the REQUEST COUNT: no second write is made
+  // when HubSpot already holds the recorded values.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · read first (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("RECOVER:reads-first", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hubspotId = r0!.hubspotProductId!;
+      const target = `EW · read first landed (${STAMP})`;
+
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-late";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: target, sku: `EW-${STAMP}-READ`, hubspotProductType: "Labels", unitCost: "5.00", url: "" }),
+      );
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const landedLate = __fakeHubspotProduct(hubspotId)?.name === target;
+      const writesBefore = __fakeHubspotCallCount("product-update");
+      const recovered = await retryLeafEdit(form({ leafId: id }));
+      const writesAfter = __fakeHubspotCallCount("product-update");
+
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(hubspotId);
+
+      rec(
+        "RECOVER:reads-first",
+        landedLate &&
+          recovered.ok &&
+          recovered.data.hubspotOutcome === "already_held" &&
+          writesAfter === writesBefore &&
+          end?.name === target &&
+          endRemote?.name === target
+          ? "PASS"
+          : "FAIL",
+        `landed late=${landedLate} · outcome=${recovered.ok ? recovered.data.hubspotOutcome : recovered.error.code} · ` +
+          `writes issued by the recovery=${writesAfter - writesBefore} (must be 0) · ` +
+          `local="${end?.name}" remote="${endRemote?.name}"`,
+      );
+    }
+  }
+
+  // ── 12h · A PROCESS KILLED BETWEEN THE REQUEST AND THE LOCAL WRITE ──────
+  //
+  // Really killed: SIGKILL to a child, mid-HubSpot-call. Nothing in that
+  // process gets to run a cleanup path or record anything afterwards, which
+  // is precisely the window an attempt written AFTER a failure does not
+  // cover.
+  //
+  // What must survive is the claim itself -- committed before the request was
+  // issued -- and with it the protection: the product cannot be edited
+  // normally, and the recorded edit can still be recovered.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · interrupted (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("INTERRUPT", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const target = `EW · interrupted edit (${STAMP})`;
+      const claimedSku = `EW-${STAMP}-INT`;
+      const version = await versionOf(id);
+
+      const child = spawn(
+        process.execPath,
+        [
+          "--env-file=.env.validation.local",
+          "--experimental-strip-types",
+          "--conditions=react-server",
+          "--experimental-loader",
+          "./scripts/support/src-resolver.mjs",
+          "scripts/gate-1b/library-edit-interrupt-child.ts",
+          id,
+          version,
+          target,
+          claimedSku,
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let childOut = "";
+      child.stdout.on("data", (d) => (childOut += String(d)));
+      child.stderr.on("data", (d) => (childOut += String(d)));
+
+      // Wait for the claim to be committed and the remote call to be in
+      // flight, then kill without warning.
+      const killedAt = Date.now();
+      await new Promise((r) => setTimeout(r, 2500));
+      const claimVisible = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      child.kill("SIGKILL");
+      await new Promise((r) => setTimeout(r, 500));
+
+      const completedAnyway = /CHILD:completed/.test(childOut);
+
+      // The protection must hold against a process that no longer exists.
+      const ordinary = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · overwrite attempt", sku: `EW-${STAMP}-OTHER`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+      // Refused, and for the claim -- not for some incidental reason. A
+      // refusal that happens to occur proves nothing about the protection.
+      const blocked =
+        !ordinary.ok &&
+        ordinary.error.code === "UNCONFIRMED_EDIT" &&
+        /claimed and has not been settled/i.test(ordinary.error.message);
+
+      const recovered = await retryLeafEdit(form({ leafId: id }));
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const [r1] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(r1!.hubspotProductId!);
+
+      rec(
+        "INTERRUPT",
+        !completedAnyway &&
+          claimVisible.length === 1 &&
+          claimVisible[0].outcome === "pending" &&
+          blocked &&
+          recovered.ok &&
+          end?.sku === claimedSku &&
+          endRemote?.hs_sku === claimedSku
+          ? "PASS"
+          : "FAIL",
+        `child killed ${Date.now() - killedAt}ms in, without completing=${!completedAnyway} · ` +
+          `a committed claim survived it=${claimVisible.length === 1} (outcome=${claimVisible[0]?.outcome}) · ` +
+          `ordinary editing blocked=${blocked} · recovery settled both at ` +
+          `"${end?.sku}"/"${endRemote?.hs_sku}"`,
+      );
+    }
+  }
+
+  // ── 12i · AN EDIT LANDING DURING THE REMOTE FETCH ───────────────────────
+  //
+  // The interval a version captured after the fetch does not cover. The
+  // refresh reads HubSpot at T0 and the local row at T1; an edit completing
+  // between them is already in the version captured at T1, so the swap agrees
+  // and a snapshot taken BEFORE that edit is written over it. The swap was
+  // comparing against the wrong instant, and it fails silently.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · fetch window (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("REFRESH:fetch-window", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const catalogId = "996000000000001";
+      // The earlier refresh case parked a leaf on this same catalog id. Two
+      // leaves cannot hold one HubSpot id, and a batch mapping onto two rows
+      // would make the counts below ambiguous anyway.
+      await db.execute(
+        sql`update leaves set hubspot_product_id = null
+             where hubspot_product_id = ${catalogId} and id <> ${id}`,
+      );
+      await db.execute(
+        sql`update leaves set hubspot_product_id = ${catalogId} where id = ${id}`,
+      );
+      process.env.NEXUS_FAKE_HUBSPOT_ACTIVE_PRODUCTS = "1";
+
+      const editedName = `EW · edited mid-fetch (${STAMP})`;
+      const editedSku = `EW-${STAMP}-WINDOW`;
+
+      // The refresh starts and blocks inside its catalog read.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-list-slow";
+      const pullPromise = pullProductsBatch({
+        userId: actorUserId,
+        projectId,
+        batchNumber: 1,
+        includeArchived: false,
+      });
+
+      // The edit lands entirely INSIDE that read: after the remote snapshot
+      // was taken, before a post-fetch capture would have run.
+      await new Promise((r) => setTimeout(r, 400));
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const editRes = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: editedName, sku: editedSku, hubspotProductType: "Labels", unitCost: "6.50", url: "" }),
+      );
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-list-slow";
+
+      const pullRes = await pullPromise;
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+      delete process.env.NEXUS_FAKE_HUBSPOT_ACTIVE_PRODUCTS;
+
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const survived = end?.name === editedName && end?.sku === editedSku;
+      const declined = pullRes.skippedStale === 1 && pullRes.updated === 0;
+
+      rec(
+        "REFRESH:fetch-window",
+        editRes.ok && survived && declined ? "PASS" : "FAIL",
+        `the edit landed during the catalog read and survived=${survived} ` +
+          `(name="${end?.name}" sku="${end?.sku}") · refresh declined it=` +
+          `${declined} (skippedStale=${pullRes.skippedStale} updated=${pullRes.updated})`,
+      );
+    }
+  }
+
   // ── 13 · AUDIT is atomic with the write ─────────────────────────────────
   {
     const rows = await db
@@ -827,8 +1108,11 @@ async function main() {
     const completion = rows.filter(
       (r) => (r.diff as Record<string, unknown> | null)?.sku_completed === true,
     );
+    // The audit names HOW the remote outcome was established, not merely that
+    // it was. `reconciled` means the call failed and a read-back proved it had
+    // applied -- a distinction a later reader cannot reconstruct.
     const reconciled = rows.filter(
-      (r) => (r.diff as Record<string, unknown> | null)?.hubspot_reconciled === true,
+      (r) => (r.diff as Record<string, unknown> | null)?.hubspot_outcome === "reconciled",
     );
     // Every accepted edit left a row, and no refused one did: the audit and
     // the row move together or not at all.

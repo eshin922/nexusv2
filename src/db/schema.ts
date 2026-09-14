@@ -2754,7 +2754,15 @@ export const leaves = pgTable(
  * than re-sending whatever is on screen later, which may be different.
  *
  * At most one OPEN attempt per leaf (partial unique index): two competing
- * records of what a product is supposed to be cannot both be recovered.
+ * records of what a product is supposed to be cannot both be recovered. That
+ * index is also what makes the pre-call insert a CLAIM -- a concurrent edit
+ * cannot open a second one.
+ *
+ * The row is written and committed BEFORE the remote call, not after it fails.
+ * Recording it afterwards leaves two holes: the edit's lock is released by the
+ * rollback before the record exists, so another edit can slip in and write
+ * over the unconfirmed state; and a process that dies between the request and
+ * the record leaves no trace of it at all.
  */
 export const leafEditAttempts = pgTable(
   "leaf_edit_attempts",
@@ -2764,20 +2772,36 @@ export const leafEditAttempts = pgTable(
       .notNull()
       .references(() => leaves.id, { onDelete: "cascade" }),
     hubspotProductId: text("hubspot_product_id"),
-    /** What the operator asked for, in Nexus terms. A retry replays this. */
+    /** What the operator asked for, in Nexus terms. A recovery replays this. */
     attempted: jsonb("attempted").notNull(),
     /** What was sent to HubSpot, as properties. */
     submitted: jsonb("submitted").notNull(),
+    /**
+     * Amendments supplied while recovering. Persisted rather than held in
+     * memory: they are part of the intent the moment they are accepted, and an
+     * interruption after the remote call must not lose them. The SKU is never
+     * amendable and never appears here.
+     */
+    amended: jsonb("amended"),
     /**
      * What HubSpot held when read back, or NULL when the read-back could not
      * be performed. NULL is "not observed", never "absent".
      */
     observed: jsonb("observed"),
-    /** `unconfirmed` | `diverged` */
-    outcome: text("outcome").notNull(),
-    reason: text("reason").notNull(),
+    /** `pending` | `unconfirmed` | `diverged` */
+    outcome: text("outcome").notNull().default("pending"),
+    reason: text("reason"),
+    /**
+     * Bumped on every amendment. A recovery names the version it was composed
+     * against, so two operators amending one attempt cannot silently overwrite
+     * each other -- the same discipline the edit uses against the product row.
+     */
+    version: integer("version").notNull().default(1),
     createdBy: uuid("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),

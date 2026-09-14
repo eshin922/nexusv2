@@ -56,6 +56,19 @@ const productStore = new Map<string, Record<string, string>>();
  */
 const deferredWrites = new Map<string, Record<string, string>>();
 
+const callCounts = new Map<string, number>();
+
+/**
+ * How many times an operation has been CALLED.
+ *
+ * A recovery that re-sends and a recovery that read first both end with the
+ * product correct, because the write is idempotent. Only the request count
+ * separates them, so it is the only thing that can establish which happened.
+ */
+export function __fakeHubspotCallCount(operation: string): number {
+  return callCounts.get(operation) ?? 0;
+}
+
 export function __fakeHubspotProduct(id: string): Record<string, string> | null {
   const p = productStore.get(id);
   return p ? { ...p } : null;
@@ -107,6 +120,7 @@ function scenario(): string {
 }
 
 function record(operation: string, input: Record<string, unknown>) {
+  callCounts.set(operation, (callCounts.get(operation) ?? 0) + 1);
   const call = { operation, input, at: new Date().toISOString() };
   calls.push(call);
 
@@ -148,6 +162,7 @@ export function resetFakeHubSpot() {
   productSequence = 0;
   productStore.clear();
   deferredWrites.clear();
+  callCounts.clear();
 }
 
 export const fakeHubSpot: HubSpotOperations = {
@@ -371,6 +386,11 @@ export const fakeHubSpot: HubSpotOperations = {
     const limit = Math.min(opts.limit ?? 100, 100);
     record("product-list", { after: opts.after, limit, includeArchived: archived });
     fail("product-list");
+    // A slow catalog read, so a test can land an edit DURING the fetch -- the
+    // interval a version captured after the fetch does not cover.
+    if (scenario() === "product-list-slow") {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
     const end = Math.min(offset + limit, size);
     return {
       results: Array.from({ length: end - offset }, (_, i) => fakeCatalogProduct(offset + i, archived)),

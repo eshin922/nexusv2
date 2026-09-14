@@ -5335,17 +5335,36 @@ else is UNCERTAIN and the product is read back by id.
 A read-back that does not match establishes exactly one thing: **the requested
 state is not confirmed.** It does not establish that nothing changed — the write
 may have applied in part, or the product may hold values something else put
-there. So the edit is PRESERVED in `leaf_edit_attempts` rather than discarded,
-and:
+there. So the edit is PRESERVED in `leaf_edit_attempts` rather than discarded.
+
+**The intent is committed BEFORE the remote call, not after it fails.** Writing
+it afterwards is too late twice over: the failed transaction releases its lock
+before the record exists, so another edit can slip in and write over an
+unconfirmed remote state; and a process that dies during the call leaves no
+trace at all. A committed `pending` row closes both — it is a claim other
+writers can see, and it outlives the process that made it. The edit runs in
+three phases (claim · remote · settle), which also stops a database connection
+being held across a remote round trip.
+
+Consequences:
 
 - ordinary editing of that product is refused until the attempt is settled,
   because writing over an unconfirmed remote state would overwrite whatever is
   actually there — including a SKU the catalog may have issued that Nexus never
   recorded. Local state cannot answer that, since local state is exactly what
   failed to be written;
-- recovery replays **the recorded edit**, not whatever is on screen later. It
-  re-reads the product first, because a request that timed out is not a request
-  that stopped and the write may have completed late;
+- recovery replays **the recorded edit**, read under the lock at the moment it
+  is applied — not values carried from the request that composed it. It reads
+  the product back FIRST and sends nothing if HubSpot already holds them: a
+  request that timed out is not a request that stopped;
+- a recovery **claims** the attempt by version rather than observing it. Two
+  recoveries both reading "still open" would both send, because the attempt is
+  not resolved until the settle phase and neither has done anything the other
+  can see. The settle is itself conditional, so a recovery that overtakes a
+  live edit cannot double-apply;
+- amendments are **persisted before anything is sent**, and version-bumped. A
+  correction accepted in one request and applied from another process's memory
+  is a correction an interruption can lose;
 - the SKU is pinned during recovery; the correctable fields may be amended,
   because a recorded attempt can be unrecoverable on its own terms and
   replaying it verbatim would lock the product behind its own attempt forever.
@@ -5355,12 +5374,23 @@ the two disagree — not that nothing happened — and the attempt is preserved 
 same way.
 
 **The refresh participates in the same contract.** `pullProductsBatch` writes
-the same columns the edit authors. It now takes the same leaf lock AND a
-version compare-and-swap against the row as it stood when the refresh read it.
-The lock alone is not sufficient: the batch and the row are both read before
-the lock is requested, so acquiring it says nothing about what changed while
-queueing for it. Rows declined as stale are counted and named in the batch
-audit rather than silently skipped.
+the same columns the edit authors. It takes the same leaf lock, declines any
+product carrying an unsettled claim, and compare-and-swaps against the row
+version.
+
+Two corrections were needed to make that swap mean anything:
+
+- The lock alone is not sufficient. The batch and the row are both read before
+  the lock is requested, so acquiring it says nothing about what changed while
+  queueing for it.
+- **The version has to be captured before the REMOTE fetch.** Capturing it
+  afterwards leaves an unguarded interval: an edit completing between the fetch
+  and the capture is already in the captured version, so the swap agrees and a
+  remote snapshot that predates the edit overwrites it. The swap was comparing
+  against the wrong instant and failed silently.
+
+Rows declined as stale are counted and named in the batch audit rather than
+silently skipped.
 
 **Out of scope, and still open:** repair of existing production records. 58
 Library leaves currently hold no SKU, 7 of them already attached to quotes.

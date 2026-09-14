@@ -1,7 +1,7 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { auditLog, leaves, users } from "@/db/schema";
+import { auditLog, leafEditAttempts, leaves, users } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import type { HubSpotProductRaw } from "./integrations/hubspot-provider";
 import { getApplicationDependencies } from "./integrations/composition";
@@ -64,6 +64,57 @@ export async function pullProductsBatch(
 ): Promise<PullBatchResult> {
   const startedAt = new Date();
   const totalStartedAt = performance.now();
+
+  // ── 0. THE LOCAL VERSIONS, TAKEN BEFORE THE REMOTE SNAPSHOT ───────────
+  //
+  // The protection has to be bound to the moment the REMOTE data was read,
+  // not to a later moment. Capturing versions after the fetch leaves an
+  // unguarded interval: an edit completing between the fetch and the capture
+  // is already reflected in the captured version, so the compare-and-swap
+  // agrees and the stale remote snapshot -- which predates that edit --
+  // overwrites it. The CAS was comparing against the wrong instant.
+  //
+  // So the versions are read first. Any row that changed at any point after
+  // this line fails the swap, whether it changed during the fetch or after
+  // it.
+  //
+  // This reads every leaf carrying a HubSpot id rather than only the batch's,
+  // because which products the batch contains is not known until it arrives
+  // -- which is the whole problem. At catalog scale (~1.1k rows) that is a
+  // cheap read; a catalog two orders of magnitude larger would want a
+  // watermark instead.
+  const preFetchVersions = new Map<string, { id: string; wasArchived: boolean; observedVersion: Date | null }>();
+  {
+    const rows = await db
+      .select({
+        id: leaves.id,
+        hubspotProductId: leaves.hubspotProductId,
+        archived: leaves.archived,
+        updatedAt: leaves.updatedAt,
+      })
+      .from(leaves)
+      .where(sql`${leaves.hubspotProductId} is not null`);
+    for (const r of rows) {
+      preFetchVersions.set(r.hubspotProductId as string, {
+        id: r.id,
+        wasArchived: r.archived,
+        observedVersion: r.updatedAt,
+      });
+    }
+  }
+
+  // Products with an edit in flight or unconfirmed. A refresh must not write
+  // over a claim: the edit's intent is committed before its remote call, so a
+  // claim here means the local row is about to move, or already disagrees
+  // with HubSpot in a way nobody has settled.
+  const claimedLeafIds = new Set(
+    (
+      await db
+        .select({ leafId: leafEditAttempts.leafId })
+        .from(leafEditAttempts)
+        .where(isNull(leafEditAttempts.resolvedAt))
+    ).map((r) => r.leafId),
+  );
 
   // 1. Fetch a batch from HubSpot.
   const hubspotStartedAt = performance.now();
@@ -140,23 +191,14 @@ export async function pullProductsBatch(
   // added-vs-updated split. inArray with the batch's product IDs;
   // partial unique index `leaves_hubspot_product_id_idx` supports
   // the lookup.
+  // The versions were captured BEFORE the fetch (step 0). Re-reading them here
+  // is what created the unguarded interval; this just narrows the capture to
+  // the products the batch actually returned.
   const productIds = batch.results.map((r) => r.id);
-  const existing = await db
-    .select({
-      id: leaves.id,
-      hubspotProductId: leaves.hubspotProductId,
-      archived: leaves.archived,
-      // The version this refresh OBSERVED. Carried into the transaction so
-      // the write can be conditional on the row not having moved since.
-      updatedAt: leaves.updatedAt,
-    })
-    .from(leaves)
-    .where(inArray(leaves.hubspotProductId, productIds));
   const existingByHubspotId = new Map(
-    existing.map((e) => [
-      e.hubspotProductId as string,
-      { id: e.id, wasArchived: e.archived, observedVersion: e.updatedAt },
-    ]),
+    productIds
+      .filter((id) => preFetchVersions.has(id))
+      .map((id) => [id, preFetchVersions.get(id)!] as const),
   );
   const lookupMs = Math.round(performance.now() - lookupStartedAt);
 
@@ -257,6 +299,16 @@ export async function pullProductsBatch(
         // does. `WHERE updated_at = <observed>` is a compare-and-swap: if the
         // row moved, zero rows are affected and the stale snapshot is
         // declined rather than applied over the newer edit.
+        if (claimedLeafIds.has(prev.id)) {
+          // An edit has an unsettled claim on this product. Its intent was
+          // committed before its remote call, so the claim is visible even if
+          // the edit is still in flight or its process has died -- which is
+          // exactly when a refresh must not write.
+          skippedStale++;
+          skippedProductIds.push(mapped.hubspotProductId);
+          return;
+        }
+
         const claimed = await tx
           .update(leaves)
           .set({
