@@ -375,16 +375,34 @@ export function OrganizerSurface({
   );
 }
 
+/**
+ * One project, one row.
+ *
+ * ── THE ROW IS NOT A LINK ────────────────────────────────────────────────
+ *
+ * It used to be: the whole row wrapped in one `<Link>` to the latest quote's
+ * PRICING surface. That single destination sat on top of every name in the
+ * row, so clicking a deal name opened pricing, and clicking a quote name
+ * opened pricing. The two things a row names are a deal and a quote, and
+ * neither of them is pricing.
+ *
+ * A wrapper link also cannot be narrowed from the inside. Nesting an anchor in
+ * an anchor is invalid HTML, so as long as the row was a link, the names could
+ * not become links -- which is why the destinations had to be wrong together
+ * rather than right separately.
+ *
+ * Each name now carries its own destination: the deal opens the deal, the
+ * quote opens that quote at Setup, which is where a quote starts. The row
+ * keeps its hover, because a wide row still needs its line traced across the
+ * columns, and the names carry an underline on hover so what is clickable
+ * says so.
+ */
 function ProjectRow({ project: p, now }: { project: OrganizerProject; now: number }) {
   const q = p.latestQuote;
-  const href = q
-    ? `/projects/${p.projectId}/quotes/${q.quoteId}/pricing`
-    : `/projects/${p.projectId}`;
   const customer = p.clientName ?? "—";
 
-
   return (
-    <Link href={href} className="r14-grid r14-row" style={{ textDecoration: "none" }}>
+    <div className="r14-grid r14-row">
       <div className="r14-deal">
         {/*
           Identity colour from the SAME deterministic hash the outer rail uses,
@@ -401,10 +419,14 @@ function ProjectRow({ project: p, now }: { project: OrganizerProject; now: numbe
         >
           {p.glyph.letter}
         </span>
-        <span style={{ minWidth: 0 }}>
+        <Link
+          href={`/projects/${p.projectId}`}
+          className="r14-rowlink"
+          style={{ minWidth: 0 }}
+        >
           <span className="r14-customer">{customer}</span>
           <span className="r14-product">{p.dealName}</span>
-        </span>
+        </Link>
       </div>
       <div className="r14-cell">
         {p.dealStage ? (
@@ -415,10 +437,17 @@ function ProjectRow({ project: p, now }: { project: OrganizerProject; now: numbe
       </div>
       <div className="r14-cell">
         {q ? (
-          <>
+          // Setup, not Pricing. A quote name means the quote, and Setup is
+          // where one begins -- the rail reaches every other surface from
+          // there. Landing mid-workflow assumes a stage the row cannot know
+          // the reader is at.
+          <Link
+            href={`/projects/${p.projectId}/quotes/${q.quoteId}/setup`}
+            className="r14-rowlink"
+          >
             <span className="r14-quote">{q.scenarioLabel}</span>
             <span className="r14-rev">rev {q.versionNumber}</span>
-          </>
+          </Link>
         ) : (
           // Two different absences, said differently. "Every scenario was
           // dropped" is a project someone worked on and set aside; "no quote
@@ -446,7 +475,7 @@ function ProjectRow({ project: p, now }: { project: OrganizerProject; now: numbe
       <div className="r14-cell r14-num r14-updated">
         {q ? relative(q.updatedAt, now) : "—"}
       </div>
-    </Link>
+    </div>
   );
 }
 

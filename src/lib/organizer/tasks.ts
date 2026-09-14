@@ -152,6 +152,16 @@ export interface ApprovalFacts {
   rejectionReason: string | null;
 }
 
+/**
+ * A task's destination.
+ *
+ * `surface` may carry a sub-tab query (`quote?tab=tier`). The Quote umbrella
+ * is five sub-tabs behind one route, and its default is Preview -- so naming
+ * the route alone lands an operator one surface short of the thing the task
+ * asked them to do, with no indication which tab it was. `parseSubTabParam`
+ * falls back to Preview for anything it does not recognise, so a stale query
+ * degrades to today's behaviour rather than breaking.
+ */
 const href = (f: QuoteFacts, surface: string) =>
   `/projects/${f.projectId}/quotes/${f.quoteId}/${surface}`;
 
@@ -217,7 +227,16 @@ export function tasksForQuote(f: QuoteFacts, now: Date): Task[] {
   }
 
   if (f.pushFailed) {
-    add("push_failed", "ns", "The NetSuite sales-order push failed", "Retry push", "quote");
+    // Sales Order (sub-tab 5), which holds the retry. It stays reachable at
+    // `complete` where sub-tabs 1-4 coerce to Preview, so this destination
+    // survives the state the task exists in.
+    add(
+      "push_failed",
+      "ns",
+      "The NetSuite sales-order push failed",
+      "Retry push",
+      "quote?tab=tier",
+    );
   }
 
   // ── the packaging → logistics handoff ───────────────────────────────────
@@ -253,7 +272,9 @@ export function tasksForQuote(f: QuoteFacts, now: Date): Task[] {
       "q",
       `Sent ${days} day${days === 1 ? "" : "s"} ago with no response`,
       "Follow up",
-      "quote",
+      // Client Review (sub-tab 3) -- the log the follow-up gets recorded in.
+      // Its state_req is `sent`, which is the state this task requires.
+      "quote?tab=review",
     );
   }
 
@@ -272,7 +293,7 @@ export function tasksForQuote(f: QuoteFacts, now: Date): Task[] {
       "q",
       `Valid for ${days} more day${days === 1 ? "" : "s"}`,
       "Follow up",
-      "quote",
+      "quote?tab=review",
     );
   }
 
