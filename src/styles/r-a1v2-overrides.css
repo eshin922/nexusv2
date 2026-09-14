@@ -1251,3 +1251,25 @@
 .qty-per-parent-error {
   color: var(--danger, #b3261e);
 }
+
+/*
+ * Edit product dialog — reachability inside the frame.
+ *
+ * `.a1v2-modal` is already capped at `calc(100vh - 80px)`. This keeps the
+ * BODY the part that scrolls, so the head stays readable and the footer --
+ * which carries Save and the recovery control -- cannot be pushed off the
+ * bottom on a short viewport. Without it the whole dialog overflows and the
+ * buttons become unreachable, which is the failure the operator hits rather
+ * than a cosmetic one.
+ *
+ * Pattern 39 nexus extension: canonical CSS stays pristine, the constraint
+ * lives here. Same precedent as `.a1v2-modal .a1v2-library-browse` above.
+ */
+.a1v2-modal.r-edit-product-modal {
+  width: min(560px, calc(100vw - 48px));
+}
+
+.a1v2-modal.r-edit-product-modal .a1v2-modal-body {
+  overflow-y: auto;
+  min-height: 0;
+}

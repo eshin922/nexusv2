@@ -156,15 +156,31 @@ export function EditProductModal({
   }
 
   return (
+    // `a1v2-modal-scrim` was not a class. Nothing in any stylesheet defined
+    // it, so the dialog got no positioning at all: it laid out in normal flow
+    // inside the Library's own modal body, which put it low and left, behind
+    // the Library, and off the bottom of the viewport once the list was
+    // scrolled.
+    //
+    // `a1v2-modal-backdrop` is the real one -- fixed, centred, dimming -- and
+    // `r-a1v2-modal-stacked` raises it a z-tier so it sits ABOVE the Library
+    // rather than inside it. Same pair the spec editor already uses to stack
+    // on the same surface. The Library stays mounted underneath, so closing
+    // returns to it with its scroll position intact.
     <div
-      className="a1v2-modal-scrim"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="edit-product-title"
-      data-testid="edit-product-modal"
-      data-leaf={target.leafId}
+      className="a1v2-modal-backdrop r-a1v2-modal-stacked"
+      // No click-to-dismiss. The spec editor has one, and matching it here
+      // would be a change to how the dialog CLOSES -- which is not what this
+      // fix is. Cancel and Save are the ways out, as before.
     >
-      <div className="a1v2-modal">
+      <div
+        className="a1v2-modal r-edit-product-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-product-title"
+        data-testid="edit-product-modal"
+        data-leaf={target.leafId}
+      >
         <div className="a1v2-modal-head">
           <h2 id="edit-product-title">Edit product</h2>
           <span className="sub lib-scope">
