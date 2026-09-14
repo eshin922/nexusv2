@@ -44,7 +44,25 @@ nobody has looked at.
 
 ---
 
-## 2 · HubSpot property and ownership controls
+## 2 · HubSpot property and ownership controls — NOT a prerequisite
+
+**This section is not on the enablement path.** The implementation makes no
+reference to `nexus_allocation_id`: it records `hubspot_product_id`, which
+comes back in the create response and needs no new property and no new scope.
+So creating the property, and the scope grant it would require, are NOT
+required to enable the button.
+
+An earlier version of this document listed them as prerequisite 2. That was
+carried over from the design document rather than derived from what was built,
+and it would have blocked the feature on something the feature does not use.
+
+What the property is actually for is AUTOMATIC ADOPTION, which is unavailable
+regardless — see below. Nothing in the enablement sequence depends on it, and
+dropping it from that sequence does not make adoption any more available than
+it already was.
+
+The findings below stand; they are recorded because they settle what is
+possible, not because anything waits on them.
 
 ### The capability was tested, and the answer changes the design
 
@@ -87,11 +105,11 @@ a rule it had no authority to relax; it is corrected rather than quietly
 edited, because the distinction between "no duplicates" and "we own this" is
 the whole of it.
 
-What to decide before the property is created: whether to accept an
-advisory-only allocation id with adoption permanently unavailable, or to
-establish ownership another way — a HubSpot-side permission or workflow
-restriction, or a different mechanism entirely. That is a decision, not a
-detail.
+If automatic adoption is ever wanted, this is what would have to be decided
+first: whether to accept an advisory-only allocation id, or to establish
+ownership another way — a HubSpot-side permission or workflow restriction, or a
+different mechanism entirely. That decision is not scheduled and nothing waits
+on it; uncertain creates end held for a human either way.
 
 ### Permissions
 
@@ -232,19 +250,19 @@ Proposed entry:
 
 ## Order of operations
 
-1. Adjudicate registry entries (§3). Nothing can be issued without an approved
-   token — this gates everything, independently of the rest.
-2. Decide the ownership question (§2) — accept advisory-only with adoption
-   unavailable, or establish ownership another way — then grant the production
-   scope and create the property. Until ownership is established, uncertain
-   creates end `conflicted` by design.
-3. Obtain production NetSuite read-only access (§1) and run the inventory
-   survey.
-4. Review the reconciliation artifact, including normalized collisions.
-5. Seed counters, as a separately approved operation, above every system.
-6. Apply migration 0125 to production.
-7. Set `SKU_GENERATION_ENABLED=1`.
+1. **Production inventory and registry/seed review.** Obtain production
+   NetSuite read-only access (§1), run the inventory survey, and adjudicate the
+   registry entries and their seeds (§3). Nothing can be issued without an
+   approved token, and no seed is final until the survey closes — the proposed
+   seeds are computed from Nexus and HubSpot only.
+2. **Approved schema migration.** Apply 0125, from a reviewed revision, with
+   the pending set re-derived immediately beforehand.
+3. **Approved seeding**, as a separately authorised operation, above every
+   system.
+4. **Enable the flag** — `SKU_GENERATION_ENABLED=1`.
 
-Steps 1-3 are decisions. 4-7 are operations on those decisions, and any one of
-them missing leaves generation refusing — which is the correct behaviour, not a
-failure.
+Any one of them missing leaves generation refusing, which is the correct
+behaviour rather than a failure.
+
+The HubSpot property is deliberately absent from this sequence: the
+implementation does not use it (§2).
