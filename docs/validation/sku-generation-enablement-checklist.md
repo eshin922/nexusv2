@@ -3,9 +3,10 @@
 The machinery is built and tested in isolation. This is what must happen before
 a single identifier can be issued, and what has already been established.
 
-**Nothing in this document has been performed.** No production schema change,
-no scope grant, no property creation, no seeding, no SKU assignment, no
-backfill.
+**No seeding, enablement, or record change has been performed.** The schema
+migration (0125) is applied and the production NetSuite survey is done — both
+read-only or additive, and neither turns anything on. No scope grant, no
+property creation, no SKU assignment, no backfill.
 
 ---
 
@@ -250,13 +251,13 @@ Proposed entry:
 
 ## Order of operations
 
-1. **Production inventory and registry/seed review.** Obtain production
-   NetSuite read-only access (§1), run the inventory survey, and adjudicate the
-   registry entries and their seeds (§3). Nothing can be issued without an
-   approved token, and no seed is final until the survey closes — the proposed
-   seeds are computed from Nexus and HubSpot only.
-2. **Approved schema migration.** Apply 0125, from a reviewed revision, with
-   the pending set re-derived immediately beforehand.
+1. ~~**Production inventory**~~ — DONE (§1, 2026-09-14). The seeds in §3a are
+   three-way reconciled and final.
+   **Registry adjudication remains**: which tokens are approved (§3a), the two
+   ambiguous mappings (§3b), and whether MISTR is registered (§3d). Nothing can
+   be issued without an approved token.
+2. ~~**Approved schema migration**~~ — DONE. 0125 applied 2026-09-14; the tables
+   were created empty, which turns nothing on.
 3. **Approved seeding**, as a separately authorised operation, above every
    system.
 4. **Enable the flag** — `SKU_GENERATION_ENABLED=1`.
