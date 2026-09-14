@@ -40,7 +40,7 @@
     "gate1b:basket-membership": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/basket-membership-check.ts",
     "verify:od-023": "cross-env NODE_OPTIONS=\"--require=./scripts/smoke/shim-server-only.cjs --require=./scripts/smoke/shim-next-cache.cjs\" TSX_TSCONFIG_PATH=./tsconfig.verify-scripts.json npx tsx --env-file=.env.validation.local scripts/verify/od-023-snapshot-completeness.ts",
     "verify:below-floor-record": "node --env-file=.env.validation.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/verify/below-floor-authorization-record.ts",
-    "verify:s7-preserved:report": "npm run verify:s7-preserved || echo \"S-7 reported differences — report-only, not a build veto (see docs/gate-1b/)\"",
+    "verify:s7-preserved:report": "npm run verify:s7-preserved || echo \"S-7 reported differences \u2014 report-only, not a build veto (see docs/gate-1b/)\"",
     "verify:s7-preserved": "node --env-file-if-exists=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/gate-1b/verify-costing-preserved.ts",
     "verify:ri-7-readiness": "node --env-file=.env.local --experimental-strip-types scripts/verify/ri-7-schema-readiness.ts",
     "verify:scenario-quote-invariant": "node --env-file=.env.local --experimental-strip-types scripts/verify/scenario-quote-status-invariant.ts",
@@ -75,7 +75,9 @@
     "db:migrate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs migrate",
     "db:push": "node -e \"console.error('[OD-012] db:push is blocked. It mutates the shared database with no migration or journal record. Hand-author a migration at (highest index + 1) and run db:migrate.'); process.exit(1)\"",
     "db:studio": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs studio",
-    "verify:migration-index": "node --experimental-strip-types scripts/verify/migration-index-unique.ts"
+    "verify:migration-index": "node --experimental-strip-types scripts/verify/migration-index-unique.ts",
+    "validation:sku-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-allocation-walk.ts",
+    "probe:hubspot-property-capability": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/gate-1b/hubspot-property-capability-probe.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",

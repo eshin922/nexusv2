@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { AutoGenerateSku, type SkuServices } from "./auto-generate-sku";
 
 /**
  * Correct an existing Library product.
@@ -45,6 +46,8 @@ export type UpdateProductService = (fd: FormData) => Promise<
 export function EditProductModal({
   open,
   target,
+  quoteId = null,
+  skuServices,
   typeOptions,
   save,
   recover,
@@ -53,6 +56,18 @@ export function EditProductModal({
 }: {
   open: boolean;
   target: EditProductTarget | null;
+  /**
+   * The quote this was opened from, when there is one. Lets the customer's
+   * registered brand preselect for Auto-generate. Null on surfaces with no
+   * customer in context, where the operator must choose instead.
+   */
+  quoteId?: string | null;
+  /**
+   * Injected like `save` and `recover`. Absent means the Auto-generate
+   * affordance does not appear at all -- which is the correct behaviour for
+   * any surface that has not wired it, rather than a button that cannot work.
+   */
+  skuServices?: SkuServices;
   typeOptions: ProductTypeOption[];
   save: UpdateProductService;
   /**
@@ -72,6 +87,13 @@ export function EditProductModal({
   const [url, setUrl] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const [hsType, setHsType] = useState("");
+  // One creation intent, one key. Keyed to the leaf, so reopening the dialog
+  // for the SAME product reuses its allocation rather than burning another
+  // number -- and a save retry keeps the SKU the operator was shown.
+  const attemptKey = useMemo(
+    () => `edit-leaf:${target?.leafId ?? "none"}`,
+    [target?.leafId],
+  );
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
@@ -247,6 +269,19 @@ export function EditProductModal({
                   This product has no SKU, which is why it cannot be added to a
                   quote. Completing it here does not create a second product.
                 </span>
+                {/* Only on the no-SKU branch. The established branch above
+                    never offers it -- replacing an established identifier is
+                    a controlled correction, not an ordinary edit. */}
+                {skuServices && (
+                <AutoGenerateSku
+                  services={skuServices}
+                  quoteId={quoteId}
+                  currentValue={sku}
+                  established={false}
+                  attemptKey={attemptKey}
+                  onGenerated={setSku}
+                />
+                )}
               </>
             )}
           </div>
