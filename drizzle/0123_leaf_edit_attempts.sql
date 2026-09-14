@@ -66,6 +66,26 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   -- over cannot resolve or alter it.
   "version" integer NOT NULL DEFAULT 1,
 
+  -- Set the moment any request for this attempt goes UNANSWERED, and never
+  -- cleared by a later request succeeding.
+  --
+  -- A retry that succeeds establishes that A REQUEST carrying those values was
+  -- accepted. It establishes nothing about the earlier one that was never
+  -- answered, which may still be in flight. Releasing on the retry lets a
+  -- DIFFERENT edit follow, and the earlier request can then land on top of it
+  -- -- so the two facts have to be tracked separately.
+  --
+  -- An attempt with `unanswered = false` (HubSpot answered, the local write
+  -- failed) has no outstanding request at all: retrying it is ordinary
+  -- recovery and releases cleanly.
+  "unanswered" boolean NOT NULL DEFAULT false,
+
+  -- Set when an unanswered outcome is released anyway, by the documented
+  -- support procedure, with the residual risk accepted explicitly.
+  "released_with_risk_by" uuid,
+  "released_with_risk_at" timestamptz,
+  "released_with_risk_note" text,
+
   "created_by" uuid NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL,
@@ -73,7 +93,7 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   "resolution" text,
 
   CONSTRAINT "leaf_edit_attempts_outcome_values"
-    CHECK ("outcome" IN ('pending', 'unconfirmed', 'diverged'))
+    CHECK ("outcome" IN ('pending', 'unconfirmed', 'diverged', 'converged_unknown'))
 );
 
 -- At most one OPEN attempt per product. A second unresolved attempt would mean

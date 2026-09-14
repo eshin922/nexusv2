@@ -23,11 +23,15 @@ import {
   leafEditAttempts,
   leaves,
   quotes,
+  users,
 } from "@/db/schema";
 import { createLeaf, retryLeafEdit, updateLeaf } from "@/app/actions/leaves";
 import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
-import { __fakeHubspotProduct } from "../../tests/harness/providers/fake-hubspot.ts";
+import {
+  __fakeHubspotLandInflight,
+  __fakeHubspotProduct,
+} from "../../tests/harness/providers/fake-hubspot.ts";
 
 /**
  * #567 acceptance -- THE OPERATOR JOURNEY, END TO END.
@@ -294,7 +298,7 @@ async function main() {
         saved?.outcome === "unconfirmed" &&
         !different.ok &&
         different.error.code === "UNCONFIRMED_EDIT" &&
-        /Retry that saved edit first/.test(different.error.message)
+        /Retry that saved edit/.test(different.error.message)
         ? "PASS"
         : "FAIL",
       !res.ok
@@ -307,18 +311,38 @@ async function main() {
     );
   }
 
-  // ── 8 · THE REMEDY WORKS, AND THE PRODUCT IS USABLE AGAIN ───────────────
+  // ── 8 · THE REMEDY: RETRY CONVERGES, AND THE SUPPORT PROCEDURE RELEASES ─
+  //
+  // The failure above went UNANSWERED, so the retry can bring both catalogs to
+  // the saved values but cannot establish that the original request finished.
+  // The product converges and stays held; releasing it is a decision someone
+  // makes, with the residual risk recorded.
   {
     const retry = await retryLeafEdit(form({ leafId }));
-    const [after] = await db.select().from(leaves).where(eq(leaves.id, leafId));
+    const [afterRetry] = await db.select().from(leaves).where(eq(leaves.id, leafId));
     const remote = __fakeHubspotProduct(hubspotId);
-    const openLeft = await db
+    const [heldAfter] = await db
       .select()
       .from(leafEditAttempts)
       .where(and(eq(leafEditAttempts.leafId, leafId), isNull(leafEditAttempts.resolvedAt)));
-    // And an ordinary edit works again afterwards -- the point of a remedy.
+
+    // Released by the documented support procedure, attributed and recorded.
+    const [actor] = await db.select({ id: users.id }).from(users).limit(1);
+    const released = await db
+      .update(leafEditAttempts)
+      .set({
+        resolvedAt: new Date(),
+        resolution: "released_with_residual_risk",
+        releasedWithRiskBy: actor!.id,
+        releasedWithRiskAt: new Date(),
+        releasedWithRiskNote: "acceptance: residual overwrite risk accepted",
+        updatedAt: new Date(),
+      })
+      .where(eq(leafEditAttempts.id, heldAfter!.id))
+      .returning({ id: leafEditAttempts.id });
+
     const nextEdit = await updateLeaf(
-      form({ leafId, expectedUpdatedAt: await versionOf(leafId), name: `ACC · edited after recovery (${STAMP})`, sku, hubspotProductType: "Primary", unitCost: "55.00", url: "" }),
+      form({ leafId, expectedUpdatedAt: await versionOf(leafId), name: `ACC · edited after release (${STAMP})`, sku, hubspotProductType: "Primary", unitCost: "55.00", url: "" }),
     );
     const [end] = await db.select().from(leaves).where(eq(leaves.id, leafId));
     const endRemote = __fakeHubspotProduct(hubspotId);
@@ -326,19 +350,179 @@ async function main() {
     rec(
       "RECOVERY",
       retry.ok &&
-        after?.name === savedName &&
+        retry.data.hubspotOutcome === "converged_unknown" &&
+        afterRetry?.name === savedName &&
         remote?.name === savedName &&
-        openLeft.length === 0 &&
+        heldAfter?.outcome === "converged_unknown" &&
+        released.length === 1 &&
         nextEdit.ok &&
-        end?.name === `ACC · edited after recovery (${STAMP})` &&
+        end?.name === `ACC · edited after release (${STAMP})` &&
         endRemote?.name === end?.name
         ? "PASS"
         : "FAIL",
       retry.ok
-        ? `the saved edit went through (${retry.data.hubspotOutcome}) · both catalogs hold it · ` +
-          `nothing left open=${openLeft.length === 0} · ordinary editing works again=${nextEdit.ok}`
+        ? `the retry brought both catalogs to the saved values (${retry.data.hubspotOutcome}) ` +
+          `WITHOUT releasing · the support procedure released it, recorded · ` +
+          `ordinary editing works again=${nextEdit.ok}`
         : `the remedy failed: ${retry.error.message}`,
     );
+  }
+
+  // ── 8b · A RETRY DOES NOT PROVE THE ORIGINAL FINISHED ───────────────────
+  //
+  // Original A is accepted by HubSpot and left IN FLIGHT. A retry of A
+  // succeeds. If that released the claim, a different edit B would be allowed
+  // -- and A landing afterwards reverts HubSpot to A's values while Nexus
+  // keeps B's, with nothing reporting it.
+  //
+  // The retry establishes that A REQUEST carrying those values was accepted.
+  // It establishes nothing about the one that was never answered. So the claim
+  // converges and stays held, and B is refused.
+  {
+    const fresh = await createLeaf(
+      form({ name: `ACC · unanswered (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("UNANSWERED", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hsId = r0!.hubspotProductId!;
+      const aName = `ACC · A (${STAMP})`;
+      const bName = `ACC · B (${STAMP})`;
+      const aSku = `ACC-${STAMP}-A`;
+
+      // A is accepted and held in flight -- no answer comes back.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-inflight";
+      const a1 = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: aName, sku: aSku, hubspotProductType: "Labels", unitCost: "10.00", url: "" }),
+      );
+
+      // The retry of A goes through.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const retryA = await retryLeafEdit(form({ leafId: id }));
+
+      // B -- a DIFFERENT edit -- must be refused while A is unaccounted for.
+      const b = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: bName, sku: aSku, hubspotProductType: "Labels", unitCost: "20.00", url: "" }),
+      );
+
+      // Now the original A lands, last.
+      const landed = __fakeHubspotLandInflight(hsId);
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const endRemote = __fakeHubspotProduct(hsId);
+      const [heldAttempt] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      const convergedNotReleased =
+        retryA.ok &&
+        retryA.data.hubspotOutcome === "converged_unknown" &&
+        heldAttempt?.outcome === "converged_unknown" &&
+        heldAttempt?.unanswered === true;
+      const bRefused = !b.ok && b.error.code === "UNCONFIRMED_EDIT";
+      // B never happened, so the late original cannot have overwritten it --
+      // and both catalogs agree on A's values.
+      const catalogsAgree = end?.name === aName && endRemote?.name === aName;
+
+      rec(
+        "UNANSWERED",
+        !a1.ok &&
+          convergedNotReleased &&
+          bRefused &&
+          landed &&
+          catalogsAgree &&
+          end?.name !== bName
+          ? "PASS"
+          : "FAIL",
+        `the retry converged without releasing=${convergedNotReleased} ` +
+          `(${retryA.ok ? retryA.data.hubspotOutcome : retryA.error.code}) · ` +
+          `a different edit was refused=${bRefused} · the original then landed=${landed} · ` +
+          `local="${end?.name}" remote="${endRemote?.name}" · they agree=${catalogsAgree}`,
+      );
+    }
+  }
+
+  // ── 8c · AN ANSWERED FAILURE RECOVERS NORMALLY ──────────────────────────
+  //
+  // The case that must NOT be caught by the hold above, and in practice the
+  // likeliest failure: HubSpot answered and applied the edit, and only the
+  // local write failed -- a database blip after a successful call. Nothing is
+  // outstanding, so the retry releases and the product is editable again with
+  // no decision required of anyone.
+  //
+  // The state is CONSTRUCTED rather than provoked. Reaching it needs a
+  // transient local fault between a successful remote call and the commit, and
+  // the harness has no way to inject one; a permanent fault would fail the
+  // retry too and test nothing. What is under test is the behaviour given the
+  // state, and that is exercised for real.
+  {
+    const fresh = await createLeaf(
+      form({ name: `ACC · answered (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("ANSWERED", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const okSku = `ACC-${STAMP}-OK`;
+      const wanted = {
+        name: `ACC · answered recovered (${STAMP})`,
+        sku: okSku,
+        url: null,
+        unitCost: "3.00",
+        hubspotProductType: "Labels",
+      };
+
+      await db.insert(leafEditAttempts).values({
+        leafId: id,
+        hubspotProductId: r0!.hubspotProductId,
+        attempted: wanted,
+        submitted: {
+          name: wanted.name,
+          hs_sku: okSku,
+          hs_cost_of_goods_sold: "3.00",
+          hs_product_type: "Labels",
+          hs_url: "",
+        },
+        outcome: "diverged",
+        // HubSpot ANSWERED. Nothing is in flight.
+        unanswered: false,
+        reason: "acceptance: HubSpot applied it; the local write failed",
+        createdBy: (await db.select({ id: users.id }).from(users).limit(1))[0]!.id,
+      });
+
+      const blockedFirst = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "ACC · answered different", sku: okSku, hubspotProductType: "Labels", unitCost: "9.00", url: "" }),
+      );
+      const retry = await retryLeafEdit(form({ leafId: id }));
+      const openLeft = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const nextEdit = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `ACC · answered edited (${STAMP})`, sku: okSku, hubspotProductType: "Labels", unitCost: "4.00", url: "" }),
+      );
+      const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
+
+      rec(
+        "ANSWERED",
+        !blockedFirst.ok &&
+          retry.ok &&
+          retry.data.hubspotOutcome !== "converged_unknown" &&
+          openLeft.length === 0 &&
+          nextEdit.ok &&
+          end?.name === `ACC · answered edited (${STAMP})`
+          ? "PASS"
+          : "FAIL",
+        `a different edit was blocked first=${!blockedFirst.ok} · the retry released it=` +
+          `${retry.ok ? retry.data.hubspotOutcome : retry.error.code} · nothing left open=` +
+          `${openLeft.length === 0} · editable again with no decision needed=${nextEdit.ok}`,
+      );
+    }
   }
 
   // ── 9 · IT IS ALL ACCOUNTED FOR ─────────────────────────────────────────

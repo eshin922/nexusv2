@@ -484,6 +484,11 @@ const classifiedIdentityFiles = new Set([
   // `attachQuoteProduct` and reads back `quote_leaves.id`. It resolves no legacy
   // junction and derives no economics from one.
   "scripts/gate-1b/library-edit-acceptance.ts",
+  // CLASSIFIED -- the support procedure for a product whose earlier HubSpot
+  // request was never answered. Canonical identity only: it reads
+  // `leaf_edit_attempts.leaf_id`, resolves one attempt row and writes an audit
+  // entry. It touches no junction and derives no economics.
+  "scripts/admin/release-unanswered-edit.ts",
   // CLASSIFIED — read-only Case 6 Mixed proof harness. Queries `assembly_leaves`
   // DELIBERATELY, and that is the point of the case: it must prove a top-level
   // Direct Product acquires NO junction while its Item Group siblings keep

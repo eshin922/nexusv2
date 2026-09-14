@@ -5341,36 +5341,57 @@ lock before the record exists, so another edit can write over an unconfirmed
 remote state, and a process that dies during the call leaves no trace at all.
 
 **The remedy is an identical replay.** `retryLeafEdit` re-sends exactly what
-was submitted — the product id and nothing from the current form. That is what
-makes it safe when a failed request may still be in flight: whichever request
-lands last, HubSpot ends up holding the same thing. It reads the product first,
-so a request that completed late costs no second write.
+was submitted — the product id and nothing from the current form. It reads the
+product first, so a request that completed late costs no second write. A
+DIFFERENT edit is refused until the saved one has gone through.
 
-A DIFFERENT edit is refused until the saved one has gone through. That refusal
-is what makes identical replay safe, and it is the whole of the concurrency
-story here: converge first, then edit.
+**Answered and unanswered failures are different, and are treated differently.**
+A retry succeeding establishes that *a request carrying those values* was
+accepted. It establishes nothing about an earlier request that was never
+answered and may still be in flight — and releasing the claim would let a
+different edit follow, which that earlier request could land on top of.
 
-**Why there is no confirmation step, no amendment path and no permanent hold.**
-An earlier design let the operator amend an edit while retrying it. That makes
-the retry a *different* request, which reintroduces the ordering hazard: the
-original could land after the amended one and the two catalogs would disagree.
-Managing that needed a confirmation read — and a read establishes agreement at
-an instant, not that an older request can no longer arrive. The honest version
-of that design ends in a product that is blocked indefinitely, which is not a
-usable outcome. Removing amendments removes the hazard at its root.
+| the failure | what is outstanding | the remedy |
+|---|---|---|
+| **answered** — HubSpot applied it, the local write failed (`diverged`) | nothing | retry; it releases; the product is editable again with no decision required |
+| **unanswered** — no response, or a read-back that settles nothing (`unconfirmed`) | possibly the original request | retry converges both catalogs (`converged_unknown`) and the product **stays held**; releasing is a recorded decision |
 
-**Operational consequence, and the support procedure.** After a synchronization
-failure the product accepts no *new* edits until the saved one is retried. The
-operator sees the refusal and a "Retry the saved edit" control on the same
-surface. Retrying is safe to repeat as often as needed.
+The answered case is the likelier one in practice — a database blip after a
+successful API call — and it recovers cleanly on its own.
 
-If HubSpot is unavailable for an extended period the product stays in that
-state — editable again the moment a retry succeeds. There is no timer and no
-self-service override, because neither would be evidence of anything. If a
-product is ever stuck on a saved edit that can never succeed (for example its
-HubSpot counterpart was deleted), clearing the `leaf_edit_attempts` row is an
-admin database action, taken deliberately and recorded — not a control on the
-operator's screen.
+**Why there is no confirmation step and no amendment path.** An earlier design
+let the operator amend while retrying. That makes the retry a *different*
+request, which reintroduces the ordering hazard, and managing it needed a
+confirmation read — which establishes agreement at an instant, not that an
+older request can no longer arrive. Removing amendments removes the hazard at
+its root.
+
+**Operational consequence, and the support procedure.** After an *unanswered*
+failure the product takes no new edits until the saved one is retried, and the
+retry converges the values without releasing the block. Releasing it is
+`npm run admin:release-unanswered`, which requires a leaf, a user and a written
+reason, and records all three.
+
+**The residual risk, stated rather than denied.** That release does not
+establish that the original request finished — nothing available does. HubSpot
+CRM publishes no request-status API, no conditional writes and no maximum
+request lifetime, so neither another read nor more waiting is evidence. After
+release, the next different edit to that product *can* be overwritten by the
+original landing late, and the two catalogs would then disagree with nothing
+reporting it.
+
+What makes that tolerable is the shape of the exposure, not its absence: the
+window is bounded by HubSpot's real request lifetime, which is short in the
+ordinary case even though it is not documented; the values at stake are the
+ones already saved; and the divergence is repairable by editing again once
+noticed.
+
+**This is a release decision, and it is open.** The alternative to the recorded
+admin release is automatic release on retry success — simpler for operators,
+and it accepts the same risk silently instead of deliberately. Recommendation:
+keep the admin step for v1, on the grounds that the unanswered case should be
+rare and a rare deliberate decision is cheaper than a silent standing risk. If
+it turns out to be common in practice, that is the signal to revisit.
 
 **Out of scope, and still open:** repair of existing production records. 58
 Library leaves currently hold no SKU, 7 of them already attached to quotes.

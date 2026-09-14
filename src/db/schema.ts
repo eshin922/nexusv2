@@ -2782,14 +2782,31 @@ export const leafEditAttempts = pgTable(
      */
     observed: jsonb("observed"),
     /**
-     * `pending` | `unconfirmed` | `diverged`
+     * `pending` | `diverged` | `unconfirmed` | `converged_unknown`
      *
-     * The last two leave the SAVED EDIT outstanding. It is retried by
-     * replaying exactly what was submitted -- safe whichever request lands
-     * last -- and a DIFFERENT edit is refused until it has gone through.
+     * The distinction that matters is ANSWERED vs UNANSWERED, not applied vs
+     * not-applied -- see `unanswered`.
      */
     outcome: text("outcome").notNull().default("pending"),
     reason: text("reason"),
+    /**
+     * Set the moment any request for this attempt goes UNANSWERED, and never
+     * cleared by a later one succeeding.
+     *
+     * A retry that succeeds establishes that A REQUEST carrying those values
+     * was accepted. It establishes nothing about the earlier one that was
+     * never answered and may still be in flight -- so releasing on the retry
+     * lets a DIFFERENT edit follow, which that earlier request can then land
+     * on top of.
+     *
+     * An attempt with `unanswered = false` (HubSpot answered, the local write
+     * failed) has no outstanding request: retrying it is ordinary recovery.
+     */
+    unanswered: boolean("unanswered").notNull().default(false),
+    /** Set by the documented support procedure; the residual risk accepted. */
+    releasedWithRiskBy: uuid("released_with_risk_by"),
+    releasedWithRiskAt: timestamp("released_with_risk_at", { withTimezone: true }),
+    releasedWithRiskNote: text("released_with_risk_note"),
     /**
      * Claimed by whoever is working the attempt. A retry takes it, and every
      * later write carries it, so a worker whose claim has been taken over

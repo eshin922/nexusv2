@@ -346,9 +346,18 @@ export type LeafEditOutcome = {
    *   reconciled    the call failed and a read-back proved it had applied
    *   already_held  a retry read the product first and found the saved values
    *                 already there -- nothing was re-sent
+   *   converged_unknown
+   *                 both catalogs now hold the saved values, but an earlier
+   *                 request was never answered and may still land. The claim
+   *                 stays open; see the support procedure
    *   not_linked    the product has no HubSpot counterpart
    */
-  hubspotOutcome: "applied" | "reconciled" | "already_held" | "not_linked";
+  hubspotOutcome:
+    | "applied"
+    | "reconciled"
+    | "already_held"
+    | "converged_unknown"
+    | "not_linked";
 };
 
 function describeObservedSku(
@@ -468,13 +477,22 @@ async function applyLeafEdit(opts: {
       throw new ActionGuardError(
         ERR.UNCONFIRMED_EDIT,
         (open.outcome === "pending"
-          ? "Another edit to this product has not finished yet. "
-          : "An earlier edit to this product was never confirmed in HubSpot, " +
-            "so what HubSpot holds is not known to match what Nexus holds. ") +
-          describeObservedSku(observed) +
-          " Retry that saved edit first -- it re-sends exactly what was asked " +
-          "for, so it is safe whichever request lands last. You can make a new " +
-          "edit once it has gone through.",
+          ? "Another edit to this product has not finished yet. Try again in a moment."
+          : open.outcome === "converged_unknown"
+            ? "Both catalogs hold this product's saved values, but an earlier " +
+              "request to HubSpot was never answered and may still land. A " +
+              "DIFFERENT edit now could be overwritten by it without warning. " +
+              "This needs the documented support procedure -- see the product's " +
+              "saved edit."
+            : open.outcome === "diverged"
+              ? "An earlier edit reached HubSpot but was not recorded in Nexus, " +
+                "so the two disagree. Retry the saved edit to bring them back " +
+                "into line; nothing is outstanding at HubSpot."
+              : "An earlier edit to this product was never confirmed in HubSpot, " +
+                "so what HubSpot holds is not known to match what Nexus holds. " +
+                "Retry that saved edit -- it re-sends exactly what was asked for, " +
+                "so it is safe whichever request lands last.") +
+          describeObservedSku(observed),
       );
     }
 
@@ -576,6 +594,10 @@ async function applyLeafEdit(opts: {
     return {
       attemptId: attemptId!,
       claimedVersion,
+      // Carried from the attempt, not from this request. Whether an EARLIER
+      // request was ever left unanswered is what decides if settling is safe,
+      // and this request's own outcome cannot tell us.
+      unanswered: Boolean(open?.unanswered),
       priorObserved: (open?.observed ?? null) as Record<string, string | null> | null,
       existing,
       values,
@@ -589,6 +611,7 @@ async function applyLeafEdit(opts: {
   const {
     attemptId,
     claimedVersion,
+    unanswered,
     priorObserved,
     existing,
     values,
@@ -697,17 +720,43 @@ async function applyLeafEdit(opts: {
     await db.transaction(async (tx) => {
       await tx.execute(lockLeaf);
 
+      // ── RELEASE ONLY WHAT IS KNOWN TO BE FINISHED ───────────────────
+      //
+      // A successful write here establishes that THIS request was accepted. It
+      // establishes nothing about an earlier request that was never answered
+      // and may still be in flight -- and releasing the claim would let a
+      // DIFFERENT edit follow, which that earlier request could then land on
+      // top of. Identical replay is only harmless while different edits are
+      // excluded; releasing is what stops excluding them.
+      //
+      // So an attempt that has ever gone unanswered converges and stays held.
+      // An attempt that never did -- HubSpot answered, the local write failed
+      // -- has nothing outstanding and releases normally.
+      const holdUnknown = unanswered;
+      if (holdUnknown) hubspotOutcome = "converged_unknown";
+
       // Resolve FIRST, and conditionally. If this claim has already been
       // settled, this process no longer speaks for the product and must not
       // write to it.
       const settled = await tx
         .update(leafEditAttempts)
-        .set({
-          resolvedAt: new Date(),
-          resolution: hubspotOutcome,
-          version: claimedVersion + 1,
-          updatedAt: new Date(),
-        })
+        .set(
+          holdUnknown
+            ? {
+                outcome: "converged_unknown",
+                reason:
+                  "both catalogs hold the saved values, but an earlier request " +
+                  "was never answered and may still land",
+                version: claimedVersion + 1,
+                updatedAt: new Date(),
+              }
+            : {
+                resolvedAt: new Date(),
+                resolution: hubspotOutcome,
+                version: claimedVersion + 1,
+                updatedAt: new Date(),
+              },
+        )
         .where(
           and(
             eq(leafEditAttempts.id, attemptId),
@@ -848,6 +897,9 @@ async function markUnconfirmed(
 ): Promise<boolean> {
   return fencedAttemptUpdate(attemptId, version, {
     outcome: "unconfirmed",
+    // NO ANSWER was received for this request. Sticky: a later request being
+    // answered says nothing about this one, which may still be in flight.
+    unanswered: true,
     observed,
     reason: readable
       ? `read-back did not match the requested state: ${detail}`
@@ -889,7 +941,7 @@ function readLeafEditValues(formData: FormData): LeafEditValues {
   const skuRaw = String(formData.get("sku") ?? "").trim();
   const unitCostRaw = String(formData.get("unitCost") ?? "").trim();
   const unitCost = unitCostRaw === "" ? null : unitCostRaw;
-  if (unitCost !== null && !/^\d+(\.\d+)?$/.test(unitCost)) {
+  if (unitCost !== null && (unitCost.length > 20 || !/^\d+(\.\d+)?$/.test(unitCost))) {
     // Checked here rather than left to the column. An unparseable cost would
     // otherwise fail at the UPDATE -- after HubSpot had already been written
     // -- turning an operator typo into a divergence between two catalogues.
