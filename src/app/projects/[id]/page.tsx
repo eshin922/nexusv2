@@ -27,21 +27,27 @@ import { ScenarioActionsMenu } from "@/components/scenario-actions/scenario-acti
 import { CategorySelect } from "./category-select";
 import { RefreshProjectButton } from "./refresh-project-button";
 
-// Slice RI.8 — state-aware default surface for version-row clicks.
-// Brand-new quotes (no SKUs/tiers) land on Setup instead of an
-// empty Pricing. PMs adding inputs land on Costs. PMs
-// with cost inputs already in place land on Pricing (current
-// review surface). Edward caught the original "always Costing"
-// behavior in step 0 smoke — new quotes rendered an empty Costing
-// Sheet which read as broken.
-function defaultQuoteSurface(
-  projectId: string,
-  v: { id: string; hasSetupComplete: boolean; hasCostInputs: boolean },
-): string {
-  const base = `/projects/${projectId}/quotes/${v.id}`;
-  if (!v.hasSetupComplete) return base; // Setup (bare quote index)
-  if (!v.hasCostInputs) return `${base}/costs`;
-  return `${base}/pricing`;
+// A control that opens A QUOTE opens it at Setup. Same rule #575 applied to
+// Home: what a name opens is the thing it names, and a quote begins at Setup.
+//
+// SUPERSEDES the RI.8 state-aware helper this replaces, which chose between
+// Setup, Costs and Pricing by reading whether the quote had SKUs and cost
+// inputs. That helper was itself a fix -- the original behaviour was "always
+// Costing", and brand-new quotes rendered an empty Costing Sheet that read as
+// broken. Landing a bare quote on Setup is preserved here; what is dropped is
+// the convenience of skipping ahead for a quote that already has costs.
+//
+// It is dropped because the destination was unpredictable in exactly the way
+// #575 removed from Home: one control, three landing places, none of them
+// named on the control. An operator who wants the surface they were last on
+// has Resume, which knows where they actually were rather than inferring it
+// from the quote's shape.
+//
+// Surface-specific controls are untouched: the inner rail still links Setup,
+// Costs, Pricing and Quote by name, and pricing-specific actions still open
+// Pricing. This governs only the generic "open this quote" affordances.
+function quoteHref(projectId: string, v: { id: string }): string {
+  return `/projects/${projectId}/quotes/${v.id}/setup`;
 }
 
 // Slice RI.3 — Project Detail rebuild per Round 4 design. Three
@@ -590,20 +596,17 @@ function ScenarioCardView({
         </div>
         {/* canonical-scenario-create-flow polish (May 2026) —
             collapsed the RI.8 F-9 dual-affordance (Build · v{N} +
-            Open Costing · v{N}) into a single state-aware Open button.
-            "Build" label drifted vs the RI.8 surface canon ("Cost
-            build → Costs"); "Open Costing" drifted vs the same rename
-            ("Costing sheet → Pricing"). Dual buttons were also
-            state-blind — clicking Open Costing on a bare quote
-            landed PMs on an empty Pricing surface, reintroducing
-            the same speed-pass trap defaultQuoteSurface fixes for
-            version-row clicks (see helper comment at top of file).
-            Single button reuses that helper for canonical-flow
-            routing while preserving the version-explicit label
-            Edward wanted in RI.8. */}
+            Open Costing · v{N}) into a single Open button. "Build"
+            label drifted vs the RI.8 surface canon ("Cost build →
+            Costs"); "Open Costing" drifted vs the same rename
+            ("Costing sheet → Pricing").
+
+            The single button was state-AWARE until this change and is
+            now simply Setup, per `quoteHref` above — the version-
+            explicit label Edward wanted in RI.8 is unchanged. */}
         <div className="flex items-center gap-2">
           <Link
-            href={defaultQuoteSurface(projectId, latest)}
+            href={quoteHref(projectId, latest)}
             className="rounded border border-rule bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-rule-2 hover:bg-paper-2"
           >
             Open Quote · Rev. {latest.versionNumber}
@@ -630,7 +633,7 @@ function ScenarioCardView({
             className="flex items-center justify-between gap-3 py-1.5"
           >
             <Link
-              href={defaultQuoteSurface(projectId, v)}
+              href={quoteHref(projectId, v)}
               className="flex flex-1 items-center gap-2 hover:text-accent"
             >
               <span className="font-mono text-[10px] text-ink-3">
