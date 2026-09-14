@@ -1572,7 +1572,7 @@ export function LibraryBrowseModal({
         typeOptions={hsTypeOptions}
         save={updateLeaf}
         recover={retryLeafEdit}
-        confirm={confirmLeafEdit}
+        observe={confirmLeafEdit}
         onClose={() => setEditOpen(false)}
         onSaved={() => {
           // Reload so the row reflects what was saved, and so a completed SKU

@@ -2789,9 +2789,9 @@ export const leafEditAttempts = pgTable(
      */
     observed: jsonb("observed"),
     /**
-     * `pending` | `unconfirmed` | `awaiting_confirmation` | `diverged`
+     * `pending` | `unconfirmed` | `ordering_unresolved` | `diverged`
      *
-     * `awaiting_confirmation` exists because an AMENDED recovery cannot
+     * `ordering_unresolved` exists because an AMENDED recovery cannot
      * declare itself settled. The original request may still be in flight and
      * may land after it, leaving HubSpot holding the original values and Nexus
      * the amended ones. That ordering is decided on the far side, so no local

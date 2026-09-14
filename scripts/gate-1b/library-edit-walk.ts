@@ -21,6 +21,7 @@ import { assemblies, auditLog, leafEditAttempts, leaves, quotes, users } from "@
 import {
   confirmLeafEdit,
   createLeaf,
+  releaseOrderingHold,
   retryLeafEdit,
   updateLeaf,
 } from "@/app/actions/leaves";
@@ -33,8 +34,12 @@ import {
   __fakeHubspotCallCount,
   __fakeHubspotLandInflight,
   __fakeHubspotProduct,
+  __fakeHubspotSetProduct,
 } from "../../tests/harness/providers/fake-hubspot.ts";
 import { spawn } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * #567 acceptance: an EXISTING SKU-less product is corrected in place.
@@ -970,6 +975,17 @@ async function main() {
       const claimedSku = `EW-${STAMP}-INT`;
       const version = await versionOf(id);
 
+      // The provider signals receipt here; the parent waits for it.
+      const receiptPath = join(
+        tmpdir(),
+        `nexus-interrupt-receipt-${STAMP}-${Math.abs(Number(BigInt("0x" + id.replace(/-/g, "").slice(0, 8))))}.txt`,
+      );
+      try {
+        rmSync(receiptPath, { force: true });
+      } catch {
+        /* nothing to clear */
+      }
+
       const child = spawn(
         process.execPath,
         [
@@ -984,31 +1000,50 @@ async function main() {
           target,
           claimedSku,
         ],
-        { stdio: ["ignore", "pipe", "pipe"] },
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, NEXUS_FAKE_HUBSPOT_RECEIPT: receiptPath },
+        },
+      );
+      const childExited = new Promise<number | null>((resolve) =>
+        child.on("exit", (code) => resolve(code)),
       );
       let childOut = "";
       child.stdout.on("data", (d) => (childOut += String(d)));
       child.stderr.on("data", (d) => (childOut += String(d)));
 
-      // Kill on the CLAIM, not on a clock.
+      // Kill at the PROVIDER-SIDE BOUNDARY.
       //
-      // A fixed sleep makes this a race: process startup varies by seconds,
-      // and on a warm machine the child finishes its whole edit before the
-      // timer fires -- so the case passes or fails on timing rather than on
-      // what it means to test. Polling for the committed claim and killing the
-      // instant it appears puts the SIGKILL inside the remote call every time.
+      // Two earlier versions of this were weaker. A fixed sleep made it a race
+      // that a warm machine won, so it passed on timing luck. Polling for the
+      // CLAIM fixed the flakiness but proved an earlier boundary: the intent
+      // was committed, which says nothing about whether a request was ever
+      // issued -- and the whole point is what survives a death AFTER the
+      // remote system has the request.
+      //
+      // The provider signals receipt and then holds. The parent waits for that
+      // signal, terminates, and AWAITS THE EXIT, so nothing is asserted while
+      // the child could still be writing.
       const killedAt = Date.now();
-      let claimVisible: (typeof leafEditAttempts.$inferSelect)[] = [];
-      for (let i = 0; i < 400; i++) {
-        claimVisible = await db
-          .select()
-          .from(leafEditAttempts)
-          .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
-        if (claimVisible.length > 0) break;
+      let receiptSeen = false;
+      for (let i = 0; i < 600; i++) {
+        if (existsSync(receiptPath)) {
+          receiptSeen = true;
+          break;
+        }
         await new Promise((r) => setTimeout(r, 50));
       }
+      const claimVisible = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
       child.kill("SIGKILL");
-      await new Promise((r) => setTimeout(r, 500));
+      await childExited;
+      try {
+        rmSync(receiptPath, { force: true });
+      } catch {
+        /* best effort */
+      }
 
       const completedAnyway = /CHILD:completed/.test(childOut);
 
@@ -1030,7 +1065,8 @@ async function main() {
 
       rec(
         "INTERRUPT",
-        !completedAnyway &&
+        receiptSeen &&
+          !completedAnyway &&
           claimVisible.length === 1 &&
           claimVisible[0].outcome === "pending" &&
           blocked &&
@@ -1039,7 +1075,8 @@ async function main() {
           endRemote?.hs_sku === claimedSku
           ? "PASS"
           : "FAIL",
-        `child killed ${Date.now() - killedAt}ms in, the moment its claim appeared, ` +
+        `HubSpot confirmed receipt of the request=${receiptSeen}; the child was ` +
+          `killed ${Date.now() - killedAt}ms in and its exit awaited, ` +
           `without completing=${!completedAnyway} · ` +
           `a committed claim survived it=${claimVisible.length === 1} (outcome=${claimVisible[0]?.outcome}) · ` +
           `ordinary editing blocked=${blocked} · recovery settled both at ` +
@@ -1233,8 +1270,8 @@ async function main() {
         .from(leafEditAttempts)
         .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
 
-      const wasHeld = heldBefore?.outcome === "awaiting_confirmation";
-      const stillHeld = heldAfter?.outcome === "awaiting_confirmation";
+      const wasHeld = heldBefore?.outcome === "ordering_unresolved";
+      const stillHeld = heldAfter?.outcome === "ordering_unresolved";
       const expectationIntact = Boolean(heldAfter?.expected);
       // Confirmation must still work -- which it cannot if the held state was
       // overwritten.
@@ -1253,8 +1290,8 @@ async function main() {
         `the new owner held it=${wasHeld} · the superseded original failed=${!original.ok}` +
           `${original.ok ? "" : ` (${original.error.code})`} · ` +
           `the held state survived it=${stillHeld} (outcome=${heldAfter?.outcome}) · ` +
-          `its expectation survived=${expectationIntact} · confirmation still works=` +
-          `${confirmed.ok ? confirmed.data.state : confirmed.error.code}`,
+          `its expectation survived=${expectationIntact} · it can still be observed=` +
+          `${confirmed.ok ? confirmed.data.observation : confirmed.error.code}`,
       );
     }
   }
@@ -1310,148 +1347,267 @@ async function main() {
     }
   }
 
-  // ── 12l · THE ORIGINAL LANDS AFTER AN AMENDED RECOVERY ──────────────────
+  // ── 12l · AGREEMENT NOW, THEN THE ORIGINAL LANDS ANYWAY ─────────────────
   //
-  // The ordering no local mechanism can prevent, because it is decided on the
-  // far side: original in flight → amended recovery accepted → original lands
-  // last, overwriting it.
+  // THE case. An amended recovery is accepted, an observation finds the two
+  // catalogs agreeing, and the original request lands AFTER that.
   //
-  // So an amended recovery does not get to declare itself settled. It holds
-  // the claim at `awaiting_confirmation`, keeps ordinary editing blocked, and
-  // confirmation is what adjudicates -- reporting a DIVERGENCE with what
-  // HubSpot actually holds, rather than a success nobody checked.
+  // If agreement had released the hold -- which it did, until this case was
+  // written -- the product would be editable and the catalogs would then
+  // silently diverge with nothing recording it. A matching read proves
+  // agreement AT THAT INSTANT. The question is what can still arrive, and a
+  // read cannot answer it.
   {
     const fresh = await createLeaf(
-      form({ name: `EW · ordering (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+      form({ name: `EW · agree then land (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
     );
     if (!fresh.ok) {
-      rec("ORDERING:late-original", "BLOCKED", `could not create: ${fresh.error.message}`);
+      rec("ORDERING:agree-then-land", "BLOCKED", `could not create: ${fresh.error.message}`);
     } else {
       const id = fresh.data.leafId;
       const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
       const hubspotId = r0!.hubspotProductId!;
-      const originalName = `EW · ordering original (${STAMP})`;
-      const amendedName = `EW · ordering amended (${STAMP})`;
+      const originalName = `EW · atl original (${STAMP})`;
+      const amendedName = `EW · atl amended (${STAMP})`;
 
-      // The original is accepted by HubSpot but does not land yet.
       process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-inflight";
       await updateLeaf(
-        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: originalName, sku: `EW-${STAMP}-ORD`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: originalName, sku: `EW-${STAMP}-ATL`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
       );
 
-      // The operator amends and recovers; that request succeeds.
       process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
       const recovered = await retryLeafEdit(
         form({ leafId: id, name: amendedName, unitCost: "2.00" }),
       );
 
-      const [afterRecovery] = await db.select().from(leaves).where(eq(leaves.id, id));
-      const [heldAttempt] = await db
-        .select()
-        .from(leafEditAttempts)
-        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      // The observation agrees -- HubSpot really does hold the amended values
+      // at this moment.
+      const observedAgreeing = await confirmLeafEdit(form({ leafId: id }));
 
-      // Editing must stay blocked while the ordering is unresolved.
-      const blockedWhileHeld = !(
+      // And the product must STILL be blocked, because agreeing now is not
+      // evidence about later.
+      const blockedAfterAgreement = !(
         await updateLeaf(
-          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · edit during hold", sku: `EW-${STAMP}-ORD`, hubspotProductType: "Labels", unitCost: "3.00", url: "" }),
+          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · atl edit after agreement", sku: `EW-${STAMP}-ATL`, hubspotProductType: "Labels", unitCost: "3.00", url: "" }),
         )
       ).ok;
 
-      // NOW the original lands, after the recovery.
+      // NOW the original lands, after the agreement.
       const landed = __fakeHubspotLandInflight(hubspotId);
+      const observedAfter = await confirmLeafEdit(form({ leafId: id }));
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
 
-      const confirmed = await confirmLeafEdit(form({ leafId: id }));
       const [end] = await db.select().from(leaves).where(eq(leaves.id, id));
       const endRemote = __fakeHubspotProduct(hubspotId);
-      const [afterConfirm] = await db
+      const [stillOpen] = await db
         .select()
         .from(leafEditAttempts)
         .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
-      const stillBlocked = !(
-        await updateLeaf(
-          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · edit after confirm", sku: `EW-${STAMP}-ORD`, hubspotProductType: "Labels", unitCost: "4.00", url: "" }),
-        )
-      ).ok;
 
-      const heldNotSettled =
-        recovered.ok &&
-        recovered.data.hubspotOutcome === "awaiting_confirmation" &&
-        heldAttempt?.outcome === "awaiting_confirmation";
-      const detected =
-        confirmed.ok &&
-        confirmed.data.state === "diverged" &&
-        afterConfirm?.outcome === "diverged";
-      const catalogsDisagree =
-        end?.name === amendedName && endRemote?.name === originalName;
+      const agreedAtTheTime =
+        observedAgreeing.ok &&
+        observedAgreeing.data.observation === "agrees_now" &&
+        observedAgreeing.data.released === false;
+      const caught =
+        observedAfter.ok && observedAfter.data.observation === "diverged";
 
       rec(
-        "ORDERING:late-original",
-        landed &&
-          heldNotSettled &&
-          blockedWhileHeld &&
-          detected &&
-          catalogsDisagree &&
-          stillBlocked
+        "ORDERING:agree-then-land",
+        recovered.ok &&
+          agreedAtTheTime &&
+          blockedAfterAgreement &&
+          landed &&
+          caught &&
+          Boolean(stillOpen) &&
+          end?.name === amendedName &&
+          endRemote?.name === originalName
           ? "PASS"
           : "FAIL",
-        `amended recovery held rather than settled=${heldNotSettled} ` +
-          `(${recovered.ok ? recovered.data.hubspotOutcome : recovered.error.code}) · ` +
-          `blocked while held=${blockedWhileHeld} · the late original landed=${landed} · ` +
-          `confirmation detected the divergence=${detected} · ` +
-          `local="${end?.name}" remote="${endRemote?.name}" · still blocked after=${stillBlocked}`,
+        `the observation agreed and released nothing=${agreedAtTheTime} · ` +
+          `still blocked after agreeing=${blockedAfterAgreement} · ` +
+          `the original then landed=${landed} · the next look caught it=${caught} · ` +
+          `local="${end?.name}" remote="${endRemote?.name}" · claim still open=${Boolean(stillOpen)}`,
       );
     }
   }
 
-  // ── 12m · THE SAME ORDERING, RESOLVED IN TIME ───────────────────────────
+  // ── 12m · AMENDED + already_held IS STILL HELD ──────────────────────────
   //
-  // The control for the case above. Nothing lands late, confirmation finds
-  // HubSpot holding the recovered values, the claim resolves and the product
-  // is released -- so the hold is a real adjudication and not a state
-  // everything falls into.
+  // The recovery reads first, finds HubSpot ALREADY holding the amended
+  // values, and sends nothing. That is a reading of an instant too -- the
+  // older request can still land on top of it -- so the hold condition is the
+  // AMENDMENT, not how this particular request happened to end.
   {
     const fresh = await createLeaf(
-      form({ name: `EW · ordering ok (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+      form({ name: `EW · amended held (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
     );
     if (!fresh.ok) {
-      rec("ORDERING:confirmed", "BLOCKED", `could not create: ${fresh.error.message}`);
+      rec("ORDERING:already-held", "BLOCKED", `could not create: ${fresh.error.message}`);
     } else {
       const id = fresh.data.leafId;
-      const amendedName = `EW · ordering ok amended (${STAMP})`;
+      const [r0] = await db.select().from(leaves).where(eq(leaves.id, id));
+      const hubspotId = r0!.hubspotProductId!;
+      const amendedName = `EW · ah amended (${STAMP})`;
 
       process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-lost";
       await updateLeaf(
-        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · ordering ok (${STAMP})`, sku: `EW-${STAMP}-OK`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · ah original (${STAMP})`, sku: `EW-${STAMP}-AH`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
       );
-      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
-      const recovered = await retryLeafEdit(
-        form({ leafId: id, name: amendedName, unitCost: "7.00" }),
-      );
-      const confirmed = await confirmLeafEdit(form({ leafId: id }));
       delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
 
-      const openAfter = await db
+      // Put the amended values there by another route, so the recovery's
+      // read-first finds them already present.
+      __fakeHubspotSetProduct(hubspotId, {
+        name: amendedName,
+        hs_sku: `EW-${STAMP}-AH`,
+        hs_cost_of_goods_sold: "4.00",
+        hs_product_type: "Labels",
+        hs_url: "",
+      });
+
+      const writesBefore = __fakeHubspotCallCount("product-update");
+      const recovered = await retryLeafEdit(
+        form({ leafId: id, name: amendedName, unitCost: "4.00" }),
+      );
+      const writesAfter = __fakeHubspotCallCount("product-update");
+
+      const [attempt] = await db
         .select()
         .from(leafEditAttempts)
         .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
-      const nowEditable = await updateLeaf(
-        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · released (${STAMP})`, sku: `EW-${STAMP}-OK`, hubspotProductType: "Labels", unitCost: "8.00", url: "" }),
-      );
+      const blocked = !(
+        await updateLeaf(
+          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · ah edit", sku: `EW-${STAMP}-AH`, hubspotProductType: "Labels", unitCost: "5.00", url: "" }),
+        )
+      ).ok;
 
       rec(
-        "ORDERING:confirmed",
+        "ORDERING:already-held",
         recovered.ok &&
-          recovered.data.hubspotOutcome === "awaiting_confirmation" &&
-          confirmed.ok &&
-          confirmed.data.state === "resolved" &&
-          openAfter.length === 0 &&
-          nowEditable.ok
+          recovered.data.hubspotOutcome === "ordering_unresolved" &&
+          writesAfter === writesBefore &&
+          attempt?.outcome === "ordering_unresolved" &&
+          blocked
           ? "PASS"
           : "FAIL",
-        `held for confirmation=${recovered.ok ? recovered.data.hubspotOutcome : "no"} · ` +
-          `confirmation resolved it=${confirmed.ok ? confirmed.data.state : confirmed.error.code} · ` +
-          `claims left open=${openAfter.length} · the product is editable again=${nowEditable.ok}`,
+        `nothing was re-sent=${writesAfter === writesBefore} · ` +
+          `outcome=${recovered.ok ? recovered.data.hubspotOutcome : recovered.error.code} · ` +
+          `the claim is held as ${attempt?.outcome ?? "RESOLVED"} · editing blocked=${blocked}`,
+      );
+    }
+  }
+
+  // ── 12n · AMENDED + reconciled IS STILL HELD ────────────────────────────
+  //
+  // The recovery's own write fails without an answer and a read-back shows it
+  // applied. Same exposure by a different route, and the earlier condition
+  // released it immediately.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · amended reconciled (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("ORDERING:reconciled", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-lost";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · rc original (${STAMP})`, sku: `EW-${STAMP}-RC`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+
+      // The recovery applies, then reports failure; its read-back finds it.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-applied";
+      const recovered = await retryLeafEdit(
+        form({ leafId: id, name: `EW · rc amended (${STAMP})`, unitCost: "6.00" }),
+      );
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const [attempt] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const blocked = !(
+        await updateLeaf(
+          form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · rc edit", sku: `EW-${STAMP}-RC`, hubspotProductType: "Labels", unitCost: "7.00", url: "" }),
+        )
+      ).ok;
+
+      rec(
+        "ORDERING:reconciled",
+        recovered.ok &&
+          recovered.data.hubspotOutcome === "ordering_unresolved" &&
+          attempt?.outcome === "ordering_unresolved" &&
+          blocked
+          ? "PASS"
+          : "FAIL",
+        `outcome=${recovered.ok ? recovered.data.hubspotOutcome : recovered.error.code} · ` +
+          `held as ${attempt?.outcome ?? "RESOLVED"} · editing blocked=${blocked}`,
+      );
+    }
+  }
+
+  // ── 12o · NOTHING RELEASES AN UNRESOLVED ORDERING ───────────────────────
+  //
+  // Identical replay is harmless and stays permitted; a DIFFERENT edit is
+  // refused; and the release path releases nothing -- it names what a
+  // reconciliation would require instead of pretending an operator's click is
+  // evidence that a request stopped being in flight.
+  {
+    const fresh = await createLeaf(
+      form({ name: `EW · release (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("ORDERING:no-release", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-lost";
+      await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `EW · rel original (${STAMP})`, sku: `EW-${STAMP}-REL`, hubspotProductType: "Labels", unitCost: "1.00", url: "" }),
+      );
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const recovered = await retryLeafEdit(
+        form({ leafId: id, name: `EW · rel amended (${STAMP})`, unitCost: "2.00" }),
+      );
+
+      const differentEdit = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "EW · rel different", sku: `EW-${STAMP}-REL`, hubspotProductType: "Labels", unitCost: "8.00", url: "" }),
+      );
+      // Identical replay: the recorded intent again, unamended.
+      const identicalReplay = await retryLeafEdit(form({ leafId: id }));
+
+      const named = await releaseOrderingHold(
+        form({ leafId: id, basis: "provider_ordering_guarantee" }),
+      );
+      const invented = await releaseOrderingHold(form({ leafId: id, basis: "i_looked" }));
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+
+      const [stillOpen] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      const differentRefused =
+        !differentEdit.ok && differentEdit.error.code === "ORDERING_UNRESOLVED";
+      const replayAllowed = identicalReplay.ok;
+      const namedRefused =
+        !named.ok && /If-Match|ETag|ordering contract/i.test(named.error.message);
+      const inventedRefused =
+        !invented.ok && /No reconciliation basis/i.test(invented.error.message);
+
+      rec(
+        "ORDERING:no-release",
+        recovered.ok &&
+          differentRefused &&
+          replayAllowed &&
+          namedRefused &&
+          inventedRefused &&
+          Boolean(stillOpen)
+          ? "PASS"
+          : "FAIL",
+        `a different edit was refused=${differentRefused} · identical replay stayed ` +
+          `permitted=${replayAllowed} · a named basis refused with what it would ` +
+          `require=${namedRefused} · an invented basis refused=${inventedRefused} · ` +
+          `the hold survived all of it=${Boolean(stillOpen)}`,
       );
     }
   }

@@ -49,8 +49,11 @@ const ok: UpdateProductService = async () => ({
   data: { leafId: "leaf-1", syncedToHubspot: true },
 });
 
-type ConfirmService = (fd: FormData) => Promise<
-  | { ok: true; data: { leafId: string; state: "resolved" | "diverged" } }
+type ObserveService = (fd: FormData) => Promise<
+  | {
+      ok: true;
+      data: { leafId: string; observation: "agrees_now" | "diverged"; released: false };
+    }
   | { ok: false; error: { code: string; message: string } }
 >;
 
@@ -58,7 +61,7 @@ function view(over: {
   target?: EditProductTarget;
   save?: UpdateProductService;
   recover?: UpdateProductService;
-  confirm?: ConfirmService;
+  observe?: ObserveService;
   onSaved?: (id: string) => void;
   onClose?: () => void;
 }) {
@@ -69,7 +72,7 @@ function view(over: {
       typeOptions={TYPES}
       save={over.save ?? ok}
       recover={over.recover}
-      confirm={over.confirm}
+      observe={over.observe}
       onClose={over.onClose ?? (() => {})}
       onSaved={over.onSaved ?? (() => {})}
     />
@@ -370,33 +373,28 @@ test("no recovery control is offered for an ordinary failure", async () => {
   await m.unmount();
 });
 
-// ── an accepted recovery is not a settled one ─────────────────────────────
+// ── an unresolved ordering is not resolved by looking again ───────────────
 
-const awaiting: UpdateProductService = async () => ({
+const ordering: UpdateProductService = async () => ({
   ok: false,
   error: {
-    code: "AWAITING_CONFIRMATION",
+    code: "ORDERING_UNRESOLVED",
     message:
-      "A recovery of this product was accepted by HubSpot, but an earlier request to it may still land afterwards — nothing here can rule that out. Confirm it before editing again.",
+      "This product has an unresolved ordering problem. An amended recovery moved what HubSpot holds while an older request may still be in flight. Editing is blocked until that is reconciled.",
   },
 });
 
-test("awaiting confirmation offers a CHECK, not another retry", async () => {
-  // The remedy is different, so the control has to be. Offering "recover"
-  // here would invite re-sending a request that already succeeded, which
-  // makes the ordering hazard worse rather than better.
-  const m = await mount(
-    view({
-      save: awaiting,
-      recover: ok,
-      confirm: async () => ({ ok: true, data: { leafId: "leaf-1", state: "resolved" } }),
-    }),
-  );
+const agrees: ObserveService = async () => ({
+  ok: true,
+  data: { leafId: "leaf-1", observation: "agrees_now", released: false },
+});
+
+test("an unresolved ordering offers a LOOK, not a retry", async () => {
+  const m = await mount(view({ save: ordering, recover: ok, observe: agrees }));
   await m.click('[data-testid="edit-product-save"]');
   await flush();
-
-  assert.ok(m.byTestId("edit-product-confirm"), "the check must be reachable");
-  assert.equal(m.byTestId("edit-product-recover"), null, "and a retry must not be");
+  assert.ok(m.byTestId("edit-product-observe"));
+  assert.equal(m.byTestId("edit-product-recover"), null, "there is nothing to retry");
   assert.equal(
     (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
     true,
@@ -404,56 +402,69 @@ test("awaiting confirmation offers a CHECK, not another retry", async () => {
   await m.unmount();
 });
 
-test("a check that finds a DIVERGENCE says so, and does not close", async () => {
-  // The failure this guards is reporting "confirmed" for a check that came
-  // back bad -- the same class of error the whole surface exists to avoid.
+test("a look that AGREES does not close, and says why that is not enough", async () => {
+  // The failure this guards is the one the whole surface exists to avoid:
+  // reporting a true reading of a moment as an outcome. Agreement now does
+  // not establish that an older request can no longer overwrite it.
   let closed = false;
-  const m = await mount(
-    view({
-      save: awaiting,
-      confirm: async () => ({ ok: true, data: { leafId: "leaf-1", state: "diverged" } }),
-      onClose: () => (closed = true),
-    }),
-  );
-  await m.click('[data-testid="edit-product-save"]');
-  await flush();
-  await m.click('[data-testid="edit-product-confirm"]');
-  await flush();
-
-  const err = m.byTestId("edit-product-error");
-  assert.match(err!.textContent ?? "", /does not hold the recovered values/i);
-  assert.match(err!.textContent ?? "", /stays held/i);
-  assert.equal(closed, false);
-  assert.equal(
-    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
-    true,
-    "a diverged product must not be editable from here",
-  );
-  await m.unmount();
-});
-
-test("a check that comes back clean closes the surface", async () => {
   let saved: string | null = null;
   const m = await mount(
     view({
-      save: awaiting,
-      confirm: async () => ({ ok: true, data: { leafId: "leaf-1", state: "resolved" } }),
+      save: ordering,
+      observe: agrees,
+      onClose: () => (closed = true),
       onSaved: (id) => (saved = id),
     }),
   );
   await m.click('[data-testid="edit-product-save"]');
   await flush();
-  await m.click('[data-testid="edit-product-confirm"]');
+  await m.click('[data-testid="edit-product-observe"]');
   await flush();
-  assert.equal(saved, "leaf-1");
+
+  const err = m.byTestId("edit-product-error");
+  assert.match(err!.textContent ?? "", /agreement at this instant/i);
+  assert.match(err!.textContent ?? "", /stays held/i);
+  assert.equal(closed, false, "agreement must not close the surface");
+  assert.equal(saved, null, "and must not report a save");
+  assert.equal(
+    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
+    true,
+    "the product is still held",
+  );
+  assert.ok(m.byTestId("edit-product-observe"), "and can be looked at again");
   await m.unmount();
 });
 
-test("an unreadable check changes nothing and stays open", async () => {
+test("a look that DIVERGES reports it, and the product stays held", async () => {
   const m = await mount(
     view({
-      save: awaiting,
-      confirm: async () => ({
+      save: ordering,
+      observe: async () => ({
+        ok: true,
+        data: { leafId: "leaf-1", observation: "diverged", released: false },
+      }),
+    }),
+  );
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  await m.click('[data-testid="edit-product-observe"]');
+  await flush();
+  assert.match(
+    m.byTestId("edit-product-error")!.textContent ?? "",
+    /older request appears to have landed/i,
+  );
+  assert.equal(
+    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
+    true,
+  );
+  await m.unmount();
+});
+
+test("an unreadable look changes nothing and stays available", async () => {
+  const m = await mount(
+    view({
+      save: ordering,
+      observe: async () => ({
         ok: false,
         error: {
           code: "HUBSPOT_ERROR",
@@ -465,12 +476,9 @@ test("an unreadable check changes nothing and stays open", async () => {
   );
   await m.click('[data-testid="edit-product-save"]');
   await flush();
-  await m.click('[data-testid="edit-product-confirm"]');
+  await m.click('[data-testid="edit-product-observe"]');
   await flush();
-  assert.match(
-    m.byTestId("edit-product-error")!.textContent ?? "",
-    /still unknown/i,
-  );
-  assert.ok(m.byTestId("edit-product-confirm"), "the check stays available");
+  assert.match(m.byTestId("edit-product-error")!.textContent ?? "", /still unknown/i);
+  assert.ok(m.byTestId("edit-product-observe"), "the look stays available");
   await m.unmount();
 });

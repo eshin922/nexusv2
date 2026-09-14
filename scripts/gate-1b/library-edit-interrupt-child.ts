@@ -44,11 +44,14 @@ fd.set("hubspotProductType", "Labels");
 fd.set("unitCost", "4.00");
 fd.set("url", "");
 
-// LONG on purpose. The parent kills as soon as it SEES the claim, so this
-// only has to outlast that poll -- and a call that can finish first turns
-// the whole case into a race the parent sometimes loses, which is how a
-// flaky control ends up being reported as evidence.
-process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-verylong";
+// A PROVIDER-SIDE BARRIER, not a long timer.
+//
+// The fake signals that the request has been RECEIVED and then never
+// completes, so the parent can terminate this process at the boundary that
+// actually matters. Killing on the CLAIM becoming visible would prove
+// something earlier and weaker: that the intent was committed, which says
+// nothing about whether a request was ever issued.
+process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-barrier";
 console.log("CHILD:starting");
 
 // Deliberately un-awaited in a way that keeps the process alive: the parent

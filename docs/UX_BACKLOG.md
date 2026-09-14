@@ -5383,28 +5383,47 @@ If HubSpot applies and the local transaction then fails, the operator is told
 the two disagree — not that nothing happened — and the attempt is preserved the
 same way.
 
-**The ordering no local mechanism can reach.** An amended recovery can be
-accepted by HubSpot while the ORIGINAL request is still in flight. If the
-original lands afterwards, HubSpot holds the original values and Nexus holds
-the amended ones — and the lock, the claim and the version fence are all on the
-wrong side of the wire to prevent it. HubSpot CRM offers no If-Match, no ETag
-and no documented ordering guarantee to lean on instead.
+**The ordering no local mechanism can reach — and it is NOT closed.** An
+amended recovery can be accepted by HubSpot while an OLDER request to the same
+product is still in flight. If the older one lands afterwards, HubSpot holds
+its values and Nexus holds the amended ones. The lock, the claim and the
+version fence are all on the wrong side of the wire, and HubSpot CRM offers no
+If-Match, no ETag and no documented ordering guarantee.
 
-So an amended recovery **does not declare itself settled**. It writes the local
-row, holds the claim at `awaiting_confirmation`, and ordinary editing stays
-blocked until `confirmLeafEdit` reads the product and adjudicates:
+So an amended recovery does not declare itself settled, and **nothing here
+releases the hold**:
 
-| read-back | outcome |
-|---|---|
-| holds the expected values | resolved; the product is released |
-| holds something else | **diverged**, recorded with what it actually holds; the product stays held |
-| cannot be read | nothing decided, nothing written, still held |
+- The condition is the AMENDMENT, not how the request ended. `already_held`
+  (HubSpot held the amended values when we looked) and `reconciled` (our write
+  failed and a read-back found it applied) are both readings of an instant,
+  and the hazard is about what happens after the instant. An earlier version
+  released both immediately.
+- `confirmLeafEdit` **observes**; it does not settle. A matching read proves
+  the catalogs agree AT THAT INSTANT — it does not prove an older request can
+  no longer overwrite them, which is the only thing that would make releasing
+  safe. A *disagreeing* read is different and is taken: that fact does not
+  expire, and it is recorded as a divergence.
+- An operator clicking "check" is not evidence either. It is an observation
+  with a timestamp, and that is exactly what is recorded.
+- **Identical replay stays permitted** — a late original carrying identical
+  values cannot change the outcome. A *different* edit is refused, which is
+  what makes identical replay harmless.
 
-Confirmation is a deliberate, explicit act rather than a timer or a background
-sweep — "enough time has passed" is not evidence that a request has stopped
-being in flight. A recovery that re-sends the SAME values needs none of this: a
-late original carrying identical values is harmless, and only an amended
-recovery is held.
+**What a controlled reconciliation would require** — enumerated in
+`ORDERING_RECONCILIATION_REQUIREMENTS` so the requirement is checkable rather
+than prose, and surfaced by `releaseOrderingHold`, which currently releases
+nothing:
+
+| basis | available | what it would take |
+|---|---|---|
+| `provider_ordering_guarantee` | no | a documented HubSpot guarantee that a later-accepted write cannot be overwritten by an earlier in-flight one — conditional writes, sequence tokens, or a stated ordering contract |
+| `request_outcome_observed` | no | the outcome of the ORIGINAL REQUEST itself: a request identity echoed on the object, or a change feed attributing each write to the request that made it. Reading the object reports what is there now; the question is what can still arrive |
+| `provider_bounded_lifetime` | no | a documented maximum lifetime for an accepted request, after which it cannot land. That converts waiting into evidence; without a published bound, elapsed time is only elapsed time |
+
+**Operational consequence, stated plainly:** a product that reaches this state
+stays blocked for different edits indefinitely. That is deliberate. The
+alternative is releasing on evidence that does not support the claim, and a
+silent divergence between two catalogs is worse than a visibly stuck product.
 
 **The refresh participates in the same contract.** `pullProductsBatch` writes
 the same columns the edit authors. It takes the same leaf lock, declines any

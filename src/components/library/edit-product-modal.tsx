@@ -48,7 +48,7 @@ export function EditProductModal({
   typeOptions,
   save,
   recover,
-  confirm,
+  observe,
   onClose,
   onSaved,
 }: {
@@ -66,14 +66,23 @@ export function EditProductModal({
    */
   recover?: UpdateProductService;
   /**
-   * Check what HubSpot actually ended up holding after a recovery.
+   * Observe what HubSpot holds right now for a product with an unresolved
+   * ordering.
    *
-   * Distinct from `recover` because the remedy is different: there is nothing
-   * to retry, only something to establish. Offering a retry here would invite
-   * re-sending a request that already succeeded.
+   * It does NOT release the hold, and the surface must not imply that it
+   * might: agreement at an instant does not establish that an older in-flight
+   * request can no longer overwrite it. The control is a way to learn
+   * something, not a way out.
    */
-  confirm?: (fd: FormData) => Promise<
-    | { ok: true; data: { leafId: string; state: "resolved" | "diverged" } }
+  observe?: (fd: FormData) => Promise<
+    | {
+        ok: true;
+        data: {
+          leafId: string;
+          observation: "agrees_now" | "diverged";
+          released: false;
+        };
+      }
     | { ok: false; error: { code: string; message: string } }
   >;
   onClose: () => void;
@@ -95,7 +104,7 @@ export function EditProductModal({
    * the control for checking again -- so the one path out of the state was
    * closed by using it and failing.
    */
-  const [held, setHeld] = useState<"unconfirmed" | "awaiting" | null>(null);
+  const [held, setHeld] = useState<"unconfirmed" | "ordering" | null>(null);
   const [pending, startSave] = useTransition();
 
   // The SKU is ESTABLISHED if the product already had one when the form
@@ -134,7 +143,7 @@ export function EditProductModal({
       const res = await recover(fd);
       if (!res.ok) {
         setError(res.error);
-        if (res.error.code === "AWAITING_CONFIRMATION") setHeld("awaiting");
+        if (res.error.code === "ORDERING_UNRESOLVED") setHeld("ordering");
         return;
       }
       onSaved(res.data.leafId);
@@ -142,32 +151,36 @@ export function EditProductModal({
     });
   }
 
-  function submitConfirmation() {
-    if (!target || !confirm) return;
+  function submitObservation() {
+    if (!target || !observe) return;
     setError(null);
     const fd = new FormData();
     fd.set("leafId", target.leafId);
     startSave(async () => {
-      const res = await confirm(fd);
+      const res = await observe(fd);
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      if (res.data.state === "diverged") {
-        setHeld("awaiting");
-        // Checked, and the answer was bad. Saying "confirmed" here would be
-        // the same class of error the whole surface exists to avoid.
-        setError({
-          code: "DIVERGED",
-          message:
-            "HubSpot does not hold the recovered values — an earlier request " +
-            "appears to have landed after the recovery. The two catalogs " +
-            "disagree and this product stays held.",
-        });
-        return;
-      }
-      onSaved(res.data.leafId);
-      onClose();
+      // Never closes. Not on agreement either -- that is the whole point.
+      setError(
+        res.data.observation === "agrees_now"
+          ? {
+              code: "OBSERVED_AGREES",
+              message:
+                "HubSpot holds the recovered values right now. That is agreement " +
+                "at this instant, and it does not establish that the older " +
+                "request can no longer overwrite them — so this product stays " +
+                "held.",
+            }
+          : {
+              code: "OBSERVED_DIVERGED",
+              message:
+                "HubSpot does not hold the recovered values — the older request " +
+                "appears to have landed after the recovery. The two catalogs " +
+                "disagree and this product stays held.",
+            },
+      );
     });
   }
 
@@ -195,7 +208,7 @@ export function EditProductModal({
         // last error code closed the only way out of the state the moment
         // using it failed.
         if (res.error.code === "UNCONFIRMED_EDIT") setHeld("unconfirmed");
-        if (res.error.code === "AWAITING_CONFIRMATION") setHeld("awaiting");
+        if (res.error.code === "ORDERING_UNRESOLVED") setHeld("ordering");
         return;
       }
       onSaved(res.data.leafId);
@@ -338,15 +351,15 @@ export function EditProductModal({
           >
             Cancel
           </button>
-          {held === "awaiting" && confirm && (
+          {held === "ordering" && observe && (
             <button
               type="button"
               className="a1v2-btn"
-              data-testid="edit-product-confirm"
-              onClick={submitConfirmation}
+              data-testid="edit-product-observe"
+              onClick={submitObservation}
               disabled={pending}
             >
-              {pending ? "Checking…" : "Check what HubSpot holds"}
+              {pending ? "Checking…" : "Check what HubSpot holds now"}
             </button>
           )}
           {held === "unconfirmed" && recover && (

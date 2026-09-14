@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
 
   -- pending               — intent committed; the remote outcome is not known
   -- unconfirmed           — the write was not confirmed to have applied
-  -- awaiting_confirmation — an AMENDED recovery was accepted remotely, and the
+  -- ordering_unresolved — an AMENDED recovery was accepted remotely, and the
   --                         earlier request may still land after it
   -- diverged              — the two catalogs are known to disagree
   "outcome" text NOT NULL DEFAULT 'pending',
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   "resolution" text,
 
   CONSTRAINT "leaf_edit_attempts_outcome_values"
-    CHECK ("outcome" IN ('pending', 'unconfirmed', 'awaiting_confirmation', 'diverged'))
+    CHECK ("outcome" IN ('pending', 'unconfirmed', 'ordering_unresolved', 'diverged'))
 );
 
 -- At most one OPEN attempt per product. A second unresolved attempt would mean

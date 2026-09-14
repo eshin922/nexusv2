@@ -67,6 +67,14 @@ const callCounts = new Map<string, number>();
  */
 const inflightWrites = new Map<string, Record<string, string>>();
 
+/** Put a product into a given state by another route entirely. */
+export function __fakeHubspotSetProduct(
+  id: string,
+  props: Record<string, string>,
+): void {
+  productStore.set(id, { ...props });
+}
+
 /** Land a request that was left in flight. */
 export function __fakeHubspotLandInflight(id: string): boolean {
   const pending = inflightWrites.get(id);
@@ -342,6 +350,24 @@ export const fakeHubSpot: HubSpotOperations = {
     if (scenario() === "product-update-slow-then-lost") {
       await new Promise((r) => setTimeout(r, 3000));
       throw Object.assign(new Error("socket hang up"), { code: undefined });
+    }
+
+    // A PROVIDER-SIDE BARRIER.
+    //
+    // Signals that the request has been RECEIVED, then never completes. A
+    // watcher can therefore act on the boundary that actually matters --
+    // "the remote system has this request" -- rather than on the claim
+    // becoming visible, which is an earlier boundary and says nothing about
+    // whether anything was sent.
+    //
+    // The signal is a file because the observer is a different process.
+    if (scenario() === "product-update-barrier") {
+      const receipt = process.env.NEXUS_FAKE_HUBSPOT_RECEIPT;
+      if (receipt) {
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(receipt, `received ${hubspotProductId}`, "utf8");
+      }
+      await new Promise(() => {});
     }
 
     // Long enough that a caller cannot finish before a watcher reacts to its

@@ -347,11 +347,12 @@ export type LeafEditOutcome = {
    *   already_held   a recovery read the product first and found the recorded
    *                  values already there -- nothing was re-sent
    *   recovered      a recovery re-sent the recorded edit and it applied
-   *   awaiting_confirmation
-   *                  an AMENDED recovery was accepted, and the earlier request
-   *                  may still land after it. Nexus holds the amended values;
-   *                  whether HubSpot ends up holding them is not yet
-   *                  established, so the claim stays open
+   *   ordering_unresolved
+   *                  an AMENDED recovery moved the remote state, and an older
+   *                  request may still land after it. Nexus holds the amended
+   *                  values. Nothing available here can establish that the
+   *                  older request can no longer arrive, so the claim stays
+   *                  open and the product stays held
    *   not_linked     the product has no HubSpot counterpart
    */
   hubspotOutcome:
@@ -359,7 +360,7 @@ export type LeafEditOutcome = {
     | "reconciled"
     | "already_held"
     | "recovered"
-    | "awaiting_confirmation"
+    | "ordering_unresolved"
     | "not_linked";
 };
 
@@ -494,13 +495,19 @@ async function applyLeafEdit(opts: {
           "here can tell those apart. Nothing was saved. Try again in a moment, " +
           "or recover the claimed edit if it was interrupted.",
       );
-    } else if (open && open.outcome === "awaiting_confirmation") {
+    } else if (open && open.outcome === "ordering_unresolved") {
+      // Identical replay is permitted through the recovery path and cannot
+      // make this worse. A DIFFERENT edit can: it would add a third state to a
+      // product whose second one is still unresolved.
       throw new ActionGuardError(
-        ERR.AWAITING_CONFIRMATION,
-        "A recovery of this product was accepted by HubSpot, but an earlier " +
-          "request to it may still land afterwards -- nothing here can rule " +
-          "that out. Nexus holds the recovered values; what HubSpot ends up " +
-          "with has not been checked. Confirm it before editing again.",
+        ERR.ORDERING_UNRESOLVED,
+        "This product has an unresolved ordering problem. An amended recovery " +
+          "moved what HubSpot holds while an older request to the same product " +
+          "may still be in flight -- and nothing available here can establish " +
+          "that it can no longer arrive. Reading the product again would show " +
+          "what it holds at that moment, which is not the same thing. Editing " +
+          "is blocked until that is reconciled; see the reconciliation " +
+          "requirements recorded against this product.",
       );
     } else if (open) {
       // An unresolved attempt blocks ordinary editing: the product has a
@@ -796,33 +803,44 @@ async function applyLeafEdit(opts: {
       // anything else -- then this process no longer speaks for the product
       // and must not write to it. Matching zero rows is the signal, and it
       // has to be read before the row is touched rather than after.
-      // AN AMENDED RECOVERY DOES NOT SETTLE.
+      // AN AMENDED RECOVERY DOES NOT SETTLE. ANY of them.
       //
       // The original request may still be in flight and may land after this
       // one, leaving HubSpot holding the original values and Nexus the amended
       // ones. That ordering is decided on the far side; no lock here reaches
       // it, and HubSpot CRM offers no If-Match, no ETag and no documented
-      // ordering to rely on. So the local row is written -- the amendment is
-      // what the operator wants -- and the claim is HELD OPEN, which keeps
-      // ordinary editing blocked until someone confirms what HubSpot actually
-      // ended up with.
+      // ordering to rely on.
+      //
+      // The condition is the AMENDMENT, not how this particular request
+      // happened to end. An earlier version tested `outcome === "recovered"`
+      // and so released `already_held` and `reconciled` immediately -- but
+      // neither says anything about the older request:
+      //
+      //   already_held  HubSpot held the amended values when we looked. The
+      //                 original can still land on top of them afterwards.
+      //   reconciled    our write failed and a read-back showed it had applied.
+      //                 Same exposure, reached by a different route.
+      //
+      // Both are readings of an instant, and the hazard is about what happens
+      // after the instant. So every amended recovery that reaches the local
+      // write is held.
       //
       // A recovery re-sending the SAME values needs none of this: a late
-      // original carrying identical values is harmless.
-      const holdForConfirmation = amended && hubspotOutcome === "recovered";
-      if (holdForConfirmation) hubspotOutcome = "awaiting_confirmation";
+      // original carrying identical values cannot change the outcome.
+      const holdForConfirmation = amended && productId !== null;
+      if (holdForConfirmation) hubspotOutcome = "ordering_unresolved";
 
       const settled = await tx
         .update(leafEditAttempts)
         .set(
           holdForConfirmation
             ? {
-                outcome: "awaiting_confirmation",
+                outcome: "ordering_unresolved",
                 expected: Object.fromEntries(
                   Object.entries(submitted).map(([k, v]) => [k, v === "" ? null : v]),
                 ),
                 reason:
-                  "an amended recovery was accepted; the earlier request may still land after it",
+                  "an amended recovery moved the remote state; an earlier request to the same product may still land after it",
                 version: claimedVersion + 1,
                 updatedAt: new Date(),
               }
@@ -1302,44 +1320,83 @@ export async function fetchHubspotProductTypes(): Promise<
 }
 
 /**
- * Confirm what HubSpot actually ended up holding, and settle or diverge.
+ * The evidence a controlled reconciliation would require before an unresolved
+ * ordering could be released.
  *
- * ── THE ORDERING THIS EXISTS FOR ──────────────────────────────────────────
+ * None of these is available today, which is why nothing here releases the
+ * hold. They are enumerated rather than described in prose so the requirement
+ * is checkable: when one becomes available, it is added here and the release
+ * path accepts it.
+ */
+export const ORDERING_RECONCILIATION_REQUIREMENTS = [
+  {
+    basis: "provider_ordering_guarantee",
+    available: false,
+    requires:
+      "A documented HubSpot guarantee that a later-accepted write cannot be " +
+      "overwritten by an earlier in-flight one -- conditional writes " +
+      "(If-Match / ETag), sequence tokens, or a stated ordering contract. " +
+      "HubSpot CRM publishes none of these for product objects.",
+  },
+  {
+    basis: "request_outcome_observed",
+    available: false,
+    requires:
+      "The OUTCOME OF THE ORIGINAL REQUEST ITSELF, not the state of the " +
+      "object afterwards. A request identity echoed back on the object, or a " +
+      "change feed that attributes each write to the request that made it, " +
+      "would settle it. Reading the object cannot: it reports what is there " +
+      "now, and the question is what can still arrive.",
+  },
+  {
+    basis: "provider_bounded_lifetime",
+    available: false,
+    requires:
+      "A documented maximum lifetime for an accepted request, after which it " +
+      "cannot land. That converts waiting into evidence. Without a published " +
+      "bound, elapsed time is only elapsed time.",
+  },
+] as const;
+
+/**
+ * Record what HubSpot holds RIGHT NOW for a product with an unresolved
+ * ordering, and say plainly what that does and does not establish.
  *
- * An amended recovery can be accepted by HubSpot while the ORIGINAL request is
- * still in flight. If the original lands afterwards, HubSpot holds the
- * original values and Nexus holds the amended ones, and every local mechanism
- * -- the lock, the claim, the version fence -- is on the wrong side of the
- * wire to prevent it. There is no If-Match, no ETag and no documented ordering
- * guarantee on HubSpot CRM to lean on instead.
+ * ── WHY THIS DOES NOT RELEASE THE HOLD ────────────────────────────────────
  *
- * So the amended recovery does not get to declare itself settled. It leaves
- * the claim open at `awaiting_confirmation`, ordinary editing stays blocked,
- * and this reads the product and adjudicates:
+ * A matching read proves the two catalogs AGREE AT THAT INSTANT. It does not
+ * prove that an older request can no longer overwrite them -- which is the
+ * only thing that would make releasing safe. An earlier version of this
+ * resolved the attempt on a match, and that was the same error the rest of
+ * this file exists to avoid: reporting a true reading of a moment as an
+ * outcome.
  *
- *   holds the expected values  → resolved; the product is released
- *   holds something else       → diverged, WITH what it actually holds, and
- *                                the product stays held
- *   cannot be read             → nothing is decided and nothing is changed
+ * A DISAGREEING read is different, and is worth taking: it establishes a fact
+ * that does not expire. The older request has landed, the catalogs disagree,
+ * and that is recorded.
  *
- * It is deliberately a separate, explicit act rather than a timer or a
- * background sweep: "enough time has passed" is not evidence that a request
- * has stopped being in flight.
+ * An operator clicking this is not evidence either. It is an observation with
+ * a timestamp, which is exactly what it is recorded as.
  */
 export async function confirmLeafEdit(
   formData: FormData,
 ): Promise<
   ActionResult<{
     leafId: string;
-    state: "resolved" | "diverged";
+    /**
+     * `agrees_now` -- they match at this instant, and the hold REMAINS.
+     * `diverged`   -- the older request landed; a durable fact, recorded.
+     */
+    observation: "agrees_now" | "diverged";
+    released: false;
     expected: Record<string, string | null> | null;
     actual: Record<string, string | null> | null;
+    stillBlocked: true;
   }>
 > {
   return runAction(async () => {
     const user = await ensureUser();
     await assertCanCreateLeaves();
-    void user;
 
     const leafId = String(formData.get("leafId") ?? "").trim();
     if (!leafId) throw new ActionGuardError(ERR.VALIDATION, "leafId is required.");
@@ -1354,14 +1411,14 @@ export async function confirmLeafEdit(
     if (!open) {
       throw new ActionGuardError(
         ERR.NOT_FOUND,
-        "There is nothing awaiting confirmation for this product.",
+        "There is no unresolved ordering to observe for this product.",
       );
     }
-    if (open.outcome !== "awaiting_confirmation") {
+    if (open.outcome !== "ordering_unresolved" && open.outcome !== "diverged") {
       throw new ActionGuardError(
         ERR.VALIDATION,
         "This product's unconfirmed edit has not been retried yet, so there is " +
-          "nothing to confirm. Recover it first.",
+          "nothing to observe. Recover it first.",
       );
     }
 
@@ -1384,7 +1441,7 @@ export async function confirmLeafEdit(
       throw new ActionGuardError(
         ERR.HUBSPOT,
         "HubSpot could not be read, so what it holds is still unknown. Nothing " +
-          "was changed and this product stays held. Try again. " +
+          "was changed and this product stays held. " +
           `(${e instanceof Error ? e.message : String(e)})`,
       );
     }
@@ -1398,41 +1455,89 @@ export async function confirmLeafEdit(
         return held === v;
       });
 
-    if (matches) {
-      const ok = await fencedAttemptUpdate(open.id, open.version, {
-        resolvedAt: new Date(),
-        resolution: "confirmed",
-        observed: actual,
-        reason: "HubSpot holds the recovered values",
-      });
-      if (!ok) {
-        throw new ActionGuardError(
-          ERR.STALE_WRITE,
-          "This attempt moved while it was being confirmed. Reload the product.",
-        );
-      }
-      revalidatePath("/");
-      return { leafId, state: "resolved" as const, expected, actual };
-    }
-
-    // The earlier request landed after the recovery, or something else wrote.
-    // Either way the two catalogs are now known to disagree, which is a
-    // stronger and more useful fact than "unconfirmed" -- and the product
-    // stays held so nobody edits over it.
+    const observation = matches ? ("agrees_now" as const) : ("diverged" as const);
     const ok = await fencedAttemptUpdate(open.id, open.version, {
-      outcome: "diverged",
+      // A disagreement is durable and upgrades the record. Agreement is not,
+      // so the outcome does not move -- only the observation is added.
+      outcome: matches ? open.outcome : "diverged",
       observed: actual,
-      reason:
-        "HubSpot does not hold the recovered values -- an earlier request " +
-        "appears to have landed after the recovery",
+      reason: matches
+        ? "observed to agree at " +
+          new Date().toISOString() +
+          " -- agreement at an instant, which does not establish that an " +
+          "older in-flight request can no longer overwrite it"
+        : "HubSpot does not hold the recovered values -- an older request " +
+          "appears to have landed after the recovery",
     });
     if (!ok) {
       throw new ActionGuardError(
         ERR.STALE_WRITE,
-        "This attempt moved while it was being confirmed. Reload the product.",
+        "This attempt moved while it was being observed. Reload the product.",
       );
     }
+
+    await writeAuditEntry({
+      userId: user.id,
+      entityType: "leaf",
+      entityId: leafId,
+      action: "leaf_edit_ordering_observed",
+      diffJson: {
+        attempt_id: open.id,
+        observation,
+        expected,
+        actual,
+        released: false,
+        note: "an observation, not a settlement",
+      },
+    });
+
     revalidatePath("/");
-    return { leafId, state: "diverged" as const, expected, actual };
+    return {
+      leafId,
+      observation,
+      released: false as const,
+      expected,
+      actual,
+      stillBlocked: true as const,
+    };
+  });
+}
+
+/**
+ * Release an unresolved ordering. Currently releases nothing.
+ *
+ * It exists so the requirement is executable rather than a paragraph: it
+ * refuses with the enumerated bases and what each would take. When a basis
+ * becomes available -- a provider guarantee, a way to observe the original
+ * request's own outcome, a published request lifetime -- it is marked
+ * available here and this accepts it.
+ *
+ * Deliberately NOT satisfiable by an operator asserting they looked. That is
+ * an observation, and observations are what `confirmLeafEdit` records.
+ */
+export async function releaseOrderingHold(
+  formData: FormData,
+): Promise<ActionResult<never>> {
+  return runAction(async () => {
+    await ensureUser();
+    await assertCanCreateLeaves();
+    const basis = String(formData.get("basis") ?? "").trim();
+    const known = ORDERING_RECONCILIATION_REQUIREMENTS.find((r) => r.basis === basis);
+    const available = ORDERING_RECONCILIATION_REQUIREMENTS.filter((r) => r.available);
+
+    throw new ActionGuardError(
+      ERR.ORDERING_UNRESOLVED,
+      (known
+        ? `"${basis}" is not available: ${known.requires}`
+        : `No reconciliation basis named "${basis}".`) +
+        ` Available bases: ${
+          available.length === 0
+            ? "none"
+            : available.map((r) => r.basis).join(", ")
+        }. An unresolved ordering stays blocked until one of them exists -- ` +
+        "reading the product again, or an operator confirming they looked, " +
+        "reports a moment and cannot establish that an older request has " +
+        "stopped being in flight.",
+    );
   });
 }

@@ -85,7 +85,16 @@ export const ERR = {
    * would invite re-sending a request that already succeeded, which is how the
    * ordering hazard gets worse rather than better.
    */
-  AWAITING_CONFIRMATION: "AWAITING_CONFIRMATION",
+  /**
+   * An amended recovery moved the remote state while an older request to the
+   * same product may still be in flight, and nothing available establishes
+   * that it can no longer arrive.
+   *
+   * Not a transient state to retry past. Editing stays blocked until a
+   * reconciliation basis exists -- see ORDERING_RECONCILIATION_REQUIREMENTS.
+   * Reading the product again reports a moment, which is not the same claim.
+   */
+  ORDERING_UNRESOLVED: "ORDERING_UNRESOLVED",
   // Slice 12 Step 10 §0.5 RECOMMEND 1 — the "quote is frozen"
   // signal for writes that must not touch accepted/complete quotes
   // outside the sanctioned reopen path. See assertRevisable().
