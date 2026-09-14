@@ -58,6 +58,10 @@ export function FreightHandoffBar({
     setPendingAction(name);
     const fd = new FormData();
     fd.set("quoteId", quoteId);
+    // Names the handoff THIS screen is showing. The action conditions on it,
+    // so a screen left open across a withdraw-and-re-request cannot act on
+    // the replacement it never displayed.
+    if (handoff) fd.set("handoffId", handoff.handoffId);
     startTransition(async () => {
       const result = await fn(fd);
       setPendingAction(null);

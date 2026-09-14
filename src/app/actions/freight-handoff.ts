@@ -6,6 +6,7 @@ import { firmSettings, freightHandoffs, quotes, users } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
 import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { quoteByIdDraft } from "@/lib/quote-guards";
 import { revalidatePath } from "next/cache";
 import { deliverFreightHandoff } from "@/lib/slack/deliver-freight-handoff";
 
@@ -130,12 +131,10 @@ export async function markReadyForFreight(
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
 
-    const [quote] = await db
-      .select({ id: quotes.id, projectId: quotes.projectId })
-      .from(quotes)
-      .where(eq(quotes.id, quoteId))
-      .limit(1);
-    if (!quote) throw new ActionGuardError(ERR.QUOTE_NOT_FOUND, "Quote not found.");
+    // The SAME permission that governs editing this quote. The Costs surface
+    // hides the control on a non-draft quote; the action has to enforce it,
+    // because a hidden control is not an absent endpoint.
+    await quoteByIdDraft(quoteId);
 
     const recipient = await loadRecipient();
 
@@ -208,8 +207,35 @@ export async function completeFreightHandoff(
 ): Promise<ActionResult<{ handoffId: string }>> {
   return runAction(async () => {
     const user = await ensureUser();
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
-    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    const handoffId = String(formData.get("handoffId") ?? "").trim();
+    if (!handoffId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "handoffId is required: a completion has to name the handoff it closes.",
+      );
+    }
+
+    // Deliberately NOT draft-gated. Freight work continues after a quote is
+    // sent, so requiring draft here would make the task uncompletable in
+    // exactly the state it is most often worked in.
+    const [handoff] = await db
+      .select()
+      .from(freightHandoffs)
+      .where(eq(freightHandoffs.id, handoffId))
+      .limit(1);
+    if (!handoff) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "That freight request no longer exists.");
+    }
+
+    // The holder, or an admin. The strip hides the control from everyone else;
+    // that is an affordance, and this is the boundary.
+    if (handoff.assignedToUserId !== user.id && user.role !== "admin") {
+      throw new ActionGuardError(
+        ERR.FORBIDDEN,
+        "This freight request belongs to someone else. Only the person it was " +
+          "assigned to can mark it complete.",
+      );
+    }
 
     const closed = await db
       .update(freightHandoffs)
@@ -219,15 +245,20 @@ export async function completeFreightHandoff(
         completedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(eq(freightHandoffs.quoteId, quoteId), eq(freightHandoffs.status, "open")))
+      // Conditioned on THIS handoff being the open one. A screen opened before
+      // a withdraw-and-re-request holds the OLD id, and closing "whatever is
+      // open on this quote" would let it complete a request it never saw.
+      .where(and(eq(freightHandoffs.id, handoffId), eq(freightHandoffs.status, "open")))
       .returning({ id: freightHandoffs.id });
 
     if (closed.length === 0) {
       throw new ActionGuardError(
-        ERR.NOT_FOUND,
-        "There is no open freight request on this quote to complete.",
+        ERR.STALE_WRITE,
+        "This freight request is no longer open — it was completed or withdrawn " +
+          "elsewhere, and may have been replaced by a newer one. Reload before acting.",
       );
     }
+    const quoteId = handoff.quoteId;
 
     await writeAuditEntry({
       userId: user.id,
@@ -255,8 +286,26 @@ export async function withdrawFreightRequest(
 ): Promise<ActionResult<{ handoffId: string }>> {
   return runAction(async () => {
     const user = await ensureUser();
-    const quoteId = String(formData.get("quoteId") ?? "").trim();
-    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    const handoffId = String(formData.get("handoffId") ?? "").trim();
+    if (!handoffId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "handoffId is required: a withdrawal has to name the handoff it pulls back.",
+      );
+    }
+
+    const [handoff] = await db
+      .select()
+      .from(freightHandoffs)
+      .where(eq(freightHandoffs.id, handoffId))
+      .limit(1);
+    if (!handoff) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "That freight request no longer exists.");
+    }
+
+    // Withdrawing is the quote side taking its request back, so it carries the
+    // quote's own edit permission — the same one that governs asking.
+    await quoteByIdDraft(handoff.quoteId);
 
     const pulled = await db
       .update(freightHandoffs)
@@ -266,15 +315,20 @@ export async function withdrawFreightRequest(
         withdrawnAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(eq(freightHandoffs.quoteId, quoteId), eq(freightHandoffs.status, "open")))
+      // Conditioned on THIS handoff, for the same reason completion is: a
+      // stale screen must not withdraw the request that replaced the one it
+      // is showing.
+      .where(and(eq(freightHandoffs.id, handoffId), eq(freightHandoffs.status, "open")))
       .returning({ id: freightHandoffs.id });
 
     if (pulled.length === 0) {
       throw new ActionGuardError(
-        ERR.NOT_FOUND,
-        "There is no open freight request on this quote to withdraw.",
+        ERR.STALE_WRITE,
+        "This freight request is no longer open — it was completed or withdrawn " +
+          "elsewhere, and may have been replaced by a newer one. Reload before acting.",
       );
     }
+    const quoteId = handoff.quoteId;
 
     await writeAuditEntry({
       userId: user.id,
