@@ -32,6 +32,10 @@ import {
   __fakeHubspotLandInflight,
   __fakeHubspotProduct,
 } from "../../tests/harness/providers/fake-hubspot.ts";
+import { spawn } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * #567 acceptance -- THE OPERATOR JOURNEY, END TO END.
@@ -326,6 +330,20 @@ async function main() {
       .from(leafEditAttempts)
       .where(and(eq(leafEditAttempts.leafId, leafId), isNull(leafEditAttempts.resolvedAt)));
 
+    if (!heldAfter) {
+      // The retry released an attempt that had an unanswered request. Reported
+      // rather than thrown: a control that crashes is harder to read than one
+      // that says what it found.
+      rec(
+        "RECOVERY",
+        "FAIL",
+        `the retry RELEASED the claim (${
+          retry.ok ? retry.data.hubspotOutcome : retry.error.code
+        }) even though a dispatched request was never answered`,
+      );
+      finish();
+    }
+
     // Released by the documented support procedure, attributed and recorded.
     const [actor] = await db.select({ id: users.id }).from(users).limit(1);
     const released = await db
@@ -422,7 +440,7 @@ async function main() {
         retryA.ok &&
         retryA.data.hubspotOutcome === "converged_unknown" &&
         heldAttempt?.outcome === "converged_unknown" &&
-        heldAttempt?.unanswered === true;
+        heldAttempt!.dispatchedCount > heldAttempt!.answeredCount;
       const bRefused = !b.ok && b.error.code === "UNCONFIRMED_EDIT";
       // B never happened, so the late original cannot have overwritten it --
       // and both catalogs agree on A's values.
@@ -489,8 +507,10 @@ async function main() {
           hs_url: "",
         },
         outcome: "diverged",
-        // HubSpot ANSWERED. Nothing is in flight.
-        unanswered: false,
+        // HubSpot ANSWERED. One request dispatched, one answered: nothing is
+        // in flight.
+        dispatchedCount: 1,
+        answeredCount: 1,
         reason: "acceptance: HubSpot applied it; the local write failed",
         createdBy: (await db.select({ id: users.id }).from(users).limit(1))[0]!.id,
       });
@@ -521,6 +541,226 @@ async function main() {
         `a different edit was blocked first=${!blockedFirst.ok} · the retry released it=` +
           `${retry.ok ? retry.data.hubspotOutcome : retry.error.code} · nothing left open=` +
           `${openLeft.length === 0} · editable again with no decision needed=${nextEdit.ok}`,
+      );
+    }
+  }
+
+  // ── 8d · A PROCESS KILLED DURING THE CALL STAYS UNCERTAIN ───────────────
+  //
+  // The dispatch is counted in the committed claim, BEFORE the request goes
+  // out. Counting it on return instead would leave a process that died
+  // mid-call looking as though it had sent nothing -- so its attempt would
+  // read as fully answered and a retry would release it.
+  //
+  // Really killed: the fake signals receipt and holds, the parent terminates
+  // and awaits the exit.
+  {
+    const fresh = await createLeaf(
+      form({ name: `ACC · interrupted (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("INTERRUPT", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const intSku = `ACC-${STAMP}-INT`;
+      const receipt = join(tmpdir(), `nexus-acc-receipt-${STAMP}.txt`);
+      rmSync(receipt, { force: true });
+
+      const child = spawn(
+        process.execPath,
+        [
+          "--env-file=.env.validation.local",
+          "--experimental-strip-types",
+          "--conditions=react-server",
+          "--experimental-loader",
+          "./scripts/support/src-resolver.mjs",
+          "scripts/gate-1b/library-edit-interrupt-child.ts",
+          id,
+          await versionOf(id),
+          `ACC · interrupted edit (${STAMP})`,
+          intSku,
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, NEXUS_FAKE_HUBSPOT_RECEIPT: receipt },
+        },
+      );
+      let childOut = "";
+      child.stdout.on("data", (d) => (childOut += String(d)));
+      const exited = new Promise((r) => child.on("exit", r));
+
+      let received = false;
+      for (let i = 0; i < 600; i++) {
+        if (existsSync(receipt)) {
+          received = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      child.kill("SIGKILL");
+      await exited;
+      rmSync(receipt, { force: true });
+
+      const [survived] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      // The retry must NOT release it: a request was dispatched and never
+      // answered, and the interruption is why.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const retry = await retryLeafEdit(form({ leafId: id }));
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+      const openAfter = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      rec(
+        "INTERRUPT",
+        received &&
+          !/CHILD:completed/.test(childOut) &&
+          survived?.dispatchedCount === 1 &&
+          survived?.answeredCount === 0 &&
+          retry.ok &&
+          retry.data.hubspotOutcome === "converged_unknown" &&
+          openAfter.length === 1
+          ? "PASS"
+          : "FAIL",
+        `HubSpot received the request=${received}, the child was killed without ` +
+          `completing=${!/CHILD:completed/.test(childOut)} · the claim survived with ` +
+          `dispatched=${survived?.dispatchedCount} answered=${survived?.answeredCount} · ` +
+          `the retry did NOT release it=${
+            retry.ok ? retry.data.hubspotOutcome : retry.error.code
+          } · still held=${openAfter.length === 1}`,
+      );
+    }
+  }
+
+  // ── 8e · A MATCHING READ-BACK DOES NOT CLEAR UNCERTAINTY ────────────────
+  //
+  // The call goes unanswered; a read-back finds the values present. That is
+  // evidence about the OBJECT -- it does not say which request put them there,
+  // nor that ours has finished. Counting it as an answer would clear an
+  // uncertainty nothing resolved, and a retry would then release the product.
+  {
+    const fresh = await createLeaf(
+      form({ name: `ACC · readback (${STAMP})`, sku: "", commercialKind: "product", hubspotProductType: "Labels", unitCost: "0" }),
+    );
+    if (!fresh.ok) {
+      rec("READBACK", "BLOCKED", `could not create: ${fresh.error.message}`);
+    } else {
+      const id = fresh.data.leafId;
+      const rbSku = `ACC-${STAMP}-RB`;
+
+      // Applies the write, then fails without answering. The read-back that
+      // follows finds the values there.
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "product-update-uncertain-applied";
+      const first = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: `ACC · readback edit (${STAMP})`, sku: rbSku, hubspotProductType: "Labels", unitCost: "2.00", url: "" }),
+      );
+      const [afterFirst] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+
+      process.env.NEXUS_FAKE_HUBSPOT_SCENARIO = "success";
+      const retry = await retryLeafEdit(form({ leafId: id }));
+      delete process.env.NEXUS_FAKE_HUBSPOT_SCENARIO;
+      const openAfter = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(and(eq(leafEditAttempts.leafId, id), isNull(leafEditAttempts.resolvedAt)));
+      const differentEdit = await updateLeaf(
+        form({ leafId: id, expectedUpdatedAt: await versionOf(id), name: "ACC · readback different", sku: rbSku, hubspotProductType: "Labels", unitCost: "6.00", url: "" }),
+      );
+
+      rec(
+        "READBACK",
+        first.ok &&
+          Boolean(afterFirst) &&
+          afterFirst!.dispatchedCount > afterFirst!.answeredCount &&
+          retry.ok &&
+          retry.data.hubspotOutcome === "converged_unknown" &&
+          openAfter.length === 1 &&
+          !differentEdit.ok
+          ? "PASS"
+          : "FAIL",
+        `the read-back matched and the local row caught up=${first.ok} · the attempt ` +
+          `stayed outstanding (dispatched=${afterFirst?.dispatchedCount} answered=` +
+          `${afterFirst?.answeredCount}) · the retry did NOT release it=${
+            retry.ok ? retry.data.hubspotOutcome : retry.error.code
+          } · still held=${openAfter.length === 1} · a different edit still refused=${
+            !differentEdit.ok
+          }`,
+      );
+    }
+  }
+
+  // ── 8f · THE ADMIN RELEASE IS CONDITIONAL ───────────────────────────────
+  //
+  // It releases the state that was REVIEWED. If the attempt has moved since --
+  // retried, released, changed -- zero rows match, and nothing is written,
+  // audit included. An audit row for a release that did not happen is a false
+  // record, which is worse than none.
+  {
+    const [held] = await db
+      .select()
+      .from(leafEditAttempts)
+      .where(
+        and(
+          eq(leafEditAttempts.outcome, "converged_unknown"),
+          isNull(leafEditAttempts.resolvedAt),
+        ),
+      )
+      .limit(1);
+    if (!held) {
+      rec("ADMIN:stale", "BLOCKED", "no held attempt to try this against");
+    } else {
+      const auditBefore = await db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(eq(auditLog.action, "leaf_edit_released_with_risk"));
+
+      // A release naming a version that is no longer current.
+      const stale = await db
+        .update(leafEditAttempts)
+        .set({
+          resolvedAt: new Date(),
+          resolution: "released_with_residual_risk",
+          releasedWithRiskNote: "acceptance: stale version, must not apply",
+          version: held.version + 1,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(leafEditAttempts.id, held.id),
+            eq(leafEditAttempts.version, held.version - 1),
+            eq(leafEditAttempts.outcome, "converged_unknown"),
+            isNull(leafEditAttempts.resolvedAt),
+          ),
+        )
+        .returning({ id: leafEditAttempts.id });
+
+      const [stillHeld] = await db
+        .select()
+        .from(leafEditAttempts)
+        .where(eq(leafEditAttempts.id, held.id));
+      const auditAfter = await db
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(eq(auditLog.action, "leaf_edit_released_with_risk"));
+
+      rec(
+        "ADMIN:stale",
+        stale.length === 0 &&
+          stillHeld?.resolvedAt === null &&
+          auditAfter.length === auditBefore.length
+          ? "PASS"
+          : "FAIL",
+        `a release naming a superseded version matched ${stale.length} rows · ` +
+          `the attempt is still held=${stillHeld?.resolvedAt === null} · ` +
+          `no release audit was written=${auditAfter.length === auditBefore.length}`,
       );
     }
   }

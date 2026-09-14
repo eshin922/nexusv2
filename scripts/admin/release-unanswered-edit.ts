@@ -22,27 +22,27 @@
  * nor more waiting is evidence. This records a decision to proceed WITHOUT
  * that evidence, attributed to the person who made it.
  *
- * ── THE RESIDUAL RISK, STATED PLAINLY ─────────────────────────────────────
+ * ── THE RESIDUAL RISK ─────────────────────────────────────────────────────
  *
  * After release, the next different edit to this product can be overwritten by
  * the original request landing late. The two catalogs would then disagree with
- * nothing reporting it. Probability is not quantified here because it cannot
- * be: it depends on HubSpot-side behaviour that is not published.
+ * nothing reporting it.
  *
- * What makes it tolerable in practice is the shape of the exposure:
+ * The probability is NOT QUANTIFIED, and cannot be from here: it depends on
+ * HubSpot-side behaviour that is not published. Nothing in this file should be
+ * read as a claim that the window is short, that the situation is rare, or
+ * that the exposure is small. Those would be guesses wearing the clothes of
+ * evidence.
  *
- *   - the window is bounded by whatever HubSpot's real request lifetime is,
- *     which is short in the ordinary case even though it is not documented;
- *   - the values at stake are the ones already saved, not arbitrary ones;
- *   - the divergence is repairable by editing the product again once noticed.
+ * What is known: the values at stake are the ones already saved, and a
+ * divergence is repairable by editing the product again once someone notices.
  *
  * ── WHEN TO USE IT ────────────────────────────────────────────────────────
  *
- * When a product is blocked on `converged_unknown`, the operator needs to edit
- * it, and enough time has passed that a still-in-flight request is implausible.
- * "Implausible" is a judgement, not a measurement — which is why this is a
- * deliberate admin action with a recorded reason rather than a button on the
- * operator's screen.
+ * When a product is blocked on `converged_unknown` and the operator needs to
+ * edit it. Using this is a conscious acceptance of unquantified risk, taken by
+ * a named person for a recorded reason -- which is why it is an admin action
+ * and not a button on the operator's screen.
  *
  *   npm run admin:release-unanswered -- --leaf <uuid> --user <uuid> \\
  *     --note "waited 24h, DPS ops confirmed the product looks correct"
@@ -120,38 +120,68 @@ async function main() {
   console.log("");
   console.log("Releasing does NOT establish that the original request finished.");
   console.log("The next different edit to this product can be overwritten by it.");
+  console.log("The risk is UNQUANTIFIED -- not small, not rare, not measured.");
   console.log("");
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(leafEditAttempts)
-      .set({
-        resolvedAt: new Date(),
-        resolution: "released_with_residual_risk",
-        releasedWithRiskBy: userId,
-        releasedWithRiskAt: new Date(),
-        releasedWithRiskNote: note,
-        updatedAt: new Date(),
-      })
-      .where(eq(leafEditAttempts.id, open.id));
+  // ── THE RELEASE IS CONDITIONAL ON WHAT WAS REVIEWED ───────────────────
+  //
+  // The row printed above is what the operator judged. Between that read and
+  // this write it can move: a retry can claim it and bump the version, another
+  // release can resolve it, its outcome can change. Releasing by id alone
+  // would apply a decision to a state nobody looked at.
+  //
+  // So the update carries the version, the outcome and the open-ness that were
+  // reviewed. Zero rows means the thing being released is not the thing that
+  // was examined -- and then NOTHING is written, audit included. An audit row
+  // for a release that did not happen is worse than no record: it is a false
+  // one.
+  const released = await db
+    .update(leafEditAttempts)
+    .set({
+      resolvedAt: new Date(),
+      resolution: "released_with_residual_risk",
+      releasedWithRiskBy: userId,
+      releasedWithRiskAt: new Date(),
+      releasedWithRiskNote: note,
+      version: open.version + 1,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(leafEditAttempts.id, open.id),
+        eq(leafEditAttempts.version, open.version),
+        eq(leafEditAttempts.outcome, "converged_unknown"),
+        isNull(leafEditAttempts.resolvedAt),
+      ),
+    )
+    .returning({ id: leafEditAttempts.id });
 
-    await writeAuditEntry(
-      {
-        userId,
-        entityType: "leaf",
-        entityId: leafId,
-        action: "leaf_edit_released_with_risk",
-        diffJson: {
-          attempt_id: open.id,
-          prior_outcome: open.outcome,
-          note,
-          establishes:
-            "nothing about whether the original request finished; a decision " +
-            "to proceed without that evidence",
-        },
-      },
-      tx,
+  if (released.length === 0) {
+    console.error(
+      "\nThis saved edit moved while it was being reviewed -- it has been " +
+        "retried, released, or has changed state since it was read.\n" +
+        "NOTHING was released and nothing was recorded. Re-run to see where it " +
+        "stands now.",
     );
+    process.exit(1);
+  }
+
+  await writeAuditEntry({
+    userId,
+    entityType: "leaf",
+    entityId: leafId,
+    action: "leaf_edit_released_with_risk",
+    diffJson: {
+      attempt_id: open.id,
+      attempt_version_reviewed: open.version,
+      prior_outcome: open.outcome,
+      dispatched_count: open.dispatchedCount,
+      answered_count: open.answeredCount,
+      note,
+      establishes:
+        "nothing about whether the original request finished; a decision to " +
+        "proceed without that evidence",
+    },
   });
 
   console.log(`Released by ${actor.email ?? userId}.`);

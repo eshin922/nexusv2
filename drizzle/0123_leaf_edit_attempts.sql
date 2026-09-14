@@ -66,19 +66,27 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   -- over cannot resolve or alter it.
   "version" integer NOT NULL DEFAULT 1,
 
-  -- Set the moment any request for this attempt goes UNANSWERED, and never
-  -- cleared by a later request succeeding.
+  -- REQUESTS DISPATCHED, AND REQUESTS ANSWERED.
   --
-  -- A retry that succeeds establishes that A REQUEST carrying those values was
-  -- accepted. It establishes nothing about the earlier one that was never
-  -- answered, which may still be in flight. Releasing on the retry lets a
-  -- DIFFERENT edit follow, and the earlier request can then land on top of it
-  -- -- so the two facts have to be tracked separately.
+  -- An attempt has an unresolved request whenever dispatched > answered.
   --
-  -- An attempt with `unanswered = false` (HubSpot answered, the local write
-  -- failed) has no outstanding request at all: retrying it is ordinary
-  -- recovery and releases cleanly.
-  "unanswered" boolean NOT NULL DEFAULT false,
+  -- Counted rather than flagged, because a flag cannot preserve an EARLIER
+  -- unresolved request when a later one is answered. A retry that returns 2xx
+  -- answers itself and nothing else: (2,1) still has one request outstanding,
+  -- which is exactly the case a boolean would clear.
+  --
+  -- `dispatched` is incremented BEFORE the request is sent, in the same
+  -- committed transaction as the claim. Incrementing it afterwards would leave
+  -- a process interrupted mid-call looking as though it had never dispatched
+  -- anything -- so its attempt would read as fully answered and a retry would
+  -- release it.
+  --
+  -- `answered` is incremented ONLY on a definitive response for that request:
+  -- a 2xx, or a 4xx refusal. A read-back that happens to show the values
+  -- present is evidence about the OBJECT, not about which request put them
+  -- there or whether ours has finished, so it does not count.
+  "dispatched_count" integer NOT NULL DEFAULT 0,
+  "answered_count" integer NOT NULL DEFAULT 0,
 
   -- Set when an unanswered outcome is released anyway, by the documented
   -- support procedure, with the residual risk accepted explicitly.

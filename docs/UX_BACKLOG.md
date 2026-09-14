@@ -5356,9 +5356,6 @@ different edit follow, which that earlier request could land on top of.
 | **answered** — HubSpot applied it, the local write failed (`diverged`) | nothing | retry; it releases; the product is editable again with no decision required |
 | **unanswered** — no response, or a read-back that settles nothing (`unconfirmed`) | possibly the original request | retry converges both catalogs (`converged_unknown`) and the product **stays held**; releasing is a recorded decision |
 
-The answered case is the likelier one in practice — a database blip after a
-successful API call — and it recovers cleanly on its own.
-
 **Why there is no confirmation step and no amendment path.** An earlier design
 let the operator amend while retrying. That makes the retry a *different*
 request, which reintroduces the ordering hazard, and managing it needed a
@@ -5372,26 +5369,26 @@ retry converges the values without releasing the block. Releasing it is
 `npm run admin:release-unanswered`, which requires a leaf, a user and a written
 reason, and records all three.
 
-**The residual risk, stated rather than denied.** That release does not
-establish that the original request finished — nothing available does. HubSpot
-CRM publishes no request-status API, no conditional writes and no maximum
-request lifetime, so neither another read nor more waiting is evidence. After
-release, the next different edit to that product *can* be overwritten by the
-original landing late, and the two catalogs would then disagree with nothing
-reporting it.
+**The residual risk.** That release does not establish that the original
+request finished — nothing available does. HubSpot CRM publishes no
+request-status API, no conditional writes and no maximum request lifetime, so
+neither another read nor more waiting is evidence. After release, the next
+different edit to that product can be overwritten by the original landing late,
+and the two catalogs would then disagree with nothing reporting it.
 
-What makes that tolerable is the shape of the exposure, not its absence: the
-window is bounded by HubSpot's real request lifetime, which is short in the
-ordinary case even though it is not documented; the values at stake are the
-ones already saved; and the divergence is repairable by editing again once
-noticed.
+**The probability is not quantified and cannot be from here.** Nothing in this
+design should be read as a claim that the window is short, that the situation
+is rare, or that the exposure is small — those would be guesses wearing the
+clothes of evidence. What is known: the values at stake are the ones already
+saved, and a divergence is repairable by editing the product again once someone
+notices.
 
 **This is a release decision, and it is open.** The alternative to the recorded
 admin release is automatic release on retry success — simpler for operators,
-and it accepts the same risk silently instead of deliberately. Recommendation:
-keep the admin step for v1, on the grounds that the unanswered case should be
-rare and a rare deliberate decision is cheaper than a silent standing risk. If
-it turns out to be common in practice, that is the signal to revisit.
+and it accepts the same unquantified risk silently instead of deliberately.
+Recommendation: keep the admin step, so the acceptance is conscious and
+attributed. If the unanswered case turns out to be frequent enough that the
+step becomes a burden, that is the signal to revisit.
 
 **Out of scope, and still open:** repair of existing production records. 58
 Library leaves currently hold no SKU, 7 of them already attached to quotes.

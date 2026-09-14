@@ -2790,19 +2790,25 @@ export const leafEditAttempts = pgTable(
     outcome: text("outcome").notNull().default("pending"),
     reason: text("reason"),
     /**
-     * Set the moment any request for this attempt goes UNANSWERED, and never
-     * cleared by a later one succeeding.
+     * Requests dispatched, and requests answered. An attempt has an unresolved
+     * request whenever `dispatchedCount > answeredCount`.
      *
-     * A retry that succeeds establishes that A REQUEST carrying those values
-     * was accepted. It establishes nothing about the earlier one that was
-     * never answered and may still be in flight -- so releasing on the retry
-     * lets a DIFFERENT edit follow, which that earlier request can then land
-     * on top of.
+     * Counted rather than flagged: a flag cannot preserve an EARLIER
+     * unresolved request when a later one is answered. A retry returning 2xx
+     * answers itself and nothing else, so (2,1) still has one outstanding --
+     * the case a boolean would clear.
      *
-     * An attempt with `unanswered = false` (HubSpot answered, the local write
-     * failed) has no outstanding request: retrying it is ordinary recovery.
+     * `dispatchedCount` is incremented BEFORE the request is sent, in the
+     * committed claim transaction. Incrementing it afterwards would leave a
+     * process interrupted mid-call looking as though it never dispatched, so
+     * a retry would release it.
+     *
+     * `answeredCount` is incremented ONLY on a definitive response for that
+     * request. A read-back showing the values present is evidence about the
+     * object, not about which request put them there, so it does not count.
      */
-    unanswered: boolean("unanswered").notNull().default(false),
+    dispatchedCount: integer("dispatched_count").notNull().default(0),
+    answeredCount: integer("answered_count").notNull().default(0),
     /** Set by the documented support procedure; the residual risk accepted. */
     releasedWithRiskBy: uuid("released_with_risk_by"),
     releasedWithRiskAt: timestamp("released_with_risk_at", { withTimezone: true }),

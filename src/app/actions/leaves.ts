@@ -454,7 +454,14 @@ async function applyLeafEdit(opts: {
       }
       const claimed = await tx
         .update(leafEditAttempts)
-        .set({ version: open.version + 1, updatedAt: new Date() })
+        // The retry is about to dispatch. Counted here, in the committed
+        // claim, so an interruption mid-call cannot leave it looking as
+        // though nothing was sent.
+        .set({
+          version: open.version + 1,
+          dispatchedCount: open.dispatchedCount + 1,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(leafEditAttempts.id, retryOf.id),
@@ -575,6 +582,8 @@ async function applyLeafEdit(opts: {
     // sent. The partial unique index makes it exclusive.
     let attemptId = retryOf?.id ?? null;
     let claimedVersion = retryOf ? retryOf.version + 1 : 1;
+    let dispatched = retryOf && open ? open.dispatchedCount + 1 : 0;
+    let answered = retryOf && open ? open.answeredCount : 0;
     if (!retryOf) {
       const [row] = await tx
         .insert(leafEditAttempts)
@@ -584,11 +593,27 @@ async function applyLeafEdit(opts: {
           attempted: values,
           submitted,
           outcome: "pending",
+          // UNCERTAINTY IS PERSISTED BEFORE DISPATCH. The request is about to
+          // be sent and is unanswered until a response proves otherwise, so
+          // the record says so from the moment it exists. A process that dies
+          // during the call leaves an attempt that correctly reads as having
+          // one request outstanding.
+          //
+          // Only dispatched when the product actually has a HubSpot
+          // counterpart -- there is nothing to be uncertain about otherwise.
+          dispatchedCount: existing.hubspotProductId ? 1 : 0,
           createdBy: userId,
         })
-        .returning({ id: leafEditAttempts.id, version: leafEditAttempts.version });
+        .returning({
+          id: leafEditAttempts.id,
+          version: leafEditAttempts.version,
+          dispatchedCount: leafEditAttempts.dispatchedCount,
+          answeredCount: leafEditAttempts.answeredCount,
+        });
       attemptId = row.id;
       claimedVersion = row.version;
+      dispatched = row.dispatchedCount;
+      answered = row.answeredCount;
     }
 
     return {
@@ -597,7 +622,8 @@ async function applyLeafEdit(opts: {
       // Carried from the attempt, not from this request. Whether an EARLIER
       // request was ever left unanswered is what decides if settling is safe,
       // and this request's own outcome cannot tell us.
-      unanswered: Boolean(open?.unanswered),
+      dispatched,
+      answered,
       priorObserved: (open?.observed ?? null) as Record<string, string | null> | null,
       existing,
       values,
@@ -611,7 +637,8 @@ async function applyLeafEdit(opts: {
   const {
     attemptId,
     claimedVersion,
-    unanswered,
+    dispatched,
+    answered,
     priorObserved,
     existing,
     values,
@@ -621,6 +648,14 @@ async function applyLeafEdit(opts: {
   } = claim;
   const productId = existing.hubspotProductId;
   let hubspotOutcome: LeafEditOutcome["hubspotOutcome"] = "not_linked";
+  /**
+   * Set only by a definitive response to THIS request.
+   *
+   * Not by a read-back. A read-back that finds the values present is evidence
+   * about the object -- it does not say which request put them there, nor that
+   * ours has finished. Counting it would clear an uncertainty nothing resolved.
+   */
+  let answeredForThisRequest = false;
 
   if (productId) {
     // A RETRY READS BEFORE IT WRITES. The outstanding request may have
@@ -642,11 +677,16 @@ async function applyLeafEdit(opts: {
       try {
         await hubspot.updateProduct(productId, update);
         hubspotOutcome = "applied";
+        // A DEFINITIVE RESPONSE for this request, and only for this one.
+        answeredForThisRequest = true;
       } catch (e) {
         const verdict = hubspotWriteOutcomeOf(e);
         const detail = e instanceof Error ? e.message : String(e);
 
         if (verdict === "rejected") {
+          // HubSpot answered. This request is finished, whatever it says about
+          // any earlier one.
+          answeredForThisRequest = true;
           if (retryOf) {
             // A RETRY was rejected. That says nothing about the ORIGINAL
             // request, whose outcome was never established. Closing the claim
@@ -655,6 +695,7 @@ async function applyLeafEdit(opts: {
             await keepUnconfirmed(
               attemptId,
               claimedVersion,
+              answered + 1,
               priorObserved,
               `a retry was rejected by HubSpot: ${detail}`,
             );
@@ -670,6 +711,7 @@ async function applyLeafEdit(opts: {
           await settleAttempt(attemptId, claimedVersion, {
             resolution: "rejected",
             reason: detail,
+            answeredCount: answered + 1,
           });
           throw new ActionGuardError(
             ERR.HUBSPOT,
@@ -682,6 +724,10 @@ async function applyLeafEdit(opts: {
         try {
           const snap = await hubspot.getProduct(productId);
           if (snap && hubspotUpdateLanded(snap, update)) {
+            // The values are there. That is NOT an answer to this request:
+            // the request may still be in flight, and something else may have
+            // written them. `answeredForThisRequest` stays false, so the
+            // attempt keeps its outstanding request and will not release.
             hubspotOutcome = "reconciled";
           } else {
             await markUnconfirmed(
@@ -732,7 +778,8 @@ async function applyLeafEdit(opts: {
       // So an attempt that has ever gone unanswered converges and stays held.
       // An attempt that never did -- HubSpot answered, the local write failed
       // -- has nothing outstanding and releases normally.
-      const holdUnknown = unanswered;
+      const nowAnswered = answered + (answeredForThisRequest ? 1 : 0);
+      const holdUnknown = dispatched > nowAnswered;
       if (holdUnknown) hubspotOutcome = "converged_unknown";
 
       // Resolve FIRST, and conditionally. If this claim has already been
@@ -744,6 +791,7 @@ async function applyLeafEdit(opts: {
           holdUnknown
             ? {
                 outcome: "converged_unknown",
+                answeredCount: nowAnswered,
                 reason:
                   "both catalogs hold the saved values, but an earlier request " +
                   "was never answered and may still land",
@@ -753,6 +801,7 @@ async function applyLeafEdit(opts: {
             : {
                 resolvedAt: new Date(),
                 resolution: hubspotOutcome,
+                answeredCount: nowAnswered,
                 version: claimedVersion + 1,
                 updatedAt: new Date(),
               },
@@ -879,12 +928,13 @@ async function fencedAttemptUpdate(
 async function settleAttempt(
   attemptId: string,
   version: number,
-  opts: { resolution: string; reason: string },
+  opts: { resolution: string; reason: string; answeredCount: number },
 ): Promise<boolean> {
   return fencedAttemptUpdate(attemptId, version, {
     resolvedAt: new Date(),
     resolution: opts.resolution,
     reason: opts.reason,
+    answeredCount: opts.answeredCount,
   });
 }
 
@@ -897,9 +947,8 @@ async function markUnconfirmed(
 ): Promise<boolean> {
   return fencedAttemptUpdate(attemptId, version, {
     outcome: "unconfirmed",
-    // NO ANSWER was received for this request. Sticky: a later request being
-    // answered says nothing about this one, which may still be in flight.
-    unanswered: true,
+    // No answer was received, so `answeredCount` is deliberately NOT advanced.
+    // The attempt keeps one dispatched request outstanding.
     observed,
     reason: readable
       ? `read-back did not match the requested state: ${detail}`
@@ -911,11 +960,13 @@ async function markUnconfirmed(
 async function keepUnconfirmed(
   attemptId: string,
   version: number,
+  answeredCount: number,
   observed: Record<string, string | null> | null,
   detail: string,
 ): Promise<boolean> {
   return fencedAttemptUpdate(attemptId, version, {
     outcome: "unconfirmed",
+    answeredCount,
     observed,
     reason: detail,
   });

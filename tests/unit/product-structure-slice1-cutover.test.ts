@@ -484,6 +484,10 @@ const classifiedIdentityFiles = new Set([
   // `attachQuoteProduct` and reads back `quote_leaves.id`. It resolves no legacy
   // junction and derives no economics from one.
   "scripts/gate-1b/library-edit-acceptance.ts",
+  // CLASSIFIED -- the child half of the interruption case. Canonical identity
+  // only: it takes a `leafId` on argv and calls `updateLeaf`. Its whole purpose
+  // is to be killed mid-call so the parent can assert what survived.
+  "scripts/gate-1b/library-edit-interrupt-child.ts",
   // CLASSIFIED -- the support procedure for a product whose earlier HubSpot
   // request was never answered. Canonical identity only: it reads
   // `leaf_edit_attempts.leaf_id`, resolves one attempt row and writes an audit
