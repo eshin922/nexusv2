@@ -193,17 +193,44 @@ export function EditProductModal({
           </span>
         </div>
 
+        {/*
+          Every field is a <label>, not a <div>.
+
+          ── WHY THE FIELDS FELT DEAD ──────────────────────────────────────
+          A `.field` is a column of label, control, and sometimes a hint, and
+          only the control among them was ever clickable. The SKU field is
+          105px tall and its input occupies 39px of that -- from 18% to 57% of
+          the block. The 20px label above it and the 46px hint below it did
+          nothing, because `<span class="lbl">` is not a `<label>` and carries
+          no association with the control.
+
+          So clicking where the field appears to be missed it, and clicking
+          again slightly lower found it. It read as sporadic because it
+          varies by field: Product name has no hint and its input covers most
+          of its block, while SKU and its long explanation are mostly dead
+          space. Same dialog, different odds.
+
+          Wrapping in <label> makes the whole block focus its control, which
+          is the behaviour every one of these fields already looked like it
+          had. `aria-labelledby` keeps the accessible name to the label text
+          alone -- without it, a wrapping label would name the control after
+          its own entire text content, hint included -- and `aria-describedby`
+          attaches the hint as description, which is what it is.
+        */}
         <div className="a1v2-modal-body">
-          <div className="field">
-            <span className="lbl req">Product name</span>
+          <label className="field">
+            <span className="lbl req" id="edit-name-lbl">
+              Product name
+            </span>
             <input
               data-testid="edit-name"
+              aria-labelledby="edit-name-lbl"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-          </div>
+          </label>
 
-          <div className="field">
+          <label className="field">
             <span className="lbl">HubSpot product type</span>
             <select
               data-testid="edit-hs-type"
@@ -221,14 +248,26 @@ export function EditProductModal({
                 </option>
               ))}
             </select>
-          </div>
+          </label>
 
-          <div className="field">
-            <span className="lbl">SKU</span>
+          <label className="field">
+            <span className="lbl" id="edit-sku-lbl">
+              SKU
+            </span>
             {established ? (
               <>
-                <input data-testid="edit-sku" value={target.sku ?? ""} disabled />
-                <span className="hint" data-testid="edit-sku-established">
+                <input
+                  data-testid="edit-sku"
+                  aria-labelledby="edit-sku-lbl"
+                  aria-describedby="edit-sku-hint"
+                  value={target.sku ?? ""}
+                  disabled
+                />
+                <span
+                  className="hint"
+                  id="edit-sku-hint"
+                  data-testid="edit-sku-established"
+                >
                   Established. Downstream identity may already depend on it —
                   quotes already sent, and the NetSuite item it resolves to — so
                   replacing it is a separate controlled correction rather than an
@@ -239,38 +278,50 @@ export function EditProductModal({
               <>
                 <input
                   data-testid="edit-sku"
+                  aria-labelledby="edit-sku-lbl"
+                  aria-describedby="edit-sku-hint"
                   value={sku}
                   onChange={(e) => setSku(e.target.value)}
                   placeholder="Required before this product can be added to a quote"
                 />
-                <span className="hint" data-testid="edit-sku-missing">
+                <span
+                  className="hint"
+                  id="edit-sku-hint"
+                  data-testid="edit-sku-missing"
+                >
                   This product has no SKU, which is why it cannot be added to a
                   quote. Completing it here does not create a second product.
                 </span>
               </>
             )}
-          </div>
+          </label>
 
           <div className="row-pair">
-            <div className="field">
-              <span className="lbl">Unit cost</span>
+            <label className="field">
+              <span className="lbl" id="edit-unit-cost-lbl">
+                Unit cost
+              </span>
               <input
                 data-testid="edit-unit-cost"
+                aria-labelledby="edit-unit-cost-lbl"
                 inputMode="decimal"
                 value={unitCost}
                 onChange={(e) => setUnitCost(e.target.value)}
                 placeholder="$0.00"
               />
-            </div>
-            <div className="field">
-              <span className="lbl">URL · supplier reference</span>
+            </label>
+            <label className="field">
+              <span className="lbl" id="edit-url-lbl">
+                URL · supplier reference
+              </span>
               <input
                 data-testid="edit-url"
+                aria-labelledby="edit-url-lbl"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://..."
               />
-            </div>
+            </label>
           </div>
 
           {error && (
