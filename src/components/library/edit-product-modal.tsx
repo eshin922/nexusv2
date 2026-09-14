@@ -48,7 +48,6 @@ export function EditProductModal({
   typeOptions,
   save,
   recover,
-  observe,
   onClose,
   onSaved,
 }: {
@@ -65,26 +64,6 @@ export function EditProductModal({
    * for -- which is the shape of the original defect, one layer up.
    */
   recover?: UpdateProductService;
-  /**
-   * Observe what HubSpot holds right now for a product with an unresolved
-   * ordering.
-   *
-   * It does NOT release the hold, and the surface must not imply that it
-   * might: agreement at an instant does not establish that an older in-flight
-   * request can no longer overwrite it. The control is a way to learn
-   * something, not a way out.
-   */
-  observe?: (fd: FormData) => Promise<
-    | {
-        ok: true;
-        data: {
-          leafId: string;
-          observation: "agrees_now" | "diverged";
-          released: false;
-        };
-      }
-    | { ok: false; error: { code: string; message: string } }
-  >;
   onClose: () => void;
   onSaved: (leafId: string) => void;
 }) {
@@ -104,7 +83,7 @@ export function EditProductModal({
    * the control for checking again -- so the one path out of the state was
    * closed by using it and failing.
    */
-  const [held, setHeld] = useState<"unconfirmed" | "ordering" | null>(null);
+  const [held, setHeld] = useState<"unconfirmed" | null>(null);
   const [pending, startSave] = useTransition();
 
   // The SKU is ESTABLISHED if the product already had one when the form
@@ -129,58 +108,19 @@ export function EditProductModal({
     if (!target || !recover) return;
     setError(null);
     const fd = new FormData();
+    // The id, and nothing else. The retry replays exactly what was saved --
+    // sending anything from this form would make it a DIFFERENT request, and a
+    // different request is the one thing that is not safe while an earlier one
+    // may still be in flight.
     fd.set("leafId", target.leafId);
-    // The correctable fields travel; the SKU does not. A recorded attempt can
-    // be unrecoverable on its own terms -- a value that could not be stored is
-    // in the record and fails identically on every replay -- so the operator
-    // can amend those. The SKU is the identity-bearing field and is pinned
-    // server-side to what was recorded, or to what HubSpot was seen to hold.
-    fd.set("name", name.trim());
-    fd.set("url", url.trim());
-    fd.set("unitCost", unitCost.trim());
-    fd.set("hubspotProductType", hsType);
     startSave(async () => {
       const res = await recover(fd);
       if (!res.ok) {
         setError(res.error);
-        if (res.error.code === "ORDERING_UNRESOLVED") setHeld("ordering");
         return;
       }
       onSaved(res.data.leafId);
       onClose();
-    });
-  }
-
-  function submitObservation() {
-    if (!target || !observe) return;
-    setError(null);
-    const fd = new FormData();
-    fd.set("leafId", target.leafId);
-    startSave(async () => {
-      const res = await observe(fd);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      // Never closes. Not on agreement either -- that is the whole point.
-      setError(
-        res.data.observation === "agrees_now"
-          ? {
-              code: "OBSERVED_AGREES",
-              message:
-                "HubSpot holds the recovered values right now. That is agreement " +
-                "at this instant, and it does not establish that the older " +
-                "request can no longer overwrite them — so this product stays " +
-                "held.",
-            }
-          : {
-              code: "OBSERVED_DIVERGED",
-              message:
-                "HubSpot does not hold the recovered values — the older request " +
-                "appears to have landed after the recovery. The two catalogs " +
-                "disagree and this product stays held.",
-            },
-      );
     });
   }
 
@@ -208,7 +148,6 @@ export function EditProductModal({
         // last error code closed the only way out of the state the moment
         // using it failed.
         if (res.error.code === "UNCONFIRMED_EDIT") setHeld("unconfirmed");
-        if (res.error.code === "ORDERING_UNRESOLVED") setHeld("ordering");
         return;
       }
       onSaved(res.data.leafId);
@@ -351,17 +290,6 @@ export function EditProductModal({
           >
             Cancel
           </button>
-          {held === "ordering" && observe && (
-            <button
-              type="button"
-              className="a1v2-btn"
-              data-testid="edit-product-observe"
-              onClick={submitObservation}
-              disabled={pending}
-            >
-              {pending ? "Checking…" : "Check what HubSpot holds now"}
-            </button>
-          )}
           {held === "unconfirmed" && recover && (
             <button
               type="button"
@@ -370,7 +298,7 @@ export function EditProductModal({
               onClick={submitRecovery}
               disabled={pending}
             >
-              {pending ? "Recovering…" : "Recover the unconfirmed edit"}
+              {pending ? "Retrying…" : "Retry the saved edit"}
             </button>
           )}
           <button

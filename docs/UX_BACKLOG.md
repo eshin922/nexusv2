@@ -5328,121 +5328,49 @@ the index would start refusing writes those paths currently make: that is a
 change to their behaviour, not a constraint on data, and it belongs with the
 work that makes them enforce it. Uniqueness stays open until every writer does.
 
-**HubSpot failure handling.** An update that fails is adjudicated rather than
-assumed. A 4xx is a rejection and "nothing was changed" may be stated. Anything
-else is UNCERTAIN and the product is read back by id.
+**HubSpot failure handling, and the remedy.** An update that fails is
+adjudicated rather than assumed. A 4xx is a rejection and "nothing was changed"
+may be stated. Anything else is UNCERTAIN, and the product is read back by id:
+if the values landed, the local row catches up; if they did not, or the
+read-back itself fails, the outcome is not confirmed and that is all that is
+claimed.
 
-A read-back that does not match establishes exactly one thing: **the requested
-state is not confirmed.** It does not establish that nothing changed — the write
-may have applied in part, or the product may hold values something else put
-there. So the edit is PRESERVED in `leaf_edit_attempts` rather than discarded.
+**The edit is saved before the request is sent.** A record written after a
+failure is written too late twice over: the failed transaction releases its
+lock before the record exists, so another edit can write over an unconfirmed
+remote state, and a process that dies during the call leaves no trace at all.
 
-**The intent is committed BEFORE the remote call, not after it fails.** Writing
-it afterwards is too late twice over: the failed transaction releases its lock
-before the record exists, so another edit can slip in and write over an
-unconfirmed remote state; and a process that dies during the call leaves no
-trace at all. A committed `pending` row closes both — it is a claim other
-writers can see, and it outlives the process that made it. The edit runs in
-three phases (claim · remote · settle), which also stops a database connection
-being held across a remote round trip.
+**The remedy is an identical replay.** `retryLeafEdit` re-sends exactly what
+was submitted — the product id and nothing from the current form. That is what
+makes it safe when a failed request may still be in flight: whichever request
+lands last, HubSpot ends up holding the same thing. It reads the product first,
+so a request that completed late costs no second write.
 
-Consequences:
+A DIFFERENT edit is refused until the saved one has gone through. That refusal
+is what makes identical replay safe, and it is the whole of the concurrency
+story here: converge first, then edit.
 
-- ordinary editing of that product is refused until the attempt is settled,
-  because writing over an unconfirmed remote state would overwrite whatever is
-  actually there — including a SKU the catalog may have issued that Nexus never
-  recorded. Local state cannot answer that, since local state is exactly what
-  failed to be written;
-- recovery replays **the recorded edit**, read under the lock at the moment it
-  is applied — not values carried from the request that composed it. It reads
-  the product back FIRST and sends nothing if HubSpot already holds them: a
-  request that timed out is not a request that stopped;
-- a recovery **claims** the attempt by version rather than observing it. Two
-  recoveries both reading "still open" would both send, because the attempt is
-  not resolved until the settle phase and neither has done anything the other
-  can see. The settle is itself conditional, so a recovery that overtakes a
-  live edit cannot double-apply;
-- amendments are **persisted before anything is sent**, and version-bumped. A
-  correction accepted in one request and applied from another process's memory
-  is a correction an interruption can lose;
-- every write to an attempt carries **the version its worker claimed**, so a
-  worker that has been superseded mid-flight cannot resolve or alter it. The
-  `resolved` guard alone is not enough: it only covers the case where the new
-  owner has already closed the attempt, and an owner that leaves it OPEN —
-  an amended recovery held for confirmation — is exactly where a stale write
-  lands;
-- **a rejected retry does not clear the earlier uncertainty.** "This retry was
-  rejected" is a fact about the retry and establishes nothing about the
-  original request, which may still have applied. The claim stays open and the
-  product stays held;
-- the SKU is pinned during recovery; the correctable fields may be amended,
-  because a recorded attempt can be unrecoverable on its own terms and
-  replaying it verbatim would lock the product behind its own attempt forever.
+**Why there is no confirmation step, no amendment path and no permanent hold.**
+An earlier design let the operator amend an edit while retrying it. That makes
+the retry a *different* request, which reintroduces the ordering hazard: the
+original could land after the amended one and the two catalogs would disagree.
+Managing that needed a confirmation read — and a read establishes agreement at
+an instant, not that an older request can no longer arrive. The honest version
+of that design ends in a product that is blocked indefinitely, which is not a
+usable outcome. Removing amendments removes the hazard at its root.
 
-If HubSpot applies and the local transaction then fails, the operator is told
-the two disagree — not that nothing happened — and the attempt is preserved the
-same way.
+**Operational consequence, and the support procedure.** After a synchronization
+failure the product accepts no *new* edits until the saved one is retried. The
+operator sees the refusal and a "Retry the saved edit" control on the same
+surface. Retrying is safe to repeat as often as needed.
 
-**The ordering no local mechanism can reach — and it is NOT closed.** An
-amended recovery can be accepted by HubSpot while an OLDER request to the same
-product is still in flight. If the older one lands afterwards, HubSpot holds
-its values and Nexus holds the amended ones. The lock, the claim and the
-version fence are all on the wrong side of the wire, and HubSpot CRM offers no
-If-Match, no ETag and no documented ordering guarantee.
-
-So an amended recovery does not declare itself settled, and **nothing here
-releases the hold**:
-
-- The condition is the AMENDMENT, not how the request ended. `already_held`
-  (HubSpot held the amended values when we looked) and `reconciled` (our write
-  failed and a read-back found it applied) are both readings of an instant,
-  and the hazard is about what happens after the instant. An earlier version
-  released both immediately.
-- `confirmLeafEdit` **observes**; it does not settle. A matching read proves
-  the catalogs agree AT THAT INSTANT — it does not prove an older request can
-  no longer overwrite them, which is the only thing that would make releasing
-  safe. A *disagreeing* read is different and is taken: that fact does not
-  expire, and it is recorded as a divergence.
-- An operator clicking "check" is not evidence either. It is an observation
-  with a timestamp, and that is exactly what is recorded.
-- **Identical replay stays permitted** — a late original carrying identical
-  values cannot change the outcome. A *different* edit is refused, which is
-  what makes identical replay harmless.
-
-**What a controlled reconciliation would require** — enumerated in
-`ORDERING_RECONCILIATION_REQUIREMENTS` so the requirement is checkable rather
-than prose, and surfaced by `releaseOrderingHold`, which currently releases
-nothing:
-
-| basis | available | what it would take |
-|---|---|---|
-| `provider_ordering_guarantee` | no | a documented HubSpot guarantee that a later-accepted write cannot be overwritten by an earlier in-flight one — conditional writes, sequence tokens, or a stated ordering contract |
-| `request_outcome_observed` | no | the outcome of the ORIGINAL REQUEST itself: a request identity echoed on the object, or a change feed attributing each write to the request that made it. Reading the object reports what is there now; the question is what can still arrive |
-| `provider_bounded_lifetime` | no | a documented maximum lifetime for an accepted request, after which it cannot land. That converts waiting into evidence; without a published bound, elapsed time is only elapsed time |
-
-**Operational consequence, stated plainly:** a product that reaches this state
-stays blocked for different edits indefinitely. That is deliberate. The
-alternative is releasing on evidence that does not support the claim, and a
-silent divergence between two catalogs is worse than a visibly stuck product.
-
-**The refresh participates in the same contract.** `pullProductsBatch` writes
-the same columns the edit authors. It takes the same leaf lock, declines any
-product carrying an unsettled claim, and compare-and-swaps against the row
-version.
-
-Two corrections were needed to make that swap mean anything:
-
-- The lock alone is not sufficient. The batch and the row are both read before
-  the lock is requested, so acquiring it says nothing about what changed while
-  queueing for it.
-- **The version has to be captured before the REMOTE fetch.** Capturing it
-  afterwards leaves an unguarded interval: an edit completing between the fetch
-  and the capture is already in the captured version, so the swap agrees and a
-  remote snapshot that predates the edit overwrites it. The swap was comparing
-  against the wrong instant and failed silently.
-
-Rows declined as stale are counted and named in the batch audit rather than
-silently skipped.
+If HubSpot is unavailable for an extended period the product stays in that
+state — editable again the moment a retry succeeds. There is no timer and no
+self-service override, because neither would be evidence of anything. If a
+product is ever stuck on a saved edit that can never succeed (for example its
+HubSpot counterpart was deleted), clearing the `leaf_edit_attempts` row is an
+admin database action, taken deliberately and recorded — not a control on the
+operator's screen.
 
 **Out of scope, and still open:** repair of existing production records. 58
 Library leaves currently hold no SKU, 7 of them already attached to quotes.

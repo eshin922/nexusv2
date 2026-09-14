@@ -48,11 +48,6 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   -- recovery must reproduce the REQUEST, and the mapping from one to the other
   -- may change under it.
   "submitted" jsonb NOT NULL,
-  -- Amendments an operator supplied while recovering. Persisted rather than
-  -- held in memory: they are part of the intent from the moment they are
-  -- accepted, and an interruption after the remote call must not lose them.
-  -- The SKU is never amendable and never appears here.
-  "amended" jsonb,
   -- What HubSpot held when it was read back, or NULL when the read-back could
   -- not be performed. NULL here means "not observed", never "absent" --
   -- distinguishing those is the whole point.
@@ -65,27 +60,10 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   -- diverged              — the two catalogs are known to disagree
   "outcome" text NOT NULL DEFAULT 'pending',
   "reason" text,
-  -- What HubSpot is expected to hold once everything has settled. Written when
-  -- an amended recovery is accepted, and compared against on confirmation.
-  --
-  -- WHY AN AMENDED RECOVERY CANNOT DECLARE ITSELF SETTLED
-  --
-  -- The original request may still be in flight. If it lands AFTER the
-  -- recovery, HubSpot ends up holding the original values while Nexus holds
-  -- the amended ones -- and no local locking prevents that, because the
-  -- ordering is decided on the far side. HubSpot CRM offers no If-Match, no
-  -- ETag and no documented ordering guarantee, so there is nothing here to
-  -- rely on.
-  --
-  -- A recovery that re-sends the SAME values is unaffected: a late original
-  -- carrying identical values is harmless. Only an AMENDED one creates the
-  -- hazard, and only it is held open for confirmation.
-  "expected" jsonb,
 
-  -- Bumped on every amendment. A recovery names the version it was composed
-  -- against, so two operators amending the same attempt cannot silently
-  -- overwrite one another -- the same discipline the edit itself uses against
-  -- the product row.
+  -- Claimed by whoever is working the attempt. A retry takes it, and every
+  -- later write to the row carries it, so a worker whose claim has been taken
+  -- over cannot resolve or alter it.
   "version" integer NOT NULL DEFAULT 1,
 
   "created_by" uuid NOT NULL,
@@ -95,7 +73,7 @@ CREATE TABLE IF NOT EXISTS "leaf_edit_attempts" (
   "resolution" text,
 
   CONSTRAINT "leaf_edit_attempts_outcome_values"
-    CHECK ("outcome" IN ('pending', 'unconfirmed', 'ordering_unresolved', 'diverged'))
+    CHECK ("outcome" IN ('pending', 'unconfirmed', 'diverged'))
 );
 
 -- At most one OPEN attempt per product. A second unresolved attempt would mean

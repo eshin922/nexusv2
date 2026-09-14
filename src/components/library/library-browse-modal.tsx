@@ -15,11 +15,7 @@ import type {
 } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { EditProductModal } from "./edit-product-modal";
-import {
-  confirmLeafEdit,
-  retryLeafEdit,
-  updateLeaf,
-} from "@/app/actions/leaves";
+import { retryLeafEdit, updateLeaf } from "@/app/actions/leaves";
 import {
   fetchHubspotProductTypes,
   fetchLibraryBrowse,
@@ -1572,7 +1568,6 @@ export function LibraryBrowseModal({
         typeOptions={hsTypeOptions}
         save={updateLeaf}
         recover={retryLeafEdit}
-        observe={confirmLeafEdit}
         onClose={() => setEditOpen(false)}
         onSaved={() => {
           // Reload so the row reflects what was saved, and so a completed SKU

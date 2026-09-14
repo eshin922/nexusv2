@@ -2777,36 +2777,23 @@ export const leafEditAttempts = pgTable(
     /** What was sent to HubSpot, as properties. */
     submitted: jsonb("submitted").notNull(),
     /**
-     * Amendments supplied while recovering. Persisted rather than held in
-     * memory: they are part of the intent the moment they are accepted, and an
-     * interruption after the remote call must not lose them. The SKU is never
-     * amendable and never appears here.
-     */
-    amended: jsonb("amended"),
-    /**
      * What HubSpot held when read back, or NULL when the read-back could not
      * be performed. NULL is "not observed", never "absent".
      */
     observed: jsonb("observed"),
     /**
-     * `pending` | `unconfirmed` | `ordering_unresolved` | `diverged`
+     * `pending` | `unconfirmed` | `diverged`
      *
-     * `ordering_unresolved` exists because an AMENDED recovery cannot
-     * declare itself settled. The original request may still be in flight and
-     * may land after it, leaving HubSpot holding the original values and Nexus
-     * the amended ones. That ordering is decided on the far side, so no local
-     * lock prevents it, and HubSpot CRM offers nothing to rely on -- no
-     * If-Match, no ETag, no documented ordering. A recovery re-sending the
-     * SAME values is unaffected; only an amended one is held open.
+     * The last two leave the SAVED EDIT outstanding. It is retried by
+     * replaying exactly what was submitted -- safe whichever request lands
+     * last -- and a DIFFERENT edit is refused until it has gone through.
      */
     outcome: text("outcome").notNull().default("pending"),
     reason: text("reason"),
-    /** What HubSpot should hold once everything settles; compared on confirm. */
-    expected: jsonb("expected"),
     /**
-     * Bumped on every amendment. A recovery names the version it was composed
-     * against, so two operators amending one attempt cannot silently overwrite
-     * each other -- the same discipline the edit uses against the product row.
+     * Claimed by whoever is working the attempt. A retry takes it, and every
+     * later write carries it, so a worker whose claim has been taken over
+     * cannot resolve or alter it.
      */
     version: integer("version").notNull().default(1),
     createdBy: uuid("created_by").notNull(),

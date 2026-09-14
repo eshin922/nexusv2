@@ -49,19 +49,10 @@ const ok: UpdateProductService = async () => ({
   data: { leafId: "leaf-1", syncedToHubspot: true },
 });
 
-type ObserveService = (fd: FormData) => Promise<
-  | {
-      ok: true;
-      data: { leafId: string; observation: "agrees_now" | "diverged"; released: false };
-    }
-  | { ok: false; error: { code: string; message: string } }
->;
-
 function view(over: {
   target?: EditProductTarget;
   save?: UpdateProductService;
   recover?: UpdateProductService;
-  observe?: ObserveService;
   onSaved?: (id: string) => void;
   onClose?: () => void;
 }) {
@@ -72,7 +63,6 @@ function view(over: {
       typeOptions={TYPES}
       save={over.save ?? ok}
       recover={over.recover}
-      observe={over.observe}
       onClose={over.onClose ?? (() => {})}
       onSaved={over.onSaved ?? (() => {})}
     />
@@ -329,29 +319,6 @@ test("the refusal names the SKU HubSpot already holds", async () => {
   await m.unmount();
 });
 
-test("recovery sends the correctable fields and NOT the SKU", async () => {
-  // A recorded attempt can be unrecoverable on its own terms, so the operator
-  // may amend the correctable fields. The SKU is pinned server-side; the form
-  // must not offer one, or a recovery becomes a way to change identity.
-  const calls: Record<string, string>[] = [];
-  const recover: UpdateProductService = async (fd) => {
-    calls.push(Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v)])));
-    return { ok: true, data: { leafId: "leaf-1", syncedToHubspot: true } };
-  };
-  const m = await mount(view({ save: unconfirmed, recover }));
-  await m.click('[data-testid="edit-product-save"]');
-  await flush();
-  await m.type('[data-testid="edit-unit-cost"]', "2.50");
-  await m.click('[data-testid="edit-product-recover"]');
-  await flush();
-
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].leafId, "leaf-1");
-  assert.equal(calls[0].unitCost, "2.50", "a correctable field travels");
-  assert.equal("sku" in calls[0], false, "the identity-bearing field does not");
-  await m.unmount();
-});
-
 test("no recovery control is offered for an ordinary failure", async () => {
   const m = await mount(
     view({
@@ -373,112 +340,77 @@ test("no recovery control is offered for an ordinary failure", async () => {
   await m.unmount();
 });
 
-// ── an unresolved ordering is not resolved by looking again ───────────────
+// ── a saved edit is retried, not re-composed ──────────────────────────────
 
-const ordering: UpdateProductService = async () => ({
+const unconfirmed2: UpdateProductService = async () => ({
   ok: false,
   error: {
-    code: "ORDERING_UNRESOLVED",
+    code: "UNCONFIRMED_EDIT",
     message:
-      "This product has an unresolved ordering problem. An amended recovery moved what HubSpot holds while an older request may still be in flight. Editing is blocked until that is reconciled.",
+      "An earlier edit to this product was never confirmed in HubSpot. Retry that saved edit first — it re-sends exactly what was asked for, so it is safe whichever request lands last.",
   },
 });
 
-const agrees: ObserveService = async () => ({
-  ok: true,
-  data: { leafId: "leaf-1", observation: "agrees_now", released: false },
-});
-
-test("an unresolved ordering offers a LOOK, not a retry", async () => {
-  const m = await mount(view({ save: ordering, recover: ok, observe: agrees }));
+test("an unconfirmed edit offers a retry, and blocks a different save", async () => {
+  const m = await mount(view({ save: unconfirmed2, recover: ok }));
   await m.click('[data-testid="edit-product-save"]');
   await flush();
-  assert.ok(m.byTestId("edit-product-observe"));
-  assert.equal(m.byTestId("edit-product-recover"), null, "there is nothing to retry");
+  assert.ok(m.byTestId("edit-product-recover"), "the remedy must be reachable");
   assert.equal(
     (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
     true,
+    "a different edit is what is unsafe while one is unsettled",
   );
   await m.unmount();
 });
 
-test("a look that AGREES does not close, and says why that is not enough", async () => {
-  // The failure this guards is the one the whole surface exists to avoid:
-  // reporting a true reading of a moment as an outcome. Agreement now does
-  // not establish that an older request can no longer overwrite it.
-  let closed = false;
+test("the retry sends the id and NOTHING else", async () => {
+  // Anything from this form would make it a DIFFERENT request, and a
+  // different request is the one thing that is unsafe while an earlier one
+  // may still be in flight.
+  const calls: string[][] = [];
+  const recover: UpdateProductService = async (fd) => {
+    calls.push([...fd.keys()]);
+    return { ok: true, data: { leafId: "leaf-1", syncedToHubspot: true } };
+  };
+  const m = await mount(view({ save: unconfirmed2, recover }));
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  await m.type('[data-testid="edit-unit-cost"]', "99.00");
+  await m.click('[data-testid="edit-product-recover"]');
+  await flush();
+  assert.deepEqual(calls[0], ["leafId"]);
+  await m.unmount();
+});
+
+test("a successful retry closes the surface", async () => {
   let saved: string | null = null;
   const m = await mount(
-    view({
-      save: ordering,
-      observe: agrees,
-      onClose: () => (closed = true),
-      onSaved: (id) => (saved = id),
-    }),
+    view({ save: unconfirmed2, recover: ok, onSaved: (id) => (saved = id) }),
   );
   await m.click('[data-testid="edit-product-save"]');
   await flush();
-  await m.click('[data-testid="edit-product-observe"]');
+  await m.click('[data-testid="edit-product-recover"]');
   await flush();
-
-  const err = m.byTestId("edit-product-error");
-  assert.match(err!.textContent ?? "", /agreement at this instant/i);
-  assert.match(err!.textContent ?? "", /stays held/i);
-  assert.equal(closed, false, "agreement must not close the surface");
-  assert.equal(saved, null, "and must not report a save");
-  assert.equal(
-    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
-    true,
-    "the product is still held",
-  );
-  assert.ok(m.byTestId("edit-product-observe"), "and can be looked at again");
+  assert.equal(saved, "leaf-1");
   await m.unmount();
 });
 
-test("a look that DIVERGES reports it, and the product stays held", async () => {
+test("a failed retry keeps the remedy available", async () => {
   const m = await mount(
     view({
-      save: ordering,
-      observe: async () => ({
-        ok: true,
-        data: { leafId: "leaf-1", observation: "diverged", released: false },
-      }),
-    }),
-  );
-  await m.click('[data-testid="edit-product-save"]');
-  await flush();
-  await m.click('[data-testid="edit-product-observe"]');
-  await flush();
-  assert.match(
-    m.byTestId("edit-product-error")!.textContent ?? "",
-    /older request appears to have landed/i,
-  );
-  assert.equal(
-    (m.byTestId("edit-product-save") as HTMLButtonElement).disabled,
-    true,
-  );
-  await m.unmount();
-});
-
-test("an unreadable look changes nothing and stays available", async () => {
-  const m = await mount(
-    view({
-      save: ordering,
-      observe: async () => ({
+      save: unconfirmed2,
+      recover: async () => ({
         ok: false,
-        error: {
-          code: "HUBSPOT_ERROR",
-          message:
-            "HubSpot could not be read, so what it holds is still unknown. Nothing was changed and this product stays held.",
-        },
+        error: { code: "HUBSPOT_ERROR", message: "HubSpot did not confirm this update." },
       }),
     }),
   );
   await m.click('[data-testid="edit-product-save"]');
   await flush();
-  await m.click('[data-testid="edit-product-observe"]');
+  await m.click('[data-testid="edit-product-recover"]');
   await flush();
-  assert.match(m.byTestId("edit-product-error")!.textContent ?? "", /still unknown/i);
-  assert.ok(m.byTestId("edit-product-observe"), "the look stays available");
+  assert.match(m.byTestId("edit-product-error")!.textContent ?? "", /did not confirm/i);
+  assert.ok(m.byTestId("edit-product-recover"), "it can be retried again");
   await m.unmount();
 });

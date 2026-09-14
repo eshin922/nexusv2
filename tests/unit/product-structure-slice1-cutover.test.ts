@@ -475,7 +475,7 @@ const classifiedIdentityFiles = new Set([
   // `assembly_leaf_inputs` access is by `tier_id`, to show packaging and
   // manufacturing costs live in different tables.
   "scripts/gate-1b/mistr-walk.ts",
-  // CLASSIFIED -- the #567 Library-edit walk. Canonical identity throughout,
+  // CLASSIFIED -- the #567 Library-edit acceptance pass. Canonical identity throughout,
   // and identity preservation is the CLAIM under test rather than an incidental
   // property: it creates a library leaf, edits it through `updateLeaf`, and
   // asserts `leaves.id` and `hubspot_product_id` are unchanged across the edit
@@ -483,12 +483,7 @@ const classifiedIdentityFiles = new Set([
   // is corrected in place rather than recreated. Attachment goes through
   // `attachQuoteProduct` and reads back `quote_leaves.id`. It resolves no legacy
   // junction and derives no economics from one.
-  "scripts/gate-1b/library-edit-walk.ts",
-  // CLASSIFIED -- the child half of the #567 interruption case. Canonical
-  // identity only: it takes a `leafId` on argv and calls `updateLeaf`. It
-  // resolves no junction and derives no economics; its entire purpose is to be
-  // killed mid-flight so the parent can assert what survived.
-  "scripts/gate-1b/library-edit-interrupt-child.ts",
+  "scripts/gate-1b/library-edit-acceptance.ts",
   // CLASSIFIED — read-only Case 6 Mixed proof harness. Queries `assembly_leaves`
   // DELIBERATELY, and that is the point of the case: it must prove a top-level
   // Direct Product acquires NO junction while its Item Group siblings keep
