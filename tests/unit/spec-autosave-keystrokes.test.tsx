@@ -283,3 +283,73 @@ test("a genuine later external change is still adopted afterwards", async () => 
   assert.equal(input(m).value, "someone else");
   await m.unmount();
 });
+
+// ── Done must wait for a save that blur already started ───────────────────
+
+test("Done waits for the save blur started, and closes only when it lands", async () => {
+  // type -> blur starts a slow save -> Done. There is nothing NEW to send, so
+  // the commit takes its early exit -- and that exit used to report success
+  // for a request that had not answered. The modal closed over it.
+  const gate = deferred<SaveResult>();
+  let calls = 0;
+  const m = await mount(
+    view({
+      save: async () => {
+        calls += 1;
+        return gate.promise;
+      },
+    }),
+  );
+
+  await typeInto(m, "129.1 x 92.3 x 13.5");
+  await blur(m); // the save starts and stays out
+
+  let settled: boolean | null = null;
+  const done = flushPendingSpecEdits().then((r) => {
+    settled = r;
+    return r;
+  });
+  await flush();
+
+  assert.equal(settled, null, "Done resolved while blur's save was still out");
+  assert.equal(calls, 1, "Done must not re-send a value already being saved");
+
+  gate.resolve(OK);
+  await done;
+  assert.equal(settled, true);
+  await m.unmount();
+});
+
+test("Done reports the failure of the save blur started", async () => {
+  // Same sequence, and the outstanding save fails. Done must say so, so the
+  // modal stays open with the text and the reason.
+  const gate = deferred<SaveResult>();
+  const m = await mount(view({ save: async () => gate.promise }));
+
+  await typeInto(m, "129.1 x 92.3 x 13.5");
+  await blur(m);
+
+  let settled: boolean | null = null;
+  const done = flushPendingSpecEdits().then((r) => {
+    settled = r;
+    return r;
+  });
+  await flush();
+  assert.equal(settled, null);
+
+  gate.resolve({
+    ok: false,
+    error: { code: "HUBSPOT_ERROR", message: "Could not save." },
+  });
+  await done;
+  await flush(); // let the error state render before reading it
+
+  assert.equal(settled, false, "Done reported success for a failed save");
+  assert.equal(
+    input(m).value,
+    "129.1 x 92.3 x 13.5",
+    "the entered text must survive",
+  );
+  assert.match(m.text(), /Could not save\./);
+  await m.unmount();
+});

@@ -144,6 +144,12 @@ export function SpecCell({
   const committedRef = useRef(initialValue);
   // Saves issued and not yet answered.
   const inFlightRef = useRef(0);
+  // The outstanding save for whatever `committedRef` currently holds.
+  //
+  // "This value has been committed" and "this value is still being written"
+  // are different facts, and treating them as one is what let Done close over
+  // a save that had not answered yet.
+  const inFlightSaveRef = useRef<Promise<boolean> | null>(null);
   // Values this field has itself sent and then moved past.
   //
   // A save triggers a revalidation, so its snapshot comes back as a prop --
@@ -181,7 +187,12 @@ export function SpecCell({
   // typing.
   const commit = useCallback(async (): Promise<boolean> => {
     const value = latestRef.current;
-    if (value === committedRef.current) return true;
+    if (value === committedRef.current) {
+      // Nothing new to send -- but a save for exactly this value may still be
+      // out. Returning true here reported success for a request that had not
+      // answered, which is what Done was closing on.
+      return inFlightSaveRef.current ?? true;
+    }
     // What we are moving away from is now a stale snapshot if it comes back.
     supersededRef.current.add(committedRef.current);
     committedRef.current = value;
@@ -198,28 +209,37 @@ export function SpecCell({
     fd.set("fieldKey", field.key);
     fd.set("value", value);
 
-    // Awaited, so "Done" can wait for it and close only if it worked.
+    // Awaited, so "Done" can wait for it and close only if it worked -- and
+    // held, so a second caller asking about the SAME value waits for this one
+    // rather than being told it is already done.
     inFlightRef.current += 1;
-    let ok = true;
-    await new Promise<void>((resolve) => {
-      startTransition(async () => {
-        setError(null);
-        const result = await save(fd);
-        if (!result.ok) {
-          // Leave the text alone. It is what the operator entered and the only
-          // copy -- reverting it would destroy the thing they would otherwise
-          // retry. Clearing the committed marker is what makes leaving the
-          // field again re-send it.
-          committedRef.current = "\u0000never";
-          setError(result.error.message);
-          ok = false;
-        } else {
-          setSavedAt(Date.now());
-        }
-        inFlightRef.current -= 1;
-        resolve();
+    const run = (async (): Promise<boolean> => {
+      let ok = true;
+      await new Promise<void>((resolve) => {
+        startTransition(async () => {
+          setError(null);
+          const result = await save(fd);
+          if (!result.ok) {
+            // Leave the text alone. It is what the operator entered and the
+            // only copy -- reverting it would destroy the thing they would
+            // otherwise retry. Clearing the committed marker is what makes
+            // leaving the field again re-send it.
+            committedRef.current = "\u0000never";
+            setError(result.error.message);
+            ok = false;
+          } else {
+            setSavedAt(Date.now());
+          }
+          inFlightRef.current -= 1;
+          resolve();
+        });
       });
-    });
+      return ok;
+    })();
+    inFlightSaveRef.current = run;
+    const ok = await run;
+    // Only clear it if nothing newer has taken its place.
+    if (inFlightSaveRef.current === run) inFlightSaveRef.current = null;
     return ok;
   }, [field.key, leafId, save, scope]);
 
