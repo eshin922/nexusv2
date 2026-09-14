@@ -329,6 +329,48 @@
 .r14-thead > div:last-child { padding-right: 14px; }
 .r14-num { text-align: right; }
 
+/*
+ * Sortable column headings.
+ *
+ * The button inherits the heading's own type rather than introducing a second
+ * register -- the column label is still the column label, and only its
+ * behaviour changed. It carries no resting border or background for the same
+ * reason: a row of six boxed controls would read as a toolbar sitting where
+ * the table header used to be.
+ *
+ * The arrow is shown only on the active column. A permanent row of dimmed
+ * arrows reads as decoration and stops saying "this is the one in use".
+ */
+.r14-thead > div:has(.r14-sort) { padding: 0; }
+
+.r14-sort {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+.r14-thead > div:first-child .r14-sort { padding-left: 14px; }
+.r14-thead > div:last-child .r14-sort { padding-right: 14px; }
+/* A right-aligned column keeps its label against the numbers it heads. */
+.r14-num .r14-sort { justify-content: flex-end; }
+
+.r14-sort:hover { color: var(--ink, inherit); }
+.r14-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.r14-sort.is-active { color: var(--ink, inherit); }
+.r14-sort-arrow { font-size: 8px; line-height: 1; }
+
 .r14-group-head {
   min-width: 892px;
   display: flex;
