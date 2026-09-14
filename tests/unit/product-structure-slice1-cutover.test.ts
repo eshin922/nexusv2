@@ -498,6 +498,12 @@ const classifiedIdentityFiles = new Set([
   // only: it takes a `leafId` on argv and calls `updateLeaf`. Its whole purpose
   // is to be killed mid-call so the parent can assert what survived.
   "scripts/gate-1b/library-edit-interrupt-child.ts",
+  // CLASSIFIED -- the PM-permission walk for Aisha's report. Canonical identity
+  // only: it inserts a `leaves` row, carries that `leaves.id` into `updateLeaf`,
+  // and reads the SKU back off the same row. It resolves no attachment, touches
+  // neither junction table, and derives no economics -- the subject under test
+  // is who may save an edit, not what an edit means structurally.
+  "scripts/gate-1b/library-product-edit-walk.ts",
   // CLASSIFIED -- the support procedure for a product whose earlier HubSpot
   // request was never answered. Canonical identity only: it reads
   // `leaf_edit_attempts.leaf_id`, resolves one attempt row and writes an audit

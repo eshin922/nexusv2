@@ -5,6 +5,7 @@ import { deleteAssembly } from "@/app/actions/assemblies";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
 import type { AssemblyTarget } from "@/components/library/library-browse-modal";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
+import type { LibraryPermissions } from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 impl-2 Step 6 — ASY context menu (scenario ③)
 //
@@ -50,7 +51,7 @@ export function AsyContextMenu({
   projectId: string;
   assemblies: AssemblyTarget[];
   fullLeafTypes: LeafSpecEntryProductType[];
-  permissions: { canCreateLeaves: boolean };
+  permissions: LibraryPermissions;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
