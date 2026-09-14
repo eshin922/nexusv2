@@ -27,21 +27,42 @@ production would leave generation exactly as unavailable as it is now.
 
 ---
 
-## 1 · Production NetSuite read-only access
+## 1 · Production NetSuite — SURVEYED 2026-09-14
 
-**Status: not possible today.** The only configured NetSuite credentials are
-sandbox — account `7924416_SB2`, `NETSUITE_ENV=sandbox`, and the client's own
-inference agrees.
+**Done.** Account **`7924416`** (The DPS, Inc.), confirmed from the UI: no
+`-sb` suffix, no sandbox banner. This also settles what was previously an
+inference — `7924416` is indeed the production account behind `7924416_SB2`.
 
-Needed: a production TBA token pair (consumer key/secret + token id/secret) on
-a role with **read** permission on Items, for the account the sandbox derives
-from. The account number appears to be `7924416` from the `_SB2` suffix, but
-that is an inference from the identifier's shape and should be confirmed rather
-than assumed.
+Surveyed read-only through an authenticated browser session. Nothing was
+configured and no record was touched. The API credentials in `.env.local`
+remain sandbox and were not altered.
 
-This blocks **counter seeding**, because a seed must start above the highest
-value in every system that holds one, and NetSuite production is the one system
-nobody has looked at.
+| item type | items | `DPS-` items | inactive `DPS-` |
+|---|---|---|---|
+| InvtPart | 1,092 | **276** | 0 |
+| NonInvtPart | 232 | **23** | 0 |
+| Group | 36 | 0 | — |
+| OthCharge | 18 | 0 | — |
+| Service | 14 | 0 | — |
+| Assembly | 9 | 0 | — |
+| Kit | 0 | — | — |
+| **total** | **1,401** | **299** | **0** |
+
+**Inactive items were included** — "Show Inactives" was on throughout, and it
+demonstrably changes results (one type went 228 → 232). No `DPS-` item is
+inactive, so no seed depends on one.
+
+**All item types were enumerated individually** rather than trusting an
+unfiltered view. That mattered: the default Items list carried a remembered
+`Item_TYPE=NonInvtPart` filter and reported "TOTAL: 232", which is one type,
+not the catalog. The real figure is 1,401. A saved filter reporting a
+plausible smaller number is exactly how a survey produces a confident wrong
+answer.
+
+Coverage within InvtPart is provable from the page boundaries, which are
+contiguous and bracket the whole `DPS-` block:
+`001…BA126800` · `BA146400…DPS-ATM-1017` · `DPS-ATM-1018…DPS-REJ-1003` ·
+`DPS-RMS-1001…LMH38-CLIP`.
 
 ---
 
@@ -144,55 +165,76 @@ Proposed from the HubSpot product-library **folder** each product sits in — a
 structural record an operator filed it under, never the spelling of the token.
 Approval is per-entry and separate from this implementation.
 
-### 3a · Proposed entries with a single folder and a numeric series
+### 3a · Reconciled entries and final seeds
 
-These are the ones where both halves of the evidence agree, so both a registry
-entry and a counter seed can be proposed together. The seed is the highest
-number seen **+ 1**.
+Three-way: Nexus and HubSpot read live, NetSuite from the production survey
+above. **Seed = max(Nexus, HubSpot, NetSuite) + 1.**
 
-| token | customer (folder) | highest seen | proposed seed |
-|---|---|---|---|
-| `SPJ` | Smart Pressed Juice | 1015 | **1016** |
-| `SWW` | SWW | 1013 | **1014** |
-| `TUBE` | Bryght | 1021 | **1022** |
-| `LEM` | Lemme | 1012 | **1013** |
-| `LMER` | La Mer | 1005 | **1006** |
-| `DRSQ` | Dr. Squatch | 1004 | **1005** |
-| `LOOV` | LOOV | 1004 | **1005** |
-| `VOL` | Volta | 1004 | **1005** |
-| `NEC` | Necessaire | 1003 | **1004** |
-| `REJ` | Rejuvica | 1003 | **1004** |
-| `EL` | Extract Labs | 1002 | **1003** |
-| `KUJU` | Kuju | 1002 | **1003** |
-| `YUNI` | YUNI Beauty | 1002 | **1003** |
-| `DPS` | DPS | 1001 | **1002** |
-| `ES` | Cosmetic Primary | 1001 | **1002** |
-| `FACE` | Facetory | 1001 | **1002** |
-| `FRE` | Freck Beauty | 1001 | **1002** |
-| `HURR` | Hurr | 1001 | **1002** |
-| `KIT` | Kitsch | 1001 | **1002** |
-| `MOT` | Motivated | 1001 | **1002** |
-| `MYTH` | Mythologie | 1001 | **1002** |
-| `NEW` | New U Life | 1001 | **1002** |
-| `OUT` | The Outset | 1001 | **1002** |
-| `PCW` | Perfect Coffee Water | 1001 | **1002** |
-| `RMS` | RMS | 1001 | **1002** |
-| `SAS` | Stronger and Stronger | 1001 | **1002** |
-| `WL` | White Label | 1001 | **1002** |
+Customer comes from the HubSpot product-library folder each product is filed
+in — a structural record an operator assigned, never the spelling of the token.
 
-**These seeds are PROVISIONAL.** They are computed from Nexus and HubSpot only.
-NetSuite production is unsurveyed, so a higher number may exist there, and
-seeding below it would mint a colliding identifier. Item 1 must close first.
+| token | customer | Nexus | HubSpot | NetSuite | **seed** |
+|---|---|---|---|---|---|
+| `SPJ` | Smart Pressed Juice | 1015 | 1015 | 1015 | **1016** |
+| `SWW` | SWW | 1013 | 1013 | 1013 | **1014** |
+| `TUBE` | Bryght | 1021 | 1021 | 1021 | **1022** |
+| `LEM` | Lemme | 1012 | 1012 | 1012 | **1013** |
+| `LMER` | La Mer | 1005 | 1005 | 1005 | **1006** |
+| `DRSQ` | Dr. Squatch | 1004 | 1004 | 1004 | **1005** |
+| `LOOV` | LOOV | 1004 | 1004 | 1004 | **1005** |
+| `VOL` | Volta | 1004 | 1004 | 1004 | **1005** |
+| `NEC` | Necessaire | 1003 | 1003 | 1003 | **1004** |
+| `REJ` | Rejuvica | 1003 | 1003 | 1003 | **1004** |
+| `EL` | Extract Labs | 1002 | 1002 | 1002 | **1003** |
+| `KUJU` | Kuju | 1002 | 1002 | 1002 | **1003** |
+| `YUNI` | YUNI Beauty | 1002 | 1002 | 1002 | **1003** |
+| `DPS` | DPS | 1001 | 1001 | 1001 | **1002** |
+| `ES` | Cosmetic Primary | 1001 | 1001 | 1001 | **1002** |
+| `FACE` | Facetory | 1001 | 1001 | 1001 | **1002** |
+| `FRE` | Freck Beauty | 1001 | 1001 | 1001 | **1002** |
+| `HURR` | Hurr | 1001 | 1001 | 1001 | **1002** |
+| `KIT` | Kitsch | 1001 | 1001 | 1001 | **1002** |
+| `MOT` | Motivated | 1001 | 1001 | 1001 | **1002** |
+| `MYTH` | Mythologie | 1001 | 1001 | 1001 | **1002** |
+| `NEW` | New U Life | 1001 | 1001 | 1001 | **1002** |
+| `OUT` | The Outset | 1001 | 1001 | 1001 | **1002** |
+| `PCW` | Perfect Coffee Water | 1001 | 1001 | 1001 | **1002** |
+| `RMS` | RMS | 1001 | 1001 | 1001 | **1002** |
+| `SAS` | Stronger and Stronger | 1001 | 1001 | 1001 | **1002** |
+| `WL` | White Label | 1001 | 1001 | 1001 | **1002** |
 
-Several of these are visibly not customer brands — `ES` files under "Cosmetic
+### Every number here is a DATED SNAPSHOT
+
+**Measured 2026-09-14. Re-check immediately before seeding.**
+
+These maxima are not durable facts. All three systems accept new items
+continuously: someone can create a product in HubSpot, an item in NetSuite, or
+a leaf in Nexus at any moment, and any one of those can raise a token's
+maximum above what is written here. A seed computed from a stale snapshot is
+exactly the error the survey existed to prevent — it would sit below an
+identifier that was created in the interval.
+
+So seeding is a two-step operation, not a transcription:
+
+1. Re-run the three-way reconciliation against all three systems.
+2. Seed from THAT result, and compare it against this table. Any token whose
+   maximum has moved is a signal worth reading, not a number to paste over —
+   it means that namespace is actively in use.
+
+The same applies to the unfiled tokens in §3c. An earlier version of this
+document said adjudicating one later "needs no further survey". That was
+wrong: what it needs is no further ACCESS. The survey itself must be re-run.
+
+**27 tokens. All three systems agree on every one**, so for these the NetSuite
+survey confirmed the earlier provisional seeds rather than changing them. That
+is a result, not a formality: it was unknown until measured, and the one token
+below shows it could have gone the other way.
+
+Three of these are visibly not customer brands — `ES` files under "Cosmetic
 Primary", `WL` under "White Label", `DPS` under "DPS". They are listed because
-that is what the folder evidence says; whether a non-customer namespace should
-be registered at all is part of the adjudication, not something to silently
-drop.
-
-Eleven further tokens have single-folder evidence but **no numeric series**
-(four-segment shapes like `DPS-ELE-CAP-1`), so they can be registered without a
-seed and would remain unallocatable until one is agreed.
+that is what the folder evidence says. Whether a non-customer namespace should
+be registered at all is part of the adjudication, not something to drop
+silently.
 
 ### 3b · Ambiguous — needs a decision, not a default
 
@@ -204,15 +246,50 @@ seed and would remain unallocatable until one is agreed.
 `ELE` is plausibly one customer under two folders, but merging them is a
 judgement about who the customer is, which is yours.
 
-### 3c · Unfiled — 25 tokens, 108 products
+### 3c · Unfiled — 25 tokens, no folder evidence
 
-No folder on any product, so the folder evidence cannot classify them: `ATM`
-28, `CFM` 18, `PE` 12, `KIALA` 10, `PEL` 10, `JOYMODE` 5, `SFUEL` 4, and
-eighteen smaller, including `BOTTLE`, `TISSUE`, `FILL`, `UC`, `UPCHARGE` and
-one malformed `DPS- CFM-Fl10` carrying an embedded space. Classifying these
-means either filing the products in HubSpot or adjudicating them directly.
+No folder on any product, so folders cannot say whose they are. They block
+nothing: an unregistered token simply cannot allocate. Seeds are computed
+anyway so that adjudicating one later starts from a figure rather than a
+blank — but see the freshness rule below: any of these still needs a re-check
+before it is seeded.
 
-These do not block anything. An unregistered token simply cannot allocate.
+| token | Nexus | HubSpot | NetSuite | seed |
+|---|---|---|---|---|
+| `PPS` | 1248 | 1248 | 1248 | 1249 |
+| `ATM` | 1028 | 1028 | 1028 | 1029 |
+| `PE` | 1012 | 1012 | 1012 | 1013 |
+| `KIALA` | 1010 | 1010 | 1010 | 1011 |
+| `PEL` | 1010 | 1010 | 1010 | 1011 |
+| `JOYMODE` | 1005 | 1005 | 1005 | 1006 |
+| `CFM` | 1005 | 1005 | 1005 | 1006 |
+| `SFUEL` | 1004 | 1004 | 1004 | 1005 |
+| `JOOP` | 1003 | 1003 | 1003 | 1004 |
+| `PV` | 1003 | 1003 | 1003 | 1004 |
+| **`NES`** | **—** | **—** | **1002** | **1003** |
+| `FAN` | 1002 | 1002 | 1002 | 1003 |
+| `HG` | 1002 | 1002 | 1002 | 1003 |
+| `OS` | 1002 | 1002 | 1002 | 1003 |
+| `PP` | 1002 | 1002 | 1002 | 1003 |
+| `VER` | 1002 | 1002 | 1002 | 1003 |
+| `ALI` | 1001 | 1001 | 1001 | 1002 |
+| `EJ` | 1001 | 1001 | 1001 | 1002 |
+| `SUP` | 1001 | 1001 | 1001 | 1002 |
+| `WYN` | 1001 | 1001 | 1001 | 1002 |
+| `BOTTLE` | 1 | 1 | 1 | 2 |
+| `FILL` | 1 | 1 | 1 | 2 |
+| `TISSUE` | 1 | 1 | 1 | 2 |
+| `UC` | 1 | 1 | 1 | 2 |
+| `UPCHARGE` | 1 | 1 | 1 | 2 |
+
+**`NES` is the finding that justified the survey.** It exists in production
+NetSuite at 1002 and in NEITHER Nexus nor HubSpot. It is the only token of 54
+where NetSuite raises the seed — every other one agrees across all three.
+
+Had `NES` been registered on Nexus + HubSpot evidence alone, its counter would
+have seeded at 1001: one below an item that already exists. The survey was not
+a formality, and the same shape could exist for a token nobody has proposed
+yet.
 
 ### 3d · MISTR — proposed future namespace
 
