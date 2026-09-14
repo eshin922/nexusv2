@@ -7,6 +7,16 @@ const root = path.resolve(import.meta.dirname, "../..");
 const read = (file: string) => readFile(path.join(root, file), "utf8");
 
 const classifiedIdentityFiles = new Set([
+  // SKU allocation. Handles the LIBRARY leaf id (`leaves.id`) and no
+  // attachment identity at all: a reservation binds to the product in the
+  // catalog, which exists independently of any quote, so neither
+  // `quote_leaves.id` nor the legacy junction has anything to address here.
+  // It must stay that way -- an identifier belongs to a product, not to one
+  // quote's use of it.
+  "src/lib/sku/bind.ts",
+  "scripts/gate-1b/sku-allocation-walk.ts",
+  "scripts/gate-1b/sku-create-path-walk.ts",
+  "scripts/admin/list-unresolved-sku-allocations.ts",
   "src/app/actions/assemblies.ts", "src/app/actions/assembly-leaf-inputs.ts",
   // Client Target authority. Uses BOTH source identities on purpose and keeps
   // them apart: `assemblies.id` addresses an Item Group finished good and a

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { resolveSpecSchema } from "@/lib/product-structure/spec-schema-mapping";
@@ -30,8 +30,11 @@ import {
 
 
 
+import { AutoGenerateSku, type SkuServices } from "@/components/library/auto-generate-sku";
+
 export function AddProductModal({
   quoteId,
+  skuServices,
   projectId,
   open,
   onClose,
@@ -41,6 +44,8 @@ export function AddProductModal({
 }: {
   quoteId: string;
   projectId: string;
+  /** Injected; absent means the Auto-generate affordance does not render. */
+  skuServices?: SkuServices;
   open: boolean;
   onClose: () => void;
   // slice-library-first-creation-flow Step 3 — optional success
@@ -103,6 +108,20 @@ export function AddProductModal({
   >([]);
   const [hsTypeError, setHsTypeError] = useState<string | null>(null);
   const [leafSku, setLeafSku] = useState("");
+  // Held across save attempts: a retry binds the SAME reservation.
+  const [leafSkuAllocationId, setLeafSkuAllocationId] = useState<string | null>(null);
+  // One creation intent, one key, minted each time the modal opens. A save
+  // retry reuses it and gets the SAME allocation back rather than consuming a
+  // second number; closing and reopening is a different intent and gets a new
+  // one.
+  const [intentId, setIntentId] = useState("");
+  useEffect(() => {
+    if (open) setIntentId(crypto.randomUUID());
+  }, [open]);
+  const skuAttemptKey = useMemo(
+    () => `create-leaf:${quoteId}:${intentId}`,
+    [quoteId, intentId],
+  );
   const [leafUnitCost, setLeafUnitCost] = useState("");
   const [leafUrl, setLeafUrl] = useState("");
 
@@ -214,6 +233,9 @@ export function AddProductModal({
       fd.set("hubspotProductType", hsTypeValue);
     }
     if (leafSku) fd.set("sku", leafSku.trim());
+    // Sent only when the SKU was generated. `createLeaf` binds it in the same
+    // transaction that writes the product.
+    if (leafSkuAllocationId) fd.set("skuAllocationId", leafSkuAllocationId);
     if (leafUnitCost) fd.set("unitCost", leafUnitCost.trim());
     if (leafUrl) fd.set("url", leafUrl.trim());
 
@@ -282,6 +304,10 @@ export function AddProductModal({
                 name={leafName}
                 onName={setLeafName}
                 sku={leafSku}
+                skuQuoteId={quoteId}
+                skuAttemptKey={skuAttemptKey}
+                skuServices={skuServices}
+                onSkuAllocationId={setLeafSkuAllocationId}
                 onSku={setLeafSku}
                 unitCost={leafUnitCost}
                 onUnitCost={setLeafUnitCost}
@@ -356,6 +382,13 @@ function LeafFields(props: {
   onName: (v: string) => void;
   sku: string;
   onSku: (v: string) => void;
+  /** Quote in context, so the customer's registered brand can preselect. */
+  skuQuoteId: string | null;
+  /** One key per creation intent, so a retry reuses its allocation. */
+  skuAttemptKey: string;
+  /** Injected; absent means the affordance does not render. */
+  skuServices?: SkuServices;
+  onSkuAllocationId: (id: string) => void;
   unitCost: string;
   onUnitCost: (v: string) => void;
   url: string;
@@ -437,6 +470,21 @@ function LeafFields(props: {
             onChange={(e) => props.onSku(e.target.value)}
             placeholder="Supplier SKU or internal ref"
           />
+          {/* Manual entry stays the primary path: this sits beside the field
+              and disappears the moment anything is typed into it. */}
+          {props.skuServices && (
+          <AutoGenerateSku
+            services={props.skuServices}
+            quoteId={props.skuQuoteId}
+            currentValue={props.sku}
+            established={false}
+            attemptKey={props.skuAttemptKey}
+            onGenerated={(v, id) => {
+              props.onSku(v);
+              props.onSkuAllocationId(id);
+            }}
+          />
+          )}
         </div>
       </div>
       <div className="row-pair">

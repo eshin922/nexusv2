@@ -15,6 +15,15 @@ import type {
 } from "@/lib/library-browse-loader";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { EditProductModal } from "./edit-product-modal";
+import { getSkuBrandContext, generateSku } from "@/app/actions/sku-allocation";
+import type { SkuServices } from "./auto-generate-sku";
+
+// The one place the real server actions are named. Both modals receive them
+// from here, so neither drags the database client into its own import graph.
+const SKU_SERVICES: SkuServices = {
+  loadContext: getSkuBrandContext,
+  generate: generateSku,
+};
 import { retryLeafEdit, updateLeaf } from "@/app/actions/leaves";
 import {
   fetchHubspotProductTypes,
@@ -1528,6 +1537,7 @@ export function LibraryBrowseModal({
           re-fetches so the new leaf surfaces immediately. */}
       <AddProductModal
         quoteId={quoteId}
+        skuServices={SKU_SERVICES}
         projectId={projectId}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
@@ -1550,6 +1560,8 @@ export function LibraryBrowseModal({
       />
       <EditProductModal
         open={editOpen}
+        quoteId={quoteId}
+        skuServices={SKU_SERVICES}
         target={(() => {
           const r = rows.find((x) => x.leafId === editLeafId);
           if (!r) return null;

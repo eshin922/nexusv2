@@ -25,6 +25,14 @@ import {
   type LibraryBrowseResult,
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { bindAllocationToLeaf } from "@/lib/sku/bind";
+import {
+  claimAllocationForDispatch,
+  holdAllocationUnresolved,
+  releaseAllocationAfterRejection,
+  requireAllocationUsable,
+  assertSkuFree,
+} from "@/lib/sku/create-guard";
 import { mapLeafToHubspotCreate, mapLeafToHubspotUpdate } from "@/lib/hubspot-mapper";
 import {
   hubspotUpdateLanded,
@@ -74,6 +82,11 @@ export async function createLeaf(
   return runAction(async () => {
     const name = String(formData.get("name") ?? "").trim();
     const sku = String(formData.get("sku") ?? "").trim() || null;
+    // The reservation this SKU came from, when it was generated rather than
+    // typed. Optional: a manually entered SKU carries none, and that is an
+    // ordinary create, not a degraded one.
+    const skuAllocationId =
+      String(formData.get("skuAllocationId") ?? "").trim() || null;
     // Step 8 · `productTypeId` is NO LONGER READ. A leaf's classification is
     // HubSpot's alone; accepting a Nexus type here would have left the second
     // authority creatable at the exact moment a product enters the Library.
@@ -196,6 +209,24 @@ export async function createLeaf(
     let hubspotSubmittedProperties: Record<string, string> | null = null;
     let hubspotResponseBody: Record<string, unknown> | null = null;
 
+    // ── the SKU must be free before anything external happens ──────────
+    //
+    // Checked against BOTH the catalog and outstanding reservations, and for
+    // typed SKUs as much as generated ones. Create previously checked neither,
+    // relying on HubSpot to reject a duplicate -- which is a rule enforced in
+    // the wrong catalog, and silent about a number Nexus has reserved but not
+    // yet applied.
+    if (sku !== null) {
+      await assertSkuFree(sku, { ignoreAllocationId: skuAllocationId });
+    }
+
+    // A reservation that is not usable stops the create BEFORE HubSpot is
+    // called. A `conflicted` one means a previous attempt left an unresolved
+    // outcome, and re-running blind on it could create a second product.
+    if (skuAllocationId) {
+      await requireAllocationUsable(skuAllocationId, sku);
+    }
+
     if (!isService) {
       const hubspotInput = mapLeafToHubspotCreate({
         name,
@@ -204,6 +235,26 @@ export async function createLeaf(
         url,
         hubspotProductType,
       });
+
+      // CLAIMED before the request leaves, in one conditional UPDATE, and the
+      // call happens only if the claim succeeded. A marker that left the
+      // reservation usable would stop nothing: the next caller would read the
+      // same usable state and dispatch again.
+      //
+      // Losing the claim means a concurrent submission holds it, or a previous
+      // attempt never resolved. Both are reasons not to call HubSpot.
+      if (skuAllocationId) {
+        const claimed = await claimAllocationForDispatch(skuAllocationId);
+        if (!claimed) {
+          throw new ActionGuardError(
+            ERR.DATA_INTEGRITY,
+            "Another create is already using this SKU reservation, or an " +
+              "earlier one never resolved. Nothing was sent. " +
+              "Support listing: npm run support:sku-unresolved",
+          );
+        }
+      }
+
       try {
         const { hubspot } = await getApplicationDependencies();
         const result = await hubspot.createProduct(hubspotInput);
@@ -211,36 +262,101 @@ export async function createLeaf(
         hubspotSubmittedProperties = result.submittedProperties;
         hubspotResponseBody = result.responseBody;
       } catch (err) {
-        // HubSpot failures (network, 4xx, 5xx) surface as VALIDATION
-        // so the modal UI can render the message inline. No local
-        // row created.
-        const message =
-          err instanceof Error
-            ? `Could not create product in HubSpot: ${err.message}`
-            : "Could not create product in HubSpot (unknown error).";
+        // REJECTED means HubSpot answered and refused: no product was made, so
+        // the reservation stays usable and the operator can fix the input and
+        // try again. Anything else -- timeout, 5xx, a plain Error with no
+        // classification -- is UNCERTAIN, and a product may exist.
+        const outcome =
+          (err as { outcome?: string } | null)?.outcome === "rejected"
+            ? "rejected"
+            : "uncertain";
+        const detail =
+          err instanceof Error ? err.message : "unknown error";
+
+        if (skuAllocationId && outcome === "uncertain") {
+          // Held, not abandoned and not adopted. A product carrying this SKU
+          // may exist in HubSpot; finding out is a human's job, and creating
+          // again is refused until they do.
+          await holdAllocationUnresolved(skuAllocationId, {
+            note: `create dispatched, outcome unknown: ${detail}`,
+            hubspotProductId: null,
+          });
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            `HubSpot did not answer this create: ${detail}. A product carrying ` +
+              `this SKU may already exist there. The reservation is held and ` +
+              `will not be reissued -- someone has to look before this is retried.`,
+          );
+        }
+        if (skuAllocationId) {
+          // Answered and refused: the outcome IS resolved and nothing was
+          // made, so the claim is released and a corrected retry is an
+          // ordinary attempt rather than an unresolved one.
+          await releaseAllocationAfterRejection(skuAllocationId);
+        }
+        const message = `Could not create product in HubSpot: ${detail}`;
         throw new ActionGuardError(ERR.VALIDATION, message);
       }
     }
 
-    const inserted = await db
-      .insert(leaves)
-      .values({
-        name,
-        sku,
-        unitCost,
-        ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
-        url,
-        archived: false,
-        hubspotProductId,
-        // Persisted from the same value sent to HubSpot, so a later pull
-        // re-reading the product finds the classification unchanged.
-        // NULL for a service — see the branch above.
-        hubspotProductType: isService ? null : hubspotProductType,
-        commercialKind,
-        serviceIdentity,
-      })
-      .returning();
-    const newRow = inserted[0];
+    // The product and its binding commit TOGETHER. Binding afterwards could
+    // fail once the product already exists, leaving an identifier that is in
+    // the catalog while its reservation still reads `allocated` -- a free
+    // reservation whose number is in use, which is the one state the
+    // allocations table exists to make impossible.
+    let created: { newRow: typeof leaves.$inferSelect; bindOutcome: string | null };
+    try {
+      created = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(leaves)
+        .values({
+          name,
+          sku,
+          unitCost,
+          ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
+          url,
+          archived: false,
+          hubspotProductId,
+          // Persisted from the same value sent to HubSpot, so a later pull
+          // re-reading the product finds the classification unchanged.
+          // NULL for a service — see the branch above.
+          hubspotProductType: isService ? null : hubspotProductType,
+          commercialKind,
+          serviceIdentity,
+        })
+        .returning();
+      const row = inserted[0];
+      const outcome = skuAllocationId
+        ? await bindAllocationToLeaf(tx, {
+            allocationId: skuAllocationId,
+            leafId: row.id,
+            savedSku: row.sku,
+            hubspotProductId: row.hubspotProductId,
+            // This caller holds the dispatch claim, so it binds FROM the
+            // claimed state. A service create never claims one -- no HubSpot
+            // call is made for it -- and binds from `allocated`. Named rather
+            // than inferred, because binding from the wrong state would either
+            // skip a claim or resolve somebody else's unresolved reservation.
+            fromState: isService ? "allocated" : "conflicted",
+          })
+        : null;
+        return { newRow: row, bindOutcome: outcome as string | null };
+      });
+    } catch (err) {
+      // HubSpot holds a product and Nexus does not. The reservation records
+      // exactly that, WITH the product id, so a human can see what exists
+      // without the system deciding on its own that the product is ours.
+      if (skuAllocationId) {
+        await holdAllocationUnresolved(skuAllocationId, {
+          note:
+            `HubSpot product created; local save failed: ` +
+            `${err instanceof Error ? err.message : "unknown error"}`,
+          hubspotProductId,
+        });
+      }
+      throw err;
+    }
+    const { newRow, bindOutcome } = created;
 
     // Audit: `leaf_create` per CLAUDE.md namespace. `source:
     // 'nexus_authored'` distinguishes PM-driven creates from
@@ -264,6 +380,12 @@ export async function createLeaf(
         hubspot_product_create_response: hubspotResponseBody,
         source: "nexus_authored",
         created_by: user.id,
+        // Present only when the SKU was generated. `sku_mismatch` means the
+        // operator typed over the generated value before saving -- the
+        // reservation stays spent and simply is not claimed by this product.
+        ...(skuAllocationId
+          ? { sku_allocation_id: skuAllocationId, sku_allocation_bind: bindOutcome }
+          : {}),
       },
     });
 
@@ -408,6 +530,12 @@ async function applyLeafEdit(opts: {
   values: LeafEditValues;
   expectedVersion: string | null;
   retryOf: { id: string; version: number } | null;
+  /**
+   * The reservation this SKU came from, when it was generated rather than
+   * typed. Bound in the SAME transaction that writes the leaf, so a completed
+   * edit and its claimed identifier commit together or not at all.
+   */
+  skuAllocationId?: string | null;
 }): Promise<LeafEditOutcome> {
   const { userId, leafId, expectedVersion, retryOf } = opts;
   const { hubspot } = await getApplicationDependencies();
@@ -862,6 +990,20 @@ async function applyLeafEdit(opts: {
         })
         .where(eq(leaves.id, leafId));
 
+      // Same transaction as the write above. A retry of a failed save reuses
+      // its attempt key, so it arrives holding the SAME allocation id and
+      // binds the same reservation to the same product -- the identifier the
+      // operator was shown survives the failure, and no second number is
+      // spent recovering from it.
+      if (opts.skuAllocationId) {
+        await bindAllocationToLeaf(tx, {
+          allocationId: opts.skuAllocationId,
+          leafId,
+          savedSku: values.sku,
+          hubspotProductId: existing.hubspotProductId,
+        });
+      }
+
       const changed = Object.keys(after).filter(
         (k) =>
           (before as Record<string, unknown>)[k] !==
@@ -1079,6 +1221,10 @@ export async function updateLeaf(
     }
 
     const values = readLeafEditValues(formData);
+    // Optional: a manually entered SKU carries no reservation, and that is an
+    // ordinary edit rather than a degraded one.
+    const skuAllocationId =
+      String(formData.get("skuAllocationId") ?? "").trim() || null;
 
     // Read-only and slow; done before the lock so it is not held across it.
     if (values.hubspotProductType) {
@@ -1097,6 +1243,7 @@ export async function updateLeaf(
       values,
       expectedVersion,
       retryOf: null,
+      skuAllocationId,
     });
   });
 }

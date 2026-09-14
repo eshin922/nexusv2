@@ -269,7 +269,14 @@ test("a service creates no HubSpot product at all", async () => {
   // it would put a row in a system with no question to answer about it.
   const action = await code("app/actions/leaves.ts");
   assert.match(action, /const isService = commercialKind === "service";/);
-  assert.match(action, /if \(!isService\) \{[\s\S]{0,600}?hubspot\.createProduct/);
+  // Window widened from 600 to 1400: the SKU dispatch claim legitimately sits
+  // between the branch and the call, because a reservation must be claimed
+  // before anything external is attempted. What this asserts is unchanged --
+  // the create is INSIDE the `!isService` branch -- and that is the invariant,
+  // not the distance.
+  assert.match(action, /if \(!isService\) \{[\s\S]{0,1400}?hubspot\.createProduct/);
+  // The claim is inside the branch too, so a service never takes one.
+  assert.match(action, /if \(!isService\) \{[\s\S]{0,900}?claimAllocationForDispatch/);
   assert.match(action, /hubspotProductType: isService \? null : hubspotProductType/);
   // And the local row is Nexus-local.
   assert.match(action, /let hubspotProductId: string \| null = null;/);

@@ -2412,6 +2412,95 @@ export const userSurfaceVisits = pgTable(
   ],
 );
 
+
+// ---------- SKU identity, allocation and recovery ----------
+//
+// Created EMPTY and inert. The registry has no approved rows and the counters
+// have no seeds, and allocation refuses independently on each -- so the
+// feature is unavailable by construction rather than by a flag.
+
+/**
+ * The governed brand registry.
+ *
+ * A token is a NAMESPACE, and minting one is a decision about identity that
+ * outlives whoever made it. Tokens are never derived from a product name --
+ * deriving one from a title would mint a permanent namespace out of whatever
+ * somebody typed, typo included.
+ */
+export const skuBrandRegistry = pgTable("sku_brand_registry", {
+  /** The token between prefix and number, normalized upper-case. It IS the identity. */
+  token: text("token").primaryKey(),
+  customerLabel: text("customer_label").notNull(),
+  /**
+   * The customer RECORD, so "who is ELE" resolves to a record rather than to
+   * a label someone can retype differently tomorrow.
+   */
+  hubspotCompanyId: text("hubspot_company_id"),
+  /** `proposed` (cannot allocate) | `approved` | `rejected`. */
+  status: text("status").notNull().default("proposed"),
+  /** How the entry was arrived at, so a reader can re-run it rather than trust it. */
+  evidence: jsonb("evidence").notNull().default({}),
+  proposedByUserId: uuid("proposed_by_user_id"),
+  proposedAt: timestamp("proposed_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedByUserId: uuid("approved_by_user_id"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Per-brand counters. Numbering is per-brand: `DPS-SPJ-1001` and
+ * `DPS-JLF-1001` are different products and always were.
+ *
+ * `nextNumber` is NULLABLE on purpose. NULL means never seeded, and allocation
+ * refuses on it. Seeding must read actual catalog identities across all three
+ * systems and start above the highest found -- an operation with its own
+ * approval -- so no default is allowed to stand in for having done it.
+ */
+export const skuCounters = pgTable("sku_counters", {
+  token: text("token")
+    .primaryKey()
+    .references(() => skuBrandRegistry.token, { onDelete: "restrict" }),
+  /** NULL = never seeded. Allocation refuses. */
+  nextNumber: integer("next_number"),
+  /** What the seed was computed from. Without it the number cannot be re-derived. */
+  seedBasis: jsonb("seed_basis"),
+  seededByUserId: uuid("seeded_by_user_id"),
+  seededAt: timestamp("seeded_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One durable allocation per creation intent, written BEFORE any external
+ * request -- so a crash between allocating and creating leaves a record of
+ * what was intended rather than a silently consumed number.
+ *
+ * TWO unique constraints, excluding two different failures. `attempt_key`:
+ * one intent yields one allocation however often it is retried, which is what
+ * makes retry safe. `sku`: no two allocations hold one identifier, ever, which
+ * is what makes it an identity. Neither implies the other.
+ *
+ * Assigned SKUs are NEVER recycled, so rows are kept in every terminal state
+ * rather than deleted.
+ */
+export const skuAllocations = pgTable("sku_allocations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  attemptKey: text("attempt_key").notNull(),
+  sku: text("sku").notNull(),
+  token: text("token")
+    .notNull()
+    .references(() => skuBrandRegistry.token, { onDelete: "restrict" }),
+  number: integer("number").notNull(),
+  /** `allocated` | `applied` | `conflicted` | `abandoned`. */
+  state: text("state").notNull().default("allocated"),
+  leafId: uuid("leaf_id").references(() => leaves.id, { onDelete: "set null" }),
+  hubspotProductId: text("hubspot_product_id"),
+  note: text("note"),
+  allocatedByUserId: uuid("allocated_by_user_id"),
+  allocatedAt: timestamp("allocated_at", { withTimezone: true }).notNull().defaultNow(),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ---------- pricing_events (Pricing reframe v1) ----------
 
 // Pricing-surface telemetry. Single table, five event_type values:
