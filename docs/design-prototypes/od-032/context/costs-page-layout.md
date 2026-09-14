@@ -314,7 +314,24 @@ That is the whole reason the page-length argument in §4b — "the majority quot
 plus a pile of one-time costs" — is unaffected. The pile gains headings. It does not gain
 copies.
 
-### The Project heading is a rename, not a new concept
+### ⚠ SUPERSEDED 2026-08-27 — the heading below is not Project
+
+Everything from here to the end of §11 was written against a **two-type** owner model in
+which every existing charge was quote-owned. Disposition B at the Phase 3 stop replaced it
+with three types, and the existing population is **Item Group**-owned per BV-012 §1.a, not
+Project-owned.
+
+So the operative sentence above — *"Quote-owned charges group under a **Project** heading"* —
+remains true of quote-owned charges and **describes no charge that exists today**. The
+population it was written about groups under its **Item Group**.
+
+The rest of §11 stands: rows group under their owner, the section still appears once, and
+tier column x-positions are unchanged.
+
+The subsection below is retained as the record of what was decided and why it did not
+survive contact with BV-012.
+
+### The Project heading is a rename, not a new concept — SUPERSEDED, see above
 
 Every charge in the section today is engagement-caused; none has ever had another owner. The
 heading names what was already true rather than introducing a category, which is why existing
