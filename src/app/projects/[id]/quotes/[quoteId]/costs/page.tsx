@@ -46,6 +46,9 @@ import { readComponentChargesForCosts } from "@/lib/component-charges/read";
 import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
+import { FreightHandoffBar } from "@/components/costs/freight-handoff-bar";
+import { getFreightHandoff } from "@/app/actions/freight-handoff";
+import { ensureUser } from "@/lib/auth/ensure-user";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
 
@@ -177,6 +180,8 @@ export default async function CostBuildPage({
     bulkRawMeta,
     freightWorkbook,
     clientTargetRows,
+    viewer,
+    freightHandoffResult,
   ] = await Promise.all([
     db
       .select()
@@ -284,7 +289,17 @@ export default async function CostBuildPage({
       .select()
       .from(quoteClientTargets)
       .where(eq(quoteClientTargets.quoteId, quote.id)),
+    // Who is looking. Decides which half of the handoff strip they get --
+    // the assignee and admins can complete it; the quote side can withdraw
+    // it. Affordance-level, per the role-as-affordance convention.
+    ensureUser(),
+    getFreightHandoff(quote.id),
   ]);
+
+  // A handoff that could not be read is reported as absent rather than
+  // failing the page: the strip is one row on a surface whose job is cost
+  // entry, and losing Costs entirely over it would be the worse trade.
+  const freightHandoff = freightHandoffResult.ok ? freightHandoffResult.data : null;
 
   // Slice 11.5 Step 3 — NEW-model → OLD-wrapper-shape reshape.
   // Synthesizes objects that match the shapes downstream drilldowns
@@ -824,6 +839,18 @@ export default async function CostBuildPage({
               directServices={directServices}
             />
           </SectionWithDrilldown>
+
+          {/* The packaging → logistics handoff, immediately above the work it
+              hands over. Its own strip rather than a chip on the Freight
+              section header: it carries two decisions and a delivery outcome,
+              which is more than a status chip can say honestly. */}
+          <FreightHandoffBar
+            quoteId={quote.id}
+            initial={freightHandoff}
+            viewerUserId={viewer.id}
+            viewerIsAdmin={viewer.role === "admin"}
+            editable={editable}
+          />
 
           <SectionWithDrilldown
             id="freight"

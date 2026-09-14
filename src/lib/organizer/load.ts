@@ -5,6 +5,7 @@ import { db } from "@/db";
 import {
   belowFloorApprovalRequests,
   belowFloorAuthorizations,
+  freightHandoffs,
   projects,
   quotes,
   quoteTiers,
@@ -207,9 +208,9 @@ export async function loadOrganizer(
   const quoteIds = rows.flatMap((r) => (r.quoteId ? [r.quoteId] : []));
 
   // Approval state for EVERY quote in two queries, not two per quote.
-  const [requests, authorizations, tierRows] =
+  const [requests, authorizations, tierRows, freightRows] =
     quoteIds.length === 0
-      ? [[], [], []]
+      ? [[], [], [], []]
       : await Promise.all([
           db
             .select({
@@ -242,6 +243,23 @@ export async function loadOrganizer(
             .select({ quoteId: quoteTiers.quoteId, id: quoteTiers.id, label: quoteTiers.label })
             .from(quoteTiers)
             .where(inArray(quoteTiers.quoteId, quoteIds)),
+          // Open freight handoffs. The status IS the whole condition: a
+          // complete or withdrawn handoff is resolved and raises nothing.
+          db
+            .select({
+              quoteId: freightHandoffs.quoteId,
+              id: freightHandoffs.id,
+              assignedToUserId: freightHandoffs.assignedToUserId,
+              requestedAt: freightHandoffs.requestedAt,
+              notificationStatus: freightHandoffs.notificationStatus,
+            })
+            .from(freightHandoffs)
+            .where(
+              and(
+                inArray(freightHandoffs.quoteId, quoteIds),
+                eq(freightHandoffs.status, "open"),
+              ),
+            ),
         ]);
 
   const groupBy = <T extends { quoteId: string }>(list: T[]) => {
@@ -252,6 +270,9 @@ export async function loadOrganizer(
   const requestsByQuote = groupBy(requests);
   const authsByQuote = groupBy(authorizations);
   const tiersByQuote = groupBy(tierRows);
+  // At most one open handoff per quote -- the partial unique index says so --
+  // so a plain Map rather than a grouping.
+  const freightByQuote = new Map(freightRows.map((r) => [r.quoteId, r]));
 
   const facts: QuoteFacts[] = [];
   for (const r of rows) {
@@ -320,6 +341,17 @@ export async function loadOrganizer(
       updatedAt,
       approvals,
       pushFailed: r.pushStatus === "failed",
+      freightHandoff: (() => {
+        const h = freightByQuote.get(quoteId);
+        return h
+          ? {
+              handoffId: h.id,
+              assignedToUserId: h.assignedToUserId,
+              requestedAt: h.requestedAt,
+              notificationStatus: h.notificationStatus,
+            }
+          : null;
+      })(),
     });
   }
 

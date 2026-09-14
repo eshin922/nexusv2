@@ -4485,6 +4485,43 @@ Reference: `src/app/actions/leaf-specs.ts`,
 `src/app/actions/leaves.ts`, `src/app/actions/assembly-leaves.ts`
 (land in impl-2 onward).
 
+## audit_log action namespace — packaging → logistics handoff
+
+Three actions on `audit_log.action`, all `entity_type = 'quote'`,
+`entity_id = quote.id`. Named after the TRANSITION rather than the
+mechanism, per the rule above — Slack is how the recipient was told, not
+what happened.
+
+```
+'freight_requested'          -- an operator marked packaging ready and handed
+                             -- the freight work to logistics. diff_json:
+                             -- {handoff_id, assigned_to_user_id,
+                             --  assigned_to_email, basis}.
+                             --
+                             -- `basis` records that this was an OPERATOR
+                             -- DECISION. Nothing computes readiness from
+                             -- whether the packaging tiers are costed; a
+                             -- person judged it ready, and the audit says so.
+'freight_completed'          -- logistics said the freight work is done. The
+                             -- ONLY thing that completes a handoff -- not the
+                             -- first shipment, not a quote status change.
+                             -- diff_json: {handoff_id, basis}.
+'freight_request_withdrawn'  -- packaging reopened and the request was pulled
+                             -- back. The row is KEPT and marked withdrawn;
+                             -- marking ready again is a NEW handoff, which is
+                             -- why the unique index is on `status = 'open'`
+                             -- rather than on the quote. diff_json:
+                             -- {handoff_id, basis}.
+```
+
+**`freight_handoffs.status` is `open | completed | withdrawn`** — past
+participle throughout, and deliberately not the literal `"complete"`. That
+word belongs to `quotes.status` and its single-writer verifier
+(`scripts/verify/complete-status-writer.ts`); a freight handoff closing is a
+different event and should not read like a quote completing. Renaming was
+preferred to an allowlist entry, which would have blinded that guard to any
+future real `quotes.status` writer added to the same file.
+
 ## audit_log action namespace — Slice 11.5 additions
 
 Slice 11.5 NEW-model cost-data write actions added 8 audit names

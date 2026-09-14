@@ -90,6 +90,7 @@ export const TASK_POLICY = {
 export const TASK_KINDS = [
   "approval_rejected",
   "push_failed",
+  "freight_needed",
   "customer_silent",
   "quote_expiring",
 ] as const;
@@ -112,7 +113,11 @@ export const TASK_RANK: Record<TaskKind, number> = {
   // Someone else acted; it is back with you.
   approval_rejected: 1,
   push_failed: 2,
+  // Handed to you deliberately by a person, and blocking their work until you
+  // pick it up. Above the decaying kinds for that reason: nobody is waiting on
+  // a silent customer in the way a PM is waiting on freight.
+  freight_needed: 3,
   // Waiting on others, decaying with time.
-  customer_silent: 3,
-  quote_expiring: 4,
+  customer_silent: 4,
+  quote_expiring: 5,
 };

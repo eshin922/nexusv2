@@ -48,6 +48,7 @@ const clean = (o: Partial<QuoteFacts> = {}): QuoteFacts => ({
   updatedAt: new Date("2026-08-20T00:00:00Z"),
   approvals: [],
   pushFailed: false,
+  freightHandoff: null,
   ...o,
 });
 
@@ -293,10 +294,13 @@ test("the thresholds live in the policy layer, not in predicates", async () => {
 
 // ── vocabulary and ranking ────────────────────────────────────────────────
 
-test("the vocabulary is four kinds, and rank covers exactly them", () => {
-  assert.equal(TASK_KINDS.length, 4);
+test("the vocabulary is five kinds, and rank covers exactly them", () => {
+  // The count is asserted on purpose. The vocabulary is CLOSED -- a kind is
+  // added by a deliberate edit here, not by a branch appearing somewhere and
+  // quietly widening what the organizer claims to know about.
+  assert.equal(TASK_KINDS.length, 5);
   assert.deepEqual([...TASK_KINDS].sort(), Object.keys(TASK_RANK).sort());
-  assert.equal(new Set(Object.values(TASK_RANK)).size, 4, "two kinds share a rank");
+  assert.equal(new Set(Object.values(TASK_RANK)).size, 5, "two kinds share a rank");
 });
 
 test("ranking is most-urgent-first, oldest-first on ties", () => {
@@ -449,4 +453,67 @@ test("the organizer is read-only and the task layer is pure", async () => {
   for (const forbidden of [/\.insert\(/, /\.update\(/, /\.delete\(/, /revalidatePath/, /revalidateTag/]) {
     assert.doesNotMatch(load, forbidden, `the loader reaches for ${forbidden}`);
   }
+});
+// ── the packaging → logistics handoff ─────────────────────────────────────
+//
+// The one kind whose holder is NOT the quote's creator. These assert the two
+// things that makes true: it reaches the assignee, and it does not reach the
+// creator merely because the quote is theirs.
+
+test("an open handoff raises a task ASSIGNED TO THE RECIPIENT, not the creator", () => {
+  const LOGISTICS = "user-logistics";
+  const tasks = tasksForQuote(
+    clean({
+      freightHandoff: {
+        handoffId: "h1",
+        assignedToUserId: LOGISTICS,
+        requestedAt: new Date("2026-08-20T00:00:00Z"),
+        notificationStatus: "delivered",
+      },
+    }),
+    NOW,
+  );
+  const t = tasks.find((x) => x.kind === "freight_needed");
+  assert.ok(t, "no freight task was raised");
+  assert.deepEqual(t.ownership, { kind: "assigned", userId: LOGISTICS });
+  assert.equal(t.reason, "Packaging ready — freight needed");
+  assert.match(t.href, /\/costs$/);
+});
+
+test("the freight task is visible to the recipient and not to the quote's creator", () => {
+  const LOGISTICS = "user-logistics";
+  const [t] = tasksForQuote(
+    clean({
+      createdByUserId: CREATOR,
+      freightHandoff: {
+        handoffId: "h1",
+        assignedToUserId: LOGISTICS,
+        requestedAt: NOW,
+        notificationStatus: "delivered",
+      },
+    }),
+    NOW,
+  ).filter((x) => x.kind === "freight_needed");
+
+  assert.equal(
+    visibleToViewer(t, viewer({ userId: LOGISTICS, role: "logistics" })),
+    true,
+    "the person it was handed to cannot see it",
+  );
+  assert.equal(
+    visibleToViewer(t, viewer({ userId: CREATOR })),
+    false,
+    "assigned work reached somebody it was not assigned to",
+  );
+});
+
+test("no open handoff raises no freight task", () => {
+  // Resolved is resolved: the loader selects only open rows, and absence here
+  // is what a completed or withdrawn handoff looks like from this layer.
+  assert.equal(
+    tasksForQuote(clean({ freightHandoff: null }), NOW).some(
+      (t) => t.kind === "freight_needed",
+    ),
+    false,
+  );
 });

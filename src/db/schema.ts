@@ -1586,6 +1586,16 @@ export const firmSettings = pgTable(
      * stop being delivered while nothing reports an error.
      */
     slackApprovalChannelId: text("slack_approval_channel_id"),
+    /**
+     * The packaging → logistics handoff, configured rather than inferred.
+     *
+     * Ownership is NOT derived from whoever holds the `logistics` role: a role
+     * says what someone may do, not that a particular piece of work is theirs.
+     * Naming the recipient is a decision, and it is recorded as one.
+     */
+    logisticsRecipientUserId: uuid("logistics_recipient_user_id"),
+    /** Its own channel. The approval channel has a different audience. */
+    slackLogisticsChannelId: text("slack_logistics_channel_id"),
     // Slice 12 Step 3 — external-system defaults per v3 brief §5 +
     // Q4/Q5 dispositions. Configurable per firm; Step 7 (HubSpot
     // push) + Step 8 (NetSuite push) read the current row.
@@ -2834,6 +2844,84 @@ export const leafEditAttempts = pgTable(
       .on(t.leafId)
       .where(sql`resolved_at is null`),
     index("leaf_edit_attempts_leaf_idx").on(t.leafId, t.createdAt),
+  ],
+);
+
+/**
+ * Packaging → logistics handoff.
+ *
+ * One row per handoff, not columns on the quote: withdrawing keeps the
+ * history and marking ready again starts a NEW one, so a single slot would
+ * erase the record of the first request.
+ *
+ * At most one OPEN row per quote (partial unique index). That is what makes
+ * repeated clicks harmless -- the second insert cannot succeed, so there is no
+ * second task and no second notification, and it is enforced by the database
+ * rather than by a check-then-insert that races.
+ */
+export const freightHandoffs = pgTable(
+  "freight_handoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+
+    /** Who decided packaging was ready, and when. An operator act, not a computation. */
+    requestedByUserId: uuid("requested_by_user_id").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * The configured logistics recipient AS AT the request. Snapshotted so the
+     * task cannot change hands because a setting was edited later.
+     *
+     * Quote ownership is untouched: `quotes.created_by_user_id` is neither read
+     * nor written by any of this.
+     */
+    assignedToUserId: uuid("assigned_to_user_id").notNull(),
+
+    /**
+     * `open` | `completed` | `withdrawn`.
+     *
+     * Only logistics saying "Freight complete" completes one. Not the first
+     * shipment, not the quote's status -- neither of those is logistics saying
+     * they are done.
+     *
+     * Past participle throughout, matching `withdrawn`, and deliberately NOT
+     * the literal `"complete"`: that word belongs to `quotes.status` and its
+     * single-writer guard, and a freight handoff closing is a different event
+     * that should not read like one.
+     */
+    status: text("status").notNull().default("open"),
+    completedByUserId: uuid("completed_by_user_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    withdrawnByUserId: uuid("withdrawn_by_user_id"),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+
+    /**
+     * Slack delivery, recorded rather than assumed. The Nexus task exists
+     * whatever happens here: a notification that did not arrive is a reason to
+     * say so, not a reason to withhold the work.
+     */
+    slackChannelId: text("slack_channel_id"),
+    slackMessageTs: text("slack_message_ts"),
+    notificationStatus: text("notification_status").notNull().default("pending"),
+    notificationError: text("notification_error"),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freight_handoffs_one_open_idx")
+      .on(t.quoteId)
+      .where(sql`status = 'open'`),
+    index("freight_handoffs_assignee_open_idx")
+      .on(t.assignedToUserId)
+      .where(sql`status = 'open'`),
+    index("freight_handoffs_quote_idx").on(t.quoteId, t.requestedAt),
   ],
 );
 
