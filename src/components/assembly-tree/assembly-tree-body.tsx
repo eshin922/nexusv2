@@ -28,6 +28,7 @@ import {
   reorderAssemblies,
 } from "@/app/actions/assemblies";
 import { useRouter } from "next/navigation";
+import type { LibraryPermissions } from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 impl-2 Step 9 — Drag-to-reorder ASY rows.
 //
@@ -73,7 +74,7 @@ export function AssemblyTreeBody({
   quoteId: string;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
   fullLeafTypes: LeafSpecEntryProductType[];
-  permissions: { canCreateLeaves: boolean };
+  permissions: LibraryPermissions;
   tiers: ReadonlyArray<TargetTier>;
   /**
    * Charges each component already owns — OD-032 phase 4.

@@ -33,6 +33,7 @@ import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
 import { CreateItemGroupTrigger } from "./create-item-group-trigger";
+import type { LibraryPermissions } from "@/lib/permissions/library-product";
 
 export function AssemblyTreeView({
   tree,
@@ -56,7 +57,7 @@ export function AssemblyTreeView({
   // LibraryBrowseTrigger → LibraryBrowseModal for the gated
   // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
   // Page-level fetcher reads user.canCreateLeaves via ensureUser.
-  permissions: { canCreateLeaves: boolean };
+  permissions: LibraryPermissions;
   /**
    * Charges each component already owns — OD-032.
    *

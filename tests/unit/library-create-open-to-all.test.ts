@@ -67,12 +67,23 @@ test("creation no longer consults the grant, on either layer", () => {
     !/disabled=\{[^}]*canCreateLeaves/.test(headerBtn),
     "the header create button must not be gated",
   );
-  const emptyIdx = m.indexOf("+ Create new product →");
-  const emptyBtn = m.slice(emptyIdx - 600, emptyIdx);
-  assert.ok(
-    !/disabled=\{[^}]*canCreateLeaves/.test(emptyBtn),
-    "the empty-state create CTA must not be gated",
-  );
+  // TWO controls carry the label "+ Create new product →" — the library-empty
+  // state and the filtered-to-zero state. This used `indexOf`, found the first,
+  // and reported on both; the second stayed gated for another three weeks and
+  // was where a PM actually met it, since searching for a product that is not
+  // there is the commonest way to arrive at creating one.
+  //
+  // Every occurrence is now checked, and the exhaustive count assertion lives
+  // in `library-product-edit-permission.test.ts` alongside the repair.
+  const emptyHits = [...m.matchAll(/\+ Create new product →/g)];
+  assert.ok(emptyHits.length >= 2, "expected both empty-state create CTAs");
+  for (const hit of emptyHits) {
+    const emptyBtn = m.slice(Math.max(0, hit.index - 600), hit.index);
+    assert.ok(
+      !/disabled=\{[^}]*canCreateLeaves/.test(emptyBtn),
+      `an empty-state create CTA is still gated (index ${hit.index})`,
+    );
+  }
 
   // And the sentence that told an admin to ask an admin is gone.
   assert.ok(

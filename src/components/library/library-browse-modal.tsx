@@ -34,6 +34,7 @@ import { attachAssemblyLeaf } from "@/app/actions/assemblies";
 import { attachQuoteProduct } from "@/app/actions/quote-products";
 import { AddProductModal } from "@/components/add-product/add-product-modal";
 import { usePullFromHubSpot } from "@/components/assembly-tree/use-pull-from-hubspot";
+import type { LibraryPermissions } from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 impl-5 — Library browse modal (scenarios ⑰-⑱).
 //
@@ -178,8 +179,13 @@ export function LibraryBrowseModal({
   //
   // AMENDED 2026-08-27 (Edward): creation is open to every authenticated user
   // for beta and no longer reads this. The flag is still consulted for the
-  // catalog REFRESH, which is why it remains on the prop.
-  permissions: { canCreateLeaves: boolean };
+  // catalog REFRESH and for Restore, which is why it remains on the prop.
+  //
+  // AMENDED AGAIN: `canEditProduct` is a SECOND capability, computed by the
+  // same predicate the server guard calls. It governs the product-edit pencil.
+  // Both now travel in one object so a third capability is one edit rather
+  // than six prop declarations.
+  permissions: LibraryPermissions;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -1104,7 +1110,8 @@ export function LibraryBrowseModal({
                  weight CTAs (Create new + Refresh from HubSpot —
                  Refresh promoted to primary here, the only place
                  it carries primary visual weight per CD §5).
-                 Permission note beneath when !canCreateLeaves. */
+                 No permission note: creation here is ungated, and the
+                 note that used to sit beneath named the wrong control. */
               <div className="lib-empty">
                   <div className="glyph" aria-hidden="true">
                     ⊹
@@ -1143,12 +1150,11 @@ export function LibraryBrowseModal({
                       ↗ Refresh from HubSpot
                     </button>
                   </div>
-                  {!permissions.canCreateLeaves && (
-                    <div className="perm-note">
-                      You don&apos;t have permission to create new
-                      products. Ask an admin.
-                    </div>
-                  )}
+                  {/* The note that used to sit here said the operator could not
+                      CREATE products. Creation in this block is ungated; the
+                      only gated control is Refresh, which carries its own
+                      explanation in its title. So the note was describing a
+                      restriction that was not the one in force. */}
                 </div>
             ) : rows.length === 0 && !pending ? (
               /* slice-library-modal-polish Step 6 — filtered-to-
@@ -1181,13 +1187,19 @@ export function LibraryBrowseModal({
                     )}
                   </p>
                   <div className="cta-row">
+                    {/* UNGATED, like the other two creation controls.
+
+                        This one was MISSED by the 2026-08-27 repair, and it is
+                        the copy an operator is likeliest to meet: searching for
+                        a product that is not in the library is exactly how you
+                        arrive at wanting to create it. So the one create CTA
+                        still disabled was the one at the end of the commonest
+                        path to creation. */}
                     {offersCreate && (
                     <button
                       type="button"
                       className="lib-empty-cta primary"
                       onClick={() => setCreateOpen(true)}
-                      disabled={!permissions.canCreateLeaves}
-                      aria-disabled={!permissions.canCreateLeaves}
                     >
                       + Create new product →
                     </button>
@@ -1200,12 +1212,6 @@ export function LibraryBrowseModal({
                       Clear search
                     </button>
                   </div>
-                  {!permissions.canCreateLeaves && (
-                    <div className="perm-note">
-                      You don&apos;t have permission to create new
-                      products. Ask an admin.
-                    </div>
-                  )}
                 </div>
             ) : null}
             {libraryTotalActive > 0 && rows.length > 0 && (
@@ -1458,6 +1464,12 @@ export function LibraryBrowseModal({
                           <ChecklistIcon />
                         </button>
 
+                        {/* Gated on the SAME predicate the server guard uses.
+                            Ungated, this opened an editable form for an
+                            operator whose save would be refused -- the SKU
+                            typed, the button pressed, and the refusal arriving
+                            only at the end. A control that cannot succeed
+                            should say so before it is used, not after. */}
                         <button
                           type="button"
                           className="lib-edit-product lib-icon-btn"
@@ -1465,11 +1477,15 @@ export function LibraryBrowseModal({
                             setEditLeafId(row.leafId);
                             setEditOpen(true);
                           }}
+                          disabled={!permissions.canEditProduct}
+                          aria-disabled={!permissions.canEditProduct}
                           aria-label={`Edit product ${row.name}`}
                           title={
-                            row.eligibility.attachable
-                              ? "Edit product"
-                              : "Edit product — complete its SKU here"
+                            !permissions.canEditProduct
+                              ? "You don't have permission to edit library products. Ask an admin."
+                              : row.eligibility.attachable
+                                ? "Edit product"
+                                : "Edit product — complete its SKU here"
                           }
                           data-testid={`edit-product-${row.leafId}`}
                         >

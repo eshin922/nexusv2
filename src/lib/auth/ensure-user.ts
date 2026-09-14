@@ -26,10 +26,16 @@ export type AppUser = typeof users.$inferSelect;
  *
  * Until now, an unrecognised corporate signer was provisioned automatically at
  * `read_only`. That looked safe and was not. `read_only` is a LABEL, not an
- * authorization boundary: outside `schema.ts` no non-admin role value is read
- * for any authorization decision, so an auto-provisioned row is not meaningfully
- * more constrained than any other non-admin row — it simply has no admin
- * surfaces, exactly like `pm` or `logistics`.
+ * authorization boundary: at the time, outside `schema.ts` no non-admin role
+ * value was read for any authorization decision, so an auto-provisioned row was
+ * not meaningfully more constrained than any other non-admin row — it simply
+ * had no admin surfaces, exactly like `pm` or `logistics`.
+ *
+ * PAST TENSE SINCE: `canEditLibraryProduct` in `@/lib/permissions/library-
+ * product` admits `pm`, which makes one non-admin role authorization-bearing.
+ * That narrows what an auto-provisioned `read_only` row could have reached, and
+ * changes NOTHING about the argument below — enrollment by sign-in was the
+ * defect, and a smaller role was never the repair.
  *
  * So the fallback was not least privilege. It was enrollment by sign-in,
  * wearing least privilege as a costume. It surfaced when an employee who had

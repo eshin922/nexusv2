@@ -20,6 +20,7 @@ import {
 } from "@/app/actions/assemblies";
 import { DragGrip } from "./drag-grip";
 import { leafCostDisplay, leafCostTitle } from "@/lib/leaf-cost-display";
+import type { LibraryPermissions } from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 impl-2 Step 4-9 — AsyRow client component
 //
@@ -64,7 +65,7 @@ export function AsyRow({
   editable: boolean;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
   fullLeafTypes: LeafSpecEntryProductType[];
-  permissions: { canCreateLeaves: boolean };
+  permissions: LibraryPermissions;
   /** Tier list for the Client Target drawer. */
   tiers: ReadonlyArray<TargetTier>;
   /** This Item Group's targets. The finished good is the sellable unit. */
