@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/firm-settings";
 import { FirmSettingsForm } from "./firm-settings-form";
 import { CustomerFacingDefaultsForm } from "./customer-facing-defaults-form";
+import { LogisticsHandoffForm } from "./logistics-handoff-form";
 
 // Slice RI.8 step 3 — Firm settings Round 5 rebuild per brief §3.10.
 // R5 source: docs/design-prototypes/dist/source/round-5/e46652c1.js +
@@ -69,12 +70,14 @@ export default async function FirmSettingsAdminPage() {
   const history = rows.filter((r) => r.effectiveUntil !== null);
 
   // Resolve user emails for history items (display: who made the change)
-  const userMap = new Map<string, string>();
-  const hasAnyUpdater = rows.some((r) => r.updatedByUserId !== null);
-  if (hasAnyUpdater) {
-    const all = await db.select().from(users);
-    for (const u of all) userMap.set(u.id, u.email);
-  }
+  // Loaded unconditionally now: the history rail wants emails only when a row
+  // has an updater, but the freight-recipient picker needs the roster either
+  // way, and one read serves both.
+  const allUsers = await db
+    .select({ id: users.id, email: users.email, role: users.role })
+    .from(users)
+    .orderBy(users.email);
+  const userMap = new Map<string, string>(allUsers.map((u) => [u.id, u.email]));
 
   // Portfolio bands — live count of sent quotes by margin band.
   // Best-effort: if computation fails (e.g. orphaned quotes during
@@ -175,6 +178,23 @@ export default async function FirmSettingsAdminPage() {
               incotermsDefault: current.incotermsDefault,
               daysValidDefault: current.daysValidDefault,
             }}
+          />
+        </section>
+      )}
+
+      {/* Packaging → logistics handoff */}
+      {current && (
+        <section className="r5-fs-card" style={{ marginTop: 24 }}>
+          <div className="row-head">
+            <h2>Packaging → logistics handoff</h2>
+            <span className="effective">FREIGHT RECIPIENT + SLACK</span>
+          </div>
+          <LogisticsHandoffForm
+            current={{
+              logisticsRecipientUserId: current.logisticsRecipientUserId,
+              slackLogisticsChannelId: current.slackLogisticsChannelId,
+            }}
+            users={allUsers}
           />
         </section>
       )}

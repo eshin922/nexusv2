@@ -121,6 +121,20 @@ export interface QuoteFacts {
   approvals: ApprovalFacts[];
   /** `quotes.netsuite_so_push_status === "failed"`. */
   pushFailed: boolean;
+  /**
+   * An OPEN row in `freight_handoffs`, or null.
+   *
+   * The unresolved governed state here is a person's decision that packaging
+   * is ready, persisted when they made it -- not an inference from whether the
+   * packaging fields look finished. It resolves when logistics says so, which
+   * is why nothing in the organizer closes it.
+   */
+  freightHandoff: {
+    handoffId: string;
+    assignedToUserId: string;
+    requestedAt: Date;
+    notificationStatus: string;
+  } | null;
 }
 
 /**
@@ -204,6 +218,26 @@ export function tasksForQuote(f: QuoteFacts, now: Date): Task[] {
 
   if (f.pushFailed) {
     add("push_failed", "ns", "The NetSuite sales-order push failed", "Retry push", "quote");
+  }
+
+  // ── the packaging → logistics handoff ───────────────────────────────────
+  //
+  // OWNERSHIP IS THE SNAPSHOTTED ASSIGNEE, not the quote's creator. This is
+  // the one kind whose holder is someone other than the person whose quote it
+  // is: a PM hands the freight work to logistics, and it belongs in logistics'
+  // Needs you list while the quote keeps its owner.
+  //
+  // Nothing here asks whether packaging LOOKS finished. The unresolved state
+  // is an open row, which exists because a person decided it should.
+  if (f.freightHandoff) {
+    add(
+      "freight_needed",
+      f.freightHandoff.handoffId,
+      "Packaging ready — freight needed",
+      "Open freight",
+      "costs",
+      { kind: "assigned", userId: f.freightHandoff.assignedToUserId },
+    );
   }
 
   // ── time decay ──────────────────────────────────────────────────────────

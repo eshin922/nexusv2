@@ -3,7 +3,7 @@
 import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { auditLog, firmSettings, projects, quotes } from "@/db/schema";
+import { auditLog, firmSettings, projects, quotes, users } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { requireAdminAction } from "@/lib/admin-guard";
 import {
@@ -132,6 +132,12 @@ async function versionedFirmSettingsUpdate(args: {
       // requests silently stop being delivered, and nothing reports an error.
       // Regression: tests/unit/firm-settings-slack-channel-carry-forward.test.ts
       slackApprovalChannelId: prior?.slackApprovalChannelId ?? null,
+      // Packaging -> logistics handoff configuration. Carried forward for the
+      // same reason as everything else here: a margin edit inserts a NEW row,
+      // and a column that is not carried silently becomes NULL -- which would
+      // quietly un-configure the recipient and the channel.
+      logisticsRecipientUserId: prior?.logisticsRecipientUserId ?? null,
+      slackLogisticsChannelId: prior?.slackLogisticsChannelId ?? null,
       // Override with caller's edits
       ...overrides,
       // Versioning fields (always new)
@@ -664,6 +670,89 @@ export async function updateFirmSettingsCustomerFacingDefaults(
               leadTimeDefault: prior.leadTimeDefault,
               incotermsDefault: prior.incotermsDefault,
               daysValidDefault: prior.daysValidDefault,
+              effectiveFrom: prior.effectiveFrom,
+            }
+          : null,
+        to: { ...newValues, effectiveFrom: effectiveFromStr },
+      },
+    });
+
+    revalidatePath("/admin/firm-settings");
+
+    return inserted;
+  });
+}
+/**
+ * Configure the packaging → logistics handoff: who receives freight requests,
+ * and which Slack channel is told.
+ *
+ * ── NAMING THE RECIPIENT IS A DECISION ───────────────────────────────────
+ *
+ * The alternative -- resolving "whoever holds the logistics role" at request
+ * time -- would turn a role assignment into a work assignment, and the person
+ * it landed on would never have been told it was theirs. Roles say what
+ * somebody may do; this says whose work it is. So it is set here, by an admin,
+ * and recorded.
+ *
+ * Clearing either field is allowed and means what it says: with no recipient,
+ * "Ready for freight" refuses rather than guessing, and with no channel the
+ * task is still created and the notification is recorded as not configured.
+ */
+export async function updateFirmSettingsLogisticsHandoff(
+  formData: FormData,
+): Promise<ActionResult<FirmSettingsRow>> {
+  return runAction(async () => {
+    const admin = await requireAdminAction();
+
+    const recipientId = trimOrNull(formData.get("logisticsRecipientUserId"));
+    const channelId = trimOrNull(formData.get("slackLogisticsChannelId"));
+    const effectiveFromStr = String(formData.get("effectiveFrom") ?? "").trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFromStr)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "Effective-from must be a YYYY-MM-DD date.",
+      );
+    }
+
+    // A recipient who is not a current user would fail later, at the moment an
+    // operator clicks "Ready for freight" -- on their surface, about a setting
+    // they cannot see. Refuse it here instead, where it can be fixed.
+    if (recipientId !== null) {
+      const [u] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, recipientId))
+        .limit(1);
+      if (!u) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "That is not a current Nexus user.",
+        );
+      }
+    }
+
+    const [prior] = await db
+      .select()
+      .from(firmSettings)
+      .where(isNull(firmSettings.effectiveUntil))
+      .orderBy(desc(firmSettings.effectiveFrom))
+      .limit(1);
+
+    const newValues = {
+      logisticsRecipientUserId: recipientId,
+      slackLogisticsChannelId: channelId,
+    };
+
+    const inserted = await versionedFirmSettingsUpdate({
+      adminUserId: admin.id,
+      effectiveFromStr,
+      overrides: newValues,
+      auditDiff: {
+        from: prior
+          ? {
+              logisticsRecipientUserId: prior.logisticsRecipientUserId,
+              slackLogisticsChannelId: prior.slackLogisticsChannelId,
               effectiveFrom: prior.effectiveFrom,
             }
           : null,

@@ -53,6 +53,9 @@ const TAG: Record<Task["kind"], { text: string; tone: string; var: string }> = {
   quote_expiring: { text: "expiring", tone: "r14-tag-missing", var: "--r14-t70-fg" },
   // Nothing is wrong; it is just quiet.
   customer_silent: { text: "silent", tone: "r14-tag-info", var: "--r14-t232-fg" },
+  // A person handed this to you. Not a failure and not a clock -- someone is
+  // waiting, which is why it reads as returned rather than blocked or quiet.
+  freight_needed: { text: "freight", tone: "r14-tag-returned", var: "--r14-t155-fg" },
 };
 
 const STATUS_LABEL: Record<string, string> = {
