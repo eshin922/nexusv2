@@ -138,10 +138,21 @@ export function LogisticsHandoffForm({
       )}
       {success && <p className="text-sm text-emerald-700">{success}</p>}
 
+      {/* `.r2-btn primary`, the same control the card above this one uses.
+          The Tailwind classes this carried before produced NO background on
+          this page -- the computed value was transparent -- so the save read
+          as a line of text rather than a button, and an operator has no reason
+          to click a label. Matching the sibling is also what keeps the two
+          saves on one page looking like the same kind of act.
+
+          No focus handling is added: `.r2-btn` does not clear the outline and
+          nothing global suppresses it, so the browser's own focus ring still
+          shows on Tab. */}
       <button
         type="submit"
         disabled={pending}
-        className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+        className="r2-btn primary"
+        style={{ opacity: pending ? 0.5 : 1 }}
       >
         {pending ? "Saving…" : "Save handoff settings"}
       </button>
