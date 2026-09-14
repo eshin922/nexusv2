@@ -135,9 +135,80 @@ check(
   skipped.ok ? `${blocker} taken -> issued ${skipped.sku}` : "refused",
 );
 
+console.log("\n── binding: the reservation follows the product ───────────");
+const { bindAllocationToLeaf } = await import("../../src/lib/sku/bind.ts");
+const { db } = await import("../../src/db/index.ts");
+
+const bindAlloc = await allocateSku({ token: "TEST", attemptKey: key("bind"), userId });
+if (!bindAlloc.ok) throw new Error("could not allocate for the bind walk");
+
+// A product saved carrying the generated SKU.
+const leafRows = await sql`
+  insert into leaves (name, sku, archived) values (${"walk bind product"}, ${bindAlloc.sku}, false)
+  returning id`;
+const leafId = leafRows[0].id as string;
+
+const bound = await bindAllocationToLeaf(db, {
+  allocationId: bindAlloc.allocationId,
+  leafId,
+  savedSku: bindAlloc.sku,
+  hubspotProductId: "hs-walk-1",
+});
+const afterBind = (await sql`
+  select state, leaf_id, hubspot_product_id from sku_allocations
+  where id = ${bindAlloc.allocationId}`)[0];
+check("binding marks the reservation applied", bound === "bound" && afterBind.state === "applied", String(afterBind.state));
+check("the reservation names the product that carries it", afterBind.leaf_id === leafId);
+check("and the HubSpot product it became", afterBind.hubspot_product_id === "hs-walk-1");
+
+console.log("\n── the failed save, then the retry ────────────────────────");
+// The operator generates, the save fails, they retry. The retry reuses the
+// attempt key -- so it must get back the SAME reservation, and binding twice
+// must not spend a second number or re-point the first.
+const retryAlloc = await allocateSku({ token: "TEST", attemptKey: key("bind"), userId });
+check(
+  "a retry after a failed save returns the SAME reservation",
+  retryAlloc.ok && retryAlloc.sku === bindAlloc.sku && retryAlloc.allocationId === bindAlloc.allocationId,
+  retryAlloc.ok ? retryAlloc.sku : "refused",
+);
+
+const rebind = await bindAllocationToLeaf(db, {
+  allocationId: bindAlloc.allocationId,
+  leafId,
+  savedSku: bindAlloc.sku,
+  hubspotProductId: "hs-walk-1",
+});
+const afterRebind = (await sql`
+  select state, leaf_id, settled_at from sku_allocations where id = ${bindAlloc.allocationId}`)[0];
+check("re-binding the same reservation is idempotent", rebind === "already_bound", rebind);
+check("product identity is unchanged by the retry", afterRebind.leaf_id === leafId);
+check(
+  "exactly one reservation exists for that intent",
+  (await sql`select count(*)::int n from sku_allocations where attempt_key = ${key("bind")}`)[0].n === 1,
+);
+
+console.log("\n── typed over after generating ────────────────────────────");
+// Generating and then typing a different SKU must NOT record that the product
+// carries the reserved identifier. The reservation stays spent either way --
+// assigned numbers are never recycled.
+const typedAlloc = await allocateSku({ token: "TEST", attemptKey: key("typed"), userId });
+if (!typedAlloc.ok) throw new Error("could not allocate for the typed-over walk");
+const mismatch = await bindAllocationToLeaf(db, {
+  allocationId: typedAlloc.allocationId,
+  leafId,
+  savedSku: "SOMETHING-THE-OPERATOR-TYPED",
+  hubspotProductId: null,
+});
+const afterMismatch = (await sql`
+  select state, leaf_id from sku_allocations where id = ${typedAlloc.allocationId}`)[0];
+check("a typed-over SKU does not claim the reservation", mismatch === "sku_mismatch", mismatch);
+check("and the reservation stays spent rather than recycled", afterMismatch.state === "allocated" && afterMismatch.leaf_id === null);
+
 console.log("\n── cleanup ────────────────────────────────────────────────");
 await sql`delete from sku_allocations where attempt_key like ${"walk:%:" + process.pid}`;
 await sql`delete from leaves where sku = ${blocker}`;
+await sql`delete from sku_allocations where leaf_id = ${leafId}`;
+await sql`delete from leaves where id = ${leafId}`;
 await sql`update sku_counters set next_number = 1001 where token = 'TEST'`;
 console.log("  isolated fixtures reset");
 

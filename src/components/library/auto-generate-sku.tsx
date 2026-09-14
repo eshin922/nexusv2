@@ -58,7 +58,13 @@ export function AutoGenerateSku({
   quoteId: string | null;
   currentValue: string;
   established: boolean;
-  onGenerated: (sku: string) => void;
+  /**
+   * Both halves. The allocation id is what the save sends back so the
+   * reservation is bound to the product that carries it -- without it the
+   * identifier is in the catalog while its reservation still reads
+   * `allocated`.
+   */
+  onGenerated: (sku: string, allocationId: string) => void;
   attemptKey: string;
   services: SkuServices;
 }) {
@@ -102,7 +108,7 @@ export function AutoGenerateSku({
         setError(r.data.refusal.message);
         return;
       }
-      onGenerated(r.data.sku);
+      onGenerated(r.data.sku, r.data.allocationId);
     });
   }
 

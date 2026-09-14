@@ -26,8 +26,9 @@
  *
  * RESULT, 2026-09-14 (portal 46710404): readOnlyValue requested true, stored
  * FALSE -- our app CANNOT declare a property integration-controlled.
- * hasUniqueValue requested true, stored true -- honoured, and it is the half
- * adoption actually needs.
+ * hasUniqueValue requested true, stored true -- honoured, but it prevents
+ * DUPLICATE values and establishes nothing about ownership. Automatic
+ * adoption stays unavailable under the agreed design.
  */
 
 const PRODUCTION_HUB_ID = 21497798;
@@ -102,7 +103,12 @@ console.log(
 console.log(
   readBack.modificationMetadata?.readOnlyValue === true
     ? "  -> our app CAN declare a property integration-controlled."
-    : "  -> our app CANNOT; HubSpot ignored the request. Ownership must be enforced another way.",
+    : [
+        "  -> our app CANNOT; HubSpot ignored the request.",
+        "     hasUniqueValue is NOT a substitute: it bars duplicate values",
+        "     and says nothing about who wrote one. Adoption stays",
+        "     unavailable under the agreed design.",
+      ].join("\n"),
 );
 
 await fetch(`https://api.hubapi.com/crm/v3/properties/products/${PROBE_NAME}`, {

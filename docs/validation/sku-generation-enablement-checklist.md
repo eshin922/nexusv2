@@ -64,14 +64,34 @@ hasUniqueValue   requested true  ->  stored true    (honoured)
 
 **Our app cannot declare a property integration-controlled.** The assumption
 that it could was wrong, and it was wrong in the direction that matters:
-`nexus_allocation_id` will be editable by anyone with product permissions in
+`nexus_allocation_id` would be editable by anyone with product permissions in
 the HubSpot UI.
 
-What survives: `hasUniqueValue` IS honoured, and that is the half recovery
-actually depends on — adoption works by searching for the allocation id, which
-a unique property supports. What is lost is protection against a human editing
-or clearing it, which has to be accepted or handled another way. That is a
-decision, not a detail, and it should be made before the property is created.
+**Automatic adoption therefore remains unavailable, and the agreed design is
+not relaxed by this.** `hasUniqueValue` was honoured, but it answers a
+different question: it prevents two products holding the SAME token value. It
+establishes nothing about who wrote that value or whether it is still the one
+Nexus allocated. A value a person can edit cannot serve as proof of ownership,
+so a search that finds a product by allocation id does not establish that this
+is the product our allocation created — which is exactly what adoption has to
+establish before claiming an uncertain create.
+
+Under the agreed design an uncertain outcome that cannot be adopted ends
+`conflicted`, for a human. That stands. Prerequisite 1 in the design document
+— the property, created AND integration-controlled — is **not** satisfied by
+uniqueness alone and is not marked satisfied here.
+
+An earlier version of this document said adoption "works by searching for the
+allocation id, which a unique property supports". That was wrong and it relaxed
+a rule it had no authority to relax; it is corrected rather than quietly
+edited, because the distinction between "no duplicates" and "we own this" is
+the whole of it.
+
+What to decide before the property is created: whether to accept an
+advisory-only allocation id with adoption permanently unavailable, or to
+establish ownership another way — a HubSpot-side permission or workflow
+restriction, or a different mechanism entirely. That is a decision, not a
+detail.
 
 ### Permissions
 
@@ -94,8 +114,8 @@ The production finding stands.*
 | name | `nexus_allocation_id` |
 | type / fieldType | `string` / `text` |
 | group | `productinformation` |
-| `hasUniqueValue` | `true` — honoured, and adoption depends on it |
-| `readOnlyValue` | request it, but expect `false`; do not design around it |
+| `hasUniqueValue` | `true` — honoured. Prevents duplicate values; does NOT establish ownership |
+| `readOnlyValue` | request it, but expect `false`. Adoption must not be designed as though it held |
 
 ---
 
@@ -214,8 +234,10 @@ Proposed entry:
 
 1. Adjudicate registry entries (§3). Nothing can be issued without an approved
    token — this gates everything, independently of the rest.
-2. Decide the `readOnlyValue` question (§2), then grant the production scope and
-   create the property.
+2. Decide the ownership question (§2) — accept advisory-only with adoption
+   unavailable, or establish ownership another way — then grant the production
+   scope and create the property. Until ownership is established, uncertain
+   creates end `conflicted` by design.
 3. Obtain production NetSuite read-only access (§1) and run the inventory
    survey.
 4. Review the reconciliation artifact, including normalized collisions.

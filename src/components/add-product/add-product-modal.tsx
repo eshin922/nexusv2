@@ -108,6 +108,8 @@ export function AddProductModal({
   >([]);
   const [hsTypeError, setHsTypeError] = useState<string | null>(null);
   const [leafSku, setLeafSku] = useState("");
+  // Held across save attempts: a retry binds the SAME reservation.
+  const [leafSkuAllocationId, setLeafSkuAllocationId] = useState<string | null>(null);
   // One creation intent, one key, minted each time the modal opens. A save
   // retry reuses it and gets the SAME allocation back rather than consuming a
   // second number; closing and reopening is a different intent and gets a new
@@ -231,6 +233,9 @@ export function AddProductModal({
       fd.set("hubspotProductType", hsTypeValue);
     }
     if (leafSku) fd.set("sku", leafSku.trim());
+    // Sent only when the SKU was generated. `createLeaf` binds it in the same
+    // transaction that writes the product.
+    if (leafSkuAllocationId) fd.set("skuAllocationId", leafSkuAllocationId);
     if (leafUnitCost) fd.set("unitCost", leafUnitCost.trim());
     if (leafUrl) fd.set("url", leafUrl.trim());
 
@@ -302,6 +307,7 @@ export function AddProductModal({
                 skuQuoteId={quoteId}
                 skuAttemptKey={skuAttemptKey}
                 skuServices={skuServices}
+                onSkuAllocationId={setLeafSkuAllocationId}
                 onSku={setLeafSku}
                 unitCost={leafUnitCost}
                 onUnitCost={setLeafUnitCost}
@@ -382,6 +388,7 @@ function LeafFields(props: {
   skuAttemptKey: string;
   /** Injected; absent means the affordance does not render. */
   skuServices?: SkuServices;
+  onSkuAllocationId: (id: string) => void;
   unitCost: string;
   onUnitCost: (v: string) => void;
   url: string;
@@ -472,7 +479,10 @@ function LeafFields(props: {
             currentValue={props.sku}
             established={false}
             attemptKey={props.skuAttemptKey}
-            onGenerated={props.onSku}
+            onGenerated={(v, id) => {
+              props.onSku(v);
+              props.onSkuAllocationId(id);
+            }}
           />
           )}
         </div>

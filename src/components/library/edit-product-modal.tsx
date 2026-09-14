@@ -94,6 +94,10 @@ export function EditProductModal({
     () => `edit-leaf:${target?.leafId ?? "none"}`,
     [target?.leafId],
   );
+  // Held across save attempts on purpose. A failed save keeps it, so the
+  // retry binds the SAME reservation rather than leaving the identifier
+  // unclaimed or spending a second number.
+  const [skuAllocationId, setSkuAllocationId] = useState<string | null>(null);
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
@@ -160,6 +164,9 @@ export function EditProductModal({
     fd.set("url", url.trim());
     fd.set("unitCost", unitCost.trim());
     fd.set("hubspotProductType", hsType);
+    // Sent only when the SKU was generated. `updateLeaf` binds it inside the
+    // same transaction that writes the leaf, and a retry sends the same id.
+    if (skuAllocationId) fd.set("skuAllocationId", skuAllocationId);
     startSave(async () => {
       const res = await save(fd);
       if (!res.ok) {
@@ -279,7 +286,10 @@ export function EditProductModal({
                   currentValue={sku}
                   established={false}
                   attemptKey={attemptKey}
-                  onGenerated={setSku}
+                  onGenerated={(v, id) => {
+                    setSku(v);
+                    setSkuAllocationId(id);
+                  }}
                 />
                 )}
               </>

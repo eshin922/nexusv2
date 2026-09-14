@@ -25,6 +25,7 @@ import {
   type LibraryBrowseResult,
 } from "@/lib/library-browse-loader";
 import { ensureUser } from "@/lib/auth/ensure-user";
+import { bindAllocationToLeaf } from "@/lib/sku/bind";
 import { mapLeafToHubspotCreate, mapLeafToHubspotUpdate } from "@/lib/hubspot-mapper";
 import {
   hubspotUpdateLanded,
@@ -74,6 +75,11 @@ export async function createLeaf(
   return runAction(async () => {
     const name = String(formData.get("name") ?? "").trim();
     const sku = String(formData.get("sku") ?? "").trim() || null;
+    // The reservation this SKU came from, when it was generated rather than
+    // typed. Optional: a manually entered SKU carries none, and that is an
+    // ordinary create, not a degraded one.
+    const skuAllocationId =
+      String(formData.get("skuAllocationId") ?? "").trim() || null;
     // Step 8 · `productTypeId` is NO LONGER READ. A leaf's classification is
     // HubSpot's alone; accepting a Nexus type here would have left the second
     // authority creatable at the exact moment a product enters the Library.
@@ -222,25 +228,41 @@ export async function createLeaf(
       }
     }
 
-    const inserted = await db
-      .insert(leaves)
-      .values({
-        name,
-        sku,
-        unitCost,
-        ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
-        url,
-        archived: false,
-        hubspotProductId,
-        // Persisted from the same value sent to HubSpot, so a later pull
-        // re-reading the product finds the classification unchanged.
-        // NULL for a service — see the branch above.
-        hubspotProductType: isService ? null : hubspotProductType,
-        commercialKind,
-        serviceIdentity,
-      })
-      .returning();
-    const newRow = inserted[0];
+    // The product and its binding commit TOGETHER. Binding afterwards could
+    // fail once the product already exists, leaving an identifier that is in
+    // the catalog while its reservation still reads `allocated` -- a free
+    // reservation whose number is in use, which is the one state the
+    // allocations table exists to make impossible.
+    const { newRow, bindOutcome } = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(leaves)
+        .values({
+          name,
+          sku,
+          unitCost,
+          ownerId: ownerIdRaw === "" ? null : ownerIdRaw,
+          url,
+          archived: false,
+          hubspotProductId,
+          // Persisted from the same value sent to HubSpot, so a later pull
+          // re-reading the product finds the classification unchanged.
+          // NULL for a service — see the branch above.
+          hubspotProductType: isService ? null : hubspotProductType,
+          commercialKind,
+          serviceIdentity,
+        })
+        .returning();
+      const row = inserted[0];
+      const outcome = skuAllocationId
+        ? await bindAllocationToLeaf(tx, {
+            allocationId: skuAllocationId,
+            leafId: row.id,
+            savedSku: row.sku,
+            hubspotProductId: row.hubspotProductId,
+          })
+        : null;
+      return { newRow: row, bindOutcome: outcome };
+    });
 
     // Audit: `leaf_create` per CLAUDE.md namespace. `source:
     // 'nexus_authored'` distinguishes PM-driven creates from
@@ -264,6 +286,12 @@ export async function createLeaf(
         hubspot_product_create_response: hubspotResponseBody,
         source: "nexus_authored",
         created_by: user.id,
+        // Present only when the SKU was generated. `sku_mismatch` means the
+        // operator typed over the generated value before saving -- the
+        // reservation stays spent and simply is not claimed by this product.
+        ...(skuAllocationId
+          ? { sku_allocation_id: skuAllocationId, sku_allocation_bind: bindOutcome }
+          : {}),
       },
     });
 
@@ -408,6 +436,12 @@ async function applyLeafEdit(opts: {
   values: LeafEditValues;
   expectedVersion: string | null;
   retryOf: { id: string; version: number } | null;
+  /**
+   * The reservation this SKU came from, when it was generated rather than
+   * typed. Bound in the SAME transaction that writes the leaf, so a completed
+   * edit and its claimed identifier commit together or not at all.
+   */
+  skuAllocationId?: string | null;
 }): Promise<LeafEditOutcome> {
   const { userId, leafId, expectedVersion, retryOf } = opts;
   const { hubspot } = await getApplicationDependencies();
@@ -862,6 +896,20 @@ async function applyLeafEdit(opts: {
         })
         .where(eq(leaves.id, leafId));
 
+      // Same transaction as the write above. A retry of a failed save reuses
+      // its attempt key, so it arrives holding the SAME allocation id and
+      // binds the same reservation to the same product -- the identifier the
+      // operator was shown survives the failure, and no second number is
+      // spent recovering from it.
+      if (opts.skuAllocationId) {
+        await bindAllocationToLeaf(tx, {
+          allocationId: opts.skuAllocationId,
+          leafId,
+          savedSku: values.sku,
+          hubspotProductId: existing.hubspotProductId,
+        });
+      }
+
       const changed = Object.keys(after).filter(
         (k) =>
           (before as Record<string, unknown>)[k] !==
@@ -1079,6 +1127,10 @@ export async function updateLeaf(
     }
 
     const values = readLeafEditValues(formData);
+    // Optional: a manually entered SKU carries no reservation, and that is an
+    // ordinary edit rather than a degraded one.
+    const skuAllocationId =
+      String(formData.get("skuAllocationId") ?? "").trim() || null;
 
     // Read-only and slow; done before the lock so it is not held across it.
     if (values.hubspotProductType) {
@@ -1097,6 +1149,7 @@ export async function updateLeaf(
       values,
       expectedVersion,
       retryOf: null,
+      skuAllocationId,
     });
   });
 }
