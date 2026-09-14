@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { ResumeStrip } from "./resume-strip";
+import type { ResumeContext } from "@/lib/nav/home-queries";
 import { useRouter } from "next/navigation";
 import type { OrganizerData, OrganizerProject } from "@/lib/organizer/load";
 import type { Task } from "@/lib/organizer/tasks";
@@ -137,10 +139,13 @@ export function OrganizerSurface({
   data,
   userName,
   now,
+  resume,
 }: {
   data: OrganizerData;
   userName: string;
   now: number;
+  /** Null when this operator has not opened a quote surface yet. */
+  resume: ResumeContext | null;
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<"all" | (typeof GROUP_ORDER)[number]>("all");
@@ -252,6 +257,8 @@ export function OrganizerSurface({
               </div>
             </div>
           )}
+
+          <ResumeStrip context={resume} />
 
           {/* ── filters ─────────────────────────────────────────────────── */}
           <div className="r14-chips">

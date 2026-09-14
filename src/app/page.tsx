@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AccessDeniedBanner } from "@/components/access-denied-banner";
 import { OrganizerSurface } from "@/components/deal-organizer/organizer-surface";
 import { loadOrganizer } from "@/lib/organizer/load";
+import { getResumeContext } from "@/lib/nav/home-queries";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { getApplicationDependencies } from "@/lib/integrations/composition";
 
@@ -32,11 +33,16 @@ export default async function Home() {
   if (!identity) redirect("/sign-in");
 
   const dbUser = await ensureUser();
+  // Two reads, not nested: `loadOrganizer` fans out internally, and the
+  // getCostingBundle discipline in CLAUDE.md is that a self-fanning helper
+  // does not go inside another Promise.all. Resume is one indexed lookup
+  // plus a label join, so it costs a round trip rather than a fan-out.
   const data = await loadOrganizer({
     userId: dbUser.id,
     commercialApprover: dbUser.commercialApprover,
     role: dbUser.role,
   });
+  const resume = await getResumeContext(dbUser.id);
 
   return (
     <>
@@ -47,6 +53,7 @@ export default async function Home() {
         data={data}
         userName={identity.firstName ?? identity.email ?? "there"}
         now={Date.now()}
+        resume={resume}
       />
     </>
   );
