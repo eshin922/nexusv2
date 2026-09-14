@@ -113,8 +113,13 @@ export function AutoGenerateSku({
   }
 
   return (
+    // Sits INLINE, to the right of the SKU input -- both call sites put the
+    // two in one flex row. No top margin, or it would ride low against a
+    // field it is meant to sit level with. `flexWrap` still applies: at narrow
+    // widths the brand select and the error text drop to their own lines
+    // rather than squeezing the input.
     <div
-      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}
+      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flexShrink: 0 }}
     >
       {/* Shown whenever the brand was not preselected. There is no
           "— choose —" default that could be submitted. */}
