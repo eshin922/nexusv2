@@ -436,6 +436,21 @@ function LeafFields(props: {
         <span className="lbl">HubSpot product type</span>
         <select
           aria-label="HubSpot product type"
+          // WIDTH CAPPED TO THE CONTENT.
+          //
+          // The control stretched to the field's full width while its longest
+          // option needs ~215px. A native select's popup inherits the
+          // control's width, so opening it produced a panel measured at 594px
+          // in Create and 514px in Edit against 215px of text -- 64% and 58%
+          // blank respectively. That empty expanse is the whole defect; the
+          // popup opening upward is ordinary browser placement and is left
+          // alone.
+          //
+          // `fit-content` rather than a fixed cap: a number would be wrong the
+          // day HubSpot adds a longer option, and wrong silently, by
+          // truncating it. As a MAX it still yields to a narrow field, so the
+          // control stays full width where full width is all there is.
+          style={{ maxWidth: "fit-content" }}
           value={props.hsTypeValue}
           onChange={(e) => props.onHsTypeValue(e.target.value)}
           disabled={props.hsTypeOptions.length === 0}
