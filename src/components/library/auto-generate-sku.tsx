@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ActionResult } from "@/lib/action-result";
 import type { GenerateResult, SkuBrandContext } from "@/app/actions/sku-allocation";
 
@@ -29,14 +29,26 @@ export type SkuServices = {
  * one might do, and an established SKU is exactly the value that must never be
  * replaced by an ordinary edit.
  *
- * ── THE BRAND IS CHOSEN, NEVER GUESSED ───────────────────────────────────
+ * ── IN A QUOTE THERE IS NO CHOICE TO MAKE ────────────────────────────────
  *
- * From a customer quote the registered brand for that customer's RECORD
- * preselects, and one click is enough. In the Library there is no customer in
- * context, so the operator picks -- and there is no default option, because a
- * default there would file a product under whichever brand sorted first.
+ * The quote has a customer, and the customer settles the namespace. So there
+ * is NO dropdown here: the code is the one registered against that customer's
+ * record, or there is no generation and the control says why.
  *
- * Nothing here derives a token from the product's name.
+ * The dropdown this replaces listed every allocatable brand whenever the
+ * quote's own customer had none -- which offered OTHER PEOPLE'S codes beside a
+ * product belonging to this one, and made filing it wrongly a single click.
+ * A customer without a code now gets an explanation and the manual field, and
+ * never a neighbour's namespace as a fallback.
+ *
+ * ── THE LIBRARY IS THE ONLY PLACE THAT ASKS ──────────────────────────────
+ *
+ * Creating straight into the Library has no customer in context, so the
+ * operator picks one -- searchable, because the list grows, and with no
+ * default option, because a default would file a product under whichever
+ * customer sorted first.
+ *
+ * Nothing here derives a code from the product's name.
  *
  * ── THE VALUE SURVIVES RETRIES ───────────────────────────────────────────
  *
@@ -69,7 +81,9 @@ export function AutoGenerateSku({
   services: SkuServices;
 }) {
   const [ctx, setCtx] = useState<SkuBrandContext | null>(null);
-  const [brand, setBrand] = useState("");
+  /** Library only. Empty means nothing chosen, and nothing is chosen for you. */
+  const [chosen, setChosen] = useState("");
+  const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const loaded = useRef(false);
@@ -82,21 +96,70 @@ export function AutoGenerateSku({
     void services.loadContext(quoteId).then((r) => {
       if (!r.ok) return;
       setCtx(r.data);
-      if (r.data.preselected) setBrand(r.data.preselected);
     });
   }, [occupied, quoteId]);
 
-  // Nothing to offer: field already has a value, the SKU is established, or
-  // generation is unavailable in this environment. Renders nothing rather than
-  // a control that cannot work.
-  if (occupied || !ctx || !ctx.enabled || ctx.brands.length === 0) return null;
+  const filtered = useMemo(() => {
+    if (!ctx || ctx.kind !== "choose") return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return ctx.brands;
+    return ctx.brands.filter(
+      (b) =>
+        b.customerLabel.toLowerCase().includes(q) ||
+        b.token.toLowerCase().includes(q),
+    );
+  }, [ctx, search]);
 
-  const needsChoice = brand === "";
+  // Nothing to offer: the field already has a value, the SKU is established,
+  // or generation is unavailable in this environment. Renders nothing rather
+  // than a control that cannot work.
+  if (occupied || !ctx || ctx.kind === "unavailable") return null;
+
+  const row: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    flexShrink: 0,
+  };
+  const note: React.CSSProperties = { fontSize: 11, color: "var(--ink-3)", maxWidth: 380 };
+
+  // ── a code exists but cannot issue yet ─────────────────────────────────
+  //
+  // Said as its own state rather than folded into "no code", because the
+  // remedy differs: nobody needs to enter a mnemonic, the starting number has
+  // to be established. It does NOT offer to do that -- there is no inline
+  // path, and implying one would be worse than saying nothing.
+  if (ctx.kind === "awaiting_setup") {
+    return (
+      <div style={note} data-testid="sku-awaiting-setup">
+        <strong>{ctx.token}</strong> is set for {ctx.customerLabel}, but SKU setup
+        is not finished — its starting number has still to be checked against
+        the existing catalogs. Enter the SKU manually for now.
+      </div>
+    );
+  }
+
+  // ── no code for this customer ──────────────────────────────────────────
+  if (ctx.kind === "no_code") {
+    return (
+      <div style={note} data-testid="sku-no-code">
+        {ctx.customerLabel
+          ? `${ctx.customerLabel} has no SKU code yet.`
+          : "This quote's customer could not be resolved, so no SKU code applies."}{" "}
+        Enter the SKU manually. A code is set in Settings, and SKU setup has to
+        finish before one can generate.
+      </div>
+    );
+  }
+
+  const token = ctx.kind === "ready" ? ctx.token : chosen;
+  const needsChoice = token === "";
 
   function run() {
     setError(null);
     const fd = new FormData();
-    fd.set("brandToken", brand);
+    fd.set("brandToken", token);
     fd.set("attemptKey", attemptKey);
     startTransition(async () => {
       const r = await services.generate(fd);
@@ -114,30 +177,40 @@ export function AutoGenerateSku({
 
   return (
     // Sits INLINE, to the right of the SKU input -- both call sites put the
-    // two in one flex row. No top margin, or it would ride low against a
-    // field it is meant to sit level with. `flexWrap` still applies: at narrow
-    // widths the brand select and the error text drop to their own lines
-    // rather than squeezing the input.
-    <div
-      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flexShrink: 0 }}
-    >
-      {/* Shown whenever the brand was not preselected. There is no
-          "— choose —" default that could be submitted. */}
-      {ctx.preselected === null && (
-        <select
-          aria-label="Brand for the generated SKU"
-          data-testid="sku-brand"
-          value={brand}
-          onChange={(e) => setBrand(e.target.value)}
-          style={{ fontSize: 12, padding: "4px 8px" }}
-        >
-          <option value="">Choose a brand…</option>
-          {ctx.brands.map((b) => (
-            <option key={b.token} value={b.token}>
-              {b.customerLabel} ({b.token})
-            </option>
-          ))}
-        </select>
+    // two in one flex row. `flexWrap` still applies: at narrow widths the
+    // selector and any error text drop to their own lines rather than
+    // squeezing the input.
+    <div style={row}>
+      {/* THE LIBRARY ONLY. A quote never reaches this branch, because a quote
+          has a customer and the customer is the answer. */}
+      {ctx.kind === "choose" && (
+        <>
+          <input
+            type="search"
+            aria-label="Search customers"
+            data-testid="sku-customer-search"
+            placeholder="Search customers…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ fontSize: 12, padding: "4px 8px", width: 140 }}
+          />
+          <select
+            aria-label="Customer for the generated SKU"
+            data-testid="sku-customer"
+            value={chosen}
+            onChange={(e) => setChosen(e.target.value)}
+            style={{ fontSize: 12, padding: "4px 8px", maxWidth: 220 }}
+          >
+            {/* No "— choose —" that could be submitted: the empty value is
+                what `needsChoice` refuses on. */}
+            <option value="">Choose a customer…</option>
+            {filtered.map((b) => (
+              <option key={b.token} value={b.token}>
+                {b.customerLabel} ({b.token})
+              </option>
+            ))}
+          </select>
+        </>
       )}
 
       <button
@@ -145,7 +218,13 @@ export function AutoGenerateSku({
         data-testid="sku-autogenerate"
         onClick={run}
         disabled={pending || needsChoice}
-        title={needsChoice ? "Choose a brand first — there is no default." : undefined}
+        title={
+          needsChoice
+            ? "Choose a customer first — there is no default."
+            : ctx.kind === "ready"
+              ? `Generates under ${ctx.token} — ${ctx.customerLabel}`
+              : undefined
+        }
         style={{
           fontSize: 12,
           padding: "4px 10px",
@@ -159,10 +238,25 @@ export function AutoGenerateSku({
         {pending ? "Generating…" : "Auto-generate SKU"}
       </button>
 
+      {/* In a quote, whose namespace this is belongs ON the surface rather
+          than in a tooltip. An operator should not have to hover to find out
+          which customer a permanent identifier is about to be filed under. */}
+      {ctx.kind === "ready" && (
+        <span style={{ fontSize: 11, color: "var(--ink-3)" }} data-testid="sku-ready-brand">
+          {ctx.customerLabel} · <strong>{ctx.token}</strong>
+        </span>
+      )}
+
       {/* A disabled control must say why. */}
       {needsChoice && (
         <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
-          Choose a brand — there is no default namespace.
+          Choose a customer — there is no default.
+        </span>
+      )}
+      {ctx.kind === "choose" && search.trim() !== "" && filtered.length === 0 && (
+        <span style={{ fontSize: 11, color: "var(--ink-3)" }} data-testid="sku-no-matches">
+          No customer with a SKU code matches. Only customers whose setup is
+          finished can generate; enter the SKU manually.
         </span>
       )}
       {error && (

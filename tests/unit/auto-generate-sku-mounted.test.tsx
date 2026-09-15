@@ -6,8 +6,10 @@
 //
 //   * it must not appear beside a field that already holds a value
 //   * it must not appear beside an established SKU
-//   * from a customer quote it preselects and needs one click
-//   * in the Library it refuses to act until a brand is chosen
+//   * from a customer quote it uses that customer and asks nothing
+//   * a customer with no code, or a code awaiting setup, gets an explanation
+//     and the manual field -- never somebody else's namespace
+//   * in the Library it refuses to act until a customer is chosen
 //   * a refusal stays visible and does not fill the field
 //
 // The database-bound half -- uniqueness, idempotence, the two constraints --
@@ -20,30 +22,22 @@ import {
   AutoGenerateSku,
   type SkuServices,
 } from "../../src/components/library/auto-generate-sku.tsx";
+import type { SkuBrandContext } from "../../src/app/actions/sku-allocation.ts";
 
 const TWO_BRANDS = [
   { token: "SPJ", customerLabel: "Smart Pressed Juice" },
   { token: "JLF", customerLabel: "JLF" },
 ];
 
-function services(over: Partial<{
-  brands: { token: string; customerLabel: string }[];
-  preselected: string | null;
-  enabled: boolean;
-  generate: SkuServices["generate"];
-}> = {}): { svc: SkuServices; calls: FormData[] } {
+function services(
+  ctx: SkuBrandContext,
+  generate?: SkuServices["generate"],
+): { svc: SkuServices; calls: FormData[] } {
   const calls: FormData[] = [];
   const svc: SkuServices = {
-    loadContext: async () => ({
-      ok: true,
-      data: {
-        brands: over.brands ?? TWO_BRANDS,
-        preselected: over.preselected ?? null,
-        enabled: over.enabled ?? true,
-      },
-    }),
+    loadContext: async () => ({ ok: true, data: ctx }),
     generate:
-      over.generate ??
+      generate ??
       (async (fd) => {
         calls.push(fd);
         return { ok: true, data: { ok: true, sku: "DPS-SPJ-1001", allocationId: "alloc-1" } };
@@ -52,21 +46,41 @@ function services(over: Partial<{
   return { svc, calls };
 }
 
+const READY: SkuBrandContext = {
+  kind: "ready",
+  token: "SPJ",
+  customerLabel: "Smart Pressed Juice",
+};
+const CHOOSE: SkuBrandContext = { kind: "choose", brands: TWO_BRANDS };
+
+function render(ctx: SkuBrandContext, over: Partial<{
+  quoteId: string | null;
+  currentValue: string;
+  established: boolean;
+  attemptKey: string;
+  onGenerated: (sku: string, id: string) => void;
+  generate: SkuServices["generate"];
+}> = {}) {
+  const { svc, calls } = services(ctx, over.generate);
+  return {
+    calls,
+    el: mount(
+      <AutoGenerateSku
+        services={svc}
+        quoteId={over.quoteId === undefined ? "quote-1" : over.quoteId}
+        currentValue={over.currentValue ?? ""}
+        established={over.established ?? false}
+        attemptKey={over.attemptKey ?? "k"}
+        onGenerated={over.onGenerated ?? (() => {})}
+      />,
+    ),
+  };
+}
 
 // ── it never overwrites ──────────────────────────────────────────────────
 
 test("does not appear beside a field that already holds a value", async () => {
-  const { svc } = services();
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId={null}
-      currentValue="MISTR-1001"
-      established={false}
-      attemptKey="k"
-      onGenerated={() => {}}
-    />,
-  );
+  const el = await render(READY, { currentValue: "MISTR-1001" }).el;
   await flush();
   assert.equal(
     el.byTestId("sku-autogenerate"),
@@ -76,123 +90,158 @@ test("does not appear beside a field that already holds a value", async () => {
 });
 
 test("does not appear beside an established SKU", async () => {
-  const { svc } = services();
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId={null}
-      currentValue=""
-      established={true}
-      attemptKey="k"
-      onGenerated={() => {}}
-    />,
-  );
+  const el = await render(READY, { established: true }).el;
   await flush();
   assert.equal(el.byTestId("sku-autogenerate"), null);
 });
 
 test("does not appear when generation is unavailable in this environment", async () => {
-  const { svc } = services({ enabled: false });
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId={null}
-      currentValue=""
-      established={false}
-      attemptKey="k"
-      onGenerated={() => {}}
-    />,
-  );
+  const el = await render({ kind: "unavailable" }).el;
   await flush();
   assert.equal(el.byTestId("sku-autogenerate"), null);
+  assert.equal(el.byTestId("sku-no-code"), null, "explained a customer problem for an environment one");
 });
 
-// ── the brand is chosen, never guessed ───────────────────────────────────
+// ── in a quote, the customer settles it ──────────────────────────────────
 
-test("from a customer quote the brand preselects and no picker is shown", async () => {
-  const { svc } = services({ preselected: "SPJ" });
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId="quote-1"
-      currentValue=""
-      established={false}
-      attemptKey="k"
-      onGenerated={() => {}}
-    />,
-  );
+test("from a customer quote it acts on that customer and asks nothing", async () => {
+  const el = await render(READY).el;
   await flush();
   const btn = el.byTestId("sku-autogenerate") as HTMLButtonElement;
-  assert.ok(btn, "no button after preselection");
-  assert.equal(btn.disabled, false, "preselected and still not actionable");
-  assert.equal(
-    el.byTestId("sku-brand"),
-    null,
-    "asked for a brand that was already known",
-  );
+  assert.ok(btn, "no button where the customer is known");
+  assert.equal(btn.disabled, false, "known customer and still not actionable");
+  assert.equal(el.byTestId("sku-customer"), null, "asked which customer inside their own quote");
+
+  // Whose namespace it is belongs on the surface, not in a tooltip: this is a
+  // permanent identifier about to be filed under somebody.
+  const shown = el.byTestId("sku-ready-brand");
+  assert.ok(shown, "generated under a customer it never named");
+  assert.match(shown.textContent ?? "", /Smart Pressed Juice/);
+  assert.match(shown.textContent ?? "", /SPJ/);
 });
 
-test("in the Library it will not act until a brand is chosen", async () => {
-  const { svc, calls } = services({ preselected: null });
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId={null}
-      currentValue=""
-      established={false}
-      attemptKey="k"
-      onGenerated={() => {}}
-    />,
-  );
+test("a customer with no code gets the manual path, never a neighbour's", async () => {
+  const el = await render({ kind: "no_code", customerLabel: "Acme Botanicals" }).el;
   await flush();
 
-  const picker = el.byTestId("sku-brand") as HTMLSelectElement;
-  assert.ok(picker, "no brand picker where there is no customer in context");
+  const note = el.byTestId("sku-no-code");
+  assert.ok(note, "said nothing at all");
+  assert.match(note.textContent ?? "", /Acme Botanicals/, "did not name the customer");
+  assert.match(note.textContent ?? "", /manually/i, "did not point at manual entry");
 
-  // The empty option is a prompt, not a selectable default namespace.
-  assert.equal(picker.value, "", "a brand was defaulted");
+  // THE PROHIBITION. The old shape listed every allocatable brand here, so one
+  // click filed a product under somebody else's namespace.
+  assert.equal(el.byTestId("sku-customer"), null, "offered another customer as a fallback");
+  assert.equal(el.byTestId("sku-autogenerate"), null, "offered to generate with no code");
+});
+
+test("an unresolvable customer says so rather than naming the wrong one", async () => {
+  const el = await render({ kind: "no_code", customerLabel: null }).el;
+  await flush();
+  const note = el.byTestId("sku-no-code");
+  assert.ok(note);
+  assert.match(note.textContent ?? "", /could not be resolved/i);
+  assert.equal(el.byTestId("sku-customer"), null);
+});
+
+test("a code awaiting setup is a DIFFERENT message from having no code", async () => {
+  const el = await render({
+    kind: "awaiting_setup",
+    token: "MISTR",
+    customerLabel: "heymistr.com",
+  }).el;
+  await flush();
+
+  const note = el.byTestId("sku-awaiting-setup");
+  assert.ok(note, "awaiting setup was not explained");
+  assert.match(note.textContent ?? "", /MISTR/, "did not name the code that exists");
+  assert.match(note.textContent ?? "", /heymistr\.com/);
+  assert.match(note.textContent ?? "", /manually/i);
+  // The remedy differs from `no_code`, so the copy must not send someone to
+  // enter a mnemonic that is already entered.
+  assert.equal(el.byTestId("sku-no-code"), null, "collapsed two different states into one");
+  assert.equal(el.byTestId("sku-autogenerate"), null, "offered to generate against an unseeded counter");
+  assert.equal(el.byTestId("sku-customer"), null);
+});
+
+// ── the Library is the only place that asks ──────────────────────────────
+
+test("in the Library it will not act until a customer is chosen", async () => {
+  const { el: mounting, calls } = render(CHOOSE, { quoteId: null });
+  const el = await mounting;
+  await flush();
+
+  const picker = el.byTestId("sku-customer") as HTMLSelectElement;
+  assert.ok(picker, "no customer selector where there is no customer in context");
+  assert.equal(picker.value, "", "a customer was defaulted");
+
   const btn = el.byTestId("sku-autogenerate") as HTMLButtonElement;
-  assert.equal(btn.disabled, true, "actionable with no brand chosen");
+  assert.equal(btn.disabled, true, "actionable with no customer chosen");
 
   await el.click('[data-testid="sku-autogenerate"]');
   await flush();
-  assert.equal(calls.length, 0, "generated without a brand");
+  assert.equal(calls.length, 0, "generated without a customer");
 });
 
-test("the picker offers every allocatable brand and no default entry", async () => {
-  const { svc } = services({ preselected: null });
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId={null}
-      currentValue=""
-      established={false}
-      attemptKey="k"
-      onGenerated={() => {}}
-    />,
-  );
+test("the selector offers every ready customer and no default entry", async () => {
+  const el = await render(CHOOSE, { quoteId: null }).el;
   await flush();
-  const picker = el.byTestId("sku-brand") as HTMLSelectElement;
-  const values = [...picker.options].map((o) => o.value);
-  assert.deepEqual(values, ["", "SPJ", "JLF"]);
-  assert.equal(values.filter((v) => v !== "").length, 2);
+  const picker = el.byTestId("sku-customer") as HTMLSelectElement;
+  assert.deepEqual([...picker.options].map((o) => o.value), ["", "SPJ", "JLF"]);
+});
+
+test("the selector is searchable, by customer name and by code", async () => {
+  const el = await render(CHOOSE, { quoteId: null }).el;
+  await flush();
+  const search = el.byTestId("sku-customer-search") as HTMLInputElement;
+  assert.ok(search, "no search where the list is expected to grow");
+
+  await el.type('[data-testid="sku-customer-search"]', "smart");
+  await flush();
+  assert.deepEqual(
+    [...(el.byTestId("sku-customer") as HTMLSelectElement).options].map((o) => o.value),
+    ["", "SPJ"],
+    "searching by customer name did not narrow the list",
+  );
+
+  await el.type('[data-testid="sku-customer-search"]', "jlf");
+  await flush();
+  assert.deepEqual(
+    [...(el.byTestId("sku-customer") as HTMLSelectElement).options].map((o) => o.value),
+    ["", "JLF"],
+    "searching by code did not narrow the list",
+  );
+});
+
+test("a search matching nothing says why, and still offers no fallback", async () => {
+  const el = await render(CHOOSE, { quoteId: null }).el;
+  await flush();
+  await el.type('[data-testid="sku-customer-search"]', "zzzz-no-such-customer");
+  await flush();
+
+  assert.deepEqual(
+    [...(el.byTestId("sku-customer") as HTMLSelectElement).options].map((o) => o.value),
+    [""],
+    "left a selectable customer that did not match",
+  );
+  const note = el.byTestId("sku-no-matches");
+  assert.ok(note, "an empty result said nothing");
+  assert.match(note.textContent ?? "", /manually/i);
+  assert.equal(
+    (el.byTestId("sku-autogenerate") as HTMLButtonElement).disabled,
+    true,
+  );
 });
 
 // ── generating ───────────────────────────────────────────────────────────
 
 test("a generated SKU is handed back, and the attempt key travels with it", async () => {
   const got: string[] = [];
-  const { svc, calls } = services({ preselected: "SPJ" });
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId="quote-1"
-      currentValue=""
-      established={false}
-      attemptKey="intent-42"
-      onGenerated={(v) => got.push(v)}
-    />,
-  );
+  const { el: mounting, calls } = render(READY, {
+    attemptKey: "intent-42",
+    onGenerated: (v) => got.push(v),
+  });
+  const el = await mounting;
   await flush();
   await el.click('[data-testid="sku-autogenerate"]');
   await flush();
@@ -200,13 +249,26 @@ test("a generated SKU is handed back, and the attempt key travels with it", asyn
   assert.deepEqual(got, ["DPS-SPJ-1001"]);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].get("attemptKey"), "intent-42", "retry safety depends on this");
-  assert.equal(calls[0].get("brandToken"), "SPJ");
+  assert.equal(calls[0].get("brandToken"), "SPJ", "generated under a code the quote did not name");
+});
+
+test("the Library sends the CHOSEN customer, not the first in the list", async () => {
+  const { el: mounting, calls } = render(CHOOSE, { quoteId: null });
+  const el = await mounting;
+  await flush();
+  await el.select('[data-testid="sku-customer"]', "JLF");
+  await flush();
+  await el.click('[data-testid="sku-autogenerate"]');
+  await flush();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].get("brandToken"), "JLF");
 });
 
 test("a refusal stays visible and does not fill the field", async () => {
   const got: string[] = [];
-  const { svc } = services({
-    preselected: "SPJ",
+  const el = await render(READY, {
+    onGenerated: (v) => got.push(v),
     generate: async () => ({
       ok: true,
       data: {
@@ -214,21 +276,11 @@ test("a refusal stays visible and does not fill the field", async () => {
         refusal: {
           kind: "counter_not_seeded",
           token: "SPJ",
-          message: "The counter for \"SPJ\" has not been seeded.",
+          message: 'The counter for "SPJ" has not been seeded.',
         },
       },
     }),
-  });
-  const el = await mount(
-    <AutoGenerateSku
-      services={svc}
-      quoteId="quote-1"
-      currentValue=""
-      established={false}
-      attemptKey="k"
-      onGenerated={(v) => got.push(v)}
-    />,
-  );
+  }).el;
   await flush();
   await el.click('[data-testid="sku-autogenerate"]');
   await flush();
@@ -242,4 +294,3 @@ test("a refusal stays visible and does not fill the field", async () => {
     "the control vanished after a refusal, leaving no way to retry",
   );
 });
-
