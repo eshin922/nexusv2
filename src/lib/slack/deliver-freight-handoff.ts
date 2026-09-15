@@ -4,6 +4,7 @@ import { desc, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { firmSettings, freightHandoffs, projects, quotes, users } from "@/db/schema";
 import { loadSlackConfig, postMessage } from "./client";
+import { slackLink } from "./app-url";
 
 /**
  * Tell the logistics channel that packaging is ready.
@@ -102,9 +103,10 @@ export async function deliverFreightHandoff(
     .where(eq(users.id, row.requestedByUserId))
     .limit(1);
 
-  const href = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://nexus.thedps.co"}/projects/${
-    ctx?.projectId ?? ""
-  }/quotes/${row.quoteId}/costs`;
+  // The production origin, always — see `./app-url`. Read from the environment
+  // this sent two notifications carrying `http://localhost:3000` links, which
+  // arrived looking correct and went nowhere.
+  const href = slackLink(`/projects/${ctx?.projectId ?? ""}/quotes/${row.quoteId}/costs`);
 
   const headline = `Packaging ready — freight needed`;
   const deal = ctx?.dealName ?? "a quote";
