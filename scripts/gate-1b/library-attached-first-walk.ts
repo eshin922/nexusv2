@@ -79,6 +79,7 @@ function grouping(rows: { leafId: string; name: string }[], attached: Set<string
 
 const PAGE = 5;
 const inserted: string[] = [];
+let createdAssemblyId: string | null = null;
 
 try {
   // ── the product that cannot be reached by sorting a page ────────────────
@@ -185,8 +186,120 @@ try {
       inGroup.has(last.id) || grouped.rows[0]?.leafId !== last.id,
       String(grouped.rows[0]?.name));
   }
+  // ═══ switching between two groups, from a later page ═══════════════════
+  //
+  // The case Edward named. Two item groups, each holding a DIFFERENT product,
+  // and the operator sitting on page two when they switch. Two things have to
+  // be true: the ordering must follow the destination, and the page must go
+  // back to one -- because page two of the new ordering is a slice that does
+  // not contain what the switch was meant to surface.
+  console.log("\n── two groups, starting on a later page ───────────────────");
+  // A SECOND group is created if the fixture has only one. The previous run
+  // SKIPPED this whole case for want of it, and a skipped check establishes
+  // nothing -- it reads like a pass in the output and covers the behaviour
+  // Edward actually asked about. Removed again in the finally block.
+  const existing = await sql<{ id: string }[]>`
+    select id from assemblies where quote_id = ${quote.id} order by position
+  `;
+  if (existing.length < 2) {
+    const [made] = await sql<{ id: string }[]>`
+      insert into assemblies (quote_id, sku, name, position)
+      values (${quote.id}, ${`WALK-ASY-${process.pid}`}, 'Attached-first walk group', 99)
+      returning id
+    `;
+    createdAssemblyId = made.id;
+  }
+  const asys = await sql<{ id: string }[]>`
+    select id from assemblies where quote_id = ${quote.id} order by position limit 2
+  `;
+  if (asys.length < 2) {
+    console.log("  (could not obtain two item groups — SKIPPED, which proves nothing)");
+  } else {
+    const [gA, gB] = asys;
+    // One late-sorting product into each group, so neither is reachable on
+    // page one by alphabet alone.
+    const late = await sql<{ id: string; name: string }[]>`
+      select l.id, l.name from leaves l
+       where l.archived = false
+         and not exists (select 1 from quote_leaves q where q.leaf_id = l.id and q.quote_id = ${quote.id})
+       order by l.name desc, l.id desc limit 2
+    `;
+    const rA = await sql<{ id: string }[]>`
+      insert into quote_leaves (quote_id, leaf_id, assembly_id, quantity)
+      values (${quote.id}, ${late[0].id}, ${gA.id}, 1) returning id`;
+    const rB = await sql<{ id: string }[]>`
+      insert into quote_leaves (quote_id, leaf_id, assembly_id, quantity)
+      values (${quote.id}, ${late[1].id}, ${gB.id}, 1) returning id`;
+    inserted.push(rA[0].id, rB[0].id);
+
+    // Sitting on PAGE TWO of group A.
+    const pageTwoOfA = await loadLibraryBrowse({
+      targetQuoteId: quote.id, limit: PAGE, offset: PAGE, targetAssemblyId: gA.id,
+    });
+    check(
+      "page two of group A does not hold A's product",
+      !pageTwoOfA.rows.some((r) => r.leafId === late[0].id),
+      "it is on page one, which is the point",
+    );
+
+    // Switch to B. Holding the offset would return this slice.
+    const heldOffset = await loadLibraryBrowse({
+      targetQuoteId: quote.id, limit: PAGE, offset: PAGE, targetAssemblyId: gB.id,
+    });
+    check(
+      "holding the offset across the switch MISSES B's product",
+      !heldOffset.rows.some((r) => r.leafId === late[1].id),
+      "which is why the reset exists",
+    );
+
+    // Resetting to page one is what the modal now does.
+    const resetToOne = await loadLibraryBrowse({
+      targetQuoteId: quote.id, limit: PAGE, offset: 0, targetAssemblyId: gB.id,
+    });
+    check(
+      "and page one of group B leads with B's product",
+      resetToOne.rows[0]?.leafId === late[1].id,
+      String(resetToOne.rows[0]?.name),
+    );
+    check(
+      "while A's product is NOT first for destination B",
+      resetToOne.rows[0]?.leafId !== late[0].id,
+    );
+
+    const backToA = await loadLibraryBrowse({
+      targetQuoteId: quote.id, limit: PAGE, offset: 0, targetAssemblyId: gA.id,
+    });
+    // NOT "row 0 is A's product" -- group A already held a product before this
+    // walk ran, and one that sorts earlier, so it leads legitimately. The
+    // property is that A's product reaches page one and sits in the attached
+    // block. This assertion has now been written wrongly twice in the same
+    // way: assuming an empty fixture the seed never promised.
+    const inA = await attachedSet(gA.id);
+    const gAGroup = grouping(backToA.rows, inA);
+    check(
+      "switching back brings A's product to page one",
+      backToA.rows.some((r) => r.leafId === late[0].id),
+      backToA.rows.map((r) => r.name).join(", ").slice(0, 60),
+    );
+    check(
+      "and it sits in A's attached block, ahead of everything unattached",
+      gAGroup.partitioned && gAGroup.attachedNames.length > 0,
+      `attached: ${gAGroup.attachedNames.join(", ")}`.slice(0, 70),
+    );
+    // B's product must NOT be in A's attached block -- that is what makes the
+    // two orderings genuinely different rather than coincidentally so.
+    check(
+      "B's product is not attached-ranked under destination A",
+      !inA.has(late[1].id) &&
+        backToA.rows.findIndex((r) => r.leafId === late[1].id) !==
+          backToA.rows.findIndex((r) => r.leafId === late[0].id),
+      "the two destinations rank different products",
+    );
+  }
+
 } finally {
   for (const id of inserted) await sql`delete from quote_leaves where id = ${id}`;
+  if (createdAssemblyId) await sql`delete from assemblies where id = ${createdAssemblyId}`;
 }
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED\n" : `\n${failures} CHECK(S) FAILED\n`);

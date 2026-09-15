@@ -1173,8 +1173,27 @@ test("B-11 · a filter change returns to the first page", async () => {
   // Holding the offset across a filter change lands past the end of the new
   // result set, which renders empty and reads as "no matches".
   const modal = await code("src/components/library/library-browse-modal.tsx");
-  assert.match(
-    modal,
-    /setOffset\(0\);\s*\}, \[search, sourceTypeFilter, scopeFilter, quoteId\]\)/,
-  );
+  const deps = (() => {
+    const at = modal.indexOf("setOffset(0);");
+    const close = modal.indexOf("}, [", at);
+    return modal.slice(close + 3, modal.indexOf("]", close) + 1);
+  })();
+  // Each dependency named individually rather than as one literal array. The
+  // set GREW -- `targetAssemblyId` re-sorts the results, so holding the offset
+  // across it strands the operator the same way a filter change would -- and
+  // pinning the exact array failed on a change that strengthens the very
+  // property this test protects.
+  for (const dep of [
+    "search",
+    "sourceTypeFilter",
+    "scopeFilter",
+    "quoteId",
+    "targetAssemblyId",
+  ]) {
+    assert.match(
+      deps,
+      new RegExp(`\\b${dep}\\b`),
+      `${dep} no longer returns the list to page one`,
+    );
+  }
 });

@@ -307,9 +307,15 @@ export function LibraryBrowseModal({
   // B-11 · a filter change returns to page 1. Holding the offset across a
   // filter change lands the operator past the end of the new result set, which
   // renders an empty list and reads as "no matches" rather than as "page 4".
+  //
+  // `targetAssemblyId` belongs here even though it filters nothing: it decides
+  // what counts as attached, so changing it RE-SORTS the whole result set.
+  // Products move between pages, and an operator sitting on page 4 would be
+  // looking at a slice of an order that no longer exists -- with the products
+  // the switch was meant to surface now on page 1, unseen.
   useEffect(() => {
     setOffset(0);
-  }, [search, sourceTypeFilter, scopeFilter, quoteId]);
+  }, [search, sourceTypeFilter, scopeFilter, quoteId, targetAssemblyId]);
 
   // Initial load + filter changes (debounced for search input).
   useEffect(() => {
@@ -344,7 +350,12 @@ export function LibraryBrowseModal({
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId, offset, browse]);
+    // `targetAssemblyId` is a real dependency, not decoration: it travels in
+    // the request above and changes the ordering that comes back. Without it
+    // here, switching item groups changed only what the NEXT fetch would send
+    // and triggered no fetch at all -- the list sat on the previous group's
+    // ordering until something else happened to move.
+  }, [open, search, typeFilter, sourceTypeFilter, scopeFilter, quoteId, offset, targetAssemblyId, browse]);
 
   // Escape dismiss.
   useEffect(() => {
