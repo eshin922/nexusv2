@@ -216,6 +216,50 @@ try {
   check("Settings shows it ready", nowRow?.readiness === "ready", String(nowRow?.readiness));
   check("and counts what it issued", nowRow?.issuedCount === 1, String(nowRow?.issuedCount));
 
+  // ═══ 5b · who may do any of this ═══════════════════════════════════════
+  //
+  // The guard is one line in `requireAdminAction`, and one line is exactly the
+  // kind of thing that gets removed by a refactor without anything failing.
+  // Every action is asked AS A NON-ADMIN here, because a guard that has only
+  // ever been called by someone who passes it has not been shown to refuse.
+  //
+  // The identity provider reads the environment per call, so flipping it mid
+  // walk changes who is asking without rebuilding the composition.
+  console.log("\n── as a PM, not an admin ─────────────────────────────────");
+  process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+
+  const whoami = (
+    await sql<{ role: string }[]>`
+      select role from users where clerk_user_id = 'validation_clerk_pm'
+    `
+  )[0];
+  check("the second identity really is a non-admin", whoami?.role === "pm", String(whoami?.role));
+
+  const asPm: [string, Promise<{ ok: boolean; error?: { code: string } }>][] = [
+    ["list", listCustomerSkuCodes()],
+    ["search", searchSkuCustomers("Validation Customer")],
+    ["save", save(BETA, "Validation Customer Beta", CODE_B)],
+    ["remove", removeCustomerSkuCode(form({ token: CODE_A }))],
+  ];
+  for (const [name, call] of asPm) {
+    const r = await call;
+    check(`a PM cannot ${name}`, !r.ok, r.ok ? "ALLOWED" : (r.error?.code ?? ""));
+    check(
+      `  and is refused as FORBIDDEN, not as a validation slip`,
+      !r.ok && r.error?.code === "FORBIDDEN",
+      r.ok ? "" : (r.error?.code ?? ""),
+    );
+  }
+
+  // The refused save must have written NOTHING -- a refusal that still left a
+  // row would be the worst version of this.
+  const leaked = (
+    await sql<{ n: number }[]>`select count(*)::int n from sku_brand_registry where token = ${CODE_B}`
+  )[0].n;
+  check("and the refused save left no row behind", leaked === 0, `${leaked} row(s)`);
+
+  process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+
   // ═══ 6 · products never moved ══════════════════════════════════════════
   console.log("\n── products ──────────────────────────────────────────────");
   const leavesAfter = (

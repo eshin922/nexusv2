@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { skuAllocations, skuBrandRegistry, skuCounters } from "@/db/schema";
 import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
@@ -308,6 +308,3 @@ export async function removeCustomerSkuCode(
     return { token };
   });
 }
-
-/** Ordering helper kept beside its one caller, for the list's stable sort. */
-export const CUSTOMER_CODE_ORDER = asc(skuBrandRegistry.customerLabel);
