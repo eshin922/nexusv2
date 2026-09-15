@@ -455,14 +455,25 @@ function LeafFields(props: {
       </div>
       </>
       )}
-      <div className="row-pair">
-        {/* No Leaf Product Type control. It was a second, Nexus-owned product
-            taxonomy standing beside HubSpot's -- operator-selected, never
-            submitted, and offering only packaging. Classification comes from
-            `hs_product_type` above; what the spec step will do with it is
-            stated below rather than chosen here. */}
-        <div className="field">
-          <span className="lbl">SKU</span>
+      {/* FULL WIDTH, not a `row-pair`.
+
+          It was in one, and its partner column is gone: the Leaf Product Type
+          control that used to sit beside it was removed as a second,
+          Nexus-owned taxonomy standing next to HubSpot's. What the removal
+          left behind was a two-column grid with ONE occupant, so the SKU field
+          kept rendering at 291px inside a 594px body -- half the modal, for no
+          reason that survives.
+
+          That went unnoticed while the field held only an input. It stopped
+          being invisible when Auto-generate moved beside the field: the
+          control is 261px wide with the customer named next to it, so one line
+          needed 449px in a 291px column and the button wrapped underneath --
+          which is the layout this was meant to replace.
+
+          Classification still comes from `hs_product_type` above; what the
+          spec step does with it is stated below rather than chosen here. */}
+      <div className="field">
+        <span className="lbl">SKU</span>
           {/* Manual entry stays the primary path: this sits beside the field
               and disappears the moment anything is typed into it. The row is
               what makes "beside" true -- the control used to render under the
@@ -501,7 +512,6 @@ function LeafFields(props: {
             />
             )}
           </div>
-        </div>
       </div>
       <div className="row-pair">
         <div className="field">
