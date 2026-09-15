@@ -294,3 +294,47 @@ test("a refusal stays visible and does not fill the field", async () => {
     "the control vanished after a refusal, leaving no way to retry",
   );
 });
+
+// ── layout: what sits beside the field, and what does not ────────────────
+//
+// Both call sites render this INSIDE the row that holds the SKU input, and
+// that input is `flex: 1`. So a two-line explanation rendered as an ordinary
+// flex child squeezes the very field it is telling the operator to type into,
+// and does so worse the narrower the viewport. jsdom has no layout engine and
+// cannot measure that; what it CAN establish is the rule that makes the
+// measurement come out right, which is what these pin.
+
+test("the button sits beside the field — the row is one line", async () => {
+  const el = await render(READY).el;
+  await flush();
+  const btn = el.byTestId("sku-autogenerate") as HTMLElement;
+  const wrapper = btn.parentElement as HTMLElement;
+  assert.equal(wrapper.style.display, "flex", "the control is not laid out as a row");
+  assert.equal(
+    wrapper.style.flexBasis,
+    "",
+    "the button's row claims a full line, which would push it under the field",
+  );
+});
+
+for (const [name, ctx] of [
+  ["no code", { kind: "no_code", customerLabel: "Roman Health Ventures, Inc" }],
+  ["awaiting setup", { kind: "awaiting_setup", token: "MISTR", customerLabel: "heymistr.com" }],
+] as const) {
+  test(`the "${name}" message takes its own line rather than the field's width`, async () => {
+    const el = await render(ctx as SkuBrandContext).el;
+    await flush();
+    const note = (el.byTestId("sku-no-code") ?? el.byTestId("sku-awaiting-setup")) as HTMLElement;
+    assert.ok(note, "no message rendered");
+    assert.equal(
+      note.style.flexBasis,
+      "100%",
+      "the message would sit beside the SKU input and squeeze it at narrow widths",
+    );
+    // Long enough to matter: this is the case that motivated the rule.
+    assert.ok(
+      (note.textContent ?? "").length > 80,
+      "a message short enough to sit inline would not need its own line",
+    );
+  });
+}

@@ -463,28 +463,44 @@ function LeafFields(props: {
             stated below rather than chosen here. */}
         <div className="field">
           <span className="lbl">SKU</span>
-          <input
-            type="text"
-            aria-label="SKU"
-            value={props.sku}
-            onChange={(e) => props.onSku(e.target.value)}
-            placeholder="Supplier SKU or internal ref"
-          />
           {/* Manual entry stays the primary path: this sits beside the field
-              and disappears the moment anything is typed into it. */}
-          {props.skuServices && (
-          <AutoGenerateSku
-            services={props.skuServices}
-            quoteId={props.skuQuoteId}
-            currentValue={props.sku}
-            established={false}
-            attemptKey={props.skuAttemptKey}
-            onGenerated={(v, id) => {
-              props.onSku(v);
-              props.onSkuAllocationId(id);
-            }}
-          />
-          )}
+              and disappears the moment anything is typed into it. The row is
+              what makes "beside" true -- the control used to render under the
+              input, which read as a separate step rather than an alternative
+              to typing. */}
+          <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    // A refusal notice takes its own line (flexBasis 100% on the
+                    // control side); without wrap it could not, and would squeeze
+                    // the field instead.
+                    flexWrap: "wrap",
+                  }}
+                >
+            <input
+              type="text"
+              aria-label="SKU"
+              value={props.sku}
+              onChange={(e) => props.onSku(e.target.value)}
+              placeholder="Supplier SKU or internal ref"
+              style={{ flex: 1, minWidth: 180 }}
+            />
+            {props.skuServices && (
+            <AutoGenerateSku
+              services={props.skuServices}
+              quoteId={props.skuQuoteId}
+              currentValue={props.sku}
+              established={false}
+              attemptKey={props.skuAttemptKey}
+              onGenerated={(v, id) => {
+                props.onSku(v);
+                props.onSkuAllocationId(id);
+              }}
+            />
+            )}
+          </div>
         </div>
       </div>
       <div className="row-pair">
