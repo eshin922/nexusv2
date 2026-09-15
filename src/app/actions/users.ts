@@ -148,3 +148,100 @@ export async function addUser(
     return { userId: result.userId, email: result.email, role: result.role };
   });
 }
+
+/**
+ * Grant or withdraw the two per-user permissions.
+ *
+ * ── WHY THIS EXISTS ──────────────────────────────────────────────────────
+ *
+ * `users.can_edit_specs` and `users.can_create_leaves` are read by
+ * `assertCanEditSpecs` / `assertCanCreateLeaves` on every spec and library
+ * write, and until now NOTHING could set them. They were seeded by migration
+ * and never touched again, so in practice both resolved to "admins only" —
+ * admins pass those guards implicitly, by role, without the column being true.
+ *
+ * That is why a PM asked to complete a SKU was refused at save, after the form
+ * had let her type it: the guard was working, and the grant was unreachable.
+ *
+ * ── A GRANT IS ITS OWN DECISION ──────────────────────────────────────────
+ *
+ * Deliberately NOT folded into Add User, and deliberately not implied by a
+ * role. Both stay separate acts, because each is a decision someone should
+ * have to make on purpose rather than inherit from a hiring form — the same
+ * reasoning that keeps `commercial_approver` out of the create path.
+ *
+ * ── ADMINS ARE UNAFFECTED BY IT ──────────────────────────────────────────
+ *
+ * The guards return early on `role === "admin"`, so these columns say nothing
+ * about what an admin can do. Setting them on an admin is permitted and
+ * recorded, but changes no access; the surface says so rather than implying
+ * the toggle is doing something.
+ */
+export async function updateUserGrants(
+  formData: FormData,
+): Promise<ActionResult<{ userId: string; canEditSpecs: boolean; canCreateLeaves: boolean }>> {
+  return runAction(async () => {
+    const admin = await requireAdminAction();
+
+    const userId = String(formData.get("userId") ?? "").trim();
+    if (!userId) {
+      throw new ActionGuardError(ERR.VALIDATION, "userId is required.");
+    }
+    // Present-or-absent, not a parsed truthiness: an unchecked checkbox sends
+    // nothing at all, and reading `Boolean(formData.get(...))` would make a
+    // missing field and an explicit "off" indistinguishable from a typo.
+    const canEditSpecs = formData.get("canEditSpecs") === "on";
+    const canCreateLeaves = formData.get("canCreateLeaves") === "on";
+
+    const granted = await db.transaction(async (tx) => {
+      // Read inside the transaction so the audit records what this write
+      // actually changed FROM, rather than what the screen last displayed.
+      const [prior] = await tx
+        .select({
+          id: users.id,
+          email: users.email,
+          role: users.role,
+          canEditSpecs: users.canEditSpecs,
+          canCreateLeaves: users.canCreateLeaves,
+        })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!prior) {
+        throw new ActionGuardError(ERR.NOT_FOUND, "That is not a current Nexus user.");
+      }
+
+      await tx
+        .update(users)
+        .set({ canEditSpecs, canCreateLeaves })
+        .where(eq(users.id, userId));
+
+      // In the SAME transaction. Authority granted with no record of who
+      // granted it is the one kind of change that must never be able to
+      // survive its own audit failing.
+      await writeAuditEntry(
+        {
+          userId: admin.id,
+          entityType: "user",
+          entityId: userId,
+          action: "user_grants_updated",
+          diffJson: {
+            subject_email: prior.email,
+            subject_role: prior.role,
+            from: {
+              can_edit_specs: prior.canEditSpecs,
+              can_create_leaves: prior.canCreateLeaves,
+            },
+            to: { can_edit_specs: canEditSpecs, can_create_leaves: canCreateLeaves },
+          },
+        },
+        tx,
+      );
+
+      return { userId, canEditSpecs, canCreateLeaves };
+    });
+
+    revalidatePath("/admin/users");
+    return granted;
+  });
+}

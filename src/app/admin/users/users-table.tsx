@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateUserPhone } from "@/app/actions/users";
+import { updateUserGrants, updateUserPhone } from "@/app/actions/users";
 import { AddUserModal } from "./add-user-modal";
 
 // Slice RI.8 step 4 — Round 5 vocabulary on /admin/users. CSS classes
@@ -23,7 +23,48 @@ type Row = {
    * "Active" is the whole of what this page needs to say.
    */
   bindingState: "pending_first_sign_in" | "bound";
+  /**
+   * The two per-user grants, read by `assertCanEditSpecs` and
+   * `assertCanCreateLeaves` on every spec and library write.
+   *
+   * Shown for everyone but meaningful only for non-admins: those guards return
+   * early on `role === "admin"`, so an admin's access does not depend on these
+   * columns and the row says as much rather than showing a toggle that changes
+   * nothing.
+   */
+  canEditSpecs: boolean;
+  canCreateLeaves: boolean;
 };
+
+/** What a row's grants actually amount to, which is not the column alone. */
+function GrantsCell({ user }: { user: Row }) {
+  if (user.role === "admin") {
+    return (
+      <div className="grants">
+        <span className="implicit" title="Admins pass the spec and leaf guards by role, whatever these columns say">
+          by role
+        </span>
+      </div>
+    );
+  }
+  const held = [
+    user.canEditSpecs ? "specs" : null,
+    user.canCreateLeaves ? "leaves" : null,
+  ].filter(Boolean) as string[];
+  return (
+    <div className="grants">
+      {held.length === 0 ? (
+        <span className="empty">none</span>
+      ) : (
+        held.map((g) => (
+          <span className="grant" key={g}>
+            {g}
+          </span>
+        ))
+      )}
+    </div>
+  );
+}
 
 export function UsersTable({ users }: { users: Row[] }) {
   const router = useRouter();
@@ -41,6 +82,7 @@ export function UsersTable({ users }: { users: Row[] }) {
         <div>Email</div>
         <div>Role</div>
         <div>Status</div>
+        <div>Grants</div>
         <div>Phone</div>
         <div></div>
       </div>
@@ -129,6 +171,7 @@ function UserRow({
         </span>
       </div>
       <EnrollmentCell state={user.bindingState} />
+      <GrantsCell user={user} />
       <div className="phone">
         {user.phone ? (
           user.phone
@@ -155,21 +198,43 @@ function EditingRow({
   onSaved: () => void;
 }) {
   const [phone, setPhone] = useState(user.phone ?? "");
+  const [specs, setSpecs] = useState(user.canEditSpecs);
+  const [leaves, setLeaves] = useState(user.canCreateLeaves);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const grantsChanged =
+    specs !== user.canEditSpecs || leaves !== user.canCreateLeaves;
+
   function save() {
     setError(null);
-    const fd = new FormData();
-    fd.set("userId", user.id);
-    fd.set("phone", phone);
     startTransition(async () => {
-      const r = await updateUserPhone(fd);
-      if (!r.ok) {
-        setError(r.error.message);
-      } else {
-        onSaved();
+      const phoneForm = new FormData();
+      phoneForm.set("userId", user.id);
+      phoneForm.set("phone", phone);
+      const phoneResult = await updateUserPhone(phoneForm);
+      if (!phoneResult.ok) {
+        setError(phoneResult.error.message);
+        return;
       }
+
+      // Only when they actually moved. Granting is an audited event, and
+      // re-saving a phone number should not write a grant record saying
+      // somebody's authority was reviewed when it was not touched.
+      if (grantsChanged) {
+        const grantForm = new FormData();
+        grantForm.set("userId", user.id);
+        if (specs) grantForm.set("canEditSpecs", "on");
+        if (leaves) grantForm.set("canCreateLeaves", "on");
+        const grantResult = await updateUserGrants(grantForm);
+        if (!grantResult.ok) {
+          // The phone already saved. Say so rather than reporting a single
+          // failure that hides a partial success.
+          setError(`Phone saved. Grants were not: ${grantResult.error.message}`);
+          return;
+        }
+      }
+      onSaved();
     });
   }
 
@@ -187,6 +252,34 @@ function EditingRow({
         </span>
       </div>
       <EnrollmentCell state={user.bindingState} />
+      <div className="grants editing">
+        {user.role === "admin" ? (
+          // Not a disabled checkbox pretending to be meaningful: the guards
+          // return early on role, so there is nothing here to toggle.
+          <span className="implicit">by role</span>
+        ) : (
+          <>
+            <label>
+              <input
+                type="checkbox"
+                checked={specs}
+                onChange={(e) => setSpecs(e.target.checked)}
+                aria-label={`${user.name ?? user.email} may edit specs`}
+              />
+              specs
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={leaves}
+                onChange={(e) => setLeaves(e.target.checked)}
+                aria-label={`${user.name ?? user.email} may create library leaves`}
+              />
+              leaves
+            </label>
+          </>
+        )}
+      </div>
       <div className="phone">
         <div className="r5-users-edit">
           <input
