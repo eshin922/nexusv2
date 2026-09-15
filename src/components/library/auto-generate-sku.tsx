@@ -138,8 +138,19 @@ export function AutoGenerateSku({
   const note: React.CSSProperties = {
     fontSize: 11,
     color: "var(--ink-3)",
-    maxWidth: 380,
+    // `flexBasis: 100%` ALONE DID NOT BREAK THE LINE, because `maxWidth`
+    // clamped it. Flex decides line breaks from the hypothetical main size --
+    // the basis clamped by min and max -- so with a 380px cap the notice
+    // measured 380, and 180 (input floor) + 8 + 380 fitted inside a 594px
+    // field. The two shared a line and the input was squeezed to 206px:
+    // exactly the defect the basis was added to prevent, hidden above the
+    // width where it bites.
+    //
+    // `minWidth: 100%` is what actually guarantees the break, since a minimum
+    // cannot be clamped away by a maximum. The cap is gone with it; at 11px
+    // inside a modal no wider than 594 the measure stays readable without one.
     flexBasis: "100%",
+    minWidth: "100%",
   };
 
   // ── a code exists but cannot issue yet ─────────────────────────────────
