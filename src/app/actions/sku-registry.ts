@@ -184,6 +184,31 @@ export async function saveCustomerSkuCode(
     }
 
     await db.transaction(async (tx) => {
+      // ── THE CHECK AND THE INSERT MUST BE ONE OPERATION ─────────────────
+      //
+      // A transaction is not enough. Under READ COMMITTED -- Postgres's
+      // default, and what this connects with -- two concurrent saves for the
+      // same company both run their SELECT before either INSERT commits, both
+      // see no existing code, and both insert. The tokens differ, so the
+      // primary key does not collide, and the customer ends up with TWO
+      // approved codes. The quote path reads the first match, so which code is
+      // theirs would then depend on row order.
+      //
+      // The lock is taken on a CONSTANT rather than on the company or the
+      // token, so saves serialize globally. That is deliberate: locking per
+      // key would need two locks -- one company, one token, since two
+      // different companies can race for the same mnemonic -- and a fixed
+      // acquisition order to avoid deadlocking them against each other.
+      // Entering a customer's code is an admin action performed a handful of
+      // times a year; there is nothing to gain from concurrency here, and a
+      // single lock is correct by inspection rather than by argument.
+      //
+      // `pg_advisory_xact_lock` releases with the transaction, including on
+      // rollback, so a refusal below cannot strand it.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended('sku_brand_registry:save', 0))`,
+      );
+
       // Taken by somebody else? The token is the primary key, so the insert
       // would fail anyway -- this exists to say WHO holds it, which is the
       // part an operator can act on.
@@ -231,21 +256,35 @@ export async function saveCustomerSkuCode(
       // APPROVED, and deliberately WITHOUT a counter. The code is settled; its
       // starting number is not, and allocation refuses on the missing counter
       // independently of this row.
-      await tx.insert(skuBrandRegistry).values({
-        token,
-        customerLabel,
-        hubspotCompanyId: companyId,
-        status: "approved",
-        evidence: {
-          source: "settings_sku_codes",
-          entered_by_email: admin.email,
-          entered_at: new Date().toISOString(),
-          note: "Code entered in Settings. Counter deliberately unseeded: the starting number needs the three-system inventory check.",
-        },
-        proposedByUserId: admin.id,
-        approvedByUserId: admin.id,
-        approvedAt: new Date(),
-      });
+      try {
+        await tx.insert(skuBrandRegistry).values({
+          token,
+          customerLabel,
+          hubspotCompanyId: companyId,
+          status: "approved",
+          evidence: {
+            source: "settings_sku_codes",
+            entered_by_email: admin.email,
+            entered_at: new Date().toISOString(),
+            note: "Code entered in Settings. Counter deliberately unseeded: the starting number needs the three-system inventory check.",
+          },
+          proposedByUserId: admin.id,
+          approvedByUserId: admin.id,
+          approvedAt: new Date(),
+        });
+      } catch (e) {
+        // The primary key, reached by a writer that did not take the lock
+        // above -- a script, or an action somebody adds later. The lock makes
+        // this unreachable from HERE; this makes the outcome a refusal rather
+        // than a raw Postgres error wherever it is reached from.
+        if ((e as { code?: string })?.code === "23505") {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            `${token} was taken while you were saving. Reload the list and pick another code.`,
+          );
+        }
+        throw e;
+      }
     });
 
     return { token };

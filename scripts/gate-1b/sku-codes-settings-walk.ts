@@ -178,6 +178,57 @@ try {
   const alpha = again.ok ? again.data.find((c) => c.companyId === ALPHA) : undefined;
   check("the search reports the existing code", alpha?.existingToken === CODE_A, String(alpha?.existingToken));
 
+  // ═══ 4b · two submissions at once ══════════════════════════════════════
+  //
+  // The race this excludes is not hypothetical and a transaction does not
+  // close it. Under READ COMMITTED both saves run their "does this customer
+  // already have a code" SELECT before either INSERT commits, both see none,
+  // and both insert. The tokens differ, so the primary key does not collide.
+  // The customer ends with TWO approved codes, and the quote path -- which
+  // reads the first match -- starts depending on row order.
+  //
+  // Run as a real race rather than simulated: two calls in flight together on
+  // separate pool connections. Repeated, because a race that happens to
+  // serialize once has not been shown to be excluded.
+  console.log("\n── two saves for one customer, at once ────────────────────");
+  const RACE_CO = "800000000000003"; // Northwind Botanicals
+  const RACE_LABEL = "Northwind Botanicals";
+  let raceRounds = 0;
+  let raceWorst = 0;
+  for (let round = 0; round < 8; round++) {
+    const a = `RA${n}${round}`;
+    const b = `RB${n}${round}`;
+    await sql`delete from sku_brand_registry where hubspot_company_id = ${RACE_CO}`;
+
+    const [ra, rb] = await Promise.all([
+      save(RACE_CO, RACE_LABEL, a),
+      save(RACE_CO, RACE_LABEL, b),
+    ]);
+
+    const saved = (
+      await sql<{ n: number }[]>`
+        select count(*)::int n from sku_brand_registry
+         where hubspot_company_id = ${RACE_CO} and status = 'approved'
+      `
+    )[0].n;
+    raceWorst = Math.max(raceWorst, saved);
+    const wins = [ra.ok, rb.ok].filter(Boolean).length;
+    if (saved === 1 && wins === 1) raceRounds++;
+    // The refusal must be the one a person can act on, not a raw 23505
+    // surfacing as an unhandled server error.
+    const loser = ra.ok ? rb : ra;
+    if (!loser.ok && !/already has the code|was taken while you were saving/.test(loser.error.message)) {
+      console.log(`    round ${round}: unclear refusal — ${loser.error.message.slice(0, 90)}`);
+    }
+  }
+  await sql`delete from sku_brand_registry where hubspot_company_id = ${RACE_CO}`;
+
+  check(
+    "every round saved exactly ONE code and refused exactly one",
+    raceRounds === 8,
+    `${raceRounds}/8 clean, worst case ${raceWorst} row(s) for one customer`,
+  );
+
   // ═══ 5 · removal, and what protects it ═════════════════════════════════
   console.log("\n── removing ──────────────────────────────────────────────");
   const removable = await removeCustomerSkuCode(form({ token: CODE_A }));
