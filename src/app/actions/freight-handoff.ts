@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { firmSettings, freightHandoffs, quotes, users } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
@@ -46,6 +46,15 @@ export type FreightHandoffState = {
   requestedAt: Date;
   notificationStatus: "pending" | "delivered" | "failed" | "not_configured";
   notificationError: string | null;
+};
+
+/**
+ * The latest handoff on a quote, whatever became of it. What the Packaging and
+ * Freight modules render their completion state from.
+ */
+export type LatestFreightHandoff = FreightHandoffState & {
+  completedAt: Date | null;
+  completedByEmail: string | null;
 };
 
 async function loadRecipient(): Promise<{ userId: string; email: string | null }> {
@@ -109,6 +118,64 @@ export async function getFreightHandoff(
       requestedAt: row.requestedAt,
       notificationStatus:
         row.notificationStatus as FreightHandoffState["notificationStatus"],
+      notificationError: row.notificationError,
+    };
+  });
+}
+
+/**
+ * The LATEST handoff for a quote whatever its status, which is what the two
+ * modules render from.
+ *
+ * `getFreightHandoff` above returns the OPEN one and is deliberately left
+ * alone: it is what `markReadyForFreight` reads back on a double-click, and
+ * it must keep meaning "the request that is live right now".
+ *
+ * The modules need more than that. A handoff that logistics has COMPLETED is
+ * gone from the open read, so a surface built on it would show Packaging as
+ * not-complete the moment Freight finished -- reporting that the work had
+ * never been handed over because it had been handed over and finished. The
+ * closed row is the evidence of both, so it is read.
+ *
+ * A `withdrawn` row is not evidence of either: withdrawing IS reopening
+ * packaging, and the modules read it as the un-completed state it is.
+ */
+export async function getLatestFreightHandoff(
+  quoteId: string,
+): Promise<ActionResult<LatestFreightHandoff | null>> {
+  return runAction(async () => {
+    await ensureUser();
+    const [row] = await db
+      .select()
+      .from(freightHandoffs)
+      .where(eq(freightHandoffs.quoteId, quoteId))
+      .orderBy(desc(freightHandoffs.requestedAt))
+      .limit(1);
+    if (!row) return null;
+
+    const ids = [row.assignedToUserId, row.completedByUserId].filter(
+      (id): id is string => Boolean(id),
+    );
+    const people = ids.length
+      ? await db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(inArray(users.id, ids))
+      : [];
+    const emailOf = (id: string | null) =>
+      id ? people.find((p) => p.id === id)?.email ?? null : null;
+
+    return {
+      handoffId: row.id,
+      quoteId: row.quoteId,
+      status: row.status as LatestFreightHandoff["status"],
+      assignedToUserId: row.assignedToUserId,
+      assignedToEmail: emailOf(row.assignedToUserId),
+      requestedAt: row.requestedAt,
+      completedAt: row.completedAt,
+      completedByEmail: emailOf(row.completedByUserId),
+      notificationStatus:
+        row.notificationStatus as LatestFreightHandoff["notificationStatus"],
       notificationError: row.notificationError,
     };
   });

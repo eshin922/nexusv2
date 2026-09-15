@@ -10,6 +10,9 @@
 /* OD-032 Shape A — component charges in Packaging, Item Group
    attribution in Production. Additive only; no region moves. */
 @import "../styles/od032-costs-charges.css";
+/* Mark complete, inside each module. Nexus extension over the canonical R6
+   drawer toolbar, kept out of it so that file stays verbatim. */
+@import "../styles/module-completion.css";
 @import "../styles/r1-setup.css";
 @import "../styles/r7b-setup.css";
 @import "../styles/r-a1v2-setup.css";

@@ -3014,6 +3014,69 @@ export const freightHandoffs = pgTable(
   ],
 );
 
+// ---------- production_completions (module completion; 0126) ----------
+
+/**
+ * Production's completion state.
+ *
+ * -- WHY THIS EXISTS AND PACKAGING'S EQUIVALENT DOES NOT ------------------
+ *
+ * Packaging completion and Freight completion are the two ends of ONE fact
+ * that `freight_handoffs` already records. Production hands nothing to
+ * anybody, so it has no handoff to borrow -- and the only way to record that
+ * someone finished it is to record it. What is recorded is exactly that: who
+ * completed it, and when.
+ *
+ * -- AN OPERATOR DECISION, NOT A READING OF THE DATA ----------------------
+ *
+ * Nothing here is computed from whether the production tiers look costed, and
+ * the control is never disabled on that basis. A person judged the module
+ * finished; this says they did.
+ *
+ * A row per completion rather than a column on `quotes`, for the same reason
+ * `freight_handoffs` is a table: reopening is supported, and a column would
+ * overwrite the history that reopening is supposed to leave behind.
+ */
+export const productionCompletions = pgTable(
+  "production_completions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+
+    /** Who said Production was finished, and when. */
+    completedByUserId: uuid("completed_by_user_id").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * `completed` | `reopened`.
+     *
+     * Past participle, matching `freight_handoffs.status`, and deliberately
+     * NOT the literal `"complete"` -- that word belongs to `quotes.status` and
+     * its single-writer guard, and a module finishing is a different event.
+     */
+    status: text("status").notNull().default("completed"),
+    reopenedByUserId: uuid("reopened_by_user_id"),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One standing completion per quote. What makes a double-click harmless,
+    // and it is the database that enforces it rather than a check-then-insert
+    // the two clicks can interleave through.
+    uniqueIndex("production_completions_one_open_idx")
+      .on(t.quoteId)
+      .where(sql`status = 'completed'`),
+    index("production_completions_quote_idx").on(t.quoteId, t.completedAt),
+  ],
+);
+
 // ---------- assembly_leaves (M:N junction; Phase A.1 v2) ----------
 
 // Junction table linking assemblies (per-quote ASYs) to leaves

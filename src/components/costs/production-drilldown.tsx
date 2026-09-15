@@ -9,6 +9,7 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectOtherServiceItems } from "@/lib/costing-store";
 import { OtherServiceItemPicker } from "@/components/costs/other-service-item-picker";
+import { ProductionCompletion } from "@/components/costs/module-completion";
 import {
   selectActiveTierId,
   selectGraph,
@@ -427,6 +428,12 @@ export function ProductionDrilldown({
                 fact about the whole quote and previously read one product's. */}
             Service fees: <strong>{describeAllocation(allocation)}</strong>
           </span>
+        </div>
+
+        {/* Production's own completion state — the one module that hands
+            nothing to anybody, and so had nothing to record it with. */}
+        <div className="rhs">
+          <ProductionCompletion />
         </div>
       </div>
 
