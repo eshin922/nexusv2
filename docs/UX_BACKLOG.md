@@ -5400,3 +5400,50 @@ created 31 seconds apart with different HubSpot ids. That is confirmed. The
 absent edit path is a plausible cause and is NOT established as the cause;
 nothing in the record connects them, and the story being coherent is not
 evidence. The duplicates are reported; their origin is open.
+
+## Release-process defect — a merged PR's migration was not applied (2026-09-14)
+
+**What happened.** #565 was merged with `verify` green. Its migration, `0122`
+(widening the `leaf_specs_spec_schema_values` CHECK to admit `schema_pending`),
+had only ever been applied to the isolated validation database. So for roughly
+twenty minutes production ran merged code whose schema change was absent: any
+spec pin resolving to `schema_pending` would have violated the constraint.
+
+It surfaced by accident. The next release step asked for a specific migration
+to be applied, the mandatory pending-set check ran, and the set came back
+`{0122, 0123}` instead of `{0123}`. Nothing in the merge path had asked.
+
+**Why the existing discipline did not catch it.** The standing rule is "apply
+additive migrations BEFORE merging code that reads them" — a rule about
+sequencing, held by whoever is doing the merge. There is no gate that
+*enforces* it:
+
+- `verify` runs tests and typechecks. It does not compare the branch's
+  migrations against what the shared database has applied.
+- The migration-index verifier checks that filenames and journal entries are
+  consistent with each other. It never connects to a database.
+- `scripts/gate-1b/migration-history-trace.ts` does exactly the right check —
+  and is run by hand, when someone remembers.
+
+So a PR that adds a migration is indistinguishable, at merge time, from one
+that does not.
+
+**What would close it** (not attempted here; this is a record, not a fix):
+
+- A required check that fails a PR carrying an unapplied migration unless the
+  migration is applied first, or the PR is explicitly labelled as
+  migration-before-merge. The trace script already computes the pending set;
+  the missing part is running it in CI against the shared database and turning
+  the answer into a gate.
+- Or, at minimum, a merge checklist item that names the trace script for any
+  PR touching `drizzle/`.
+
+**Aggravating factor worth recording separately:** this repository runs ONE
+Supabase project for dev and production, so "apply the migration" is always a
+production change and can never be rehearsed. That is a known v1
+simplification (see "Single Supabase project" in CLAUDE.md) and it removes the
+margin that would otherwise absorb a mistake in ordering.
+
+**Blast radius this time:** none observed. The window was short, the affected
+path is a spec pin that resolves to `schema_pending`, and no such write is
+known to have been attempted. Both migrations are now applied and verified.
