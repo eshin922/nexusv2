@@ -326,10 +326,30 @@ for (const [name, ctx] of [
     await flush();
     const note = (el.byTestId("sku-no-code") ?? el.byTestId("sku-awaiting-setup")) as HTMLElement;
     assert.ok(note, "no message rendered");
+    // BOTH properties, and `minWidth` is the load-bearing one.
+    //
+    // This test asserted only `flexBasis` and passed while the deployed
+    // layout still put the notice beside the input at full width: a
+    // `maxWidth: 380` clamped the basis, flex sized the line from the
+    // clamped value, and the two fitted together inside a 594px field. A
+    // declared property is not a line break, and checking one cannot
+    // express the failure of the other -- jsdom has no layout engine, so
+    // what is pinned here is the rule, and the break itself is measured on
+    // the deployed surface.
     assert.equal(
       note.style.flexBasis,
       "100%",
-      "the message would sit beside the SKU input and squeeze it at narrow widths",
+      "the message claims no full-line basis",
+    );
+    assert.equal(
+      note.style.minWidth,
+      "100%",
+      "without a minimum the basis can be clamped away, and the message shares the input's line",
+    );
+    assert.equal(
+      note.style.maxWidth,
+      "",
+      "a max-width clamps the hypothetical size and is what defeated the basis before",
     );
     // Long enough to matter: this is the case that motivated the rule.
     assert.ok(
