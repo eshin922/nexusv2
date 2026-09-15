@@ -269,13 +269,23 @@ export function EditProductModal({
                 {/* Input and control on ONE row, so generating reads as an
                     alternative to typing rather than a step after it. The hint
                     stays beneath both, where it describes the field. */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    // A refusal notice takes its own line (flexBasis 100% on the
+                    // control side); without wrap it could not, and would squeeze
+                    // the field instead.
+                    flexWrap: "wrap",
+                  }}
+                >
                   <input
                     data-testid="edit-sku"
                     value={sku}
                     onChange={(e) => setSku(e.target.value)}
                     placeholder="Required before this product can be added to a quote"
-                    style={{ flex: 1, minWidth: 0 }}
+                    style={{ flex: 1, minWidth: 180 }}
                   />
                   {/* Only on the no-SKU branch. The established branch above
                       never offers it -- replacing an established identifier is

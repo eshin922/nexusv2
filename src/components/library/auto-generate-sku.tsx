@@ -122,7 +122,25 @@ export function AutoGenerateSku({
     flexWrap: "wrap",
     flexShrink: 0,
   };
-  const note: React.CSSProperties = { fontSize: 11, color: "var(--ink-3)", maxWidth: 380 };
+  /**
+   * A refusal takes its OWN LINE, under the field.
+   *
+   * `flexBasis: "100%"` rather than leaving it to wrap when space runs out.
+   * Both call sites render this inside the row that holds the SKU input, and
+   * the input is `flex: 1` -- so a two-line explanation sitting beside it as
+   * an ordinary flex child squeezes the field the message is telling the
+   * operator to type into. Forcing the break makes that independent of
+   * viewport width instead of true above some breakpoint nobody picked.
+   *
+   * The BUTTON still sits beside the field; it is short and it is the thing
+   * the row exists for. Only the prose drops.
+   */
+  const note: React.CSSProperties = {
+    fontSize: 11,
+    color: "var(--ink-3)",
+    maxWidth: 380,
+    flexBasis: "100%",
+  };
 
   // ── a code exists but cannot issue yet ─────────────────────────────────
   //
