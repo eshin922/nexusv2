@@ -390,6 +390,58 @@
  * (nexus completion of a canonical rule that was incomplete for
  * production embedding).
  */
+/*
+ * The Library modal is a FIXED height, not a content-sized one.
+ *
+ * It was content-sized under a `max-height` cap, so the frame moved with the
+ * result count: measured in the isolated harness at 1334px showing everything,
+ * 331px filtered to one product, 521px on the empty state. Switching the type
+ * filter from All types to Formulation collapsed it by a thousand pixels --
+ * the operator changes a filter and the dialog jumps under the cursor, with
+ * the close button and pager arriving somewhere new each time.
+ *
+ * `min(820px, ...)` rather than a bare viewport expression: the cap keeps the
+ * dialog a comfortable size on a tall screen, and the viewport term takes over
+ * on a short one. The backdrop already pads 40px, which is where the 80 comes
+ * from -- margins above and below are its, not this rule's.
+ */
+.a1v2-modal.lib-modal {
+  height: min(820px, calc(100vh - 80px));
+}
+
+/*
+ * The scroll boundary, stated on the results list itself.
+ *
+ * The wrapper rule below fixes the chain from the modal down; this fixes the
+ * last link. Without `min-height: 0` a flex child refuses to shrink below its
+ * content, so the list would push the pager out of the frame rather than
+ * scrolling within it.
+ */
+.a1v2-modal.lib-modal .lib-results {
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * Pagination stays put while the list moves under it.
+ *
+ * `sticky` rather than lifting the element out of `.lib-results`: the pager is
+ * rendered inside a conditional fragment alongside the table, and restructuring
+ * that tree to make it a sibling is a larger change than the behaviour needs.
+ * Sticky gives the operator the same thing -- controls that do not scroll away
+ * -- with no change to what renders when.
+ *
+ * The background is opaque on purpose. Transparent, the rows would read through
+ * the controls as they passed beneath.
+ */
+.a1v2-modal.lib-modal .lib-pager {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--paper);
+  border-top: 1px solid var(--rule);
+}
+
 .a1v2-modal .a1v2-library-browse {
   flex: 1;
   min-height: 0;
