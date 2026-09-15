@@ -28,6 +28,7 @@ export type Mounted = {
   /** Click, flushing React work the click schedules. */
   click: (selector: string) => Promise<void>;
   type: (selector: string, value: string) => Promise<void>;
+  select: (selector: string, value: string) => Promise<void>;
   text: () => string;
 };
 
@@ -120,6 +121,35 @@ export async function mount(el: ReactElement): Promise<Mounted> {
         )?.set;
         setter?.call(node, value);
         node.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+    },
+    /**
+     * Choose an option in a `<select>`.
+     *
+     * Separate from `type` because the two need different prototypes and
+     * different events: React tracks the value per element class, so the
+     * input setter leaves a select's tracker untouched and `onChange` never
+     * fires -- the test would then assert against a control nobody changed.
+     */
+    async select(sel: string, value: string) {
+      const node = container.querySelector(sel) as HTMLSelectElement | null;
+      if (!node) throw new Error(`select: no element matches ${sel}`);
+      if (!Array.from(node.options).some((o) => o.value === value)) {
+        throw new Error(
+          `select: ${sel} has no option ${JSON.stringify(value)} (has ${Array.from(
+            node.options,
+          )
+            .map((o) => o.value)
+            .join(", ")})`,
+        );
+      }
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLSelectElement.prototype,
+          "value",
+        )?.set;
+        setter?.call(node, value);
+        node.dispatchEvent(new window.Event("change", { bubbles: true }));
       });
     },
     text: () => container.textContent ?? "",

@@ -521,6 +521,45 @@ function toVendor(company: {
   return { id: company.id, name };
 }
 
+/**
+ * Read-only company lookup for the SKU-code selector.
+ *
+ * NOT filtered to a `type`, unlike the Vendor search below. A customer record
+ * in this hub may carry `type` CUSTOMER, null, or nothing anyone has
+ * maintained — filtering on it would silently hide the company an operator is
+ * looking for, and an empty result reads as "no such customer" rather than
+ * "your filter excluded it". Archived and unnamed companies ARE excluded: an
+ * archived record is not a customer to mint a permanent namespace against,
+ * and a nameless one cannot be confirmed by the person choosing it.
+ */
+export async function searchCustomerCompanies(
+  query: string,
+  limit = 25,
+): Promise<HubSpotVendor[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const c = getReadClient();
+  try {
+    const response = await c.crm.companies.searchApi.doSearch({
+      query: trimmed,
+      filterGroups: [],
+      sorts: ["name"],
+      properties: ["name"],
+      limit: Math.min(Math.max(limit, 1), 100),
+      after: "0",
+    });
+    return (response.results ?? [])
+      .filter((company) => !company.archived)
+      .map((company) => {
+        const name = company.properties?.name?.trim();
+        return name ? { id: company.id, name } : null;
+      })
+      .filter((v): v is HubSpotVendor => v !== null);
+  } catch (error) {
+    throw new HubspotError("Failed to search HubSpot companies", error);
+  }
+}
+
 /** Read-only governed Vendor lookup for BV-001. */
 export async function searchVendorCompanies(
   query: string,
