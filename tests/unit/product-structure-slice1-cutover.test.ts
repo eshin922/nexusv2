@@ -504,6 +504,12 @@ const classifiedIdentityFiles = new Set([
   // neither junction table, and derives no economics -- the subject under test
   // is who may save an edit, not what an edit means structurally.
   "scripts/gate-1b/library-product-edit-walk.ts",
+  // CLASSIFIED -- the attached-first ordering walk. Canonical identity only:
+  // it reads `quote_leaves.leaf_id` to learn what is attached and compares it
+  // against `LibraryBrowseRow.leafId`, which is `leaves.id`. It resolves no
+  // legacy junction, writes no economics, and its inserts are quote_leaves
+  // rows it removes again.
+  "scripts/gate-1b/library-attached-first-walk.ts",
   // CLASSIFIED -- the support procedure for a product whose earlier HubSpot
   // request was never answered. Canonical identity only: it reads
   // `leaf_edit_attempts.leaf_id`, resolves one attempt row and writes an audit
