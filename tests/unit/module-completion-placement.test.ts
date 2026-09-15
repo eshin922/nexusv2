@@ -40,10 +40,17 @@ test("the standalone banner is removed", () => {
 });
 
 test("but nothing underneath it went with it", () => {
-  // The three actions the banner called are the three the modules call. A
-  // completion control that wrote its own state instead would be a second
+  // The three actions the banner called are the three the modules call, and
+  // they are the REAL ones: the control names them in its service contract,
+  // and the Costs page wires the handoff module's own exports into that slot.
+  // A completion control that wrote its own state instead would be a second
   // source of truth for a fact `freight_handoffs` already holds.
+  //
+  // Both halves are asserted because the control imports only TYPES now, so
+  // that a mounted test can render it without a database — which means the
+  // control alone can no longer evidence that the real action is what runs.
   const src = read(CONTROLS);
+  const page = read(PAGE);
   for (const action of [
     "markReadyForFreight",
     "withdrawFreightRequest",
@@ -54,9 +61,18 @@ test("but nothing underneath it went with it", () => {
       new RegExp(`\\b${action}\\b`),
       `${action} is no longer reached from any module`,
     );
+    assert.match(
+      page,
+      new RegExp(`\\b${action}\\b`),
+      `the Costs page no longer wires ${action} into the modules`,
+    );
   }
-  // And they are reached from the handoff module itself, not reimplemented.
-  assert.match(src, /from "@\/app\/actions\/freight-handoff"/);
+  assert.match(page, /from "@\/app\/actions\/freight-handoff"/);
+  assert.match(
+    page,
+    /services=\{\{/,
+    "the page stopped supplying the actions the controls run",
+  );
 });
 
 test("each module carries its own control", () => {

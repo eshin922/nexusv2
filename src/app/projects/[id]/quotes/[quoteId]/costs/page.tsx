@@ -47,8 +47,17 @@ import { readComponentChargeReadiness } from "@/lib/component-charges/readiness"
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { ModuleCompletionProvider } from "@/components/costs/module-completion";
-import { getLatestFreightHandoff } from "@/app/actions/freight-handoff";
-import { getProductionCompletion } from "@/app/actions/production-completion";
+import {
+  completeFreightHandoff,
+  getLatestFreightHandoff,
+  markReadyForFreight,
+  withdrawFreightRequest,
+} from "@/app/actions/freight-handoff";
+import {
+  getProductionCompletion,
+  markProductionComplete,
+  reopenProduction,
+} from "@/app/actions/production-completion";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
@@ -819,6 +828,19 @@ export default async function CostBuildPage({
           viewerIsAdmin={viewer.role === "admin"}
           handoff={freightHandoff}
           production={productionCompletion}
+          // Wired here rather than imported by the control. The control holds
+          // only the render decisions -- including how it reports an action
+          // that failed and a read-back that failed after the write landed --
+          // and a mounted test drives those by passing doubles in this slot.
+          services={{
+            markReadyForFreight,
+            withdrawFreightRequest,
+            completeFreightHandoff,
+            markProductionComplete,
+            reopenProduction,
+            readHandoff: getLatestFreightHandoff,
+            readProduction: getProductionCompletion,
+          }}
         >
         <CostBuildAccordion
           initialOpen={openSection}
