@@ -341,7 +341,12 @@ check(
 console.log("\n── 6a · Packaging, while logistics still holds it ─────────");
 await wipe();
 
-let r = await markReadyForFreight(form({ quoteId: QUOTE }));
+// One binding across sections that call actions with DIFFERENT success
+// shapes. Typed on the part every one of them shares -- the refusal -- so the
+// checks below read the same field whichever action produced it. `data` is
+// narrowed at the two places that actually inspect it.
+type WalkResult = { ok: true; data: unknown } | { ok: false; error: { code: string } };
+let r: WalkResult = await markReadyForFreight(form({ quoteId: QUOTE }));
 check("complete", r.ok, r.ok ? "" : r.error.code);
 all = await rows();
 const openId1 = all[0].id;
