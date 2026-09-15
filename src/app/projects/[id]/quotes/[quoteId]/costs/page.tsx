@@ -46,8 +46,19 @@ import { readComponentChargesForCosts } from "@/lib/component-charges/read";
 import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
-import { FreightHandoffBar } from "@/components/costs/freight-handoff-bar";
-import { getFreightHandoff } from "@/app/actions/freight-handoff";
+import { ModuleCompletionProvider } from "@/components/costs/module-completion";
+import {
+  completeFreightHandoff,
+  getLatestFreightHandoff,
+  markFreightIncomplete,
+  markPackagingIncomplete,
+  markReadyForFreight,
+} from "@/app/actions/freight-handoff";
+import {
+  getProductionCompletion,
+  markProductionComplete,
+  reopenProduction,
+} from "@/app/actions/production-completion";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { WarningSummaryChip } from "@/components/warnings/warning-summary-chip";
 import { loadFreightWorkbook, type FreightWorkbook } from "@/lib/freight-workbook";
@@ -182,6 +193,7 @@ export default async function CostBuildPage({
     clientTargetRows,
     viewer,
     freightHandoffResult,
+    productionCompletionResult,
   ] = await Promise.all([
     db
       .select()
@@ -289,17 +301,26 @@ export default async function CostBuildPage({
       .select()
       .from(quoteClientTargets)
       .where(eq(quoteClientTargets.quoteId, quote.id)),
-    // Who is looking. Decides which half of the handoff strip they get --
-    // the assignee and admins can complete it; the quote side can withdraw
-    // it. Affordance-level, per the role-as-affordance convention.
+    // Who is looking. Decides which half of the handoff the modules offer --
+    // the assignee and admins can complete the freight end; the quote side
+    // can reopen the packaging end. Affordance-level, per the
+    // role-as-affordance convention.
     ensureUser(),
-    getFreightHandoff(quote.id),
+    // The LATEST handoff, not the open one. A handoff logistics has already
+    // completed is what makes Packaging complete and Freight finished; read
+    // only the open row and both modules would report the work had never been
+    // handed over, because it had been handed over and finished.
+    getLatestFreightHandoff(quote.id),
+    getProductionCompletion(quote.id),
   ]);
 
-  // A handoff that could not be read is reported as absent rather than
-  // failing the page: the strip is one row on a surface whose job is cost
-  // entry, and losing Costs entirely over it would be the worse trade.
+  // Completion state that could not be read is reported as absent rather than
+  // failing the page: it is one line inside a module on a surface whose job is
+  // cost entry, and losing Costs entirely over it would be the worse trade.
   const freightHandoff = freightHandoffResult.ok ? freightHandoffResult.data : null;
+  const productionCompletion = productionCompletionResult.ok
+    ? productionCompletionResult.data
+    : null;
 
   // Slice 11.5 Step 3 — NEW-model → OLD-wrapper-shape reshape.
   // Synthesizes objects that match the shapes downstream drilldowns
@@ -790,6 +811,39 @@ export default async function CostBuildPage({
             (RI.4 perf fix per Edward smoke item (a)). All drawer
             content stays mounted server-side; CSS hides/shows on
             toggle. */}
+        {/* The standalone freight-handoff banner stood between Production and
+            Freight. It is gone: its status and its actions now live inside the
+            modules they belong to — Packaging holds completion and reopening,
+            Freight holds the assignee, the notification outcome and Mark
+            complete. The handoff row, its audit entries and its Slack
+            notification are untouched; only where an operator reads and
+            presses them moved.
+
+            Both modules render from ONE handoff, so the state is shared here
+            rather than copied into each. Marking Packaging complete has to put
+            the assignee under Freight in the same breath. */}
+        <ModuleCompletionProvider
+          quoteId={quote.id}
+          editable={editable}
+          viewerUserId={viewer.id}
+          viewerIsAdmin={viewer.role === "admin"}
+          handoff={freightHandoff}
+          production={productionCompletion}
+          // Wired here rather than imported by the control. The control holds
+          // only the render decisions -- including how it reports an action
+          // that failed and a read-back that failed after the write landed --
+          // and a mounted test drives those by passing doubles in this slot.
+          services={{
+            markReadyForFreight,
+            markPackagingIncomplete,
+            completeFreightHandoff,
+            markFreightIncomplete,
+            markProductionComplete,
+            reopenProduction,
+            readHandoff: getLatestFreightHandoff,
+            readProduction: getProductionCompletion,
+          }}
+        >
         <CostBuildAccordion
           initialOpen={openSection}
           projectId={project.id}
@@ -839,18 +893,6 @@ export default async function CostBuildPage({
               directServices={directServices}
             />
           </SectionWithDrilldown>
-
-          {/* The packaging → logistics handoff, immediately above the work it
-              hands over. Its own strip rather than a chip on the Freight
-              section header: it carries two decisions and a delivery outcome,
-              which is more than a status chip can say honestly. */}
-          <FreightHandoffBar
-            quoteId={quote.id}
-            initial={freightHandoff}
-            viewerUserId={viewer.id}
-            viewerIsAdmin={viewer.role === "admin"}
-            editable={editable}
-          />
 
           <SectionWithDrilldown
             id="freight"
@@ -904,6 +946,7 @@ export default async function CostBuildPage({
             />
           </SectionWithDrilldown>
         </CostBuildAccordion>
+        </ModuleCompletionProvider>
       </main>
     </CostingStoreProvider>
     </NavShell>

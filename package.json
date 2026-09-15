@@ -81,6 +81,7 @@
     "validation:sku-create-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-create-path-walk.ts",
     "validation:library-edit-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/library-product-edit-walk.ts",
     "validation:sku-codes-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-codes-settings-walk.ts",
+    "validation:module-completion-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/module-completion-walk.ts",
     "validation:library-attached-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/library-attached-first-walk.ts",
     "support:sku-unresolved": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/admin/list-unresolved-sku-allocations.ts",
     "walk:library-edit-permission": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/gate-1b/library-edit-permission-walk.ts"

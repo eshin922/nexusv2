@@ -37,6 +37,7 @@ import { selectGraph } from "@/lib/costing-store";
 import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
 import { useCostingStore, useCostingStoreApi } from "@/components/costing-store-provider";
+import { FreightCompletion } from "@/components/costs/module-completion";
 import type { FreightSelectableComponent } from "@/lib/freight-selectable-components";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
@@ -232,6 +233,13 @@ export function FreightDrilldown(props: {
   };
 
   return <div className="cw-section freight-authority" style={{ "--freight-tier-count": tiers.length } as CSSProperties}>
+    {/* The holding end of the packaging handoff: who has it, whether Slack
+        actually told them, and the control that closes it. It reads from the
+        same row Packaging's control writes — one fact, two modules, and no
+        banner outside either of them saying it a third time. */}
+    <div className="fr-completion" style={{ display: "flex", justifyContent: "flex-end", padding: "0 0 10px" }}>
+      <FreightCompletion />
+    </div>
     <div className="fr-grid fr-tierhead"><div className="lab">Freight · sell per unit{allDestinationIds.length > 0 && <button className={`fr-edit${allDetailOpen ? " on" : ""}`} onClick={() => setOpenDestinations(allDetailOpen ? [] : allDestinationIds)}>{allDetailOpen ? "hide all detail" : `show type + description · all ${allDestinationIds.length}`}</button>}</div>{tiers.map((tier) => <div className="fr-cell" key={tier.id}><span className="v">{tier.label}{tier.recommended && <span className="rec"> ★</span>}</span><span className="s">{tier.qty?.toLocaleString()} units</span></div>)}</div>
     {message && <div className="fr-lost" role="alert"><span className="mk">!</span><span>{message}</span></div>}
 

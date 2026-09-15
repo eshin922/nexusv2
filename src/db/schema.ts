@@ -2990,6 +2990,32 @@ export const freightHandoffs = pgTable(
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
 
     /**
+     * The QUOTE side took its completion back after logistics had finished
+     * (0127).
+     *
+     * The freight work really was done, so the row stays `completed` and its
+     * own history is untouched -- this pair records only that Packaging is no
+     * longer claiming to be finished. Marking Packaging complete again inserts
+     * a NEW handoff, which notifies logistics through the same path as the
+     * first one, rather than reviving this row.
+     */
+    packagingReopenedByUserId: uuid("packaging_reopened_by_user_id"),
+    packagingReopenedAt: timestamp("packaging_reopened_at", { withTimezone: true }),
+
+    /**
+     * LOGISTICS reopened the task itself (0127) -- `status` goes back to
+     * `open` and this row is the live request again.
+     *
+     * `completed_by_user_id` and `completed_at` are cleared when it does, so
+     * an open row cannot also claim to be completed. The completion that was
+     * undone is not lost: it stays in `audit_log` as the `freight_completed`
+     * entry that recorded it, and the `freight_reopened` entry names it in
+     * `diff_json`.
+     */
+    reopenedByUserId: uuid("reopened_by_user_id"),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+
+    /**
      * Slack delivery, recorded rather than assumed. The Nexus task exists
      * whatever happens here: a notification that did not arrive is a reason to
      * say so, not a reason to withhold the work.
@@ -2998,6 +3024,17 @@ export const freightHandoffs = pgTable(
     slackMessageTs: text("slack_message_ts"),
     notificationStatus: text("notification_status").notNull().default("pending"),
     notificationError: text("notification_error"),
+
+    /**
+     * Incremented by EVERY state change (0128).
+     *
+     * Completion and reopening move this row back and forth between `open` and
+     * `completed`, so `(id, status)` cannot tell "the completed state I was
+     * looking at" from a later one. The revision can: it is the one thing that
+     * does not come back. Callers pass the revision they displayed, and an
+     * update whose revision no longer matches is refused as a stale write.
+     */
+    revision: integer("revision").notNull().default(1),
 
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -3011,6 +3048,69 @@ export const freightHandoffs = pgTable(
       .on(t.assignedToUserId)
       .where(sql`status = 'open'`),
     index("freight_handoffs_quote_idx").on(t.quoteId, t.requestedAt),
+  ],
+);
+
+// ---------- production_completions (module completion; 0126) ----------
+
+/**
+ * Production's completion state.
+ *
+ * -- WHY THIS EXISTS AND PACKAGING'S EQUIVALENT DOES NOT ------------------
+ *
+ * Packaging completion and Freight completion are the two ends of ONE fact
+ * that `freight_handoffs` already records. Production hands nothing to
+ * anybody, so it has no handoff to borrow -- and the only way to record that
+ * someone finished it is to record it. What is recorded is exactly that: who
+ * completed it, and when.
+ *
+ * -- AN OPERATOR DECISION, NOT A READING OF THE DATA ----------------------
+ *
+ * Nothing here is computed from whether the production tiers look costed, and
+ * the control is never disabled on that basis. A person judged the module
+ * finished; this says they did.
+ *
+ * A row per completion rather than a column on `quotes`, for the same reason
+ * `freight_handoffs` is a table: reopening is supported, and a column would
+ * overwrite the history that reopening is supposed to leave behind.
+ */
+export const productionCompletions = pgTable(
+  "production_completions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+
+    /** Who said Production was finished, and when. */
+    completedByUserId: uuid("completed_by_user_id").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * `completed` | `reopened`.
+     *
+     * Past participle, matching `freight_handoffs.status`, and deliberately
+     * NOT the literal `"complete"` -- that word belongs to `quotes.status` and
+     * its single-writer guard, and a module finishing is a different event.
+     */
+    status: text("status").notNull().default("completed"),
+    reopenedByUserId: uuid("reopened_by_user_id"),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One standing completion per quote. What makes a double-click harmless,
+    // and it is the database that enforces it rather than a check-then-insert
+    // the two clicks can interleave through.
+    uniqueIndex("production_completions_one_open_idx")
+      .on(t.quoteId)
+      .where(sql`status = 'completed'`),
+    index("production_completions_quote_idx").on(t.quoteId, t.completedAt),
   ],
 );
 

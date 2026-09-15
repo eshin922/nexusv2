@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { firmSettings, freightHandoffs, quotes, users } from "@/db/schema";
 import { writeAuditEntry } from "@/lib/audit";
@@ -39,6 +39,12 @@ import { deliverFreightHandoff } from "@/lib/slack/deliver-freight-handoff";
 
 export type FreightHandoffState = {
   handoffId: string;
+  /**
+   * The row's revision AS DISPLAYED. Every caller that changes this handoff
+   * passes it back, and an update whose revision has moved is refused — see
+   * `expectedRevision` below for why `(id, status)` could not do this job.
+   */
+  revision: number;
   quoteId: string;
   status: "open" | "completed" | "withdrawn";
   assignedToUserId: string;
@@ -47,6 +53,64 @@ export type FreightHandoffState = {
   notificationStatus: "pending" | "delivered" | "failed" | "not_configured";
   notificationError: string | null;
 };
+
+/**
+ * The latest handoff on a quote, whatever became of it. What the Packaging and
+ * Freight modules render their completion state from.
+ */
+export type LatestFreightHandoff = FreightHandoffState & {
+  completedAt: Date | null;
+  completedByEmail: string | null;
+  /**
+   * Set when the QUOTE side marked Packaging incomplete after logistics had
+   * finished. The freight completion still stands; this says Packaging is no
+   * longer claiming to be finished, which is a thing the status alone cannot
+   * express.
+   */
+  packagingReopenedAt: Date | null;
+};
+
+/**
+ * The revision the calling screen was looking at.
+ *
+ * ── WHY THIS IS REQUIRED AND NOT OPTIONAL ────────────────────────────────
+ *
+ * Completion and reopening move one row back and forth:
+ *
+ *   open --complete--> completed --reopen--> open --complete--> completed
+ *
+ * Both completed states answer to the same id and the same status, so a screen
+ * showing the FIRST one would match on the second and reverse a completion it
+ * never displayed. The revision is the one thing that does not come back.
+ *
+ * A caller that omits it is refused rather than defaulted. Accepting "no
+ * revision" would silently drop the fence for anyone who forgot to send one,
+ * which is the failure mode the fence exists to remove — and a guard that can
+ * be skipped by omission is not a guard.
+ */
+function expectedRevision(formData: FormData): number {
+  const raw = String(formData.get("revision") ?? "").trim();
+  const revision = Number(raw);
+  if (!raw || !Number.isInteger(revision) || revision < 1) {
+    throw new ActionGuardError(
+      ERR.VALIDATION,
+      "revision is required: acting on a handoff has to name the state the " +
+        "screen was showing.",
+    );
+  }
+  return revision;
+}
+
+/**
+ * The refusal every fenced update shares.
+ *
+ * Deliberately says the state MOVED rather than guessing how. From a zero-row
+ * update the action cannot tell a replaced handoff from a completed-then-
+ * reopened one, and naming the wrong cause is worse than naming none.
+ */
+const STALE_HANDOFF =
+  "This freight request has changed since this screen loaded — it may have been " +
+  "completed, reopened or replaced. Reload before acting.";
 
 async function loadRecipient(): Promise<{ userId: string; email: string | null }> {
   const [settings] = await db
@@ -102,6 +166,7 @@ export async function getFreightHandoff(
       .limit(1);
     return {
       handoffId: row.id,
+      revision: row.revision,
       quoteId: row.quoteId,
       status: row.status as FreightHandoffState["status"],
       assignedToUserId: row.assignedToUserId,
@@ -109,6 +174,66 @@ export async function getFreightHandoff(
       requestedAt: row.requestedAt,
       notificationStatus:
         row.notificationStatus as FreightHandoffState["notificationStatus"],
+      notificationError: row.notificationError,
+    };
+  });
+}
+
+/**
+ * The LATEST handoff for a quote whatever its status, which is what the two
+ * modules render from.
+ *
+ * `getFreightHandoff` above returns the OPEN one and is deliberately left
+ * alone: it is what `markReadyForFreight` reads back on a double-click, and
+ * it must keep meaning "the request that is live right now".
+ *
+ * The modules need more than that. A handoff that logistics has COMPLETED is
+ * gone from the open read, so a surface built on it would show Packaging as
+ * not-complete the moment Freight finished -- reporting that the work had
+ * never been handed over because it had been handed over and finished. The
+ * closed row is the evidence of both, so it is read.
+ *
+ * A `withdrawn` row is not evidence of either: withdrawing IS reopening
+ * packaging, and the modules read it as the un-completed state it is.
+ */
+export async function getLatestFreightHandoff(
+  quoteId: string,
+): Promise<ActionResult<LatestFreightHandoff | null>> {
+  return runAction(async () => {
+    await ensureUser();
+    const [row] = await db
+      .select()
+      .from(freightHandoffs)
+      .where(eq(freightHandoffs.quoteId, quoteId))
+      .orderBy(desc(freightHandoffs.requestedAt))
+      .limit(1);
+    if (!row) return null;
+
+    const ids = [row.assignedToUserId, row.completedByUserId].filter(
+      (id): id is string => Boolean(id),
+    );
+    const people = ids.length
+      ? await db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(inArray(users.id, ids))
+      : [];
+    const emailOf = (id: string | null) =>
+      id ? people.find((p) => p.id === id)?.email ?? null : null;
+
+    return {
+      handoffId: row.id,
+      revision: row.revision,
+      quoteId: row.quoteId,
+      status: row.status as LatestFreightHandoff["status"],
+      assignedToUserId: row.assignedToUserId,
+      assignedToEmail: emailOf(row.assignedToUserId),
+      requestedAt: row.requestedAt,
+      completedAt: row.completedAt,
+      completedByEmail: emailOf(row.completedByUserId),
+      packagingReopenedAt: row.packagingReopenedAt,
+      notificationStatus:
+        row.notificationStatus as LatestFreightHandoff["notificationStatus"],
       notificationError: row.notificationError,
     };
   });
@@ -138,21 +263,51 @@ export async function markReadyForFreight(
 
     const recipient = await loadRecipient();
 
-    const inserted = await db
-      .insert(freightHandoffs)
-      .values({
-        quoteId,
-        requestedByUserId: user.id,
-        assignedToUserId: recipient.userId,
-        status: "open",
-        notificationStatus: "pending",
-      })
-      // The second click of a double-click. Nothing is created and nothing is
-      // sent; the existing handoff is returned as-is.
-      .onConflictDoNothing()
-      .returning({ id: freightHandoffs.id, requestedAt: freightHandoffs.requestedAt });
+    // The handoff and its audit entry COMMIT TOGETHER. Written as two
+    // statements, an audit failure left a handoff nobody could account for --
+    // and the audit row is the only record of who decided this and on what
+    // basis, so a handoff without one is a task that appeared by itself.
+    const created = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(freightHandoffs)
+        .values({
+          quoteId,
+          requestedByUserId: user.id,
+          assignedToUserId: recipient.userId,
+          status: "open",
+          notificationStatus: "pending",
+        })
+        // The second click of a double-click. Nothing is created and nothing is
+        // sent; the existing handoff is returned as-is.
+        .onConflictDoNothing()
+        .returning({
+          id: freightHandoffs.id,
+          revision: freightHandoffs.revision,
+          requestedAt: freightHandoffs.requestedAt,
+        });
 
-    if (inserted.length === 0) {
+      if (inserted.length === 0) return null;
+
+      await writeAuditEntry(
+        {
+          userId: user.id,
+          entityType: "quote",
+          entityId: quoteId,
+          action: "freight_requested",
+          diffJson: {
+            handoff_id: inserted[0].id,
+            assigned_to_user_id: recipient.userId,
+            assigned_to_email: recipient.email,
+            basis: "operator marked packaging ready for freight",
+          },
+        },
+        tx,
+      );
+
+      return inserted[0];
+    });
+
+    if (created === null) {
       const existing = await getFreightHandoff(quoteId);
       if (existing.ok && existing.data) return existing.data;
       throw new ActionGuardError(
@@ -161,32 +316,20 @@ export async function markReadyForFreight(
       );
     }
 
-    const handoffId = inserted[0].id;
-
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote",
-      entityId: quoteId,
-      action: "freight_requested",
-      diffJson: {
-        handoff_id: handoffId,
-        assigned_to_user_id: recipient.userId,
-        assigned_to_email: recipient.email,
-        basis: "operator marked packaging ready for freight",
-      },
-    });
-
-    // Delivery is attempted AFTER the handoff exists and never gates it.
-    const delivery = await deliverFreightHandoff(handoffId);
+    // Delivery is attempted AFTER the handoff exists, outside the transaction,
+    // and never gates it. Inside, a Slack outage would roll back a handoff that
+    // is deliberately independent of whether Slack answered.
+    const delivery = await deliverFreightHandoff(created.id);
 
     revalidatePath("/");
     return {
-      handoffId,
+      handoffId: created.id,
+      revision: created.revision,
       quoteId,
       status: "open" as const,
       assignedToUserId: recipient.userId,
       assignedToEmail: recipient.email,
-      requestedAt: inserted[0].requestedAt,
+      requestedAt: created.requestedAt,
       notificationStatus: delivery.status,
       notificationError: delivery.error,
     };
@@ -215,6 +358,8 @@ export async function completeFreightHandoff(
       );
     }
 
+    const revision = expectedRevision(formData);
+
     // Deliberately NOT draft-gated. Freight work continues after a quote is
     // sent, so requiring draft here would make the task uncompletable in
     // exactly the state it is most often worked in.
@@ -237,51 +382,245 @@ export async function completeFreightHandoff(
       );
     }
 
-    const closed = await db
-      .update(freightHandoffs)
-      .set({
-        status: "completed",
-        completedByUserId: user.id,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      // Conditioned on THIS handoff being the open one. A screen opened before
-      // a withdraw-and-re-request holds the OLD id, and closing "whatever is
-      // open on this quote" would let it complete a request it never saw.
-      .where(and(eq(freightHandoffs.id, handoffId), eq(freightHandoffs.status, "open")))
-      .returning({ id: freightHandoffs.id });
+    const closed = await db.transaction(async (tx) => {
+      const rows = await tx
+        .update(freightHandoffs)
+        .set({
+          status: "completed",
+          completedByUserId: user.id,
+          completedAt: new Date(),
+          revision: handoff.revision + 1,
+          updatedAt: new Date(),
+        })
+        // Conditioned on THIS handoff, still open, AT THE REVISION THE SCREEN
+        // SHOWED. The id stops it closing a replacement; the status stops it
+        // closing something already closed; the revision stops it closing a
+        // LATER open state of this same row, which the first two cannot see.
+        .where(
+          and(
+            eq(freightHandoffs.id, handoffId),
+            eq(freightHandoffs.status, "open"),
+            eq(freightHandoffs.revision, revision),
+          ),
+        )
+        .returning({ id: freightHandoffs.id });
 
-    if (closed.length === 0) {
-      throw new ActionGuardError(
-        ERR.STALE_WRITE,
-        "This freight request is no longer open — it was completed or withdrawn " +
-          "elsewhere, and may have been replaced by a newer one. Reload before acting.",
+      if (rows.length === 0) return null;
+
+      // In the SAME transaction. An audit failure must take the completion
+      // with it: a freight task that closed with no record of who closed it is
+      // worse than one that did not close.
+      await writeAuditEntry(
+        {
+          userId: user.id,
+          entityType: "quote",
+          entityId: handoff.quoteId,
+          action: "freight_completed",
+          diffJson: { handoff_id: rows[0].id, basis: "logistics marked freight complete" },
+        },
+        tx,
       );
-    }
-    const quoteId = handoff.quoteId;
 
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote",
-      entityId: quoteId,
-      action: "freight_completed",
-      diffJson: { handoff_id: closed[0].id, basis: "logistics marked freight complete" },
+      return rows[0];
     });
 
+    if (closed === null) throw new ActionGuardError(ERR.STALE_WRITE, STALE_HANDOFF);
+
     revalidatePath("/");
-    return { handoffId: closed[0].id };
+    return { handoffId: closed.id };
   });
 }
 
 /**
- * Pull the request back because packaging reopened.
+ * Mark Packaging incomplete.
  *
- * The row is kept and marked withdrawn rather than deleted: what was asked
- * for, by whom, and that it was called off is the history, and a re-request
- * later is a NEW handoff rather than a revival of this one. That is also why
- * the unique index is on `status = 'open'` and not on the quote.
+ * ── ONE ACTION, TWO CASES, DECIDED ON THE SERVER ─────────────────────────
+ *
+ * What "incomplete" means for Packaging depends on what happened to the
+ * request it made, and the screen asking may be looking at an older answer
+ * than the database has. So the branch is taken HERE, from the row as it
+ * actually is, and each update is conditioned on the state it was chosen for:
+ *
+ *   open       logistics still has it — the request is WITHDRAWN. The row is
+ *              kept and marked withdrawn rather than deleted: what was asked
+ *              for, by whom, and that it was called off is the history, and a
+ *              re-request later is a NEW handoff rather than a revival of this
+ *              one. That is also why the unique index is on `status = 'open'`
+ *              and not on the quote.
+ *
+ *   completed  logistics FINISHED it. That really happened, so the row is not
+ *              touched — its status, its completer and its completion time all
+ *              stand. Only the packaging end is pulled back. Marking Packaging
+ *              complete again then inserts a fresh handoff, which notifies
+ *              logistics through the same path as the first one.
+ *
+ * Deciding this on the client would let a screen opened before logistics
+ * finished send "withdraw" against a completed handoff — which the WHERE
+ * clause would refuse, correctly, but as a confusing failure rather than as
+ * the reopen the operator actually asked for.
  */
-export async function withdrawFreightRequest(
+export async function markPackagingIncomplete(
+  formData: FormData,
+): Promise<ActionResult<{ handoffId: string; outcome: "withdrawn" | "packaging_reopened" }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const handoffId = String(formData.get("handoffId") ?? "").trim();
+    if (!handoffId) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        "handoffId is required: marking Packaging incomplete has to name the " +
+          "handoff it pulls back.",
+      );
+    }
+
+    const revision = expectedRevision(formData);
+
+    const [handoff] = await db
+      .select()
+      .from(freightHandoffs)
+      .where(eq(freightHandoffs.id, handoffId))
+      .limit(1);
+    if (!handoff) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "That freight request no longer exists.");
+    }
+    // The branch below is chosen from the row, but the WRITE is fenced on what
+    // the SCREEN saw. Reading a state the operator never looked at and then
+    // acting on it decisively would be the same defect in a politer form.
+    if (handoff.revision !== revision) {
+      throw new ActionGuardError(ERR.STALE_WRITE, STALE_HANDOFF);
+    }
+
+    // UNCHANGED PERMISSION. Marking Packaging incomplete is the quote side
+    // taking its own claim back, so it carries the quote's edit permission —
+    // the same one that governs making the claim, and the same one withdrawing
+    // has always carried.
+    await quoteByIdDraft(handoff.quoteId);
+
+    if (handoff.status === "open") {
+      const pulled = await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(freightHandoffs)
+          .set({
+            status: "withdrawn",
+            withdrawnByUserId: user.id,
+            withdrawnAt: new Date(),
+            revision: handoff.revision + 1,
+            updatedAt: new Date(),
+          })
+          // Conditioned on THIS handoff, still open, at the revision shown: a
+          // stale screen must not withdraw the request that replaced the one
+          // it is displaying, nor a later open state of this same row.
+          .where(
+            and(
+              eq(freightHandoffs.id, handoffId),
+              eq(freightHandoffs.status, "open"),
+              eq(freightHandoffs.revision, revision),
+            ),
+          )
+          .returning({ id: freightHandoffs.id });
+
+        if (rows.length === 0) return null;
+
+        await writeAuditEntry(
+          {
+            userId: user.id,
+            entityType: "quote",
+            entityId: handoff.quoteId,
+            action: "freight_request_withdrawn",
+            diffJson: { handoff_id: rows[0].id, basis: "packaging reopened" },
+          },
+          tx,
+        );
+
+        return rows[0];
+      });
+
+      if (pulled === null) throw new ActionGuardError(ERR.STALE_WRITE, STALE_HANDOFF);
+
+      revalidatePath("/");
+      return { handoffId: pulled.id, outcome: "withdrawn" as const };
+    }
+
+    if (handoff.status === "completed") {
+      const reopened = await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(freightHandoffs)
+          .set({
+            packagingReopenedByUserId: user.id,
+            packagingReopenedAt: new Date(),
+            revision: handoff.revision + 1,
+            updatedAt: new Date(),
+          })
+          // `status` is deliberately NOT in the SET list: the freight work was
+          // finished, and saying otherwise would rewrite someone else's
+          // completed task. The IS NULL keeps a double-click to one record of
+          // who pulled it back and when; the revision keeps this from landing
+          // on a completion the screen never displayed.
+          .where(
+            and(
+              eq(freightHandoffs.id, handoffId),
+              eq(freightHandoffs.status, "completed"),
+              eq(freightHandoffs.revision, revision),
+              isNull(freightHandoffs.packagingReopenedAt),
+            ),
+          )
+          .returning({ id: freightHandoffs.id });
+
+        if (rows.length === 0) return null;
+
+        await writeAuditEntry(
+          {
+            userId: user.id,
+            entityType: "quote",
+            entityId: handoff.quoteId,
+            action: "packaging_reopened",
+            diffJson: {
+              handoff_id: rows[0].id,
+              // The completion this does NOT undo, named so the timeline shows
+              // both facts standing together.
+              freight_completed_at: handoff.completedAt?.toISOString() ?? null,
+              freight_completed_by_user_id: handoff.completedByUserId,
+              basis: "operator marked packaging incomplete after freight completed",
+            },
+          },
+          tx,
+        );
+
+        return rows[0];
+      });
+
+      if (reopened === null) throw new ActionGuardError(ERR.STALE_WRITE, STALE_HANDOFF);
+
+      revalidatePath("/");
+      return { handoffId: reopened.id, outcome: "packaging_reopened" as const };
+    }
+
+    throw new ActionGuardError(
+      ERR.STALE_WRITE,
+      "This freight request was already withdrawn, so Packaging is not marked " +
+        "complete. Reload before acting.",
+    );
+  });
+}
+
+/**
+ * Logistics reopens the freight task it had marked complete.
+ *
+ * The row goes back to `open` and is the live request again. `completedAt` and
+ * `completedByUserId` are CLEARED as it does: an open row still carrying a
+ * completion would read as both at once, and the next completion would
+ * overwrite the value anyway. The completion is not lost — `audit_log` keeps
+ * the `freight_completed` entry that recorded it, and the `freight_reopened`
+ * entry written here names exactly what it undid.
+ *
+ * ── SAME PERMISSION AS COMPLETING IT ─────────────────────────────────────
+ *
+ * The assignee, or an admin. Unchanged from `completeFreightHandoff`, and not
+ * draft-gated for the same reason: freight work continues after a quote is
+ * sent, and gating it on draft would make the task unreopenable in the state
+ * it is most often worked in.
+ */
+export async function markFreightIncomplete(
   formData: FormData,
 ): Promise<ActionResult<{ handoffId: string }>> {
   return runAction(async () => {
@@ -290,9 +629,11 @@ export async function withdrawFreightRequest(
     if (!handoffId) {
       throw new ActionGuardError(
         ERR.VALIDATION,
-        "handoffId is required: a withdrawal has to name the handoff it pulls back.",
+        "handoffId is required: a reopen has to name the handoff it reopens.",
       );
     }
+
+    const revision = expectedRevision(formData);
 
     const [handoff] = await db
       .select()
@@ -303,42 +644,88 @@ export async function withdrawFreightRequest(
       throw new ActionGuardError(ERR.NOT_FOUND, "That freight request no longer exists.");
     }
 
-    // Withdrawing is the quote side taking its request back, so it carries the
-    // quote's own edit permission — the same one that governs asking.
-    await quoteByIdDraft(handoff.quoteId);
-
-    const pulled = await db
-      .update(freightHandoffs)
-      .set({
-        status: "withdrawn",
-        withdrawnByUserId: user.id,
-        withdrawnAt: new Date(),
-        updatedAt: new Date(),
-      })
-      // Conditioned on THIS handoff, for the same reason completion is: a
-      // stale screen must not withdraw the request that replaced the one it
-      // is showing.
-      .where(and(eq(freightHandoffs.id, handoffId), eq(freightHandoffs.status, "open")))
-      .returning({ id: freightHandoffs.id });
-
-    if (pulled.length === 0) {
+    if (handoff.assignedToUserId !== user.id && user.role !== "admin") {
       throw new ActionGuardError(
-        ERR.STALE_WRITE,
-        "This freight request is no longer open — it was completed or withdrawn " +
-          "elsewhere, and may have been replaced by a newer one. Reload before acting.",
+        ERR.FORBIDDEN,
+        "This freight request belongs to someone else. Only the person it was " +
+          "assigned to can reopen it.",
       );
     }
-    const quoteId = handoff.quoteId;
 
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote",
-      entityId: quoteId,
-      action: "freight_request_withdrawn",
-      diffJson: { handoff_id: pulled[0].id, basis: "packaging reopened" },
-    });
+    let reopened: { id: string } | null;
+    try {
+      reopened = await db.transaction(async (tx) => {
+        const rows = await tx
+        .update(freightHandoffs)
+        .set({
+          status: "open",
+          reopenedByUserId: user.id,
+          reopenedAt: new Date(),
+          completedByUserId: null,
+          completedAt: null,
+          revision: handoff.revision + 1,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(freightHandoffs.id, handoffId),
+            eq(freightHandoffs.status, "completed"),
+            // THE CASE THIS FENCE EXISTS FOR. Reopening returns the row to
+            // `open` and completing sends it back to `completed`, so a screen
+            // showing an earlier completion matches on id and status alike.
+            // Only the revision tells the two apart.
+            eq(freightHandoffs.revision, revision),
+            // Refused once the quote side has pulled its request back: the task
+            // belonged to a request that is no longer being made, and reopening
+            // it would resurrect a handoff Packaging has already replaced, or
+            // is about to.
+            isNull(freightHandoffs.packagingReopenedAt),
+          ),
+        )
+        .returning({ id: freightHandoffs.id });
+
+        if (rows.length === 0) return null;
+
+        await writeAuditEntry(
+          {
+            userId: user.id,
+            entityType: "quote",
+            entityId: handoff.quoteId,
+            action: "freight_reopened",
+            diffJson: {
+              handoff_id: rows[0].id,
+              // What was undone, kept where the history lives.
+              undone_completed_at: handoff.completedAt?.toISOString() ?? null,
+              undone_completed_by_user_id: handoff.completedByUserId,
+              basis: "logistics reopened the freight task",
+            },
+          },
+          tx,
+        );
+
+        return rows[0];
+      });
+    } catch (error) {
+      // The partial unique index permits one OPEN handoff per quote. Returning
+      // a row to `open` while another is open is refused by the database, and
+      // is reported as the ordinary conflict it is rather than as a crash.
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        (error as { code?: string }).code === "23505"
+      ) {
+        throw new ActionGuardError(
+          ERR.STALE_WRITE,
+          "This quote already has a newer open freight request, so the finished " +
+            "one cannot be reopened. Reload before acting.",
+        );
+      }
+      throw error;
+    }
+
+    if (reopened === null) throw new ActionGuardError(ERR.STALE_WRITE, STALE_HANDOFF);
 
     revalidatePath("/");
-    return { handoffId: pulled[0].id };
+    return { handoffId: reopened.id };
   });
 }

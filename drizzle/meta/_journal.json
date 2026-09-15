@@ -869,6 +869,27 @@
       "when": 1789374720000,
       "tag": "0125_sku_allocation",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1789461120000,
+      "tag": "0126_production_completion",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1789547520000,
+      "tag": "0127_module_reopen",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1789633920000,
+      "tag": "0128_handoff_revision",
+      "breakpoints": true
     }
   ]
 }

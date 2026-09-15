@@ -7,6 +7,7 @@ import {
   updateAssemblyLeafInputLineMeta,
 } from "@/app/actions/assembly-leaf-inputs";
 import { useCostingStore } from "@/components/costing-store-provider";
+import { PackagingCompletion } from "@/components/costs/module-completion";
 import {
   nodeKey,
   quoteScopeKey,
@@ -416,6 +417,13 @@ export function PackagingDrilldown({
           <span>{inventoryEligibleCount} inventory-eligible · {vendorSet.size} pricing vendor{vendorSet.size === 1 ? "" : "s"}</span>
         </div>
 
+        {/* Completion, inside the module it completes. Marking Packaging
+            complete IS the freight request — same action, same audit entry,
+            same Slack notification as the banner that used to sit outside
+            every module and say it on their behalf. */}
+        <div className="rhs">
+          <PackagingCompletion />
+        </div>
       </div>
 
       {/* Flat table */}

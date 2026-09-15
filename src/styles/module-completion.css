@@ -1,0 +1,25 @@
+/* ─── Mark complete, inside each module ─── */
+
+/*
+ * NEXUS EXTENSION over canonical R6 — this file exists so `r6-costs.css`
+ * stays the verbatim copy of CD's prototype stylesheet (Pattern 30). The
+ * canonical rule is unchanged; these are the two lines the completion control
+ * needs on top of it.
+ *
+ * The canonical `.drawer-toolbar` is a two-child `space-between` row with no
+ * wrap, which is correct while both children fit. The completion control is a
+ * third thing competing for that row, and below roughly 400px the summary and
+ * the control together exceeded it — measured at 14px of horizontal overflow
+ * at 380px, with the control pushed past the toolbar's right edge rather than
+ * dropping onto its own line. Wrapping is what the row should have done.
+ *
+ * `margin-left: auto` keeps the control right-aligned on the line it lands on,
+ * wrapped or not, rather than jumping to the left edge the moment it wraps.
+ */
+.r6-drawer .drawer-toolbar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.r6-drawer .drawer-toolbar .rhs {
+  margin-left: auto;
+}
