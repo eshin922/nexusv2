@@ -11,6 +11,7 @@ import {
   listProducts,
   getProductSnapshot,
   resolveVendorCompany,
+  searchCustomerCompanies,
   searchVendorCompanies,
   updateDealStage,
 } from "@/lib/hubspot";
@@ -21,6 +22,7 @@ export const productionHubSpot: HubSpotOperations = {
   findOwnerByEmail: findHubspotOwnerByEmail,
   findOwnerById: findHubspotOwnerById,
   searchVendors: searchVendorCompanies,
+  searchCustomers: searchCustomerCompanies,
   resolveVendor: resolveVendorCompany,
   createProduct,
   updateProduct,

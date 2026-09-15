@@ -111,24 +111,38 @@ export async function listAllocatableBrands(): Promise<
 }
 
 /**
- * The brand to preselect for a customer, or null.
+ * What a customer's registry entry is, as a closed set.
  *
- * Resolved from the customer RECORD -- the HubSpot company id -- never from
- * the product's or the project's name. A name match would be the same
- * name-derivation the registry exists to prevent, arriving one layer later.
- *
- * Null is a real answer and means "ask": there is no default namespace, and
- * inventing one here is exactly how a product ends up under someone else's
- * brand.
+ * `none` and `awaiting_setup` are DIFFERENT facts with different remedies --
+ * no mapping exists yet, versus a mapping exists and its starting number has
+ * not been established. Collapsing them into "cannot generate" would tell an
+ * operator to do something that is already done.
  */
-export async function preselectBrandForCompany(
+export type CustomerBrandState =
+  | { kind: "none" }
+  | { kind: "awaiting_setup"; token: string; customerLabel: string }
+  | { kind: "ready"; token: string; customerLabel: string };
+
+/**
+ * The registry entry for a customer RECORD.
+ *
+ * Resolved from the HubSpot company id -- never from the product's or the
+ * project's NAME. A name match would be the same name-derivation the registry
+ * exists to prevent, arriving one layer later.
+ *
+ * `ready` means all three conditions hold, so `allocateSku` will issue. It is
+ * checked against `listAllocatableBrands` rather than re-derived, so this
+ * cannot drift from what the allocator will actually accept.
+ */
+export async function customerBrandState(
   hubspotCompanyId: string | null,
-): Promise<string | null> {
-  if (!hubspotCompanyId) return null;
-  const allowed = await listAllocatableBrands();
-  if (allowed.length === 0) return null;
+): Promise<CustomerBrandState> {
+  if (!hubspotCompanyId) return { kind: "none" };
   const [row] = await db
-    .select({ token: skuBrandRegistry.token })
+    .select({
+      token: skuBrandRegistry.token,
+      customerLabel: skuBrandRegistry.customerLabel,
+    })
     .from(skuBrandRegistry)
     .where(
       and(
@@ -137,8 +151,28 @@ export async function preselectBrandForCompany(
       ),
     )
     .limit(1);
-  if (!row) return null;
-  return allowed.some((b) => b.token === row.token) ? row.token : null;
+  if (!row) return { kind: "none" };
+
+  const allowed = await listAllocatableBrands();
+  return allowed.some((b) => b.token === row.token)
+    ? { kind: "ready", token: row.token, customerLabel: row.customerLabel }
+    : { kind: "awaiting_setup", token: row.token, customerLabel: row.customerLabel };
+}
+
+/**
+ * The allocatable brand for a customer, or null.
+ *
+ * Thin wrapper over `customerBrandState` for the one caller that only needs
+ * the yes/no. Kept separate so a caller cannot accidentally treat
+ * `awaiting_setup` as allocatable by reading a truthy token off it.
+ */
+export async function registeredBrandForCompany(
+  hubspotCompanyId: string | null,
+): Promise<{ token: string; customerLabel: string } | null> {
+  const state = await customerBrandState(hubspotCompanyId);
+  return state.kind === "ready"
+    ? { token: state.token, customerLabel: state.customerLabel }
+    : null;
 }
 
 /**

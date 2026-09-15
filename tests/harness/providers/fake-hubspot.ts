@@ -16,6 +16,15 @@ export type FakeHubSpotCall = {
 const calls: FakeHubSpotCall[] = [];
 const dealStages = new Map<string, HubSpotStage>();
 const dealAmounts = new Map<string, number>();
+// Customers for the SKU-code selector. Deliberately distinct ids from the
+// vendor list, so a test that confuses the two searches fails rather than
+// quietly passing on a shared row.
+const customers = [
+  { id: "800000000000001", name: "Validation Customer Alpha" },
+  { id: "800000000000002", name: "Validation Customer Beta" },
+  { id: "800000000000003", name: "Northwind Botanicals" },
+];
+
 const vendors = [
   { id: "900000000000001", name: "Validation Packaging Vendor" },
   // RESTORED, not added. VAL-104 asserts this vendor's persisted snapshot as
@@ -259,6 +268,22 @@ export const fakeHubSpot: HubSpotOperations = {
       .filter((vendor) => vendor.name.toLowerCase().includes(normalized))
       .slice(0, limit)
       .map((vendor) => ({ ...vendor }));
+  },
+  /**
+   * Customers, from their OWN fixture list.
+   *
+   * Not the vendor list under a second name: the two searches answer different
+   * questions in production, and a fake that served one list for both would
+   * agree with itself while disagreeing with the thing it stands in for.
+   */
+  async searchCustomers(query, limit = 25) {
+    record("customer-search", { query, limit });
+    fail("customer-search");
+    const normalized = query.trim().toLowerCase();
+    return customers
+      .filter((c) => c.name.toLowerCase().includes(normalized))
+      .slice(0, limit)
+      .map((c) => ({ ...c }));
   },
   async resolveVendor(companyId) {
     record("vendor-resolve", { companyId });

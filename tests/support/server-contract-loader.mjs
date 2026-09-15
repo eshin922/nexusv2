@@ -59,6 +59,29 @@ export async function resolve(specifier, context, nextResolve) {
     };
   }
 
+  // `next/navigation` exists only inside the Next runtime. `admin-guard`
+  // imports `redirect` for its PAGE guard; a walk exercising the ACTION guard
+  // pulls it in transitively and cannot resolve it.
+  //
+  // The stub THROWS rather than returning: a redirect in a walk means a page
+  // guard ran where an action guard was expected, and silently continuing
+  // would let the walk pass having taken a path production never takes.
+  if (specifier === "next/navigation") {
+    return {
+      url:
+        "data:text/javascript," +
+        encodeURIComponent(
+          "export const redirect = (to) => { throw new Error('[walk] redirect(' + to + ') -- a page guard ran inside a walk'); };" +
+            "export const notFound = () => { throw new Error('[walk] notFound()'); };" +
+            "export const permanentRedirect = (to) => { throw new Error('[walk] permanentRedirect(' + to + ')'); };" +
+            "export const useRouter = () => { throw new Error('[walk] useRouter() outside React'); };" +
+            "export const usePathname = () => '/';" +
+            "export const useSearchParams = () => new URLSearchParams();",
+        ),
+      shortCircuit: true,
+    };
+  }
+
   // The alias is resolved BEFORE delegating: `@/lib/costing` is not a relative
   // specifier, so it would fail as a bare package name and never reach the
   // extension-recovery branch below.

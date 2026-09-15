@@ -228,6 +228,15 @@ export interface HubSpotOperations {
   findOwnerByEmail(email: string): Promise<HubSpotOwnerByEmail | null>;
   findOwnerById(ownerId: string): Promise<HubSpotOwnerById | null>;
   searchVendors(query: string, limit?: number): Promise<HubSpotVendor[]>;
+  /**
+   * Company lookup for the SKU-code selector.
+   *
+   * Separate from `searchVendors` because it asks a different question:
+   * vendors are filtered to `type = VENDOR`, and a customer search that
+   * inherited that filter would return nothing while looking like it had
+   * searched.
+   */
+  searchCustomers(query: string, limit?: number): Promise<HubSpotVendor[]>;
   resolveVendor(companyId: string): Promise<HubSpotVendor | null>;
   createProduct(
     input: HubSpotProductCreateInput,

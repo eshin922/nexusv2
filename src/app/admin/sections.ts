@@ -60,6 +60,13 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
       "Which NetSuite customer each HubSpot company is. Decides who a Sales Order is raised against and which governed payment terms a quote prints — an unmapped customer cannot be sent.",
   },
   {
+    href: "/admin/sku-codes",
+    label: "SKU codes",
+    nav: "Customer to SKU mnemonic",
+    index:
+      "The mnemonic each customer's SKUs are numbered under. A quote uses its own customer's code automatically; a new code is awaiting setup until its starting number has been checked against the existing catalogs.",
+  },
+  {
     href: "/admin/users",
     label: "Users",
     nav: "Manual phone entry for PreparedBy",
