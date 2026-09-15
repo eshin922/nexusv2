@@ -72,6 +72,15 @@ export type LibraryBrowseFilters = {
    */
   commercialKindFilter?: "product" | "service";
   targetQuoteId: string;
+  /**
+   * The DESTINATION currently selected in the modal, when it is an item group.
+   *
+   * Decides what "attached" means for the ordering below. Browsing with an
+   * item group selected, the products that matter are the ones already in THAT
+   * group; browsing at quote level, it is anything already on the quote. Null
+   * or absent means quote level, which is what every pre-existing caller gets.
+   */
+  targetAssemblyId?: string | null;
   limit?: number;
   /** B-11 · rows to skip. Page N is `offset = (N - 1) * limit`. */
   offset?: number;
@@ -265,6 +274,42 @@ export async function loadLibraryBrowse(
   if (filters.scopeFilter === "this") conds.push(attachedToTarget(leaves.id));
   if (filters.scopeFilter === "other") conds.push(attachedElsewhere(leaves.id));
 
+  /**
+   * Already-attached products sort first -- IN THE QUERY, before the page is
+   * cut.
+   *
+   * Sorting the fetched page in JS would be the smaller change and would be
+   * wrong: the page is chosen by `offset`/`limit` against an alphabetical
+   * order, so an attached product sorting 400th alphabetically is simply not
+   * in the rows the client receives. It would rise to the top of whatever page
+   * it happened to land on and never reach the first -- correct-looking on a
+   * 25-product fixture, useless against the 1,112 in production.
+   *
+   * The destination decides what counts. With an item group selected that is
+   * membership OF THAT GROUP, so switching groups re-sorts to the one being
+   * filled; at quote level it is attachment to the quote by any route.
+   *
+   * Expressed as a rank rather than `DESC` on a boolean so the intent survives
+   * reading the generated SQL, and so NULL ordering is not a question anyone
+   * has to answer.
+   */
+  const attachedToDestination = (leafId: typeof leaves.id) =>
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(quoteLeaves)
+        .where(
+          and(
+            eq(quoteLeaves.leafId, leafId),
+            eq(quoteLeaves.quoteId, filters.targetQuoteId),
+            ...(filters.targetAssemblyId
+              ? [eq(quoteLeaves.assemblyId, filters.targetAssemblyId)]
+              : []),
+          ),
+        ),
+    );
+  const attachedFirst = sql`case when ${attachedToDestination(leaves.id)} then 0 else 1 end`;
+
   const offset = Math.max(0, filters.offset ?? 0);
 
   // Wave 1: filtered base rows + unfiltered library count + quote
@@ -290,7 +335,10 @@ export async function loadLibraryBrowse(
       .select()
       .from(leaves)
       .where(and(...conds))
-      .orderBy(asc(leaves.name), asc(leaves.id))
+      .orderBy(attachedFirst, asc(leaves.name), asc(leaves.id))
+      // Name and id are UNCHANGED as the ordering within each group, so the
+      // attached block and the unattached block are each still alphabetical.
+      //
       // `id` breaks name ties so paging is a total order. Without it two
       // products sharing a name can swap between pages and one is seen twice
       // while the other is never seen at all.

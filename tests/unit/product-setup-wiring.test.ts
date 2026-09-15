@@ -1141,7 +1141,13 @@ test("B-11 · the library states its own truncation", async () => {
 
   // Paging needs a TOTAL order. Name alone lets two products sharing a name
   // swap between pages — one seen twice, the other never.
-  assert.match(loader, /orderBy\(asc\(leaves\.name\), asc\(leaves\.id\)\)/);
+  //
+  // Asserted as the ordering's TAIL rather than the whole clause: a leading
+  // rank may precede it (attached products sort first), and that changes which
+  // page a product lands on without touching the tie-break that makes paging
+  // total. Pinning the exact string would have failed on a change that
+  // preserves the property this test exists to protect.
+  assert.match(loader, /\.orderBy\([^)]*asc\(leaves\.name\), asc\(leaves\.id\)\)/);
 
   const modal = await code("src/components/library/library-browse-modal.tsx");
   assert.match(modal, /lib-pager/);

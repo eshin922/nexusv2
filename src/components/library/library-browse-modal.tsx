@@ -324,6 +324,7 @@ export function LibraryBrowseModal({
           limit: PAGE_SIZE,
           sourceTypeFilter: sourceTypeFilter || undefined,
           scopeFilter,
+          targetAssemblyId,
         });
         if (!result.ok) {
           setError(result.error.message);
@@ -442,7 +443,7 @@ export function LibraryBrowseModal({
     setTypeFilter("");
     setScopeFilter("all");
     startTransition(async () => {
-      const refreshed = await browse({ search, scopeFilter: "all" });
+      const refreshed = await browse({ search, scopeFilter: "all", targetAssemblyId });
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
         setTotal(refreshed.data.total);
@@ -519,6 +520,7 @@ export function LibraryBrowseModal({
         search,
         sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
+        targetAssemblyId,
       });
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
@@ -554,6 +556,7 @@ export function LibraryBrowseModal({
         search,
         sourceTypeFilter: sourceTypeFilter || undefined,
         scopeFilter,
+        targetAssemblyId,
       });
       if (refreshed.ok) {
         setRows(refreshed.data.rows);
@@ -1604,7 +1607,7 @@ export function LibraryBrowseModal({
           // loader, so a stale row would keep refusing a product that now
           // qualifies.
           startTransition(async () => {
-            const refreshed = await browse({ search, scopeFilter });
+            const refreshed = await browse({ search, scopeFilter, targetAssemblyId });
             if (refreshed.ok) {
               setRows(refreshed.data.rows);
               setTotal(refreshed.data.total);
