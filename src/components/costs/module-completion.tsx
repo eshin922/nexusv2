@@ -371,7 +371,11 @@ export function PackagingCompletion() {
               // Names the handoff THIS screen is showing. The action conditions
               // on it, so a screen left open across a withdraw-and-re-request
               // cannot act on the replacement it never displayed.
-              { quoteId, handoffId: handoff!.handoffId },
+              // The revision THIS screen is showing travels with the id.
+              // Both completed states of one row share an id and a status, so
+              // the id alone cannot say which of them the operator was looking
+              // at when they pressed this.
+              { quoteId, handoffId: handoff!.handoffId, revision: String(handoff!.revision) },
               read,
             )
           }
@@ -525,7 +529,7 @@ export function FreightCompletion() {
               run(
                 "incomplete",
                 services.markFreightIncomplete,
-                { quoteId, handoffId: handoff.handoffId },
+                { quoteId, handoffId: handoff.handoffId, revision: String(handoff.revision) },
                 read,
               )
             }
@@ -560,7 +564,7 @@ export function FreightCompletion() {
             run(
               "complete",
               services.completeFreightHandoff,
-              { quoteId, handoffId: handoff.handoffId },
+              { quoteId, handoffId: handoff.handoffId, revision: String(handoff.revision) },
               read,
             )
           }

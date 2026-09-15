@@ -35,6 +35,9 @@ const HOLDER = "user-logistics";
 
 const OPEN_HANDOFF: LatestFreightHandoff = {
   handoffId: "handoff-1",
+  // The state the screen is displaying. Every control that changes this row
+  // sends it back, so an action cannot land on a later state of the same row.
+  revision: 4,
   quoteId: QUOTE,
   status: "open",
   assignedToUserId: HOLDER,
@@ -49,6 +52,7 @@ const OPEN_HANDOFF: LatestFreightHandoff = {
 
 const COMPLETED_HANDOFF: LatestFreightHandoff = {
   ...OPEN_HANDOFF,
+  revision: 5,
   status: "completed",
   completedAt: new Date("2026-09-03T00:00:00Z"),
   completedByEmail: "logistics@example.invalid",
@@ -461,4 +465,46 @@ test("Freight cannot be reopened once Packaging pulled its request back", async 
   assert.deepEqual(buttons(m), []);
   assert.deepEqual(calls.action, []);
   await m.unmount();
+});
+
+/* ── 5 · the revision travels with the press ──────────────────────────── */
+
+test("every handoff action carries the revision the screen displayed", async () => {
+  // A control that sent only the id would let the action land on a LATER state
+  // of the same row — both completed states of one handoff share an id and a
+  // status. The action refuses a missing revision outright, so a control that
+  // stopped sending one would fail closed; this asserts it is sent, and sent
+  // as the value on screen.
+  const seen: FormData[] = [];
+  const capture = (name: string) => async (fd: FormData) => {
+    seen.push(fd);
+    return { ok: true as const, data: {} };
+  };
+  const { svc } = services({
+    markPackagingIncomplete: capture("markPackagingIncomplete"),
+    completeFreightHandoff: capture("completeFreightHandoff"),
+    markFreightIncomplete: capture("markFreightIncomplete"),
+  });
+
+  for (const [control, handoff] of [
+    [<PackagingCompletion />, OPEN_HANDOFF],
+    [<FreightCompletion />, OPEN_HANDOFF],
+    [<FreightCompletion />, COMPLETED_HANDOFF],
+  ] as const) {
+    const m = await mount(render(control, svc, { handoff }));
+    await m.click("button");
+    await flush();
+    await m.unmount();
+  }
+
+  assert.equal(seen.length, 3, "a control changed the handoff without an action call");
+  for (const [index, fd] of seen.entries()) {
+    const expected = index === 2 ? COMPLETED_HANDOFF : OPEN_HANDOFF;
+    assert.equal(
+      fd.get("revision"),
+      String(expected.revision),
+      `call ${index} sent the wrong revision, or none`,
+    );
+    assert.equal(fd.get("handoffId"), expected.handoffId);
+  }
 });

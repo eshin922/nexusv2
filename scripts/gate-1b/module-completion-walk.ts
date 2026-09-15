@@ -58,6 +58,13 @@ const {
   reopenProduction,
 } = await import("../../src/app/actions/production-completion.ts");
 
+const revisionFor = async (id: string) =>
+  String(
+    (
+      await sql<{ revision: number }[]>`select revision from freight_handoffs where id = ${id}`
+    )[0].revision,
+  );
+
 const form = (o: Record<string, string>) => {
   const fd = new FormData();
   for (const [k, v] of Object.entries(o)) fd.set(k, v);
@@ -94,6 +101,15 @@ const priorRecipient = settings.logistics_recipient_user_id;
 await sql`
   update firm_settings set logistics_recipient_user_id = ${admin.id} where id = ${settings.id}
 `;
+
+// A previous run that CRASHED between breaking the audit writer and repairing
+// it would leave the trigger installed, and every later run would then fail in
+// section 1 with a message about section 8. Cleared before anything starts, so
+// a crashed run cannot poison the next one.
+await sql.unsafe(`
+  drop trigger if exists nexus_walk_break_audit on audit_log;
+  drop function if exists nexus_walk_break_audit();
+`);
 
 const wipe = async () => {
   await sql`delete from audit_log where entity_id = ${QUOTE}
@@ -169,7 +185,7 @@ check(
 console.log("\n── 2a · as the PM, who does not hold it ──────────────────");
 
 const handoffId = all[0].id;
-const byPm = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId }));
+const byPm = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId, revision: await revisionFor(handoffId) }));
 check("a PM cannot complete freight assigned to someone else", !byPm.ok);
 check(
   "  and is refused as FORBIDDEN, not as a validation slip",
@@ -182,7 +198,7 @@ check("  the handoff is untouched", all[0]?.status === "open", all[0]?.status);
 console.log("\n── 2b · as logistics ─────────────────────────────────────");
 process.env.NEXUS_VALIDATION_IDENTITY = "admin";
 
-const closed = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId }));
+const closed = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId, revision: await revisionFor(handoffId) }));
 check("the holder can mark Freight complete", closed.ok, closed.ok ? "" : closed.error.code);
 all = await rows();
 check("  the handoff is completed", all[0]?.status === "completed", all[0]?.status);
@@ -220,7 +236,7 @@ check(
 // Packaging's Mark incomplete still works once freight is finished -- it
 // pulls the packaging end back and leaves the completed row standing.
 process.env.NEXUS_VALIDATION_IDENTITY = "pm";
-const lateWithdraw = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId }));
+const lateWithdraw = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId, revision: await revisionFor(handoffId) }));
 check("Packaging can still be marked incomplete afterwards", lateWithdraw.ok,
   lateWithdraw.ok ? "" : lateWithdraw.error.code);
 check(
@@ -243,7 +259,7 @@ all = await rows();
 check("  which mints a NEW handoff rather than reviving the old", all.length === 2, `${all.length}`);
 
 const openId = all.find((r) => r.status === "open")!.id;
-const pulled = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId }));
+const pulled = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId, revision: await revisionFor(openId) }));
 check("the quote side can reopen Packaging", pulled.ok, pulled.ok ? "" : pulled.error.code);
 all = await rows();
 check(
@@ -351,7 +367,7 @@ check("complete", r.ok, r.ok ? "" : r.error.code);
 all = await rows();
 const openId1 = all[0].id;
 
-r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId1 }));
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId1, revision: await revisionFor(openId1) }));
 check("incomplete", r.ok, r.ok ? "" : r.error.code);
 check(
   "  withdraws the outstanding request",
@@ -385,11 +401,11 @@ console.log("\n── 6b · Packaging, after Freight completed ─────�
 all = await rows();
 const openId2 = all.find((row) => row.status === "open")!.id;
 process.env.NEXUS_VALIDATION_IDENTITY = "admin";
-r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId2 }));
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId2, revision: await revisionFor(openId2) }));
 check("logistics completes the freight", r.ok, r.ok ? "" : r.error.code);
 process.env.NEXUS_VALIDATION_IDENTITY = "pm";
 
-r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId2 }));
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId2, revision: await revisionFor(openId2) }));
 check("Packaging can be marked incomplete anyway", r.ok, r.ok ? "" : r.error.code);
 check(
   "  and this is a reopen, not a withdrawal",
@@ -417,7 +433,7 @@ check(
   latest.ok ? `${latest.data?.status}/${latest.data?.packagingReopenedAt}` : "",
 );
 
-r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId2 }));
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId2, revision: await revisionFor(openId2) }));
 check("a second press changes nothing", !r.ok);
 check("  refused as a stale write", !r.ok && r.error.code === "STALE_WRITE",
   r.ok ? "ALLOWED" : r.error.code);
@@ -437,11 +453,11 @@ console.log("\n── 6c · Freight ──────────────�
 all = await rows();
 const openId3 = all.find((row) => row.status === "open")!.id;
 process.env.NEXUS_VALIDATION_IDENTITY = "admin";
-r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("complete", r.ok, r.ok ? "" : r.error.code);
 
 process.env.NEXUS_VALIDATION_IDENTITY = "pm";
-r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("someone who does not hold it cannot reopen it", !r.ok);
 check("  refused as FORBIDDEN", !r.ok && r.error.code === "FORBIDDEN",
   r.ok ? "ALLOWED" : r.error.code);
@@ -451,7 +467,7 @@ process.env.NEXUS_VALIDATION_IDENTITY = "admin";
 // far depends on what earlier sections did, and a hand-counted expectation
 // would be measuring my arithmetic instead of the behaviour.
 const completionsBefore = await audits("freight_completed");
-r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("the holder can", r.ok, r.ok ? "" : r.error.code);
 
 const [freightReopened] = await sql<
@@ -474,7 +490,7 @@ check(
   `${completionsBefore} before, ${completionsAfter} after`,
 );
 
-r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("complete again", r.ok, r.ok ? "" : r.error.code);
 const [afterRecomplete] = await sql<{ status: string; completed_at: Date | null }[]>`
   select * from freight_handoffs where id = ${openId3}
@@ -482,20 +498,20 @@ const [afterRecomplete] = await sql<{ status: string; completed_at: Date | null 
 check("  the same task closes again", afterRecomplete.status === "completed", afterRecomplete.status);
 check("  carrying a completion time once more", afterRecomplete.completed_at !== null);
 
-r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("and it can be reopened a second time", r.ok, r.ok ? "" : r.error.code);
-r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("and closed a second time", r.ok, r.ok ? "" : r.error.code);
 
 // ═══ 6d · the two reopens do not collide ═══════════════════════════════════
 console.log("\n── 6d · one end at a time ────────────────────────────────");
 
 process.env.NEXUS_VALIDATION_IDENTITY = "pm";
-r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("Packaging pulls its end back", r.ok, r.ok ? "" : r.error.code);
 
 process.env.NEXUS_VALIDATION_IDENTITY = "admin";
-r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3, revision: await revisionFor(openId3) }));
 check("and the freight task can no longer be reopened", !r.ok);
 check(
   "  refused as a stale write, not silently ignored",
@@ -538,6 +554,255 @@ r = await reopenProduction(form({ completionId }));
 check("and the old record cannot be reopened twice", !r.ok);
 check("  refused as a stale write", !r.ok && r.error.code === "STALE_WRITE",
   r.ok ? "ALLOWED" : r.error.code);
+
+// ═══ 7 · a stale screen, across one row's full round trip ══════════════════
+//
+// THE CASE ID AND STATUS CANNOT SEE.
+//
+//   open ──complete──> completed ──reopen──> open ──complete──> completed
+//
+// Both completed states above have the same id and the same status. A screen
+// showing the FIRST one, left open while logistics reopened and finished the
+// work again, matches the second on everything the old fence looked at. It
+// would reverse a completion it never displayed, and the operator would
+// believe they were reversing their own.
+//
+// Only the revision tells them apart, so only the revision is asserted here.
+console.log("\n── 7 · a stale screen across complete → incomplete → complete ──");
+await wipe();
+
+await markReadyForFreight(form({ quoteId: QUOTE }));
+all = await rows();
+const roundTripId = all[0].id;
+
+const stateOf = async (id: string) =>
+  (
+    await sql<{ revision: number; status: string }[]>`
+      select revision, status from freight_handoffs where id = ${id}
+    `
+  )[0];
+
+let live = await stateOf(roundTripId);
+check("a new handoff starts at revision 1", live.revision === 1, `${live.revision}`);
+
+process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+r = await completeFreightHandoff(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(live.revision) }),
+);
+check("complete", r.ok, r.ok ? "" : r.error.code);
+
+// What the stale screen is holding: THIS completion, and nothing after it.
+const staleScreen = await stateOf(roundTripId);
+check(
+  "  the revision moved with the state",
+  staleScreen.revision === 2 && staleScreen.status === "completed",
+  `${staleScreen.revision}/${staleScreen.status}`,
+);
+
+r = await markFreightIncomplete(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(staleScreen.revision) }),
+);
+check("incomplete", r.ok, r.ok ? "" : r.error.code);
+
+live = await stateOf(roundTripId);
+r = await completeFreightHandoff(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(live.revision) }),
+);
+check("complete again", r.ok, r.ok ? "" : r.error.code);
+
+live = await stateOf(roundTripId);
+check(
+  "the row is back in the state the stale screen is showing",
+  live.status === staleScreen.status,
+  `${live.status}`,
+);
+check(
+  "  but at a different revision",
+  live.revision !== staleScreen.revision,
+  `${staleScreen.revision} → ${live.revision}`,
+);
+
+// THE ASSERTION THE COLUMN EXISTS FOR.
+r = await markFreightIncomplete(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(staleScreen.revision) }),
+);
+check("the stale screen cannot reopen the completion it never saw", !r.ok);
+check(
+  "  refused as a stale write",
+  !r.ok && r.error.code === "STALE_WRITE",
+  r.ok ? "ALLOWED" : r.error.code,
+);
+const afterStale = await stateOf(roundTripId);
+check(
+  "  and the refusal changed nothing",
+  afterStale.revision === live.revision && afterStale.status === "completed",
+  `${afterStale.revision}/${afterStale.status}`,
+);
+
+// And the fence is not simply refusing everything: a CURRENT screen still acts.
+r = await markFreightIncomplete(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(live.revision) }),
+);
+check("a current screen still can", r.ok, r.ok ? "" : r.error.code);
+
+// The same fence on the packaging end, and on completion itself.
+live = await stateOf(roundTripId);
+r = await completeFreightHandoff(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(live.revision - 1) }),
+);
+check("completing at a superseded revision is refused too", !r.ok);
+check("  as a stale write", !r.ok && r.error.code === "STALE_WRITE",
+  r.ok ? "ALLOWED" : r.error.code);
+
+process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+r = await markPackagingIncomplete(
+  form({ quoteId: QUOTE, handoffId: roundTripId, revision: String(live.revision - 1) }),
+);
+check("and so is marking Packaging incomplete at one", !r.ok);
+check("  as a stale write", !r.ok && r.error.code === "STALE_WRITE",
+  r.ok ? "ALLOWED" : r.error.code);
+
+// A caller that sends NO revision is refused rather than defaulted: a fence
+// that can be skipped by omission is not a fence.
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: roundTripId }));
+check("omitting the revision is refused, not defaulted", !r.ok);
+check("  as a validation failure", !r.ok && r.error.code === "VALIDATION_ERROR",
+  r.ok ? "ALLOWED" : r.error.code);
+
+// ═══ 8 · the audit entry and the state change commit together ══════════════
+//
+// Each was two statements. An audit failure left the state changed with no
+// record of who changed it -- and for these three, who decided and when IS the
+// content. Proven by making the audit write fail and showing the state change
+// does not survive it.
+console.log("\n── 8 · an audit failure rolls the state change back ───────");
+await wipe();
+
+/**
+ * Run an action that is EXPECTED to fail, without assuming how.
+ *
+ * An audit write failing is infrastructure, not a refusal, so it is a Postgres
+ * error and `runAction` re-throws it by design — only ActionGuardError and two
+ * data-format codes become structured results. The operator is not left with a
+ * false success: a thrown action is exactly what the completion controls report
+ * as INDETERMINATE ("whether it saved is not known — refresh the status"), and
+ * the refresh then shows the unchanged state this section asserts.
+ *
+ * Either shape counts as "it did not succeed"; the rollback is the claim, and
+ * that is asserted separately against the rows.
+ */
+const attempt = async (run: () => Promise<WalkResult>): Promise<WalkResult> => {
+  try {
+    return await run();
+  } catch (error) {
+    return { ok: false, error: { code: "THREW" } };
+  }
+};
+
+/** Makes `writeAuditEntry` fail for ONE action name, from inside the database. */
+const breakAuditFor = async (action: string) => {
+  await sql.unsafe(`
+    create or replace function nexus_walk_break_audit() returns trigger as $$
+    begin
+      if new.action = '${action}' then
+        raise exception 'walk: audit write refused';
+      end if;
+      return new;
+    end;
+    $$ language plpgsql;
+    drop trigger if exists nexus_walk_break_audit on audit_log;
+    create trigger nexus_walk_break_audit before insert on audit_log
+      for each row execute function nexus_walk_break_audit();
+  `);
+};
+const repairAudit = async () => {
+  await sql.unsafe(`
+    drop trigger if exists nexus_walk_break_audit on audit_log;
+    drop function if exists nexus_walk_break_audit();
+  `);
+};
+
+// ── 8a · Packaging (an INSERT plus its audit row) ──────────────────────────
+await breakAuditFor("freight_requested");
+r = await attempt(() => markReadyForFreight(form({ quoteId: QUOTE })));
+check("marking Packaging complete fails when its audit row cannot be written", !r.ok);
+let handoffCount = (
+  await sql<{ n: number }[]>`select count(*)::int n from freight_handoffs where quote_id = ${QUOTE}`
+)[0].n;
+check("  and NO handoff survives the failure", handoffCount === 0, `${handoffCount} row(s)`);
+await repairAudit();
+
+r = await markReadyForFreight(form({ quoteId: QUOTE }));
+check("  with the audit repaired it succeeds", r.ok, r.ok ? "" : r.error.code);
+handoffCount = (
+  await sql<{ n: number }[]>`select count(*)::int n from freight_handoffs where quote_id = ${QUOTE}`
+)[0].n;
+check("  leaving exactly one handoff", handoffCount === 1, `${handoffCount} row(s)`);
+
+// ── 8b · Freight (an UPDATE plus its audit row) ────────────────────────────
+all = await rows();
+const txHandoffId = all[0].id;
+live = await stateOf(txHandoffId);
+
+process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+await breakAuditFor("freight_completed");
+r = await attempt(() =>
+  completeFreightHandoff(
+    form({ quoteId: QUOTE, handoffId: txHandoffId, revision: String(live.revision) }),
+  ),
+);
+check("completing Freight fails when its audit row cannot be written", !r.ok);
+const afterFailedComplete = await stateOf(txHandoffId);
+check(
+  "  and the handoff is still open, at the same revision",
+  afterFailedComplete.status === "open" && afterFailedComplete.revision === live.revision,
+  `${afterFailedComplete.status}/${afterFailedComplete.revision}`,
+);
+await repairAudit();
+
+r = await completeFreightHandoff(
+  form({ quoteId: QUOTE, handoffId: txHandoffId, revision: String(live.revision) }),
+);
+check("  with the audit repaired it completes", r.ok, r.ok ? "" : r.error.code);
+check("  and the completion is audited", (await audits("freight_completed")) === 1);
+
+// ── 8c · Production ────────────────────────────────────────────────────────
+process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+await sql`delete from production_completions where quote_id = ${QUOTE}`;
+
+await breakAuditFor("production_completed");
+r = await attempt(() => markProductionComplete(form({ quoteId: QUOTE })));
+check("marking Production complete fails when its audit row cannot be written", !r.ok);
+let prodCount = (
+  await sql<{ n: number }[]>`
+    select count(*)::int n from production_completions where quote_id = ${QUOTE}
+  `
+)[0].n;
+check("  and NO completion survives the failure", prodCount === 0, `${prodCount} row(s)`);
+await repairAudit();
+
+r = await markProductionComplete(form({ quoteId: QUOTE }));
+check("  with the audit repaired it succeeds", r.ok, r.ok ? "" : r.error.code);
+
+prodNow = await sql`select * from production_completions where quote_id = ${QUOTE} order by completed_at`;
+const txCompletionId = prodNow[0].id;
+await breakAuditFor("production_reopened");
+r = await attempt(() => reopenProduction(form({ completionId: txCompletionId })));
+check("reopening Production fails when its audit row cannot be written", !r.ok);
+prodNow = await sql`select * from production_completions where quote_id = ${QUOTE} order by completed_at`;
+check(
+  "  and the completion still stands",
+  prodNow[0].status === "completed",
+  prodNow[0].status,
+);
+await repairAudit();
+
+r = await reopenProduction(form({ completionId: txCompletionId }));
+check("  with the audit repaired it reopens", r.ok, r.ok ? "" : r.error.code);
+
+// The trigger is gone whatever happened above, so a failure here cannot leave
+// the isolated database refusing audit writes for the next run.
+await repairAudit();
 
 // ═══ cleanup ═══════════════════════════════════════════════════════════════
 await wipe();

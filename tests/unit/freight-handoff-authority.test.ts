@@ -142,6 +142,16 @@ test("every state change names the handoff, and conditions on it", async () => {
         /eq\(freightHandoffs\.quoteId, quoteId\)/,
         `${name} update ${index} acts on whatever the quote happens to have`,
       );
+
+      // And on the revision the SCREEN was showing. Completion and reopening
+      // move this row between `open` and `completed`, so two different states
+      // answer to the same id and status — the behavioural proof is §7 of the
+      // walk, and this keeps a refactor from dropping the clause silently.
+      assert.match(
+        where,
+        /eq\(freightHandoffs\.revision, revision\)/,
+        `${name} update ${index} is not fenced on the displayed revision`,
+      );
     }
 
     // A no-match is a STALE write, not a missing one: the row exists, it is
@@ -162,12 +172,35 @@ test("a replaced handoff is refused rather than silently closed", async () => {
     "markFreightIncomplete",
   ]) {
     const body = actionBody(src, name);
-    // Zero rows updated must throw. Returning success on a no-op would tell an
-    // operator their stale screen had acted when nothing moved.
+
+    // Zero rows updated must refuse. Returning success on a no-op would tell
+    // an operator their stale screen had acted when nothing moved.
+    //
+    // Asserted as the PROPERTY rather than one spelling of it. These writes now
+    // run inside `db.transaction`, so the zero-row branch returns `null` out of
+    // the callback and the throw happens at the call site -- the previous
+    // regex pinned `length === 0) { throw`, which the transactional shape no
+    // longer contains even though it refuses exactly as before.
     assert.match(
       body,
-      /\.length === 0\)\s*\{\s*throw new ActionGuardError\(/,
-      `${name} does not refuse when no open handoff matched`,
+      /\.length === 0\)/,
+      `${name} does not check whether any row was updated`,
     );
+    assert.match(
+      body,
+      /=== null\)\s*(\{\s*)?throw new ActionGuardError\(\s*ERR\.STALE_WRITE/,
+      `${name} does not refuse when no row matched`,
+    );
+
+    // And it must not reach its success return on the empty path: every
+    // zero-row branch leaves the transaction with `null`.
+    const zeroRowBranches = body.match(/\.length === 0\) return [^;]+;/g) ?? [];
+    for (const branch of zeroRowBranches) {
+      assert.match(
+        branch,
+        /return null;/,
+        `${name} returns something other than null from a zero-row update`,
+      );
+    }
   }
 });

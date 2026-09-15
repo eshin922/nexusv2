@@ -3025,6 +3025,17 @@ export const freightHandoffs = pgTable(
     notificationStatus: text("notification_status").notNull().default("pending"),
     notificationError: text("notification_error"),
 
+    /**
+     * Incremented by EVERY state change (0128).
+     *
+     * Completion and reopening move this row back and forth between `open` and
+     * `completed`, so `(id, status)` cannot tell "the completed state I was
+     * looking at" from a later one. The revision can: it is the one thing that
+     * does not come back. Callers pass the revision they displayed, and an
+     * update whose revision no longer matches is refused as a stale write.
+     */
+    revision: integer("revision").notNull().default(1),
+
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

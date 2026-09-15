@@ -103,22 +103,46 @@ export async function markProductionComplete(
     // control is not an absent endpoint.
     await quoteByIdDraft(quoteId);
 
-    const inserted = await db
-      .insert(productionCompletions)
-      .values({
-        quoteId,
-        completedByUserId: user.id,
-        status: "completed",
-      })
-      // The second click of a double-click. Nothing is created; the standing
-      // completion is returned as-is.
-      .onConflictDoNothing()
-      .returning({
-        id: productionCompletions.id,
-        completedAt: productionCompletions.completedAt,
-      });
+    // The completion and its audit entry COMMIT TOGETHER. Written as two
+    // statements, an audit failure left a completion with no record of who made
+    // it — and who completed it and when is the entire content of this record,
+    // so one without an audit row says a module was finished by nobody.
+    const created = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(productionCompletions)
+        .values({
+          quoteId,
+          completedByUserId: user.id,
+          status: "completed",
+        })
+        // The second click of a double-click. Nothing is created; the standing
+        // completion is returned as-is.
+        .onConflictDoNothing()
+        .returning({
+          id: productionCompletions.id,
+          completedAt: productionCompletions.completedAt,
+        });
 
-    if (inserted.length === 0) {
+      if (inserted.length === 0) return null;
+
+      await writeAuditEntry(
+        {
+          userId: user.id,
+          entityType: "quote",
+          entityId: quoteId,
+          action: "production_completed",
+          diffJson: {
+            completion_id: inserted[0].id,
+            basis: "operator marked production complete",
+          },
+        },
+        tx,
+      );
+
+      return inserted[0];
+    });
+
+    if (created === null) {
       const existing = await getProductionCompletion(quoteId);
       if (existing.ok && existing.data) return existing.data;
       throw new ActionGuardError(
@@ -128,24 +152,13 @@ export async function markProductionComplete(
       );
     }
 
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote",
-      entityId: quoteId,
-      action: "production_completed",
-      diffJson: {
-        completion_id: inserted[0].id,
-        basis: "operator marked production complete",
-      },
-    });
-
     revalidatePath("/");
     return {
-      completionId: inserted[0].id,
+      completionId: created.id,
       quoteId,
       completedByUserId: user.id,
       completedByEmail: user.email ?? null,
-      completedAt: inserted[0].completedAt,
+      completedAt: created.completedAt,
     };
   });
 }
@@ -187,23 +200,51 @@ export async function reopenProduction(
     // quote's edit permission — the same one that governs claiming.
     await quoteByIdDraft(completion.quoteId);
 
-    const pulled = await db
-      .update(productionCompletions)
-      .set({
-        status: "reopened",
-        reopenedByUserId: user.id,
-        reopenedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(productionCompletions.id, completionId),
-          eq(productionCompletions.status, "completed"),
-        ),
-      )
-      .returning({ id: productionCompletions.id });
+    // ── WHY NO REVISION COLUMN HERE ──────────────────────────────────────
+    //
+    // `freight_handoffs` needed one because completion and reopening move ONE
+    // row back and forth, so `(id, status)` cannot tell an earlier completed
+    // state from a later one. This table never reuses a row: reopening marks
+    // the record `reopened` — terminal for that row — and completing again
+    // INSERTS a new one. Each completion therefore has an id no later
+    // completion can hold, and the id IS the revision. A column here would be
+    // ceremony around a guarantee the shape already gives.
+    const pulled = await db.transaction(async (tx) => {
+      const rows = await tx
+        .update(productionCompletions)
+        .set({
+          status: "reopened",
+          reopenedByUserId: user.id,
+          reopenedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(productionCompletions.id, completionId),
+            eq(productionCompletions.status, "completed"),
+          ),
+        )
+        .returning({ id: productionCompletions.id });
 
-    if (pulled.length === 0) {
+      if (rows.length === 0) return null;
+
+      // In the SAME transaction, for the same reason completing is: a reopen
+      // with no record of who reopened it undoes someone's decision anonymously.
+      await writeAuditEntry(
+        {
+          userId: user.id,
+          entityType: "quote",
+          entityId: completion.quoteId,
+          action: "production_reopened",
+          diffJson: { completion_id: rows[0].id, basis: "production reopened" },
+        },
+        tx,
+      );
+
+      return rows[0];
+    });
+
+    if (pulled === null) {
       throw new ActionGuardError(
         ERR.STALE_WRITE,
         "Production is no longer marked complete — it was reopened elsewhere, " +
@@ -211,15 +252,7 @@ export async function reopenProduction(
       );
     }
 
-    await writeAuditEntry({
-      userId: user.id,
-      entityType: "quote",
-      entityId: completion.quoteId,
-      action: "production_reopened",
-      diffJson: { completion_id: pulled[0].id, basis: "production reopened" },
-    });
-
     revalidatePath("/");
-    return { completionId: pulled[0].id };
+    return { completionId: pulled.id };
   });
 }
