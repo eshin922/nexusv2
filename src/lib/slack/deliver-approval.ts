@@ -24,13 +24,12 @@ import {
   buildDecidedBlocks,
   type ApprovalMessageContext,
 } from "./approval-message";
+import { slackLink } from "./app-url";
 
-function appUrl(path: string): string {
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-  return `${base}${path}`;
-}
+// The production origin, always — see `./app-url`. This previously fell back
+// through `VERCEL_URL` to localhost, so a preview deployment posting to the
+// real approvals channel would have sent reviewers to a preview of itself.
+const appUrl = slackLink;
 
 /** Everything the message needs, assembled from governed rows. */
 async function loadContext(requestId: string): Promise<
