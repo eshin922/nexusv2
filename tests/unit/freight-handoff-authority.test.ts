@@ -50,10 +50,13 @@ test("completion refuses a caller who is neither the assignee nor an admin", asy
   assert.ok(guardAt < updateAt, "the write happens before the authority check");
 });
 
-test("request and withdrawal carry the quote's own edit permission", async () => {
+test("the quote side's actions carry the quote's own edit permission", async () => {
   const src = await read("app/actions/freight-handoff.ts");
 
-  for (const name of ["markReadyForFreight", "withdrawFreightRequest"]) {
+  // `withdrawFreightRequest` is now one branch of `markPackagingIncomplete`,
+  // which decides between withdrawing an outstanding request and pulling the
+  // packaging end back from a finished one. Same act, same permission.
+  for (const name of ["markReadyForFreight", "markPackagingIncomplete"]) {
     assert.match(
       actionBody(src, name),
       /quoteByIdDraft\(/,
@@ -61,20 +64,50 @@ test("request and withdrawal carry the quote's own edit permission", async () =>
     );
   }
 
-  // Completion deliberately does NOT. Freight work continues after a quote is
-  // sent, and draft-gating it would make the task uncompletable in the state
-  // it is most often worked in.
-  assert.doesNotMatch(
-    actionBody(src, "completeFreightHandoff"),
-    /quoteByIdDraft\(/,
-    "completion is draft-gated, which would strand freight work after send",
-  );
+  // The HOLDER's actions deliberately do NOT. Freight work continues after a
+  // quote is sent, and draft-gating either would make the task uncompletable —
+  // and now unreopenable — in the state it is most often worked in.
+  for (const name of ["completeFreightHandoff", "markFreightIncomplete"]) {
+    assert.doesNotMatch(
+      actionBody(src, name),
+      /quoteByIdDraft\(/,
+      `${name} is draft-gated, which would strand freight work after send`,
+    );
+  }
 });
 
-test("completion and withdrawal name the handoff, and condition on it", async () => {
+test("reopening the freight task carries the same authority as completing it", async () => {
+  // Added with Mark incomplete. Reversing a completion is the same decision as
+  // making it, so it is the same boundary — and a boundary is only established
+  // by an action that can refuse.
+  const body = actionBody(await read("app/actions/freight-handoff.ts"), "markFreightIncomplete");
+
+  assert.match(
+    body,
+    /handoff\.assignedToUserId !== user\.id && user\.role !== "admin"/,
+    "reopening does not compare the caller against the assignee",
+  );
+  assert.match(body, /ERR\.FORBIDDEN/, "an unauthorized caller is not refused as FORBIDDEN");
+
+  const guardAt = body.indexOf("ERR.FORBIDDEN");
+  const updateAt = body.indexOf(".update(freightHandoffs)");
+  assert.ok(guardAt >= 0 && updateAt >= 0);
+  assert.ok(guardAt < updateAt, "the write happens before the authority check");
+});
+
+test("every state change names the handoff, and conditions on it", async () => {
   const src = await read("app/actions/freight-handoff.ts");
 
-  for (const name of ["completeFreightHandoff", "withdrawFreightRequest"]) {
+  // Widened when Mark incomplete landed. There are now three actions and four
+  // updates between them, and the property is asserted per UPDATE rather than
+  // against one literal WHERE clause — the two reopens condition on
+  // `completed`, not on `open`, so a test pinned to the old literal would have
+  // passed them by saying nothing about them.
+  for (const name of [
+    "completeFreightHandoff",
+    "markPackagingIncomplete",
+    "markFreightIncomplete",
+  ]) {
     const body = actionBody(src, name);
 
     assert.match(
@@ -83,20 +116,33 @@ test("completion and withdrawal name the handoff, and condition on it", async ()
       `${name} does not take a handoff id`,
     );
 
-    // The condition is what stops a stale screen closing a replacement. Keyed
-    // on the id AND still-open: "whatever is open on this quote" would let a
-    // screen opened before a withdraw-and-re-request act on the request it
-    // never displayed.
-    assert.match(
-      body,
-      /eq\(freightHandoffs\.id, handoffId\), eq\(freightHandoffs\.status, "open"\)/,
-      `${name} is not conditioned on that exact open handoff`,
-    );
-    assert.doesNotMatch(
-      body,
-      /\.update\(freightHandoffs\)[\s\S]*?eq\(freightHandoffs\.quoteId, quoteId\), eq\(freightHandoffs\.status, "open"\)/,
-      `${name} still closes whatever is open on the quote`,
-    );
+    const updates = body.split(".update(freightHandoffs)").slice(1);
+    assert.ok(updates.length > 0, `${name} changes no handoff state`);
+
+    for (const [index, tail] of updates.entries()) {
+      // Everything up to the end of the WHERE clause. `.returning(` terminates
+      // every one of these chains.
+      const where = tail.slice(0, tail.indexOf(".returning("));
+
+      // Keyed on the id AND on the status it was chosen for. "Whatever is open
+      // on this quote" would let a screen opened before a
+      // withdraw-and-re-request act on the request it never displayed.
+      assert.match(
+        where,
+        /eq\(freightHandoffs\.id, handoffId\)/,
+        `${name} update ${index} is not conditioned on that exact handoff`,
+      );
+      assert.match(
+        where,
+        /eq\(freightHandoffs\.status, "(open|completed)"\)/,
+        `${name} update ${index} is not conditioned on the status it was chosen for`,
+      );
+      assert.doesNotMatch(
+        where,
+        /eq\(freightHandoffs\.quoteId, quoteId\)/,
+        `${name} update ${index} acts on whatever the quote happens to have`,
+      );
+    }
 
     // A no-match is a STALE write, not a missing one: the row exists, it is
     // simply not the one this screen was holding.
@@ -110,7 +156,11 @@ test("completion and withdrawal name the handoff, and condition on it", async ()
 
 test("a replaced handoff is refused rather than silently closed", async () => {
   const src = await read("app/actions/freight-handoff.ts");
-  for (const name of ["completeFreightHandoff", "withdrawFreightRequest"]) {
+  for (const name of [
+    "completeFreightHandoff",
+    "markPackagingIncomplete",
+    "markFreightIncomplete",
+  ]) {
     const body = actionBody(src, name);
     // Zero rows updated must throw. Returning success on a no-op would tell an
     // operator their stale screen had acted when nothing moved.

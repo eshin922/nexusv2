@@ -53,7 +53,8 @@ test("but nothing underneath it went with it", () => {
   const page = read(PAGE);
   for (const action of [
     "markReadyForFreight",
-    "withdrawFreightRequest",
+    "markPackagingIncomplete",
+    "markFreightIncomplete",
     "completeFreightHandoff",
   ]) {
     assert.match(
@@ -92,12 +93,18 @@ test("Packaging holds completion and reopening; Freight holds neither", () => {
   const src = read(CONTROLS);
   const packaging = bodyOf(src, "PackagingCompletion");
   assert.match(packaging, /markReadyForFreight/, "Packaging's Mark complete is not the freight request");
-  assert.match(packaging, /withdrawFreightRequest/, "Packaging cannot reopen");
-  assert.doesNotMatch(
+  assert.match(
     packaging,
-    /completeFreightHandoff/,
-    "Packaging offers the completion that belongs to whoever holds the work",
+    /markPackagingIncomplete/,
+    "Packaging cannot be marked incomplete",
   );
+  for (const holderAction of ["completeFreightHandoff", "markFreightIncomplete"]) {
+    assert.doesNotMatch(
+      packaging,
+      new RegExp(holderAction),
+      `Packaging reaches for ${holderAction}, which belongs to whoever holds the work`,
+    );
+  }
 });
 
 test("Freight holds the assignee, the notification outcome and Mark complete", () => {

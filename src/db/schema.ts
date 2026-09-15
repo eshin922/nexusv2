@@ -2990,6 +2990,32 @@ export const freightHandoffs = pgTable(
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
 
     /**
+     * The QUOTE side took its completion back after logistics had finished
+     * (0127).
+     *
+     * The freight work really was done, so the row stays `completed` and its
+     * own history is untouched -- this pair records only that Packaging is no
+     * longer claiming to be finished. Marking Packaging complete again inserts
+     * a NEW handoff, which notifies logistics through the same path as the
+     * first one, rather than reviving this row.
+     */
+    packagingReopenedByUserId: uuid("packaging_reopened_by_user_id"),
+    packagingReopenedAt: timestamp("packaging_reopened_at", { withTimezone: true }),
+
+    /**
+     * LOGISTICS reopened the task itself (0127) -- `status` goes back to
+     * `open` and this row is the live request again.
+     *
+     * `completed_by_user_id` and `completed_at` are cleared when it does, so
+     * an open row cannot also claim to be completed. The completion that was
+     * undone is not lost: it stays in `audit_log` as the `freight_completed`
+     * entry that recorded it, and the `freight_reopened` entry names it in
+     * `diff_json`.
+     */
+    reopenedByUserId: uuid("reopened_by_user_id"),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+
+    /**
      * Slack delivery, recorded rather than assumed. The Nexus task exists
      * whatever happens here: a notification that did not arrive is a reason to
      * say so, not a reason to withhold the work.

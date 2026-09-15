@@ -50,8 +50,9 @@ import { ModuleCompletionProvider } from "@/components/costs/module-completion";
 import {
   completeFreightHandoff,
   getLatestFreightHandoff,
+  markFreightIncomplete,
+  markPackagingIncomplete,
   markReadyForFreight,
-  withdrawFreightRequest,
 } from "@/app/actions/freight-handoff";
 import {
   getProductionCompletion,
@@ -834,8 +835,9 @@ export default async function CostBuildPage({
           // and a mounted test drives those by passing doubles in this slot.
           services={{
             markReadyForFreight,
-            withdrawFreightRequest,
+            markPackagingIncomplete,
             completeFreightHandoff,
+            markFreightIncomplete,
             markProductionComplete,
             reopenProduction,
             readHandoff: getLatestFreightHandoff,

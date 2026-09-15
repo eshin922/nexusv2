@@ -48,8 +48,9 @@ const {
   completeFreightHandoff,
   getFreightHandoff,
   getLatestFreightHandoff,
+  markFreightIncomplete,
+  markPackagingIncomplete,
   markReadyForFreight,
-  withdrawFreightRequest,
 } = await import("../../src/app/actions/freight-handoff.ts");
 const {
   getProductionCompletion,
@@ -97,6 +98,7 @@ await sql`
 const wipe = async () => {
   await sql`delete from audit_log where entity_id = ${QUOTE}
             and action in ('freight_requested','freight_completed','freight_request_withdrawn',
+                           'freight_reopened','packaging_reopened',
                            'production_completed','production_reopened')`;
   await sql`delete from freight_handoffs where quote_id = ${QUOTE}`;
   await sql`delete from production_completions where quote_id = ${QUOTE}`;
@@ -215,16 +217,22 @@ check(
   latest2.ok ? String(latest2.data?.completedByEmail) : "",
 );
 
-// Packaging does not offer Reopen once freight is finished. That is an
-// affordance; this is the boundary it matches.
+// Packaging's Mark incomplete still works once freight is finished -- it
+// pulls the packaging end back and leaves the completed row standing.
 process.env.NEXUS_VALIDATION_IDENTITY = "pm";
-const lateWithdraw = await withdrawFreightRequest(form({ quoteId: QUOTE, handoffId }));
-check("a finished request cannot be withdrawn", !lateWithdraw.ok);
+const lateWithdraw = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId }));
+check("Packaging can still be marked incomplete afterwards", lateWithdraw.ok,
+  lateWithdraw.ok ? "" : lateWithdraw.error.code);
 check(
-  "  refused as a stale write",
-  !lateWithdraw.ok && lateWithdraw.error.code === "STALE_WRITE",
-  lateWithdraw.ok ? "ALLOWED" : lateWithdraw.error.code,
+  "  and it reopens the packaging end rather than withdrawing a finished request",
+  lateWithdraw.ok && (lateWithdraw.data as { outcome: string }).outcome === "packaging_reopened",
+  lateWithdraw.ok ? (lateWithdraw.data as { outcome: string }).outcome : "",
 );
+// Undone immediately: §3 below re-uses this handoff and needs it as logistics
+// left it. The round trip itself is §6b.
+await sql`update freight_handoffs set packaging_reopened_at = null,
+          packaging_reopened_by_user_id = null where id = ${handoffId}`;
+await sql`delete from audit_log where entity_id = ${QUOTE} and action = 'packaging_reopened'`;
 
 // ═══ 3 · Reopening Packaging before freight finishes ═══════════════════════
 console.log("\n── 3 · Packaging · Reopen ────────────────────────────────");
@@ -235,7 +243,7 @@ all = await rows();
 check("  which mints a NEW handoff rather than reviving the old", all.length === 2, `${all.length}`);
 
 const openId = all.find((r) => r.status === "open")!.id;
-const pulled = await withdrawFreightRequest(form({ quoteId: QUOTE, handoffId: openId }));
+const pulled = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId }));
 check("the quote side can reopen Packaging", pulled.ok, pulled.ok ? "" : pulled.error.code);
 all = await rows();
 check(
@@ -324,6 +332,207 @@ check(
   quoteAfter.sig === quoteBefore.sig,
   quoteAfter.sig === quoteBefore.sig ? "" : "the quote row changed",
 );
+
+// ═══ 6 · complete → incomplete → complete, on each module ══════════════════
+//
+// The round trip is the thing, not any one leg of it. A module that completes
+// and reverses but cannot complete AGAIN is a module an operator can only
+// break once, and nothing in the two halves on their own would say so.
+console.log("\n── 6a · Packaging, while logistics still holds it ─────────");
+await wipe();
+
+let r = await markReadyForFreight(form({ quoteId: QUOTE }));
+check("complete", r.ok, r.ok ? "" : r.error.code);
+all = await rows();
+const openId1 = all[0].id;
+
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId1 }));
+check("incomplete", r.ok, r.ok ? "" : r.error.code);
+check(
+  "  withdraws the outstanding request",
+  r.ok && (r.data as { outcome: string }).outcome === "withdrawn",
+  r.ok ? (r.data as { outcome: string }).outcome : "",
+);
+all = await rows();
+check("  the row is kept and marked withdrawn", all[0]?.status === "withdrawn", all[0]?.status);
+check("  and it is audited", (await audits("freight_request_withdrawn")) === 1);
+
+let latest = await getLatestFreightHandoff(QUOTE);
+check(
+  "  so Packaging reads incomplete",
+  latest.ok && latest.data?.status === "withdrawn",
+  latest.ok ? String(latest.data?.status) : "",
+);
+
+r = await markReadyForFreight(form({ quoteId: QUOTE }));
+check("complete again", r.ok, r.ok ? "" : r.error.code);
+all = await rows();
+check("  which mints a NEW handoff", all.length === 2, `${all.length} row(s)`);
+check("  open", all.some((row) => row.status === "open"));
+check(
+  "  and notifies logistics again through the same path",
+  (await audits("freight_requested")) === 2,
+);
+
+// ═══ 6b · Packaging, AFTER logistics finished ══════════════════════════════
+console.log("\n── 6b · Packaging, after Freight completed ───────────────");
+
+all = await rows();
+const openId2 = all.find((row) => row.status === "open")!.id;
+process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId2 }));
+check("logistics completes the freight", r.ok, r.ok ? "" : r.error.code);
+process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId2 }));
+check("Packaging can be marked incomplete anyway", r.ok, r.ok ? "" : r.error.code);
+check(
+  "  and this is a reopen, not a withdrawal",
+  r.ok && (r.data as { outcome: string }).outcome === "packaging_reopened",
+  r.ok ? (r.data as { outcome: string }).outcome : "",
+);
+
+// THE constraint: the freight record is not rewritten. It really was completed
+// and saying otherwise would erase someone else's finished work.
+const [afterPull] = await sql<
+  { status: string; completed_at: Date | null; completed_by_user_id: string | null;
+    packaging_reopened_at: Date | null; packaging_reopened_by_user_id: string | null }[]
+>`select * from freight_handoffs where id = ${openId2}`;
+check("  the freight completion still stands", afterPull.status === "completed", afterPull.status);
+check("  with its completer and time untouched",
+  afterPull.completed_at !== null && afterPull.completed_by_user_id === admin.id);
+check("  and WHO pulled Packaging back, and when, is recorded",
+  afterPull.packaging_reopened_by_user_id === pm.id && afterPull.packaging_reopened_at !== null);
+check("  audited as its own event", (await audits("packaging_reopened")) === 1);
+
+latest = await getLatestFreightHandoff(QUOTE);
+check(
+  "  Packaging reads incomplete though the row says completed",
+  latest.ok && latest.data?.status === "completed" && latest.data?.packagingReopenedAt !== null,
+  latest.ok ? `${latest.data?.status}/${latest.data?.packagingReopenedAt}` : "",
+);
+
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId2 }));
+check("a second press changes nothing", !r.ok);
+check("  refused as a stale write", !r.ok && r.error.code === "STALE_WRITE",
+  r.ok ? "ALLOWED" : r.error.code);
+check("  and records no second reopen", (await audits("packaging_reopened")) === 1);
+
+r = await markReadyForFreight(form({ quoteId: QUOTE }));
+check("complete again", r.ok, r.ok ? "" : r.error.code);
+all = await rows();
+check("  a FRESH handoff, leaving the completed one alone", all.length === 3, `${all.length} row(s)`);
+check("  the completed one is still completed",
+  all.filter((row) => row.status === "completed").length === 1);
+check("  and logistics was notified again", (await audits("freight_requested")) === 3);
+
+// ═══ 6c · Freight reopens its own task ═════════════════════════════════════
+console.log("\n── 6c · Freight ──────────────────────────────────────────");
+
+all = await rows();
+const openId3 = all.find((row) => row.status === "open")!.id;
+process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("complete", r.ok, r.ok ? "" : r.error.code);
+
+process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("someone who does not hold it cannot reopen it", !r.ok);
+check("  refused as FORBIDDEN", !r.ok && r.error.code === "FORBIDDEN",
+  r.ok ? "ALLOWED" : r.error.code);
+
+process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+// Counted rather than asserted against a literal: the number of completions so
+// far depends on what earlier sections did, and a hand-counted expectation
+// would be measuring my arithmetic instead of the behaviour.
+const completionsBefore = await audits("freight_completed");
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("the holder can", r.ok, r.ok ? "" : r.error.code);
+
+const [freightReopened] = await sql<
+  { status: string; completed_at: Date | null; reopened_at: Date | null;
+    reopened_by_user_id: string | null }[]
+>`select * from freight_handoffs where id = ${openId3}`;
+check("  the task is open again", freightReopened.status === "open", freightReopened.status);
+check("  it no longer claims to be completed as well", freightReopened.completed_at === null);
+check("  and WHO reopened it, and when, is recorded",
+  freightReopened.reopened_by_user_id === admin.id && freightReopened.reopened_at !== null);
+check("  audited as its own event", (await audits("freight_reopened")) === 1);
+
+// The completion it undid is not lost. `audit_log` is where this subsystem
+// keeps history, and the entry that recorded the completion is still there --
+// which is what makes clearing the column safe rather than lossy.
+const completionsAfter = await audits("freight_completed");
+check(
+  "  and the completion it undid is still in the history",
+  completionsAfter === completionsBefore && completionsBefore > 0,
+  `${completionsBefore} before, ${completionsAfter} after`,
+);
+
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("complete again", r.ok, r.ok ? "" : r.error.code);
+const [afterRecomplete] = await sql<{ status: string; completed_at: Date | null }[]>`
+  select * from freight_handoffs where id = ${openId3}
+`;
+check("  the same task closes again", afterRecomplete.status === "completed", afterRecomplete.status);
+check("  carrying a completion time once more", afterRecomplete.completed_at !== null);
+
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("and it can be reopened a second time", r.ok, r.ok ? "" : r.error.code);
+r = await completeFreightHandoff(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("and closed a second time", r.ok, r.ok ? "" : r.error.code);
+
+// ═══ 6d · the two reopens do not collide ═══════════════════════════════════
+console.log("\n── 6d · one end at a time ────────────────────────────────");
+
+process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+r = await markPackagingIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("Packaging pulls its end back", r.ok, r.ok ? "" : r.error.code);
+
+process.env.NEXUS_VALIDATION_IDENTITY = "admin";
+r = await markFreightIncomplete(form({ quoteId: QUOTE, handoffId: openId3 }));
+check("and the freight task can no longer be reopened", !r.ok);
+check(
+  "  refused as a stale write, not silently ignored",
+  !r.ok && r.error.code === "STALE_WRITE",
+  r.ok ? "ALLOWED" : r.error.code,
+);
+const [untouched] = await sql<{ status: string }[]>`
+  select * from freight_handoffs where id = ${openId3}
+`;
+check("  and the refused reopen left it completed", untouched.status === "completed", untouched.status);
+
+// ═══ 6e · Production ═══════════════════════════════════════════════════════
+console.log("\n── 6e · Production ───────────────────────────────────────");
+
+process.env.NEXUS_VALIDATION_IDENTITY = "pm";
+await sql`delete from production_completions where quote_id = ${QUOTE}`;
+
+r = await markProductionComplete(form({ quoteId: QUOTE }));
+check("complete", r.ok, r.ok ? "" : r.error.code);
+let prodNow = await sql<{ id: string; status: string; reopened_by_user_id: string | null }[]>`
+  select * from production_completions where quote_id = ${QUOTE} order by completed_at
+`;
+const completionId = prodNow[0].id;
+
+r = await reopenProduction(form({ completionId }));
+check("incomplete", r.ok, r.ok ? "" : r.error.code);
+prodNow = await sql`select * from production_completions where quote_id = ${QUOTE} order by completed_at`;
+check("  the record is kept and marked reopened", prodNow[0].status === "reopened", prodNow[0].status);
+check("  and WHO reopened it is recorded", prodNow[0].reopened_by_user_id === pm.id);
+
+const readAfter = await getProductionCompletion(QUOTE);
+check("  so Production reads incomplete", readAfter.ok && readAfter.data === null);
+
+r = await markProductionComplete(form({ quoteId: QUOTE }));
+check("complete again", r.ok, r.ok ? "" : r.error.code);
+prodNow = await sql`select * from production_completions where quote_id = ${QUOTE} order by completed_at`;
+check("  a NEW record, keeping the earlier claim", prodNow.length === 2, `${prodNow.length} row(s)`);
+
+r = await reopenProduction(form({ completionId }));
+check("and the old record cannot be reopened twice", !r.ok);
+check("  refused as a stale write", !r.ok && r.error.code === "STALE_WRITE",
+  r.ok ? "ALLOWED" : r.error.code);
 
 // ═══ cleanup ═══════════════════════════════════════════════════════════════
 await wipe();

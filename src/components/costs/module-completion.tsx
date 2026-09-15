@@ -16,11 +16,29 @@ import type { ActionResult } from "@/lib/action-result";
  * of that in a place that was neither module.
  *
  * It is gone, and nothing underneath it changed. Packaging renders the
- * request end — marking Packaging complete IS `markReadyForFreight`, and
- * reopening it IS `withdrawFreightRequest`. Freight renders the holding end —
- * the assignee, whether Slack was actually told, and `completeFreightHandoff`.
- * Same rows, same audit entries, same notification, same permissions. What
- * moved is where the operator reads and presses it.
+ * request end — marking Packaging complete IS `markReadyForFreight`. Freight
+ * renders the holding end — the assignee, whether Slack was actually told,
+ * and `completeFreightHandoff`. Same rows, same audit entries, same
+ * notification, same permissions. What moved is where the operator reads and
+ * presses it.
+ *
+ * ── EVERY COMPLETED MODULE CAN BE MARKED INCOMPLETE ──────────────────────
+ *
+ * Completion is an operator judgement, and a judgement can be wrong. All
+ * three modules therefore reverse, each through the state it already owns:
+ *
+ *   Packaging   `markPackagingIncomplete`, which WITHDRAWS the request while
+ *               logistics still has it and, once logistics has finished,
+ *               pulls the packaging end back WITHOUT touching the completed
+ *               freight row. Marking it complete again mints a fresh handoff
+ *               and notifies logistics through the same path as the first.
+ *   Production  `reopenProduction`, its own record.
+ *   Freight     `markFreightIncomplete`, which returns the task to open for
+ *               the person holding it.
+ *
+ * Each records WHO reversed it and WHEN, and each is conditioned on the
+ * state the screen was showing, so a stale screen cannot reverse something
+ * it never displayed.
  *
  * Because the two modules are two views of ONE row, they share state here
  * rather than each holding a copy. Marking Packaging complete has to make the
@@ -86,8 +104,9 @@ import type { ActionResult } from "@/lib/action-result";
  */
 export type ModuleCompletionServices = {
   markReadyForFreight: (fd: FormData) => Promise<ActionResult<unknown>>;
-  withdrawFreightRequest: (fd: FormData) => Promise<ActionResult<unknown>>;
+  markPackagingIncomplete: (fd: FormData) => Promise<ActionResult<unknown>>;
   completeFreightHandoff: (fd: FormData) => Promise<ActionResult<unknown>>;
+  markFreightIncomplete: (fd: FormData) => Promise<ActionResult<unknown>>;
   markProductionComplete: (fd: FormData) => Promise<ActionResult<unknown>>;
   reopenProduction: (fd: FormData) => Promise<ActionResult<unknown>>;
   readHandoff: (quoteId: string) => Promise<ActionResult<LatestFreightHandoff | null>>;
@@ -275,24 +294,16 @@ function useRunner() {
  * repeated here: they belong to whoever is holding the work, and that is the
  * Freight module.
  *
- * ── PACKAGING CANNOT BE REOPENED ONCE FREIGHT IS COMPLETE ────────────────
+ * ── MARK INCOMPLETE WORKS EVEN AFTER FREIGHT IS FINISHED ─────────────────
  *
- * Reopening Packaging IS withdrawing the freight request, and
- * `withdrawFreightRequest` updates `WHERE status = 'open'` — a request
- * logistics has already closed is not open, so the action refuses it as a
- * STALE_WRITE. That is existing, deliberate lifecycle behaviour: the work was
- * handed over, done, and reported done, and pulling the request back
- * afterwards would rewrite someone else's finished task.
+ * One control, and the server decides what it means from the row as it
+ * actually is — see `markPackagingIncomplete`. While logistics still holds the
+ * request it is withdrawn; once logistics has finished it, the completed row
+ * is left exactly as it stands and only the packaging end is pulled back.
  *
- * So the control is not offered in that state, and the strip SAYS why rather
- * than leaving a button quietly missing. Offering it and letting the refusal
- * surface would be the worse trade — Pattern 47(f) asks that a control the
- * operator cannot use explain itself, and an absent one has to as well.
- *
- * This fix does NOT change that behaviour. Whether a completed handoff should
- * ever be reopenable — by an admin, by a new request, at all — is a lifecycle
- * question, not a defect in how the failure is reported, and it is out of
- * scope here.
+ * The strip says which of the two it is about to do, because they are not the
+ * same act and an operator pulling back a request someone is working on should
+ * know that is what they are doing.
  */
 export function PackagingCompletion() {
   const ctx = useModuleCompletion();
@@ -317,7 +328,10 @@ export function PackagingCompletion() {
   const error = outcome?.message ?? null;
 
   const requested = handoff?.status === "open";
-  const finished = handoff?.status === "completed";
+  // A completed handoff whose packaging end was pulled back is NOT Packaging
+  // being complete. The freight row still says `completed`, truthfully, which
+  // is exactly why the status alone cannot answer this.
+  const finished = handoff?.status === "completed" && handoff.packagingReopenedAt === null;
 
   if (!requested && !finished) {
     if (!editable) return null;
@@ -340,33 +354,29 @@ export function PackagingCompletion() {
       state="done"
       label="Complete"
       note={
-        finished
-          ? // Named, not silent. The absent Reopen is the lifecycle, not an
-            // oversight, and an operator should not have to discover that by
-            // looking for a button that is not there.
-            "Freight is finished, so this can no longer be reopened."
-          : `Handed to logistics ${handoff!.requestedAt.toLocaleDateString()}.`
+        requested
+          ? `Handed to logistics ${handoff!.requestedAt.toLocaleDateString()}. Marking this incomplete withdraws the request.`
+          : "Freight is finished. Marking this incomplete leaves that record standing."
       }
       error={error}
     >
-      {requested && editable && (
+      {editable && (
         <Button
-          busy={pendingAction === "withdraw"}
+          busy={pendingAction === "incomplete"}
           busyLabel="Reopening…"
           onClick={() =>
             run(
-              "withdraw",
-              services.withdrawFreightRequest,
-              // Names the handoff THIS screen is showing. The action
-              // conditions on it, so a screen left open across a
-              // withdraw-and-re-request cannot act on the replacement it
-              // never displayed.
+              "incomplete",
+              services.markPackagingIncomplete,
+              // Names the handoff THIS screen is showing. The action conditions
+              // on it, so a screen left open across a withdraw-and-re-request
+              // cannot act on the replacement it never displayed.
               { quoteId, handoffId: handoff!.handoffId },
               read,
             )
           }
         >
-          Reopen
+          Mark incomplete
         </Button>
       )}
     </Strip>
@@ -420,13 +430,21 @@ export function ProductionCompletion() {
     >
       {editable && (
         <Button
-          busy={pendingAction === "reopen"}
+          busy={pendingAction === "incomplete"}
           busyLabel="Reopening…"
           onClick={() =>
-            run("reopen", services.reopenProduction, { completionId: production.completionId }, read)
+            run(
+              "incomplete",
+              services.reopenProduction,
+              // Names the completion THIS screen is showing, so a screen held
+              // across a reopen-and-recomplete cannot reverse the one that
+              // replaced it.
+              { completionId: production.completionId },
+              read,
+            )
           }
         >
-          Reopen
+          Mark incomplete
         </Button>
       )}
     </Strip>
@@ -474,24 +492,50 @@ export function FreightCompletion() {
     );
   }
 
+  // The holder, or an admin. The action enforces the same boundary for both
+  // completing and reopening; this is the affordance.
+  const holder = viewerIsAdmin || viewerUserId === handoff.assignedToUserId;
+
   if (handoff.status === "completed") {
+    // Reopening is refused once the quote side has pulled its request back:
+    // the task belonged to a request that is no longer being made, and
+    // Packaging marking itself complete again mints a NEW handoff rather than
+    // reviving this one. The strip says so rather than offering a control the
+    // action would refuse.
+    const packagingPulledBack = handoff.packagingReopenedAt !== null;
     return (
       <Strip
         state="done"
         label="Complete"
         note={
-          handoff.completedAt
+          (handoff.completedAt
             ? `${handoff.completedByEmail ?? "Closed"} · ${handoff.completedAt.toLocaleDateString()}`
-            : undefined
+            : "") +
+          (packagingPulledBack
+            ? " · Packaging was marked incomplete, so this record stands but the task cannot be reopened"
+            : "")
         }
         error={error}
-      />
+      >
+        {holder && !packagingPulledBack && (
+          <Button
+            busy={pendingAction === "incomplete"}
+            busyLabel="Reopening…"
+            onClick={() =>
+              run(
+                "incomplete",
+                services.markFreightIncomplete,
+                { quoteId, handoffId: handoff.handoffId },
+                read,
+              )
+            }
+          >
+            Mark incomplete
+          </Button>
+        )}
+      </Strip>
     );
   }
-
-  // The holder, or an admin. The action enforces the same boundary; this is
-  // the affordance.
-  const canComplete = viewerIsAdmin || viewerUserId === handoff.assignedToUserId;
 
   return (
     <Strip
@@ -507,7 +551,7 @@ export function FreightCompletion() {
       }
       error={error}
     >
-      {canComplete && (
+      {holder && (
         <Button
           primary
           busy={pendingAction === "complete"}

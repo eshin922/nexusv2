@@ -42,6 +42,7 @@ const OPEN_HANDOFF: LatestFreightHandoff = {
   requestedAt: new Date("2026-09-01T00:00:00Z"),
   completedAt: null,
   completedByEmail: null,
+  packagingReopenedAt: null,
   notificationStatus: "delivered",
   notificationError: null,
 };
@@ -51,6 +52,17 @@ const COMPLETED_HANDOFF: LatestFreightHandoff = {
   status: "completed",
   completedAt: new Date("2026-09-03T00:00:00Z"),
   completedByEmail: "logistics@example.invalid",
+};
+
+/**
+ * Freight finished, and the quote side then pulled its end back.
+ *
+ * The row still says `completed` — truthfully, the work was done — which is
+ * exactly why `status` alone cannot answer whether PACKAGING is complete.
+ */
+const PACKAGING_PULLED_BACK: LatestFreightHandoff = {
+  ...COMPLETED_HANDOFF,
+  packagingReopenedAt: new Date("2026-09-04T00:00:00Z"),
 };
 
 const PRODUCTION_DONE: ProductionCompletionState = {
@@ -80,8 +92,9 @@ function services(
   };
   const svc: ModuleCompletionServices = {
     markReadyForFreight: ok("markReadyForFreight"),
-    withdrawFreightRequest: ok("withdrawFreightRequest"),
+    markPackagingIncomplete: ok("markPackagingIncomplete"),
     completeFreightHandoff: ok("completeFreightHandoff"),
+    markFreightIncomplete: ok("markFreightIncomplete"),
     markProductionComplete: ok("markProductionComplete"),
     reopenProduction: ok("reopenProduction"),
     readHandoff: async () => {
@@ -311,30 +324,141 @@ test("Freight's Mark complete handles a failed read-back the same way", async ()
 
 /* ── 4 · the lifecycle this fix leaves alone ──────────────────────────── */
 
-test("Packaging cannot be reopened once Freight is complete, and says why", async () => {
-  // Reopening Packaging IS withdrawing the freight request, and the action
-  // updates `WHERE status = 'open'` — a completed handoff is not open, so it
-  // refuses as STALE_WRITE. Existing, deliberate lifecycle behaviour, left
-  // unchanged here. What this asserts is that the absent control EXPLAINS
-  // itself rather than being quietly missing.
+/* ── 4 · every completed module reverses ──────────────────────────────── */
+
+test("Packaging offers Mark incomplete while logistics still holds it", async () => {
+  const { svc, calls } = services();
+  const m = await mount(render(<PackagingCompletion />, svc, { handoff: OPEN_HANDOFF }));
+
+  assert.equal(state(m), "done");
+  assert.deepEqual(buttons(m), ["Mark incomplete"]);
+  // The two cases are not the same act, and the strip says which one this is
+  // before the operator pulls a request someone may be working on.
+  assert.match(m.text(), /Marking this incomplete withdraws the request\./);
+
+  await m.click("button");
+  await flush();
+  assert.deepEqual(calls.action, ["markPackagingIncomplete"]);
+  await m.unmount();
+});
+
+test("and still offers it once Freight is complete", async () => {
+  // The behaviour this change adds. The completed freight record stands; only
+  // the packaging end is pulled back, which is what the copy has to convey.
   const { svc, calls } = services();
   const m = await mount(render(<PackagingCompletion />, svc, { handoff: COMPLETED_HANDOFF }));
 
   assert.equal(state(m), "done");
-  assert.match(m.text(), /Freight is finished, so this can no longer be reopened\./);
-  assert.deepEqual(buttons(m), [], "Reopen is offered on a handoff the action would refuse");
+  assert.deepEqual(buttons(m), ["Mark incomplete"]);
+  assert.match(m.text(), /leaves that record standing/);
+
+  await m.click("button");
+  await flush();
+  // ONE action for both cases: which of them it is gets decided on the server
+  // from the row as it actually is, so a screen that went stale mid-handoff
+  // cannot ask for the wrong one.
+  assert.deepEqual(calls.action, ["markPackagingIncomplete"]);
+  await m.unmount();
+});
+
+test("Packaging reads incomplete once its end is pulled back, and can complete again", async () => {
+  // The state `status` alone cannot express: the freight row still says
+  // completed, and Packaging is nonetheless not complete.
+  const { svc, calls } = services();
+  const m = await mount(
+    render(<PackagingCompletion />, svc, { handoff: PACKAGING_PULLED_BACK }),
+  );
+
+  assert.equal(state(m), "idle");
+  assert.deepEqual(buttons(m), ["Mark complete"]);
+
+  await m.click("button");
+  await flush();
+  // A FRESH handoff through the existing notification path — not a revival of
+  // the completed row.
+  assert.deepEqual(calls.action, ["markReadyForFreight"]);
+  await m.unmount();
+});
+
+test("Production reverses through its own record", async () => {
+  const { svc, calls } = services();
+  const m = await mount(
+    render(<ProductionCompletion />, svc, { production: PRODUCTION_DONE }),
+  );
+
+  assert.equal(state(m), "done");
+  assert.deepEqual(buttons(m), ["Mark incomplete"]);
+
+  await m.click("button");
+  await flush();
+  assert.deepEqual(calls.action, ["reopenProduction"]);
+  await m.unmount();
+});
+
+test("Freight reverses for the person holding it", async () => {
+  const { svc, calls } = services();
+  const m = await mount(
+    render(<FreightCompletion />, svc, { handoff: COMPLETED_HANDOFF, viewerUserId: HOLDER }),
+  );
+
+  assert.equal(state(m), "done");
+  assert.deepEqual(buttons(m), ["Mark incomplete"]);
+
+  await m.click("button");
+  await flush();
+  assert.deepEqual(calls.action, ["markFreightIncomplete"]);
+  await m.unmount();
+});
+
+test("and not for anyone else", async () => {
+  // Same boundary as completing it. The action enforces it too; this is the
+  // affordance, and it has to be checked against someone who would fail it.
+  const { svc, calls } = services();
+  const m = await mount(
+    render(<FreightCompletion />, svc, {
+      handoff: COMPLETED_HANDOFF,
+      viewerUserId: "someone-else",
+      viewerIsAdmin: false,
+    }),
+  );
+
+  assert.equal(state(m), "done");
+  assert.deepEqual(buttons(m), [], "a non-holder is offered a reopen the action would refuse");
   assert.deepEqual(calls.action, []);
   await m.unmount();
 });
 
-test("but it can be reopened while the request is still open", async () => {
-  // The control above is absent for a reason, not because nothing renders one.
+test("an admin may reverse it on the holder's behalf", async () => {
   const { svc, calls } = services();
-  const m = await mount(render(<PackagingCompletion />, svc, { handoff: OPEN_HANDOFF }));
+  const m = await mount(
+    render(<FreightCompletion />, svc, {
+      handoff: COMPLETED_HANDOFF,
+      viewerUserId: "someone-else",
+      viewerIsAdmin: true,
+    }),
+  );
 
-  assert.deepEqual(buttons(m), ["Reopen"]);
   await m.click("button");
   await flush();
-  assert.deepEqual(calls.action, ["withdrawFreightRequest"]);
+  assert.deepEqual(calls.action, ["markFreightIncomplete"]);
+  await m.unmount();
+});
+
+test("Freight cannot be reopened once Packaging pulled its request back", async () => {
+  // The task belonged to a request that is no longer being made. The action
+  // refuses it; the strip does not offer it, and says why rather than leaving
+  // a button quietly missing.
+  const { svc, calls } = services();
+  const m = await mount(
+    render(<FreightCompletion />, svc, {
+      handoff: PACKAGING_PULLED_BACK,
+      viewerUserId: HOLDER,
+    }),
+  );
+
+  assert.equal(state(m), "done", "the completion record stopped standing");
+  assert.match(m.text(), /Packaging was marked incomplete/);
+  assert.deepEqual(buttons(m), []);
+  assert.deepEqual(calls.action, []);
   await m.unmount();
 });
