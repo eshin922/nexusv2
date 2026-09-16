@@ -17,9 +17,11 @@ import { readdirSync, readFileSync } from "node:fs";
 const DRAFT_EXEMPT = new Set([
   "0049_product_structure_slice1_backfill",
   "0050_product_structure_slice1_contract",
-  // Product Type vocabulary expansion. Both are reviewable-only: the field set
-  // and the Settings design are open business decisions, and applying either
-  // would settle one by migration.
+  // Product Type charge defaults. Reviewable-only: the Settings design is an
+  // open business decision, and applying it would settle one by migration.
+  // (0129 and 0130 were also listed here while they were drafts; they were
+  // journaled at release and removed.)
+  "0131_draft_product_type_charge_defaults",
 ]);
 
 const files = readdirSync("drizzle")
