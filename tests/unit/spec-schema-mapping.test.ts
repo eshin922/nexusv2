@@ -16,9 +16,29 @@ import {
   resolveSpecSchema,
   specSchemaMappingIsExhaustive,
   mappedProductTypeValues,
+  encodePinnedSchema,
+  decodePinnedSchema,
+  SPEC_SCHEMA_PRODUCT_TYPE_ID,
+  type SpecSchemaId,
 } from "../../src/lib/product-structure/spec-schema-mapping.ts";
 
-/** The production vocabulary as fetched 2026-08-14, after Tertiary was added. */
+/**
+ * A DATED SNAPSHOT of the production vocabulary — fetched 2026-08-14, after
+ * Tertiary was added.
+ *
+ * This is a fixture, and it is evidence about 2026-08-14 and nothing else. It
+ * CANNOT tell you what HubSpot offers today: an option added in the HubSpot UI
+ * is invisible here, so this file stays green while products in production
+ * resolve `unmapped`. That is not a hypothetical — `Corrugated` and
+ * `Preliminary` are offered by the sandbox portal right now and have no
+ * disposition, and six production rows carry `Preliminary` as a result.
+ *
+ * Live coverage is `npm run verify:product-type-vocabulary`, which reads both
+ * portals and reports each separately. What these tests are for is the
+ * mapping's SHAPE — that a known value resolves to the schema it should, that
+ * the four outcomes stay distinct, that the exhaustiveness helper itself
+ * detects a missing value. Those are deterministic and belong here.
+ */
 const VOCABULARY = [
   "Cards, Booklets", "Design", "Filling and Packout Services", "Formulation",
   "Freight", "Labels", "Third Party Logistics", "One Time Charges", "Primary",
@@ -134,10 +154,11 @@ test("an unknown authoritative value does NOT silently become no_schema", () => 
   assert.equal(resolveSpecSchema("Preliminary")?.kind, "unmapped");
 });
 
-test("the mapping is exhaustive over the production vocabulary", () => {
-  // The fail-loud, positioned in CI rather than at render time: adding an
-  // option in HubSpot breaks the build, where a human sees it, instead of
-  // resolving to no_schema on an operator's screen.
+test("the exhaustiveness helper detects a value with no disposition", () => {
+  // NOT a claim that the mapping is exhaustive over HubSpot TODAY. This
+  // exercises the helper against a dated snapshot and against a value known to
+  // be absent, which establishes that the helper works — the live question is
+  // answered by `npm run verify:product-type-vocabulary`.
   assert.deepEqual(specSchemaMappingIsExhaustive(VOCABULARY), {
     exhaustive: true,
   });
@@ -147,7 +168,91 @@ test("the mapping is exhaustive over the production vocabulary", () => {
   );
 });
 
-test("the mapping disposes every vocabulary value and nothing else", () => {
-  const mapped = [...mappedProductTypeValues()].sort();
-  assert.deepEqual(mapped, [...VOCABULARY].sort());
+test("the mapping disposes every snapshot value, and any extra is deliberate", () => {
+  const mapped = new Set(mappedProductTypeValues());
+
+  // Every value the snapshot holds must be disposed. This half is unchanged.
+  const undisposed = VOCABULARY.filter((v) => !mapped.has(v));
+  assert.deepEqual(undisposed, [], "a value in the snapshot has no disposition");
+
+  // The other half USED to be `deepEqual` against the snapshot, which forbade
+  // an entry the vocabulary did not yet offer — and that is precisely the safe
+  // ordering: map first, create the option second. An entry with no option is
+  // inert; an option with no entry resolves `unmapped` in production while CI
+  // stays green, because this file is a dated fixture.
+  //
+  // So entries ahead of the snapshot are permitted and NAMED. An accidental
+  // extra still fails, which is what the original assertion was protecting.
+  const AHEAD_OF_VOCABULARY = [
+    // Proposed 2026-09-15; options not yet created in either portal.
+    "Ingestibles",
+    "Topicals",
+  ];
+  const extra = [...mapped].filter((v) => !VOCABULARY.includes(v)).sort();
+  assert.deepEqual(
+    extra,
+    [...AHEAD_OF_VOCABULARY].sort(),
+    "a mapping entry exists that is neither in the snapshot nor a declared proposal",
+  );
+});
+
+/* -- encode/decode round trip ------------------------------------------- */
+
+test("every supported schema id round-trips through a pin", async () => {
+  // Derived from SPEC_SCHEMA_PRODUCT_TYPE_ID rather than a literal list, so a
+  // schema added tomorrow is covered by this test the moment it is added. A
+  // hand-written list would keep passing while silently omitting the new one --
+  // which is exactly how `decodePinnedSchema` came to miss `formulated`: it
+  // selected ids by string comparison, so the omission compiled cleanly and a
+  // stored, valid pin decoded as `unmapped`.
+  const ids = Object.keys(SPEC_SCHEMA_PRODUCT_TYPE_ID) as SpecSchemaId[];
+  assert.ok(ids.length >= 4, `expected at least four schemas, saw ${ids.length}`);
+  assert.ok(ids.includes("formulated" as SpecSchemaId), "formulated is not a supported schema");
+
+  for (const id of ids) {
+    const encoded = encodePinnedSchema({ kind: "schema", schemaId: id });
+    assert.equal(encoded, id, `${id} did not encode to itself`);
+
+    const decoded = decodePinnedSchema(encoded);
+    assert.equal(decoded?.kind, "schema", `${id} decoded as ${decoded?.kind}, not a schema`);
+    assert.equal(
+      (decoded as { kind: "schema"; schemaId: SpecSchemaId }).schemaId,
+      id,
+      `${id} did not survive the round trip`,
+    );
+
+    // And it names a real field-set row, or the pin points at nothing.
+    assert.ok(
+      SPEC_SCHEMA_PRODUCT_TYPE_ID[id]?.startsWith("leaf_"),
+      `${id} has no product_types row id`,
+    );
+  }
+});
+
+test("the non-schema pins round-trip too, and stay distinct", () => {
+  // These four are the reason the round trip cannot simply assert "decodes to
+  // something": each is a different answer, and collapsing any two loses the
+  // distinction the four kinds exist for.
+  assert.equal(decodePinnedSchema("no_schema")?.kind, "no_schema");
+  assert.equal(decodePinnedSchema("schema_pending", "Raw ingredients")?.kind, "schema_pending");
+  assert.equal(decodePinnedSchema("unmapped", "Something")?.kind, "unmapped");
+  assert.equal(decodePinnedSchema("no_type"), null);
+});
+
+test("an unknown stored value decodes safely, and is not coerced", () => {
+  // The CHECK makes this unreachable through the database, so reaching it means
+  // the constraint was bypassed. It must NOT become `no_schema` -- that is a
+  // finished answer, and reporting a bypassed constraint as one would hide it.
+  const rogue = decodePinnedSchema("not_a_schema");
+  assert.equal(rogue?.kind, "unmapped", "an unrecognised pin was coerced");
+  assert.equal((rogue as { kind: "unmapped"; value: string }).value, "not_a_schema");
+
+  // Absence is not a value.
+  assert.equal(decodePinnedSchema(null), null);
+  assert.equal(decodePinnedSchema(undefined), null);
+  assert.equal(decodePinnedSchema(""), null);
+
+  // A value that merely CONTAINS a schema id must not match one.
+  assert.equal(decodePinnedSchema("formulated_x")?.kind, "unmapped");
+  assert.equal(decodePinnedSchema("PRIMARY")?.kind, "unmapped");
 });

@@ -14,7 +14,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 
-const read = (p: string) => readFileSync(p, "utf8");
+// CRLF-normalised. These assertions are about CODE, and whether git checked a
+// file out with CRLF is not a fact about the code — an unnormalised match makes
+// the verdict depend on the platform, which is how `tx,` on its own line passed
+// on Linux CI and failed on Windows.
+const read = (p: string) => readFileSync(p, "utf8").replace(/\r\n/g, "\n");
 
 /**
  * The file with its comments removed.
