@@ -703,12 +703,16 @@ as individual inputs, 14 as bulk formulations), which is why its spec schema
 has been `SCHEMA_PENDING` and unresolvable.
 
 **This rule is NOT approved and nothing in this PR assumes it.** It changes
-roughly half the coverage claim and determines whether `formulated` needs a
-sibling schema for bulk. Until it is decided:
+roughly half the coverage claim. Until it is decided:
 
 - no row moves out of `Raw ingredients`;
-- `Raw ingredients` stays `SCHEMA_PENDING`;
-- `0129` is not applied.
+- `Raw ingredients` stays `SCHEMA_PENDING`.
+
+> **Superseded in part by C3.** This section also said `0129` is not applied
+> until the bulk rule is decided. That coupling was wrong: `0129` inserts a
+> schema row and touches no product, so which products use the schema is a
+> separate question from whether it exists. The bulk decision is an input to
+> reviewing the FIELD SET, not a gate on the migration.
 
 ## B6 · Settings — Product Type → charge defaults
 
@@ -795,3 +799,148 @@ Carried forward from A11, plus what this PR surfaced:
 7. **Who creates the options in both portals, and when** relative to steps 1–6
    of B3.
 8. **Approve the Settings table design** (B6) before `0130` is applied.
+
+---
+---
+
+# Appendix C — Review tables and two clarifications
+
+**2026-09-15 · for review · nothing approved, applied or created.**
+
+## C0 · Correction: the draft has 15 fields, not 13
+
+`0129` carries **15** field keys. The "13" figure came from the B2 comparison
+table, which showed `Factory 1` and `Factory 2` on one line and omitted
+`Additional details`. The full set is below; nothing in the migration changed.
+
+## C1 · The proposed field set
+
+Applicability: **●** applies · **◐** sometimes · **○** does not apply.
+
+| # | Key | Label | Gummy | Lube | Topical | Recommendation | Rationale |
+|---:|---|---|:--:|:--:|:--:|---|---|
+| 1 | `fm_description` | Description | ● | ● | ● | **Keep** | Every existing schema opens with one. |
+| 2 | `fm_form` | Form | ● | ● | ● | **Keep** | The discriminator that makes one schema viable. |
+| 3 | `fm_net_content` | Net content / fill | ● | ● | ● | **Keep** | Count, volume or weight — one caption carries all three. |
+| 4 | `fm_appearance` | Appearance / colour | ● | ● | ● | **Keep** | |
+| 5 | `fm_actives` | Actives / reference formula | ● | ● | ● | **Keep** | The formulation identity itself. |
+| 6 | `fm_flavor_fragrance` | Flavour / fragrance | ● | ◐ | ● | **Review the caption** | Applies to all three but *reads* differently. See D2. |
+| 7 | `fm_ph` | pH | ○ | ● | ● | **Keep — form-dependent** | A solid dosage form has no meaningful pH. |
+| 8 | `fm_viscosity` | Viscosity / density | ○ | ● | ● | **Keep — form-dependent** | Not measurable on a gummy. |
+| 9 | `fm_allergens` | Allergens | ● | ● | ● | **Keep** | |
+| 10 | `fm_shelf_life` | Shelf life | ● | ● | ● | **Keep** | |
+| 11 | `fm_storage` | Storage conditions | ● | ● | ● | **Keep** | |
+| 12 | `fm_additional_details` | Additional details | ● | ● | ● | **Keep** | Matches all three packaging schemas. |
+| 13 | `fm_factory_1` | Factory 1 | ● | ● | ● | **Keep** | Matches packaging schemas. |
+| 14 | `fm_factory_2` | Factory 2 | ● | ● | ● | **Keep** | Matches packaging schemas. |
+| 15 | `fm_packout_details` | Packout details | ● | ● | ● | **Keep** | Matches packaging schemas. |
+
+**The two form-dependent fields are `fm_ph` (7) and `fm_viscosity` (8).** Both
+are empty for an ingestible solid and populated for a liquid or emulsion. That
+is the same behaviour the packaging schemas already rely on — a rigid box
+leaves `sp_coating` empty — and it is why form is a field rather than three
+schemas.
+
+`fm_flavor_fragrance` (6) is a **different problem and not form-dependence**:
+it applies everywhere, but one caption is asked to read as "flavour" to an
+ingestible operator and "fragrance" to a topical one. Splitting it is the only
+substantive open question in the set.
+
+**Not present, and possibly owed if bulk takes an identity type:** batch size,
+yield, and container/drum format. See C3.
+
+## C2 · The eight decisions
+
+| # | Decision | Recommendation | Rationale | Blocks |
+|---:|---|---|---|---|
+| 1 | Option labels and values | **`Ingestibles`/`Ingestibles`, `Topicals`/`Topicals`** | Label = value deliberately. The three existing divergences have caused real defects and buy nothing. | Creating the options; step 4 of B3. |
+| 2 | `fm_flavor_fragrance` caption | **Split into `fm_flavor` and `fm_fragrance`** | One caption asked to read two ways is the kind of ambiguity an operator resolves differently each time. Splitting costs one empty field; the packaging schemas already carry empties. | Approving the field set → `0129`. |
+| 3 | Bulk formulation rule | **Identity-based; `Raw ingredients` reserved for individual inputs** | The product is the product in a drum or a bottle. `Raw ingredients` currently holds 38 individual inputs and 14 bulk formulations, which is why its schema has been unresolvable. | Reclassification only — **not `0129`**. See C3. |
+| 4 | `Lubricants & Intimate Care` | **Do not add yet** | On specification fields it is indistinguishable from Topicals. It needs a service or charge that differs, or it is Topicals. | A third option; the 5 MISTR lube rows. |
+| 5 | `Turnkey` and `Finished Goods` | **Retire both from the identity field** — but see #6 | Both are arrangement/lifecycle, not identity. 12 rows. | Reclassification of 12 rows. |
+| 6 | Where sourcing arrangement lives | **Needs a home; I have no recommendation** | B0.1 withdrew "derive it from quote structure" — the same shape can mean bought-complete or contract-manufactured. There is currently nowhere to derive it from. | #5 — retiring `Turnkey` without this loses information. |
+| 7 | Sandbox `Corrugated` / `Preliminary` | **Stop sandbox products reaching the shared database**; do not dispose them in `MAPPING` | Disposing them would legitimise sandbox values in production classification. The 6 existing rows are residue, not catalogue. | The live check going green; 6 rows of cleanup. |
+| 8 | Settings table design | **Approve as drafted** | Empty by design, no vocabulary of its own, no item column, no tooling classification. | Applying `0130`; the whole suggestion feature. |
+
+**Only #2 blocks `0129`.** #1 blocks option creation. #3 blocks reclassification.
+#8 blocks `0130`. They are independent.
+
+## C3 · Clarification 1 — the bulk rule does NOT gate `0129`
+
+**B5 was wrong to couple them, and this supersedes it.**
+
+`0129` inserts one `product_types` row. It touches no product, no quote and no
+classification. Which products eventually *use* a schema is a separate question
+from whether the schema exists, and I conflated the two.
+
+The real dependency is narrower: **if bulk formulations take an identity type,
+the field set may owe three more fields** — batch size, yield, container/drum
+format — because a drum of bulk and a filled bottle differ in what an operator
+needs to record. So the bulk decision is an **input to reviewing the field set**
+(C2 #2), not a gate on creating the schema.
+
+Three ways to sequence, all legitimate:
+
+| | Order | Consequence |
+|---|---|---|
+| **A** *(recommended)* | Approve field set → apply `0129` → decide bulk separately | Schema exists for filled goods immediately. If bulk later needs extra fields, they are added by a second migration — `product_types.field_schema` is a JSONB column and appending a field is additive. |
+| B | Decide bulk → approve field set once → apply `0129` | One migration, but the schema waits on an unrelated decision. |
+| C | Apply `0129`, add a bulk sibling schema later | Only if bulk turns out to need a genuinely different form, which the comparison does not currently suggest. |
+
+**Recommendation: A.** The only cost is a possible second additive migration,
+and the benefit is that `Ingestibles` and `Topicals` stop depending on a
+question about `Raw ingredients`.
+
+## C4 · Clarification 2 — the operational trigger
+
+**A manual command is not a control. It is correct that nothing today would
+catch a HubSpot option added next month.** Three layers, because they fail
+differently:
+
+### Layer 1 — at ingestion, where the data actually arrives
+
+`pullFromHubSpot` already reads the vocabulary (`loadHubspotProductTypeOptions`)
+and already writes a `hubspot_pull_batch` audit row per batch. **Compare there,
+and record any value with no disposition in that audit row's `diff_json`.**
+
+The trigger is the moment new classifications enter Nexus, which is exactly
+when it matters, and it needs no scheduler and no extra credential. It does not
+fail the pull — fidelity to the source outranks local validation, and refusing
+to store an unmapped value would be the wrong correction.
+
+### Layer 2 — standing state, no credentials required
+
+**Count the leaves whose `hubspot_product_type` has no disposition and surface
+it on the admin surface.** This detects the *consequence* rather than the
+cause, so it catches a value however it arrived — including sandbox residue,
+which is how all six current `unmapped` rows got here and which Layer 1 would
+not see.
+
+This is the cheapest of the three and the one I would build first.
+
+### Layer 3 — scheduled backstop
+
+A daily GitHub Actions run of `verify:product-type-vocabulary` with both read
+tokens as repository secrets. Catches an option added in HubSpot that nobody
+has pulled yet, which neither other layer sees.
+
+### Who receives a failure
+
+**This needs a named owner and I should not assume one.** A scheduled job whose
+failures go to "whoever notices" is the same class of non-control as the manual
+command.
+
+Recommended: the **Nexus admin who owns firm settings** — the same person who
+maintains the logistics recipient and the NetSuite item map — because
+dispositioning a new Product Type is an admin act, not an engineering one.
+
+Delivery: Layer 2 is a surface an admin already visits. Layer 3 needs a
+destination — GitHub notifications reach repository watchers, which is not a
+person; Slack is available (`chat:write`, and a channel is already configured)
+but adding a second notification path is its own scope.
+
+**Decision needed:** who owns unmapped Product Types, and where does Layer 3
+report?
+
+**Not in this PR.** All three layers are proposals; #593 ships the command that
+makes any of them possible.
