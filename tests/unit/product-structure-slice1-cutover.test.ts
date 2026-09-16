@@ -543,6 +543,14 @@ const classifiedIdentityFiles = new Set([
   // nothing. Runs both shapes inside a transaction it then rolls back, so the
   // Case 1 witness is never mutated, and re-reads afterwards to prove it.
   "scripts/gate-1b/f1-gate-discrimination.ts",
+  // CLASSIFIED — isolated-environment walk, canonical identity only. Creates
+  // two throwaway leaves, pins a quote-owned `leaf_specs` authority for each,
+  // and freezes them into a snapshot keyed on `quote_leaf_id`. It resolves no
+  // attachment identity and reads no legacy one: every reference is the
+  // canonical id it just inserted. Refuses to run outside the isolated
+  // database, applies both draft migrations itself, and restores the
+  // pre-migration schema at cleanup so the refusal it asserts stays testable.
+  "scripts/gate-1b/formulated-schema-walk.ts",
   // CLASSIFIED — read-only CERT-303 walk evidence, canonical identity only.
   // Reads the frozen snapshot line set and its per-tier rows, and the live
   // per-line NetSuite selection keyed on `quote_leaf_id`. Resolves nothing

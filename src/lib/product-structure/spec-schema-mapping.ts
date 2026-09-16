@@ -19,8 +19,17 @@
  * catalogue.
  */
 
-/** The three schemas that exist. Each has a real field set in `product_types`. */
-export type SpecSchemaId = "primary" | "secondary" | "tertiary";
+/**
+ * The schemas that exist. Each has a real field set in `product_types`.
+ *
+ * `formulated` was added with Ingestibles and Topicals. Adding a member here is
+ * NOT sufficient on its own: `leaf_specs.spec_schema` carries a database CHECK
+ * listing the permitted stored values, and a pin of an id the CHECK does not
+ * name is rejected at write time by a constraint violation rather than by a
+ * guard with a message. The two must move together — see
+ * `drizzle/0130_draft_widen_spec_schema_check.sql`.
+ */
+export type SpecSchemaId = "primary" | "secondary" | "tertiary" | "formulated";
 
 /**
  * Resolution outcome.
@@ -100,11 +109,17 @@ const MAPPING: Record<string, SpecSchemaId | "NO_SCHEMA" | "SCHEMA_PENDING"> = {
   // SCHEMA_PENDING says exactly what is true today: somebody looked, and the
   // schema is owed.
   //
-  // Step two, after the migration is approved and applied, is to change these
-  // two lines to "formulated" — see Appendix B of
-  // docs/audit-findings/2026-09-15-product-type-charge-suggestion-audit.md.
-  Ingestibles: "SCHEMA_PENDING",
-  Topicals: "SCHEMA_PENDING",
+  // ACTIVATED. Both resolve to the `formulated` schema, whose field set is
+  // `product_types.id = 'leaf_formulated'` (migration 0129) and whose stored
+  // pin value is permitted by the widened CHECK (migration 0130).
+  //
+  // BOTH MIGRATIONS MUST BE APPLIED BEFORE THIS CODE DEPLOYS. Neither is run
+  // by the build or the deploy; applying them is a deliberate act. Deploying
+  // this ahead of them is harmless only while no HubSpot option exists — and
+  // the option is created LAST precisely so that window cannot be entered by
+  // an operator.
+  Ingestibles: "formulated",
+  Topicals: "formulated",
 };
 
 /**
@@ -209,6 +224,14 @@ export function encodePinnedSchema(
  * none is established. The two are distinguished at the storage layer, where
  * the difference is diagnosable, rather than in every consuming branch.
  */
+/** The `product_types.id` a schema resolves to. Those rows keep their fields. */
+export const SPEC_SCHEMA_PRODUCT_TYPE_ID: Record<SpecSchemaId, string> = {
+  primary: "leaf_primary_packaging",
+  secondary: "leaf_secondary_packaging",
+  tertiary: "leaf_tertiary_packaging",
+  formulated: "leaf_formulated",
+};
+
 export function decodePinnedSchema(
   stored: string | null | undefined,
   derivedFrom?: string | null,
@@ -219,17 +242,16 @@ export function decodePinnedSchema(
     return { kind: "schema_pending", value: derivedFrom ?? "" };
   if (stored === "unmapped")
     return { kind: "unmapped", value: derivedFrom ?? "" };
-  if (stored === "primary" || stored === "secondary" || stored === "tertiary")
-    return { kind: "schema", schemaId: stored };
+  // Kept in step with `SpecSchemaId` BY HAND, and the hand is the problem: this
+  // is a string comparison rather than an exhaustive switch, so omitting a new
+  // id compiles cleanly and decodes a valid pin as `unmapped` — a stored
+  // schema silently becoming "nobody has looked at this category". Derived
+  // from the id map instead, so adding a schema cannot leave this behind.
+  if (stored in SPEC_SCHEMA_PRODUCT_TYPE_ID)
+    return { kind: "schema", schemaId: stored as SpecSchemaId };
   // An unrecognised stored value is NOT coerced. The CHECK constraint makes
   // this unreachable through the database; reaching it means the constraint
   // was bypassed, and quietly returning `no_schema` would hide that.
   return { kind: "unmapped", value: stored };
 }
 
-/** The `product_types.id` a schema resolves to. Those rows keep their fields. */
-export const SPEC_SCHEMA_PRODUCT_TYPE_ID: Record<SpecSchemaId, string> = {
-  primary: "leaf_primary_packaging",
-  secondary: "leaf_secondary_packaging",
-  tertiary: "leaf_tertiary_packaging",
-};

@@ -1208,6 +1208,12 @@ migration that is easy to miss**:
 | 2 | Two MAPPING entries: `"SCHEMA_PENDING"` → `"formulated"` | same file | The actual flip. |
 | 3 | **A migration widening the `leaf_specs_spec_schema_values` CHECK** | new migration | **The one that is easy to miss.** |
 
+> **E3 undercounted — see F1.** Building it found two more: the
+> `SPEC_SCHEMA_PRODUCT_TYPE_ID` entry (caught by the compiler) and
+> `decodePinnedSchema` recognising the new id (caught by nothing — it is a
+> string comparison, so omitting it compiles and silently decodes a valid
+> pin as `unmapped`). Five changes, not three.
+
 ### On change 3
 
 `leaf_specs.spec_schema` carries a database CHECK:
@@ -1259,3 +1265,143 @@ unresolved requirements to be addressed when its own PR opens:
    its own representation.
 
 No further work on that proposal now.
+
+---
+---
+
+# Appendix F — Activation change, isolated results, production steps
+
+**2026-09-15 · reviewed head on `feat/formulated-schema-activation` · production
+unchanged.**
+
+## F1 · The activation change — five edits, not three
+
+E3 named three. Building it found **two more**, and one of them the type system
+cannot catch.
+
+| # | Change | Found by | Note |
+|---:|---|---|---|
+| 1 | `SpecSchemaId` gains `"formulated"` | named in E3 | `PinnedSpecSchema` widens with it; `encodePinnedSchema` unchanged |
+| 2 | Two `MAPPING` entries → `"formulated"` | named in E3 | the flip itself |
+| 3 | `0130` widens the `leaf_specs.spec_schema` CHECK | named in E3 | without it the first attachment is a constraint violation |
+| 4 | `SPEC_SCHEMA_PRODUCT_TYPE_ID` gains `formulated: "leaf_formulated"` | **the compiler** | `Record<SpecSchemaId, string>` is total, so this failed to build |
+| 5 | `decodePinnedSchema` must recognise the new id | **nothing** | see below |
+
+### On #5 — the one nothing catches
+
+`decodePinnedSchema` selected schema ids with a string comparison:
+
+```ts
+if (stored === "primary" || stored === "secondary" || stored === "tertiary")
+```
+
+Omitting `"formulated"` **compiles cleanly**. A stored `formulated` pin would
+decode as `unmapped` — a persisted, valid schema silently becoming "nobody has
+looked at this category", which is exactly the distinction the four resolution
+kinds exist to preserve.
+
+It is now derived from the id map (`stored in SPEC_SCHEMA_PRODUCT_TYPE_ID`), so
+adding a schema cannot leave it behind. The walk asserts the round trip
+explicitly rather than trusting the change.
+
+A sixth, unprompted: `SPEC_SCHEMA_PRODUCT_TYPE_ID` was declared below its new
+use site. Legal — the function body runs after module init — but a const
+referenced above its declaration is the TDZ shape that has produced a
+page-load failure in this repo before, so it was hoisted.
+
+## F2 · Isolated verification
+
+`npm run validation:formulated-schema-walk` — **28 checks, all passing, twice
+in succession from a clean state.**
+
+| Section | Established |
+|---|---|
+| 0 · migrations | `0129` inserts the 8-field row. **Before `0130`, the database REFUSES a `formulated` pin with `check_violation`** — the requirement is demonstrated, not asserted. `0130` then permits it. |
+| 1 · existing pins | Signature of every pre-existing spec row captured before anything moves |
+| 2 · resolution | Both values → `formulated`; encode → `"formulated"`; **decode → schema, not `unmapped`** (the #5 trap) |
+| 3 · attach · pin · edit | Both pins accepted by the database; specs edited and read back; pin survives the edit; provenance records the originating type |
+| 4 · freeze · read back | Both freeze; read back as `specified`, which the snapshot CHECK permits; carrying the `formulated` pin and the authored values |
+| 5 · existing pins | **No pre-existing spec row changed**, and none was rewritten; cleanup restores the original signature exactly |
+
+### Two things the walk itself had to be fixed for
+
+**It was not repeatable.** It applied `0130` and never reverted, so on a second
+run the CHECK was already widened and the most important assertion — that the
+database refuses a `formulated` pin — passed trivially. It now restores the
+pre-migration CHECK and removes the schema row at cleanup, and purges residue
+at start, so a crashed run cannot poison the next.
+
+**Frozen spec rows refused a direct delete.** `quote_snapshot_leaf_specs` is
+immutable — it records what was ordered on a sent offer, and is removed only by
+cascade from its snapshot. That is the guard working; the cleanup now cascades.
+
+## F3 · Corrected release sequence
+
+**Migrations first. Code second. Options last.** Explicitly:
+
+| # | Step | Act |
+|---:|---|---|
+| **1** | **Apply both migrations** | Journal `0129` and `0130`, remove from `DRAFT_EXEMPT`, `npm run db:migrate`. **Nothing runs these automatically** — not build, not deploy, not CI. |
+| **1a** | Verify the schema row and the CHECK | `product_types.id = 'leaf_formulated'` exists with 8 fields; the CHECK lists `formulated` |
+| **2** | **Deploy and verify the activation code** | Merge this PR. Then confirm on production that `resolveSpecSchema('Ingestibles')` is reachable — no product can carry it yet, so this verifies deployment, not behaviour |
+| **3** | **Only then create the HubSpot options** | Both portals: label `Ingestibles`/value `Ingestibles`, label `Topicals`/value `Topicals` |
+| **4** | Verify by portal | See F4 |
+
+**Why this order and not another.** Between 1 and 2 the database accepts a
+value no code emits — harmless. Between 2 and 3 the code resolves a value no
+product carries — also harmless. Reverse 1 and 2 and the first attachment after
+an option is created hits a constraint violation instead of working.
+
+**Reversal at each point:** step 1 — delete the row, restore the CHECK (both
+safe while no product carries the values); step 2 — revert the commit; step 3 —
+hide the option, existing values persist.
+
+## F4 · Vocabulary-check expectation, by portal
+
+**The expected end state is NOT "green".** Stated per portal so nobody reads a
+red exit as a failure of this work, and so nobody makes it green by hiding
+something.
+
+| Portal | Before step 3 | After step 3 | Exit |
+|---|---|---|---|
+| **production** | `UNMAPPED: none` · `AHEAD: 2` — `Ingestibles`, `Topicals` | **`UNMAPPED: none` · `AHEAD: none`** | contributes 0 failures |
+| **sandbox** | `UNMAPPED: 2` — `Corrugated`, `Preliminary` · `AHEAD: 5` | **`UNMAPPED: 2` — unchanged** · `AHEAD: 3` | **contributes 2 failures — the script exits 1** |
+
+**The script will still exit non-zero after a fully successful release, and
+that is correct.** `Corrugated` and `Preliminary` are pre-existing, unrelated,
+and the subject of the separate residue investigation (D6). They are **not** to
+be disposed in `MAPPING` to obtain a green run: that would legitimise
+sandbox-only values as production classifications and hide the finding.
+
+**Verify the two new values independently of that**, by reading the production
+section alone:
+
+- production `UNMAPPED` must be `none` — and it must have been `none` before as
+  well, so this alone proves little;
+- production `AHEAD` must go from listing both values to listing **neither**.
+  That transition is the evidence the options were created and are mapped, and
+  it is unaffected by anything in the sandbox section.
+
+## F5 · Tracked separately
+
+`docs/audit-findings/DEFECT-2026-09-15-schema-pending-freezes-as-specified.md`
+
+`dispositionOf` falls through to `specified` for any pin it does not name, so a
+`schema_pending` product freezes into an order packet as though it carried a
+specification. **52 `Raw ingredients` products are affected today.** Same shape
+as a bug already fixed once in `encodePinnedSchema`, whose fall-through was
+replaced with an exhaustive switch; `dispositionOf` still has the original
+form.
+
+Not fixed here: the disposition vocabulary and its CHECK permit four values, so
+fixing it means adding a fifth or choosing among the four for historical
+records. Both need their own review, and neither belongs in a gap-fill.
+
+The `formulated` path is unaffected — it falls through to `specified`, which is
+correct for a product that does carry a specification.
+
+## F6 · Still on hold
+
+No merge, no production migration, no HubSpot option, no reclassification, no
+default-rule seeding. Existing classifications unchanged. The charge-defaults
+table remains separate with its two unresolved requirements.
