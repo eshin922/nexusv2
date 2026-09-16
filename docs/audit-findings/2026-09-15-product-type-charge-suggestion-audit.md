@@ -984,7 +984,7 @@ wrong or silent outcome:
 | 2 | Mapping shipped **before** the options exist | The window in #1, invisible because CI is a dated fixture | ✓ |
 | 3 | `SCHEMA_PENDING`, not `NO_SCHEMA` | A false finished answer: "no specifications apply" to a gummy | ✓ |
 | 4 | Exhaustiveness test permitting declared ahead-of-vocabulary entries | #2 is impossible — the test forbids the safe order | ✓ |
-| 5 | A `formulated` schema row before flipping off `SCHEMA_PENDING` | A schema id resolving to a `product_types` row that does not exist | draft `0129` |
+| 5 | A `formulated` schema row before flipping off `SCHEMA_PENDING` | A schema id resolving to a `product_types` row that does not exist | `0129` — **pending, not inert; see E1** |
 
 **Optional — real improvements, none required for correctness:**
 
@@ -1135,3 +1135,127 @@ Everything else in Appendices A–C is deferred and needs no decision now:
 `Lubricants & Intimate Care`, `Turnkey`, `Finished Goods`, bulk, sourcing
 arrangement, the residue investigation, monitoring, and the charge-defaults
 table.
+
+---
+---
+
+# Appendix E — Status of 0129, and the release sequence
+
+**2026-09-15 · operational detail for release approval · nothing applied.**
+
+## E1 · Is `0129` in the executable migration tree?
+
+**The file is in the migration directory. It is not in the journal, and the
+journal is what the migrator reads.** Both halves matter.
+
+| | |
+|---|---|
+| Location | `drizzle/0129_draft_formulated_spec_schema.sql` — the directory `drizzle-kit migrate` is pointed at |
+| Journal | **Absent from `drizzle/meta/_journal.json`** |
+| How drizzle selects work | It reads the journal, takes `max(created_at)` from `drizzle.__drizzle_migrations`, and runs every JOURNAL ENTRY whose `when` exceeds it. It never lists the directory. |
+| Does the deploy run it | **No.** `build` is `next build`; `prebuild` runs verifiers only. No build, deploy or CI step invokes `db:migrate`. Applying a migration is always a deliberate manual act. |
+
+**Verified, not assumed:**
+
+- `migration-history-trace` with `0129` present reports
+  **`WOULD EXECUTE on a bare db:migrate: 0`**.
+- Production holds **0 rows** for `product_types.id = 'leaf_formulated'`.
+- `0049` and `0050` have sat unjournaled in the same directory for months and
+  have never executed — the mechanism has a track record, not just a claim.
+
+### "Pending", not "inert"
+
+**Calling it an inert draft was wrong, and the correction matters.** Inert
+suggests the file could not run. It can: it is excluded by the absence of one
+JSON entry, and adding that entry — or running the SQL by hand — executes it.
+The exclusion is a convention enforced by `verify:migration-index`, not a
+property of the file.
+
+**The accurate description is: `0129` is PENDING. It is written, reviewable,
+excluded from automatic execution by journal absence, and one deliberate act
+away from applying.**
+
+## E2 · The release sequence
+
+Each step is separately reversible, and no step is implied by the one before —
+merging does not create an option, applying does not activate a schema.
+
+| # | Step | Act | Reversible by |
+|---:|---|---|---|
+| 1 | **Merge #593** | `gh pr merge 593` | Revert commit |
+| 2 | **Apply `0129`** | Add the journal entry, remove from `DRAFT_EXEMPT`, run `npm run db:migrate` | `DELETE` the one `product_types` row while unreferenced |
+| 3 | **Activate the schema** | The three edits in E3 — a follow-up PR | Revert commit |
+| 4 | **Create the HubSpot options** | In **both** portals | Hide the option; existing values persist |
+| 5 | **Verify** | `npm run verify:product-type-vocabulary` → expect `UNMAPPED: none` and the two values gone from `AHEAD` | — |
+
+**Between steps 1 and 3 nothing is broken and nothing is exposed.** No product
+can carry either value until step 4, so the `SCHEMA_PENDING` window is
+unreachable by any operator.
+
+**Step 4 must be last.** Creating an option before step 3 puts products into
+`SCHEMA_PENDING` — honest, but it offers no specification fields on a product
+that has them.
+
+## E3 · What moves the types to the real schema — three changes, not one
+
+My earlier report said both types "still resolve to `SCHEMA_PENDING`" without
+saying what would change that. It is **three edits, and one of them is a
+migration that is easy to miss**:
+
+| # | Change | File | Why |
+|---:|---|---|---|
+| 1 | `SpecSchemaId` gains `"formulated"` | `spec-schema-mapping.ts:23` | Today the union is `"primary" \| "secondary" \| "tertiary"`. `PinnedSpecSchema` is defined as `SpecSchemaId \| …`, so it widens automatically; `encodePinnedSchema` returns `resolution.schemaId` unchanged. |
+| 2 | Two MAPPING entries: `"SCHEMA_PENDING"` → `"formulated"` | same file | The actual flip. |
+| 3 | **A migration widening the `leaf_specs_spec_schema_values` CHECK** | new migration | **The one that is easy to miss.** |
+
+### On change 3
+
+`leaf_specs.spec_schema` carries a database CHECK:
+
+```
+CHECK (spec_schema IS NULL OR spec_schema = ANY (ARRAY[
+  'primary','secondary','tertiary','no_schema','schema_pending','unmapped','no_type']))
+```
+
+`'formulated'` is not in it. **Without widening this constraint, the first
+attachment of a formulated product is rejected by the database** — not by a
+guard with a message, but by a constraint violation at write time.
+
+It is a **widening** of an allowed set, so it is safe ahead of code by the
+deployment-order rule: no deployed writer emits `'formulated'`, so nothing
+existing is affected. It could be folded into step 2 or shipped with step 3;
+either is fine, provided it precedes the first attachment.
+
+### The snapshot table needs no change — checked
+
+`quote_snapshot_leaf_specs.disposition` has its own CHECK
+(`specified | no_schema | unmapped | no_type`), and `dispositionOf` returns
+`"specified"` for any schema id it does not name specially. `'formulated'`
+therefore snapshots as `specified`, which is already permitted. **No second
+migration is required.**
+
+> **Observation, out of scope and pre-existing:** the same fall-through sends
+> `schema_pending` to `specified` as well, so a `Raw ingredients` product
+> freezes into an order packet as "specified" when a schema is in fact owed.
+> That affects the existing catalogue today, is unrelated to this proposal,
+> and is not addressed here. Recorded so it is not lost.
+
+## E4 · What is still on hold
+
+Unchanged by this appendix: no merge, no migration applied, no HubSpot option
+created, no reclassification, no default-rule seeding. Existing classifications
+stay exactly as they are.
+
+The charge-defaults table remains a separate proposal at
+`docs/proposals/product-type-charge-defaults-table.sql`, carrying two
+unresolved requirements to be addressed when its own PR opens:
+
+1. **Quote selections must survive rule changes.** A quote's charge instances
+   are the operator's; defaults are read only when composing suggestions for a
+   component being added, never when rendering one already present.
+2. **A missing rule must differ from a reviewed "no charges expected".** Three
+   states, not two: no rule (nobody looked), reviewed-none (a finished answer),
+   and rules present. Absence cannot carry a flag, so the second state needs
+   its own representation.
+
+No further work on that proposal now.
