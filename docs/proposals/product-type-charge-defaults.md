@@ -144,12 +144,52 @@ commit together or not at all.
 |---|---|---|
 | `setNoneExpected` | Records the reviewed verdict | **Refuses while rules exist**, naming the count. Deleting them would turn "I reviewed this" into "I discarded somebody's rules" — a different act |
 | `upsertChargeDefault` | Adds or edits one suggestion | Rejects a charge key not in `COMPONENT_CHARGE_KEYS`. Creates the profile at `defaults` in the same transaction, so a rule with no verdict is unrepresentable |
-| `removeChargeDefault` | Removes one suggestion | Leaves a last-rule deletion as a visible contradiction rather than inventing `none_expected` — see §2 design D |
+| `removeChargeDefault` | Removes one suggestion | **Refuses to remove the LAST one under a `defaults` verdict**, naming both ways forward — see §4.1 |
 | `clearChargeProfile` | Returns the type to needs-review, cascading its rules | A separate, explicit action precisely because it cascades |
 
 New `audit_log.action` values, transition-named per the convention:
 `product_type_charge_profile_reviewed`, `product_type_charge_profile_cleared`,
 `product_type_charge_default_updated`, `product_type_charge_default_removed`.
+
+### 4.1 · Removing the last rule — resolved
+
+**An ordinary supported action must not be able to leave a valid state machine
+in an invalid state.** The first implementation allowed the last rule to be
+removed and let the type land at `defaults` with nothing under it — a
+contradiction, reported honestly. Reporting it honestly did not make it
+acceptable: a surface telling an admin their data is inconsistent immediately
+after they used the only control available to them is describing its own defect.
+
+Two repairs were possible. Both were required to avoid inferring anything.
+
+| | Effect | Why not |
+|---|---|---|
+| **Return the profile to `needs_review`** | Removing one charge silently withdraws somebody's review | A larger act than the control names — the mirror image of inferring `none_expected`, wrong for the same reason |
+| **Refuse, naming the next action** ← **taken** | Every action's effect equals its name | Costs one extra click in an uncommon flow |
+
+The refusal names both real intents and the action for each:
+
+- **replace it** → add the replacement first, then remove this one
+- **no charges here** → `Clear review`, then `None expected`
+
+Both already exist, both are explicit, and neither puts words in a reviewer's
+mouth. The control is disabled with the same explanation, so the refusal is
+visible before it is hit; the server refuses independently, which is what
+catches a stale screen showing two rules when one remains.
+
+**One condition, and it matters.** The refusal applies **only under a `defaults`
+verdict**. Against a stored `none_expected` that carries rules — a contradiction
+the database permits and these actions never create — removing the last rule is
+the *repair*, and refusing it would trap an admin in the invalid state with no
+exit but a cascade that discards the review as well.
+
+**Neither contradiction is reachable through supported actions any more.** The
+walk asserts it by driving 120 supported actions in sequence and checking the
+resolution after every step. `contradiction` survives in the resolver because
+state written *around* the actions can still reach it, and each kind now carries
+the `remedy` that fixes **it** — the two are repaired by opposite actions, and a
+surface that composed one sentence for both would send an admin the wrong way
+half the time.
 
 ### Reads refuse contradictory state
 
@@ -171,10 +211,26 @@ Two questions, different owners:
 | Is its destination mapped and verified in NetSuite? | `componentChargeDestination` + the item map |
 
 A resolution carries no readiness field, and a suggestion must never be read as
-one. This matters concretely today: **no component charge destination has a
-verified production NetSuite mapping** — only `formulation` and
-`filling_blending` are configured. A charge can be correctly suggested,
-correctly accepted, and still not post.
+one. A charge can be correctly suggested, correctly accepted, and still not
+post.
+
+**Corrected 2026-09-16.** An earlier draft of this section said no component
+charge destination had a NetSuite mapping and named only `formulation` and
+`filling_blending`. That was wrong, and it was wrong in the direction that
+understates readiness. Read from `netsuite_destination_item_map`: ten
+destinations are resolved, and four of the five component charge types among
+them — `print_plates` (OTC-0004), `artwork_plate` (OTC-0001), and both tooling
+classifications (`otc_mould` OTC-0006, `otc_dies` OTC-0002).
+
+What remains true, and is the point the section exists to make:
+
+- **`samples` and `other_service` have no mapping at all.** Either can be
+  suggested, accepted and frozen, and neither can post.
+- **Every resolved id is a SANDBOX record** (`NETSUITE_ENV=sandbox`). Production
+  resolution is separate work and is not done. "Mapped" means mapped in the
+  environment Nexus currently talks to.
+
+The full picture is in the applicability matrix, §2.
 
 ---
 
@@ -307,6 +363,36 @@ message and the corrected state (the row becomes **Inconsistent**, which is what
 that type genuinely is). `router.refresh()` re-renders the server tree without
 disturbing client state, so a half-typed note survives it.
 
+### 7.1 · Why the Settings surface showed 16 types when production has 18
+
+**The vocabulary source is `loadHubspotProductTypeOptions()`**, which resolves
+through the composed provider — never a list in this codebase. In **production**
+that reads HubSpot's live `hs_product_type` property definition. In the
+**isolated harness** it reads `tests/harness/providers/fake-hubspot.ts`.
+
+The 16 was the fixture's age, not the application's behaviour. That fixture was
+captured read-only on **2026-09-12**; `Ingestibles` and `Topicals` were created
+in production HubSpot on **2026-09-15**, with the formulated-schema release. A
+fixture reporting its own capture date as the firm's vocabulary — Pattern 53, in
+the direction that makes a harness quietly certify less than production has.
+
+**Verified against production HubSpot, read-only, 2026-09-16:**
+
+```
+production options: 18
+  16  value="Ingestibles"  label="Ingestibles"
+  17  value="Topicals"     label="Topicals"
+```
+
+Both present, label and value identical, and `verify:product-type-vocabulary`
+reports `UNMAPPED: none · AHEAD: 0` against production. **The application was
+right; only the fixture was behind.** The fixture is now at 18, so the isolated
+Settings surface renders what production offers.
+
+*(The same live check reports two UNMAPPED values in the SANDBOX portal —
+`Corrugated` and `Preliminary`. Pre-existing, separately tracked, and not
+touched here.)*
+
 ### What is still NOT verified
 
 - **The non-admin UI path.** `requireAdminPage()`'s redirect was not exercised;
@@ -355,10 +441,14 @@ so rather than saying “none”.
 
 ---
 
-## 9 · Next deliverable — the applicability matrix
+## 9 · The applicability matrix
 
-**The next business-review deliverable is the product/service type → charge
-applicability matrix.** It is not in this PR and is not an engineering artifact.
+**The product/service type → charge applicability matrix is now delivered:**
+[`../business-validation/charge-applicability-matrix.md`](../business-validation/charge-applicability-matrix.md).
+It covers all 18 production product types and every supported service, with
+worked examples for MISTR gummies, MISTR lubricants, a contracted bag, a stock
+bottle and a printed carton. It is a business-review artifact, not an
+engineering one, and it approves nothing by existing.
 Until it exists:
 
 - **No rule is seeded.** Seeding one would make a claim on the firm's behalf
@@ -430,8 +520,10 @@ OQ3 blocks the first seed. Both are matrix work, not engineering work.**
 | `src/app/admin/charge-defaults/page.tsx` + `charge-defaults-table.tsx` | Settings surface |
 | `src/app/admin/sections.ts` | Nav + index entry |
 | `scripts/verify/charge-defaults-writers.ts` | Writer-boundary guard, wired into `verify:ci` |
-| `scripts/gate-1b/charge-defaults-walk.ts` | Isolated-environment walk |
-| `tests/unit/charge-defaults.test.ts` | 16 tests |
+| `scripts/gate-1b/charge-defaults-walk.ts` | Isolated-environment walk, 70 checks |
+| `tests/harness/providers/fake-hubspot.ts` | Vocabulary fixture brought to 18 — §7.1 |
+| `docs/business-validation/charge-applicability-matrix.md` | **The matrix** |
+| `tests/unit/charge-defaults.test.ts` | 18 tests |
 | `scripts/verify/migration-index-unique.ts` | Records the draft |
 | this document + the authoring contract | |
 

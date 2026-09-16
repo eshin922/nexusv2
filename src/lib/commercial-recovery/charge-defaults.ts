@@ -102,8 +102,23 @@ export type ChargeDefaultsResolution =
       reviewedByEmail: string | null;
       reviewedAt: Date;
     }
-  /** The invariant is violated. Surfaced, never resolved by preference. */
-  | { kind: "contradiction"; productTypeValue: string; detail: string };
+  /**
+   * The invariant is violated. Surfaced, never resolved by preference.
+   *
+   * `remedy` is carried rather than composed by the surface, because the two
+   * contradictions are repaired by OPPOSITE actions — one by removing rules,
+   * one by adding a verdict — and a surface that guessed would send an admin
+   * the wrong way half the time.
+   *
+   * No supported action produces either state. Both mean something wrote these
+   * tables from outside the application, which is worth knowing on its own.
+   */
+  | {
+      kind: "contradiction";
+      productTypeValue: string;
+      detail: string;
+      remedy: string;
+    };
 
 /**
  * Resolve what to offer for a product type.
@@ -131,6 +146,8 @@ export function resolveChargeDefaults(input: {
         kind: "contradiction",
         productTypeValue: value,
         detail: `${input.rules.length} rule(s) with no reviewed profile`,
+        remedy:
+          "The rules reference a product type nobody has reviewed. Record a verdict for it, or remove the rules.",
       };
     }
     return { kind: "needs_review", productTypeValue: value };
@@ -144,6 +161,8 @@ export function resolveChargeDefaults(input: {
         kind: "contradiction",
         productTypeValue: value,
         detail: `verdict is none_expected but ${mine.length} rule(s) exist`,
+        remedy:
+          "Remove the rules — the recorded decision was that no charges are expected. Nothing here created them.",
       };
     }
     return {
@@ -163,6 +182,8 @@ export function resolveChargeDefaults(input: {
       kind: "contradiction",
       productTypeValue: value,
       detail: "verdict is defaults but no rules exist",
+      remedy:
+        "Add a suggested charge, or use Clear review to return the type to needs review. Do NOT read this as “none expected” — nobody said that.",
     };
   }
 

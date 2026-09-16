@@ -334,11 +334,32 @@ export async function upsertChargeDefault(
 /**
  * Remove one suggested charge.
  *
- * Removing the LAST rule leaves the profile at `defaults` with nothing under
- * it, which `resolveChargeDefaults` reports as a contradiction. That is
- * deliberate: it is not for this action to decide that deleting a rule means
- * "none are expected". The admin is shown the state and records the verdict
- * themselves, or adds another rule.
+ * ── REMOVING THE LAST ONE IS REFUSED, AND THAT IS THE WHOLE POINT ────────
+ *
+ * An earlier version allowed it and let the type land at `defaults` with no
+ * rules -- a contradiction, reported honestly. Reporting it honestly did not
+ * make it acceptable: an ORDINARY SUPPORTED ACTION must not be able to leave a
+ * valid state machine in an invalid state. A surface that tells an admin their
+ * data is inconsistent, immediately after they used the only control available
+ * to them, is describing its own defect.
+ *
+ * The alternative considered was to return the type to `needs_review`
+ * automatically. Rejected: removing one charge would then silently withdraw
+ * somebody's review, which is a larger act than the one the control names --
+ * the mirror image of inferring `none_expected`, and wrong for the same reason.
+ * Every action's effect should equal its name.
+ *
+ * So the refusal names the two real intents and the action for each:
+ *
+ *   replace it        -> add the replacement FIRST, then remove this one
+ *   no charges here   -> Clear review, then None expected
+ *
+ * Both already exist, both are explicit, and neither puts words in a
+ * reviewer's mouth.
+ *
+ * `contradiction` survives in the resolver because state written AROUND these
+ * actions can still reach it -- the database cannot hold this invariant. What
+ * changed is that no supported action can produce it.
  */
 export async function removeChargeDefault(
   formData: FormData,
@@ -350,6 +371,40 @@ export async function removeChargeDefault(
 
     const remaining = await db.transaction(async (tx) => {
       await tx.execute(lockFor(value));
+
+      // Counted UNDER the lock and before the delete, so a concurrent remove
+      // cannot let two callers each believe they are not the last.
+      const existing = await tx
+        .select({ chargeKey: productTypeChargeDefaults.chargeKey })
+        .from(productTypeChargeDefaults)
+        .where(eq(productTypeChargeDefaults.productTypeValue, value));
+
+      const [verdictRow] = await tx
+        .select({ verdict: productTypeChargeProfile.verdict })
+        .from(productTypeChargeProfile)
+        .where(eq(productTypeChargeProfile.productTypeValue, value))
+        .limit(1);
+
+      // ONLY when the verdict says there are defaults. Against a stored
+      // `none_expected` carrying rules -- a contradiction the database permits
+      // and these actions never create -- removing the last rule is the REPAIR,
+      // and refusing it would trap an admin in the invalid state with no exit
+      // but a cascade that discards the review as well.
+      const lastOfDefaults =
+        verdictRow?.verdict === "defaults" &&
+        existing.length === 1 &&
+        existing[0].chargeKey === chargeKey;
+
+      if (lastOfDefaults) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `${chargeKey} is the only suggested charge for ${value}, and removing it ` +
+            `would leave the type reviewed with nothing to suggest — which is not ` +
+            `one of the three answers. To swap it, add the replacement first. To ` +
+            `record that no charges are expected, use “Clear review”, then “None ` +
+            `expected” — those are different decisions and each is recorded as one.`,
+        );
+      }
 
       const removed = await tx
         .delete(productTypeChargeDefaults)

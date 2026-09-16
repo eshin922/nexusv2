@@ -280,29 +280,53 @@ try {
   const oneLeft = await resolutionFor(T_RULES);
   check("removing one leaves the rest", oneLeft?.kind === "suggestions");
 
+  // THE CHANGE: an ordinary supported action must not be able to leave a valid
+  // state machine in an invalid state. Removing the last rule used to be
+  // allowed and produced a contradiction, reported honestly -- which did not
+  // make it acceptable. It is now refused, naming both ways forward.
   const last = await removeChargeDefault(
     form({ productTypeValue: T_RULES, chargeKey: "tooling" }),
   );
-  check("the last rule can be removed", last.ok && last.data.remaining === 0,
-    last.ok ? `${last.data.remaining} remaining` : "");
-  const empty = await resolutionFor(T_RULES);
   check(
-    "and the result is reported as a CONTRADICTION, not invented as `none expected`",
-    empty?.kind === "contradiction",
-    String(empty?.kind),
+    "removing the LAST rule is refused, not allowed into a contradiction",
+    !last.ok && last.error.code === "VALIDATION_ERROR",
+    last.ok ? "ACCEPTED" : last.error.code,
   );
+  check(
+    "and the refusal names both ways forward",
+    !last.ok && /add the replacement first/i.test(last.error.message) &&
+      /Clear review/i.test(last.error.message),
+    last.ok ? "" : last.error.message.slice(0, 110),
+  );
+  const stillOne = await resolutionFor(T_RULES);
+  check("the type is still a valid `suggestions`", stillOne?.kind === "suggestions",
+    String(stillOne?.kind));
 
   const missing = await removeChargeDefault(
-    form({ productTypeValue: T_RULES, chargeKey: "tooling" }),
+    form({ productTypeValue: T_RULES, chargeKey: "samples" }),
   );
   check("removing a rule that is not there is refused",
     !missing.ok && missing.error.code === "NOT_FOUND",
     missing.ok ? "accepted" : missing.error.code);
 
-  // Recovery from that state, through the action an admin actually has.
+  // Route one out: add the replacement first, THEN remove.
+  await upsertChargeDefault(form({ productTypeValue: T_RULES, chargeKey: "samples" }));
+  const swapped = await removeChargeDefault(
+    form({ productTypeValue: T_RULES, chargeKey: "tooling" }),
+  );
+  check("with a replacement added first, the old rule removes", swapped.ok,
+    swapped.ok ? `${swapped.data.remaining} remaining` : swapped.error.code);
+  check("leaving a valid `suggestions`",
+    (await resolutionFor(T_RULES))?.kind === "suggestions");
+
+  // Route two out: Clear review, which cascades, then record the verdict.
+  const cleared2 = await clearChargeProfile(form({ productTypeValue: T_RULES }));
+  check("Clear review is the other way out, and it cascades the rules", cleared2.ok);
+  check("returning the type to unreviewed",
+    (await resolutionFor(T_RULES)) === null);
   const recovered = await setNoneExpected(form({ productTypeValue: T_RULES }));
-  check("with no rules left, `none expected` is now accepted", recovered.ok);
-  check("and the contradiction is gone",
+  check("after which `none expected` can be recorded", recovered.ok);
+  check("and the type is a finished answer, never inferred",
     (await resolutionFor(T_RULES))?.kind === "none_expected");
 
   // ═══ 4 · the two empty states are not the same sentence ══════════════
@@ -367,10 +391,20 @@ try {
   check("re-recording `none expected` over it is refused", !badNone.ok,
     badNone.ok ? "accepted" : badNone.error.code);
 
+  check(
+    "and it names the remedy, which differs per contradiction",
+    bad?.kind === "contradiction" && /Remove the rules/i.test(bad.remedy),
+    bad?.kind === "contradiction" ? bad.remedy.slice(0, 70) : "",
+  );
+
+  // The last-rule refusal must NOT apply here. Against a stored
+  // `none_expected` carrying rules, removing the last rule is the REPAIR --
+  // refusing it would trap an admin in the invalid state.
   const badRemove = await removeChargeDefault(
     form({ productTypeValue: T_BAD, chargeKey: "samples" }),
   );
-  check("and the admin can resolve it by removing the rule", badRemove.ok);
+  check("and the admin can resolve it by removing the rule", badRemove.ok,
+    badRemove.ok ? "" : badRemove.error.message.slice(0, 90));
   check("which leaves a consistent `none expected`",
     (await resolutionFor(T_BAD))?.kind === "none_expected");
 
@@ -641,6 +675,43 @@ try {
     "and it is reported, never silently preferred",
     final !== null,
     String(final?.kind),
+  );
+
+  // ═══ 8d · no supported action can reach a contradiction ══════════════
+  console.log("\n── the state machine has no invalid reachable state ────────");
+
+  // The claim the last-rule refusal exists to make. Asserted by DRIVING the
+  // actions rather than by reading them: a random walk over every supported
+  // action, checking the resolution after each step. A contradiction here
+  // would mean some route still produces one, and the route would be printed.
+  await purge();
+  const FUZZ = 120;
+  const keys = ["print_plates", "tooling", "artwork_plate", "samples", "other_service"];
+  const trail: string[] = [];
+  let reached: string | null = null;
+  for (let i = 0; i < FUZZ && reached === null; i++) {
+    const k = keys[i % keys.length];
+    const pick = i % 5;
+    const step =
+      pick === 0 ? `add ${k}` :
+      pick === 1 ? `preselect ${k}` :
+      pick === 2 ? `remove ${k}` :
+      pick === 3 ? "none-expected" : "clear";
+    trail.push(step);
+    if (pick === 0) await upsertChargeDefault(form({ productTypeValue: T_RACE, chargeKey: k }));
+    else if (pick === 1)
+      await upsertChargeDefault(form({ productTypeValue: T_RACE, chargeKey: k, preselected: "on" }));
+    else if (pick === 2) await removeChargeDefault(form({ productTypeValue: T_RACE, chargeKey: k }));
+    else if (pick === 3) await setNoneExpected(form({ productTypeValue: T_RACE }));
+    else await clearChargeProfile(form({ productTypeValue: T_RACE }));
+
+    const state = await resolutionFor(T_RACE);
+    if (state?.kind === "contradiction") reached = trail.slice(-6).join(" -> ");
+  }
+  check(
+    `${FUZZ} supported actions in sequence never reached a contradiction`,
+    reached === null,
+    reached ?? "",
   );
 
   // ═══ 9 · the audit trail as a whole ══════════════════════════════════

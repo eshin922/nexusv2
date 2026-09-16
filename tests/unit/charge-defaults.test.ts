@@ -370,3 +370,53 @@ test("the write path cannot store a classification, an item, or an unknown charg
   // A charge identity is checked against the governed registry, not retyped.
   assert.match(code, /COMPONENT_CHARGE_KEYS/);
 });
+
+/* ── the last rule, and why removal is refused ─────────────────────────── */
+
+test("each contradiction names the remedy that actually fixes IT", () => {
+  // The two contradictions are repaired by OPPOSITE actions. A surface that
+  // composed one sentence for both would send an admin the wrong way half the
+  // time, so the remedy travels with the state that needs it.
+  const noneWithRules = resolveChargeDefaults({
+    productTypeValue: "Primary",
+    profile: profile({ verdict: "none_expected" }),
+    rules: [rule()],
+  });
+  const defaultsWithNone = resolveChargeDefaults({
+    productTypeValue: "Primary",
+    profile: profile({ verdict: "defaults" }),
+    rules: [],
+  });
+  assert.equal(noneWithRules.kind, "contradiction");
+  assert.equal(defaultsWithNone.kind, "contradiction");
+  if (noneWithRules.kind !== "contradiction" || defaultsWithNone.kind !== "contradiction") return;
+
+  assert.match(noneWithRules.remedy, /Remove the rules/i);
+  assert.match(defaultsWithNone.remedy, /Add a suggested charge|Clear review/i);
+  assert.notEqual(noneWithRules.remedy, defaultsWithNone.remedy);
+  // And neither may suggest reading the empty state as a finished answer.
+  assert.match(defaultsWithNone.remedy, /not read this as/i);
+});
+
+test("removing the last rule is refused, and only under a `defaults` verdict", () => {
+  // An ordinary supported action must not be able to leave a valid state
+  // machine invalid. But the refusal must NOT extend to a stored
+  // `none_expected` carrying rules: there, removing the last rule is the
+  // repair, and refusing it would trap an admin in the invalid state.
+  const body = writerBody(read(ACTIONS), "removeChargeDefault");
+  assert.match(body, /lastOfDefaults/, "the last-rule refusal is absent");
+  assert.match(
+    body,
+    /verdictRow\?\.verdict === "defaults"/,
+    "the refusal is not conditioned on the verdict, so it would block the repair path",
+  );
+  // It names both ways forward rather than only forbidding.
+  assert.match(body, /add the replacement first/i);
+  assert.match(body, /Clear review/i);
+  // And it never quietly withdraws the review instead.
+  assert.doesNotMatch(
+    body,
+    /\.delete\(productTypeChargeProfile\)/,
+    "removing a rule also deletes the profile — a larger act than the control names",
+  );
+});

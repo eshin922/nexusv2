@@ -214,8 +214,9 @@ function Row({
             role="alert"
             className="rounded border border-rose-200 bg-rose-50 p-2 text-rose-900"
           >
-            <strong>Inconsistent.</strong> {r.detail}. This state should not
-            occur; fix it by removing the rules or recording a verdict.
+            <strong>Inconsistent.</strong> {r.detail}. No supported action
+            produces this, so something wrote these tables from outside the
+            application. {r.remedy}
           </p>
         )}
       </div>
@@ -226,6 +227,7 @@ function Row({
           {r.suggestions.map((s) => {
             const toggleKey = `${value}:toggle:${s.chargeKey}`;
             const removeKey = `${value}:remove:${s.chargeKey}`;
+            const isOnlyRule = r.suggestions.length === 1;
             return (
               <li
                 key={s.chargeKey}
@@ -270,9 +272,20 @@ function Row({
                 <button
                   type="button"
                   className="ml-auto text-rose-700 underline disabled:text-slate-400"
-                  disabled={pendingKey === removeKey}
+                  // The LAST rule cannot be removed — the action refuses it,
+                  // because removing it would leave the type reviewed with
+                  // nothing to suggest. The control says so before the admin
+                  // finds out, and names both ways forward (Pattern 60: a
+                  // control expresses the failure it excludes). The server
+                  // still refuses independently, which is what catches a stale
+                  // screen showing two rules when one remains.
+                  disabled={isOnlyRule || pendingKey === removeKey}
                   title={
-                    pendingKey === removeKey ? "Removing this rule…" : undefined
+                    isOnlyRule
+                      ? "This is the only suggested charge. To swap it, add the replacement first. To record that none are expected, use Clear review, then None expected."
+                      : pendingKey === removeKey
+                        ? "Removing this rule…"
+                        : undefined
                   }
                   onClick={() => {
                     const fd = new FormData();
