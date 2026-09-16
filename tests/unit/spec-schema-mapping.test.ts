@@ -18,7 +18,23 @@ import {
   mappedProductTypeValues,
 } from "../../src/lib/product-structure/spec-schema-mapping.ts";
 
-/** The production vocabulary as fetched 2026-08-14, after Tertiary was added. */
+/**
+ * A DATED SNAPSHOT of the production vocabulary — fetched 2026-08-14, after
+ * Tertiary was added.
+ *
+ * This is a fixture, and it is evidence about 2026-08-14 and nothing else. It
+ * CANNOT tell you what HubSpot offers today: an option added in the HubSpot UI
+ * is invisible here, so this file stays green while products in production
+ * resolve `unmapped`. That is not a hypothetical — `Corrugated` and
+ * `Preliminary` are offered by the sandbox portal right now and have no
+ * disposition, and six production rows carry `Preliminary` as a result.
+ *
+ * Live coverage is `npm run verify:product-type-vocabulary`, which reads both
+ * portals and reports each separately. What these tests are for is the
+ * mapping's SHAPE — that a known value resolves to the schema it should, that
+ * the four outcomes stay distinct, that the exhaustiveness helper itself
+ * detects a missing value. Those are deterministic and belong here.
+ */
 const VOCABULARY = [
   "Cards, Booklets", "Design", "Filling and Packout Services", "Formulation",
   "Freight", "Labels", "Third Party Logistics", "One Time Charges", "Primary",
@@ -134,10 +150,11 @@ test("an unknown authoritative value does NOT silently become no_schema", () => 
   assert.equal(resolveSpecSchema("Preliminary")?.kind, "unmapped");
 });
 
-test("the mapping is exhaustive over the production vocabulary", () => {
-  // The fail-loud, positioned in CI rather than at render time: adding an
-  // option in HubSpot breaks the build, where a human sees it, instead of
-  // resolving to no_schema on an operator's screen.
+test("the exhaustiveness helper detects a value with no disposition", () => {
+  // NOT a claim that the mapping is exhaustive over HubSpot TODAY. This
+  // exercises the helper against a dated snapshot and against a value known to
+  // be absent, which establishes that the helper works — the live question is
+  // answered by `npm run verify:product-type-vocabulary`.
   assert.deepEqual(specSchemaMappingIsExhaustive(VOCABULARY), {
     exhaustive: true,
   });
@@ -147,7 +164,30 @@ test("the mapping is exhaustive over the production vocabulary", () => {
   );
 });
 
-test("the mapping disposes every vocabulary value and nothing else", () => {
-  const mapped = [...mappedProductTypeValues()].sort();
-  assert.deepEqual(mapped, [...VOCABULARY].sort());
+test("the mapping disposes every snapshot value, and any extra is deliberate", () => {
+  const mapped = new Set(mappedProductTypeValues());
+
+  // Every value the snapshot holds must be disposed. This half is unchanged.
+  const undisposed = VOCABULARY.filter((v) => !mapped.has(v));
+  assert.deepEqual(undisposed, [], "a value in the snapshot has no disposition");
+
+  // The other half USED to be `deepEqual` against the snapshot, which forbade
+  // an entry the vocabulary did not yet offer — and that is precisely the safe
+  // ordering: map first, create the option second. An entry with no option is
+  // inert; an option with no entry resolves `unmapped` in production while CI
+  // stays green, because this file is a dated fixture.
+  //
+  // So entries ahead of the snapshot are permitted and NAMED. An accidental
+  // extra still fails, which is what the original assertion was protecting.
+  const AHEAD_OF_VOCABULARY = [
+    // Proposed 2026-09-15; options not yet created in either portal.
+    "Ingestibles",
+    "Topicals",
+  ];
+  const extra = [...mapped].filter((v) => !VOCABULARY.includes(v)).sort();
+  assert.deepEqual(
+    extra,
+    [...AHEAD_OF_VOCABULARY].sort(),
+    "a mapping entry exists that is neither in the snapshot nor a declared proposal",
+  );
 });

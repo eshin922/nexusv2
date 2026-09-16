@@ -82,6 +82,29 @@ const MAPPING: Record<string, SpecSchemaId | "NO_SCHEMA" | "SCHEMA_PENDING"> = {
   "Third Party Logistics": "NO_SCHEMA",
   Turnkey: "NO_SCHEMA",
   Formulation: "NO_SCHEMA",
+
+  // ── PROPOSED, AND DELIBERATELY AHEAD OF THE OPTIONS ────────────────────
+  //
+  // Neither value exists in HubSpot yet. They are mapped FIRST, on purpose:
+  // the exhaustiveness fail-loud is a dated fixture rather than a live read,
+  // so creating an option before its mapping ships produces `unmapped`
+  // products while CI stays green. Mapping first makes that order impossible
+  // to get wrong — an entry with no option is inert, an option with no entry
+  // is not.
+  //
+  // SCHEMA_PENDING, not a schema id, and not NO_SCHEMA. A gummy and a cream
+  // plainly have specifications, so NO_SCHEMA would be a false finished
+  // answer. The `formulated` schema they will resolve to is drafted in
+  // `drizzle/0129_draft_formulated_spec_schema.sql` and NOT APPLIED; until
+  // that row exists, `formulated` is a schema id resolving to nothing.
+  // SCHEMA_PENDING says exactly what is true today: somebody looked, and the
+  // schema is owed.
+  //
+  // Step two, after the migration is approved and applied, is to change these
+  // two lines to "formulated" — see Appendix B of
+  // docs/audit-findings/2026-09-15-product-type-charge-suggestion-audit.md.
+  Ingestibles: "SCHEMA_PENDING",
+  Topicals: "SCHEMA_PENDING",
 };
 
 /**
