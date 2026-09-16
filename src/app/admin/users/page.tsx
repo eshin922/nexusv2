@@ -57,6 +57,8 @@ export default async function AdminUsersPage() {
           role: r.role,
           phone: r.phone,
           bindingState: r.bindingState,
+          canEditSpecs: r.canEditSpecs,
+          canCreateLeaves: r.canCreateLeaves,
         }))}
       />
 
@@ -68,9 +70,16 @@ export default async function AdminUsersPage() {
         purpose rather than inherit from a hiring form. Editing an existing
         person&rsquo;s role is likewise not here — changing what someone can
         already reach is a different act from deciding what they start with.
-        Phone remains the one inline edit. When role editing does land, this
-        table grows a second click-Edit column and the row-becomes-editor
-        pattern will want re-examining.
+        <br />
+        <br />
+        Spec and leaf grants now live in the row editor, which is the change
+        this note anticipated. They had no surface at all before: both columns
+        were seeded once by migration and nothing could set them, so the guards
+        that read them resolved in practice to admins-only — and a PM asked to
+        complete a SKU was refused at save, after the form had let her type it.
+        Granting them is still its own deliberate act, not a consequence of a
+        role. Admins pass those guards by role regardless, so the toggles say
+        so rather than implying they do something.
       </div>
     </div>
   );

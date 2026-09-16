@@ -138,7 +138,14 @@ test("no authority flag is settable from the form", async () => {
 
 test("Add User is creation only — it edits, disables and deletes nothing", async () => {
   const action = codeOnly(await ACTION());
-  const body = action.slice(action.indexOf("export async function addUser"));
+  // Bounded to addUser's OWN body. This used to slice to the end of the file,
+  // which held while addUser happened to be last and broke the moment a
+  // sibling action was appended — reporting a create path that edits when the
+  // create path had not changed at all. The claim is about this function.
+  const from = action.indexOf("export async function addUser");
+  const next = action.indexOf("export async function ", from + 1);
+  const body = action.slice(from, next === -1 ? action.length : next);
+  assert.ok(body.includes("addUser"), "addUser was not found in the action module");
   assert.doesNotMatch(body, /\.update\(users\)/);
   assert.doesNotMatch(body, /\.delete\(users\)/);
 

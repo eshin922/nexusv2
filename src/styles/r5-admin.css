@@ -703,7 +703,7 @@
 }
 .r5-users-table-head {
   display: grid;
-  grid-template-columns: 1.3fr 1.5fr 90px 120px 1fr 110px;
+  grid-template-columns: 1.3fr 1.4fr 84px 112px 132px 1fr 110px;
   gap: 14px;
   padding: 12px 22px;
   background: var(--paper-2);
@@ -717,13 +717,49 @@
 }
 .r5-users-row {
   display: grid;
-  grid-template-columns: 1.3fr 1.5fr 90px 120px 1fr 110px;
+  grid-template-columns: 1.3fr 1.4fr 84px 112px 132px 1fr 110px;
   gap: 14px;
   padding: 14px 22px;
   border-bottom: 1px solid var(--rule);
   align-items: center;
   transition: background 80ms;
 }
+/* ─── Per-user grants ─────────────────────────────────
+ *
+ * The column the users table gained when spec and leaf permissions became
+ * grantable. Reads as chips at rest and as two checkboxes in the row editor,
+ * matching the phone cell's read-then-edit shape.
+ */
+.r5-users-row .grants {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  min-width: 0;
+}
+.r5-users-row .grants .grant {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px; border-radius: 4px;
+  background: oklch(from var(--accent) l c h / 0.12);
+  color: var(--ink-2);
+  border: 1px solid oklch(from var(--accent) l c h / 0.25);
+}
+.r5-users-row .grants .empty,
+.r5-users-row .grants .implicit {
+  font-size: 11px; color: var(--ink-3); font-style: italic;
+}
+.r5-users-row .grants.editing {
+  gap: 10px;
+}
+.r5-users-row .grants.editing label {
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-2);
+  cursor: pointer;
+}
+.r5-users-row .grants.editing input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .r5-users-row:last-child {
   border-bottom: none;
 }
