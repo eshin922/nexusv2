@@ -187,9 +187,13 @@ export async function updateUserGrants(
     if (!userId) {
       throw new ActionGuardError(ERR.VALIDATION, "userId is required.");
     }
-    // Present-or-absent, not a parsed truthiness: an unchecked checkbox sends
-    // nothing at all, and reading `Boolean(formData.get(...))` would make a
-    // missing field and an explicit "off" indistinguishable from a typo.
+    // Strict match on the value a checkbox actually submits. `Boolean(get(...))`
+    // would read ANY non-empty string as a grant -- including the literal
+    // "off", and including "false" -- so a caller that spells the negative out
+    // would be granted authority by saying it did not want it.
+    //
+    // An absent field is no grant. That is the safe direction for a permission:
+    // a malformed submission can only fail to confer, never confer by accident.
     const canEditSpecs = formData.get("canEditSpecs") === "on";
     const canCreateLeaves = formData.get("canCreateLeaves") === "on";
 

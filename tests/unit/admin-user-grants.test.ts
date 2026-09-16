@@ -69,10 +69,13 @@ test("the audit records what it changed FROM, read inside the transaction", () =
   assert.match(body, /to: \{/);
 });
 
-test("an unchecked box is an explicit off, not a parse of nothing", () => {
-  // An unchecked checkbox submits no field at all. `Boolean(formData.get(...))`
-  // would make "off" and "the field never arrived" the same value, so a
-  // malformed submission would silently withdraw a grant.
+test("only the exact checkbox value confers a grant", () => {
+  // `Boolean(formData.get(...))` reads any non-empty string as true, so a
+  // caller sending `canEditSpecs=off` -- or `=false` -- would be GRANTED it.
+  // The strict comparison is what makes the negative safe to spell out.
+  //
+  // An absent field confers nothing, which is the direction a permission
+  // should fail in.
   const body = actionBody(codeOnly(ACTIONS), "updateUserGrants");
   for (const field of ["canEditSpecs", "canCreateLeaves"]) {
     assert.match(
