@@ -8,6 +8,13 @@ no CD work.**
 carry its applicable costs, services and charges **without being converted into
 a group**. Item Groups stay optional, for products genuinely quoted together.
 
+> **Followed by [`fee-charge-decisions.md`](fee-charge-decisions.md)**, which
+> carries the decisions this proposal defers — the markup category for each key,
+> the exposure question (these charges are **not** standalone-only), and two
+> corrections to this document: §5's five cost lines are **financial rows, not
+> Library components**, and testing needs a firm-wide mapping rather than a
+> per-instance item selection.
+
 **Retracted:** the earlier suggestion that MISTR's structure be decided by which
 fields it unlocks. The contract and the supplier quote decide it. This document
 therefore shows both structures working, and proposes the change that makes the

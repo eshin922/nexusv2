@@ -111,10 +111,14 @@ the read.
 
 ### Deliberately absent, each absence load-bearing
 
-- **No NetSuite item column, ever.** `other_service` and `otc_testing` choose
-  their item per line, frozen at send. A firm-wide default would be a second
-  answer to "which item does this line post to", sitting in Settings looking
-  authoritative while the frozen per-line selection is what posts.
+- **No NetSuite item column, ever.** `other_service` chooses its item per line,
+  frozen at send — it is the catch-all, and migration 0090 refuses it a
+  firm-level row by CHECK. Every other destination means one thing and takes a
+  firm-wide mapping in `netsuite_destination_item_map`. A column here would be a
+  second answer either way, sitting in Settings looking authoritative while
+  something else is what posts. *(Corrected: an earlier draft said `otc_testing`
+  was per-line too. It is not — see
+  `../business-validation/fee-charge-decisions.md` §3.)*
 - **No `tooling_classification` column, ever.** Mould/collar versus cutting die
   selects a different NetSuite destination, and `componentChargeDestination`
   **refuses** an unclassified tooling charge rather than defaulting. A default
