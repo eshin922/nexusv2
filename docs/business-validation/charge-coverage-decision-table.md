@@ -4,15 +4,20 @@
 production change, no CD work.**
 
 Companion to, and in four places a **correction of**,
-[`charge-applicability-matrix.md`](charge-applicability-matrix.md). Where the two
-disagree, this document is the later read.
+[`charge-applicability-matrix.md`](charge-applicability-matrix.md).
+
+> **This document is itself corrected in three places** by
+> [`standalone-product-cost-ownership.md`](standalone-product-cost-ownership.md),
+> which is the later read: §2's "Direct Product or Item Group?" framing, §5's
+> coverage recommendation, and §6's claim that over-inclusiveness is free. Each
+> is flagged inline.
 
 | | The matrix said | Established here |
 |---|---|---|
 | **MISTR lubricants** | four `MISTRLBSTKS-*` under `Filling and Packout Services` | **Wrong set.** Those four are unattached catalogue rows from August. The lubricants *in play* are four `DPS-MISTR-*` under `Raw ingredients` — §1 |
 | **"Not a component type"** | a rule against `Turnkey` "would be inert" | **Overstated.** The data model lets a Direct Product own a component charge. What it cannot own is production economics — §2 |
 | **NetSuite "Mapped ✓"** | flagged as sandbox | **Sharper:** the table records no environment at all, and no production credential exists — §3 |
-| **OQ4 / second key** | argued from stock-vs-custom ambiguity | **Wrong basis.** Ambiguity is free while confirmation is required. The trigger is a *behaviour* — §6 |
+| **OQ4 / second key** | argued from stock-vs-custom ambiguity | **Wrong basis.** The trigger is a *behaviour* — §6. (§6's own replacement claim, that over-inclusiveness is therefore "free", is in turn retracted — see `standalone-product-cost-ownership.md` §1.1) |
 
 ---
 
@@ -101,13 +106,16 @@ standalone product at all."** Zero rows in the live data have
 `owner_commercial_kind = 'product'`, and none can.
 
 **That is a design constraint, not an oversight** — a Direct Product is bought
-complete, so its production economics are the supplier's. Which raises the
-question review should actually answer: **are MISTR gummies Direct Products?**
-If DPS is contract-manufacturing them, they are an Item Group and the whole
-family is already reachable through existing fields. If they are bought
-complete, no setup fee applies and nothing is missing.
+complete, so its production *worksheet* is the supplier's.
 
-**Nexus cannot answer that from quote structure, and should not try.**
+> **⚠ SUPERSEDED.** This section went on to ask whether MISTR gummies "are
+> Direct Products or Item Groups", framed as the answer that closes the gap.
+> **That framing is retracted**: structure follows the contract and the supplier
+> quote, never which fields a shape unlocks. A standalone product must be able
+> to carry its own costs without becoming a group, and
+> [`standalone-product-cost-ownership.md`](standalone-product-cost-ownership.md)
+> shows both MISTR structures working and proposes the change that makes the
+> standalone one complete — three map entries, no migration, no group.
 
 ---
 
@@ -261,6 +269,15 @@ The component is a member of an Item Group, or a Direct Product (§2).
 **Recommendation: two steps, in this order. Neither is built here, and neither
 seeds a rule.**
 
+> **⚠ SUPERSEDED by [`standalone-product-cost-ownership.md`](standalone-product-cost-ownership.md)
+> §6.** Step 1 below waits on a structural question that should not have been
+> asked. Step 2 widened the *defaults* CHECK, which suggests a fee without
+> making one authorable on a standalone product. The smaller and correcter
+> change is to widen the **component charge vocabulary** — three entries in each
+> of three application maps, no migration at all, because
+> `quote_charge_instances.charge_key` already accepts these keys and no
+> constraint ties a key to an owner kind.
+
 ### Step 1 — nothing at all, until §2's question is answered
 
 For an **Item Group**, the family already has governed fields and 63 live rows
@@ -314,10 +331,23 @@ correction is the important part of this document.**
 | Over-inclusiveness is | **free** | **a defect** |
 | Needs a finer key? | **No** | **Yes** |
 
-While every default is confirmed by a person for that instance, a type-level
-rule that is right 60% of the time is strictly better than no rule: the operator
-declines the other 40% in the same motion they were already making. **Ambiguity
-in the key is not a cost, because the key is not deciding anything.**
+> **⚠ CORRECTED.** Two things in the paragraph that stood here were wrong, and
+> both are retracted — see
+> [`standalone-product-cost-ownership.md`](standalone-product-cost-ownership.md)
+> §1.1.
+>
+> **"Over-inclusiveness is free" is false.** Confirmation reduces risk; it does
+> not remove the cost. An irrelevant row is read and dismissed by every
+> operator on every component, and a list that is usually wrong trains the
+> skimming that makes confirmation hollow. The invariant below is necessary and
+> **not sufficient on its own**.
+>
+> **"Right 60% of the time" was invented.** No applicability rate should be
+> quoted until someone counts; twelve observed instances cannot support one.
+
+The correct statement is narrower: a coarse key is **tolerable** where a person
+must affirm each instance, and a **finer key is required** where one need not —
+which is what the list below identifies. Tolerable is not free.
 
 ### The specific behaviours that would require a second key
 
@@ -342,18 +372,21 @@ fact without a human affirming it for that instance.** Concretely:
    Readiness, margin, or the NetSuite projection consulting the rule table would
    make the type-level guess load-bearing.
 
-**Recommendation.** Keep the single key. Adopt the **confirmation invariant** as
-the governing rule, and record it in the authoring contract:
+**Recommendation.** Keep the single key, and adopt the **confirmation
+invariant** as necessary-but-not-sufficient — the complement is §1.1's rule that
+a charge earns a place in a type's defaults only when a reviewer attests it
+belongs there. Record the invariant in the authoring contract:
 
 > A default may never become a charge without a person affirming it for that
 > instance. Any path that would apply one otherwise must either be refused, or
 > the key must first be made fine enough to be right without asking.
 
-With that invariant in force, **preselection is safe wherever it is useful** —
-including on `Primary` and `Secondary`, which the matrix proposed leaving
-unticked on reasoning this section retracts. The remaining argument for leaving
-them unticked is weaker and purely ergonomic: a majority-false tick is noise. That
-is a UX preference for review to settle, **not a data-model constraint.**
+With that invariant in force, preselection is **not automatically unsafe** on
+`Primary` or `Secondary` — but nor is it justified. It becomes a question of
+whether the charge is useful there often enough to be worth every operator
+reading it, which is the question §1.1 says must be answered by someone who
+authors these quotes rather than inferred from the catalogue. **Not a
+data-model constraint, and not a free choice either.**
 
 ---
 
