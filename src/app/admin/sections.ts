@@ -46,6 +46,13 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
       "Per-category markup percentages applied to packaging, production, and freight cost components.",
   },
   {
+    href: "/admin/charge-defaults",
+    label: "Charge defaults",
+    nav: "One-time charges by product type",
+    index:
+      "Which one-time charges to offer when a component of each product type is added. Suggestions only — an operator confirms every one, and a type nobody has reviewed is shown as needing review rather than as having none.",
+  },
+  {
     href: "/admin/netsuite",
     label: "NetSuite",
     nav: "Direct Service item mappings",

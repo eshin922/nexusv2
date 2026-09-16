@@ -228,6 +228,24 @@ test("applicability is not posting readiness", () => {
 
 /* ── quote selections survive a change to defaults ─────────────────────── */
 
+/**
+ * The ONE surface permitted to import the resolver today, and why.
+ *
+ * Settings is where an admin MAINTAINS the defaults, so it necessarily reads
+ * them. It renders no quote and no charge an operator authored, so a later
+ * edit to a default cannot reach a quote through it.
+ *
+ * When the authoring surface is wired, its single module joins this list.
+ * Nothing else may: a RENDERING path importing this module is exactly how the
+ * guarantee below would be lost.
+ */
+const PERMITTED_IMPORTERS = [
+  // The admin read + write path. Resolves through the SAME function the
+  // authoring path will, so a contradiction reads identically in both places.
+  "src/app/actions/charge-defaults.ts",
+  "src/app/admin/charge-defaults/charge-defaults-table.tsx",
+];
+
 test("defaults are read at authoring time only, never at render", () => {
   // THE MECHANISM that makes an operator's charges permanent: their charges
   // are rows they authored, and nothing re-derives them from the defaults. If
@@ -235,8 +253,6 @@ test("defaults are read at authoring time only, never at render", () => {
   // change what an existing quote displays.
   //
   // Asserted as an import boundary because that is where the guarantee lives.
-  // When the authoring surface is wired, ONE module may import this; the
-  // rendering paths must not.
   const importers: string[] = [];
   const roots = ["src/components", "src/app"];
   const walk = (dir: string): string[] => {
@@ -253,10 +269,104 @@ test("defaults are read at authoring time only, never at render", () => {
       if (read(file).includes("commercial-recovery/charge-defaults")) importers.push(file);
     }
   }
+
+  const unexpected = importers.filter((f) => !PERMITTED_IMPORTERS.includes(f));
   assert.deepEqual(
-    importers,
+    unexpected,
     [],
-    `charge-defaults is imported by a surface. Until the authoring surface is ` +
-      `wired, nothing should import it; after that, only the authoring path may:\n${importers.join("\n")}`,
+    `charge-defaults is imported by a surface that is not permitted to read it. ` +
+      `Only maintenance and authoring paths may; a rendering path would make a ` +
+      `later edit to a default change what an existing quote displays: ${unexpected.join(", ")}`,
   );
+
+  // And the permitted list is not allowed to rot into a description of
+  // whatever happens to import it: an entry that no longer exists must be
+  // removed rather than left standing as permission for nothing.
+  const missing = PERMITTED_IMPORTERS.filter((f) => !importers.includes(f));
+  assert.deepEqual(missing, [], `permitted importer no longer imports it: ${missing.join(", ")}`);
+
+  // The quote-rendering trees, named explicitly. These must never appear --
+  // this is the assertion the allowlist could otherwise weaken by accident.
+  for (const f of importers) {
+    assert.ok(
+      !f.startsWith("src/components/pdf/") &&
+        !f.startsWith("src/components/quote/") &&
+        !f.includes("/quotes/[quoteId]/quote/"),
+      `${f} renders a quote and imports charge-defaults`,
+    );
+  }
+});
+
+/* ── the admin write path ──────────────────────────────────────────────── */
+
+const ACTIONS = "src/app/actions/charge-defaults.ts";
+const WRITERS = ["setNoneExpected", "upsertChargeDefault", "removeChargeDefault", "clearChargeProfile"];
+
+/** One writer's body, bounded by the next export so a sibling cannot vouch for it. */
+function writerBody(src: string, name: string): string {
+  const start = src.indexOf(`export async function ${name}(`);
+  assert.ok(start >= 0, `${name} is not exported from ${ACTIONS}`);
+  const rest = src.slice(start + 1);
+  const next = rest.indexOf("\nexport ");
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+test("every writer is admin-gated, transactional, and audits inside its transaction", () => {
+  const src = read(ACTIONS);
+  for (const name of WRITERS) {
+    const body = writerBody(src, name);
+    assert.match(body, /requireAdminAction\(\)/, `${name} does not require an admin`);
+    assert.match(body, /db\.transaction\(/, `${name} does not run in a transaction`);
+    // The audit must take the transaction handle. An audit that can commit
+    // without its mutation, or the reverse, is not evidence of the mutation.
+    assert.match(
+      body,
+      /writeAuditEntry\([\s\S]*?\n\s*tx,\r?\n\s*\);/,
+      `${name} writes its audit outside the transaction`,
+    );
+  }
+});
+
+test("every writer serializes check-and-write on the product type", () => {
+  // A transaction alone does NOT serialize check-then-write under READ
+  // COMMITTED: two admins can both read a consistent state, both pass their own
+  // check, and both commit. The invariant spans two tables, so no CHECK can
+  // hold it either -- which is exactly why the lock is taken BEFORE the read.
+  const src = read(ACTIONS);
+  for (const name of WRITERS) {
+    const body = writerBody(src, name);
+    assert.match(body, /lockFor\(value\)/, `${name} does not take the per-type lock`);
+    const lockAt = body.indexOf("lockFor(value)");
+    const readAt = body.search(/tx\s*\n?\s*\.select\(/);
+    if (readAt >= 0) {
+      assert.ok(lockAt < readAt, `${name} reads before taking the lock, so the check is not serialized`);
+    }
+  }
+  // Per product type, not global: two admins editing different types must not
+  // queue behind each other.
+  assert.match(src, /product_type_charge_defaults:\$\{value\}/);
+  // Transaction-scoped, so it releases on rollback and on a crash.
+  assert.match(src, /pg_advisory_xact_lock/);
+});
+
+test("recording `none expected` refuses rather than discarding rules", () => {
+  // Silently deleting them would turn "I reviewed this" into "I discarded
+  // somebody's rules" -- a different act, and not the one that was asked for.
+  const body = writerBody(read(ACTIONS), "setNoneExpected");
+  assert.match(body, /ERR\.VALIDATION/);
+  assert.doesNotMatch(
+    body,
+    /\.delete\(productTypeChargeDefaults\)/,
+    "setNoneExpected deletes the rules it should refuse over",
+  );
+});
+
+test("the write path cannot store a classification, an item, or an unknown charge", () => {
+  const src = read(ACTIONS);
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const banned of ["toolingClassification", "mould_collar", "cutting_die", "netsuiteItem", "netsuite_item"]) {
+    assert.doesNotMatch(code, new RegExp(banned), `the admin actions write ${banned}`);
+  }
+  // A charge identity is checked against the governed registry, not retyped.
+  assert.match(code, /COMPONENT_CHARGE_KEYS/);
 });
