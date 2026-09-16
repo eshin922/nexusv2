@@ -835,6 +835,11 @@ Applicability: **●** applies · **◐** sometimes · **○** does not apply.
 | 14 | `fm_factory_2` | Factory 2 | ● | ● | ● | **Keep** | Matches packaging schemas. |
 | 15 | `fm_packout_details` | Packout details | ● | ● | ● | **Keep** | Matches packaging schemas. |
 
+> **WITHDRAWN — see D3.** Calling these form-dependent was an invented
+> scientific default. Applicability depends on the formulation and the
+> measurement method; every field is optional and there is no per-family
+> applicability rule.
+
 **The two form-dependent fields are `fm_ph` (7) and `fm_viscosity` (8).** Both
 are empty for an ingestible solid and populated for a liquid or emulsion. That
 is the same behaviour the packaging schemas already rely on — a rigid box
@@ -857,9 +862,9 @@ yield, and container/drum format. See C3.
 | 2 | `fm_flavor_fragrance` caption | **Split into `fm_flavor` and `fm_fragrance`** | One caption asked to read two ways is the kind of ambiguity an operator resolves differently each time. Splitting costs one empty field; the packaging schemas already carry empties. | Approving the field set → `0129`. |
 | 3 | Bulk formulation rule | **Identity-based; `Raw ingredients` reserved for individual inputs** | The product is the product in a drum or a bottle. `Raw ingredients` currently holds 38 individual inputs and 14 bulk formulations, which is why its schema has been unresolvable. | Reclassification only — **not `0129`**. See C3. |
 | 4 | `Lubricants & Intimate Care` | **Do not add yet** | On specification fields it is indistinguishable from Topicals. It needs a service or charge that differs, or it is Topicals. | A third option; the 5 MISTR lube rows. |
-| 5 | `Turnkey` and `Finished Goods` | **Retire both from the identity field** — but see #6 | Both are arrangement/lifecycle, not identity. 12 rows. | Reclassification of 12 rows. |
+| 5 | `Turnkey` and `Finished Goods` | ~~Retire both~~ **WITHDRAWN — D1. Leave unchanged.** | Both are arrangement/lifecycle, not identity. 12 rows. | Reclassification of 12 rows. |
 | 6 | Where sourcing arrangement lives | **Needs a home; I have no recommendation** | B0.1 withdrew "derive it from quote structure" — the same shape can mean bought-complete or contract-manufactured. There is currently nowhere to derive it from. | #5 — retiring `Turnkey` without this loses information. |
-| 7 | Sandbox `Corrugated` / `Preliminary` | **Stop sandbox products reaching the shared database**; do not dispose them in `MAPPING` | Disposing them would legitimise sandbox values in production classification. The 6 existing rows are residue, not catalogue. | The live check going green; 6 rows of cleanup. |
+| 7 | Sandbox `Corrugated` / `Preliminary` | ~~Stop sandbox products reaching the shared DB~~ **WITHDRAWN — D6. Separate investigation; no deletion.** | Disposing them would legitimise sandbox values in production classification. The 6 existing rows are residue, not catalogue. | The live check going green; 6 rows of cleanup. |
 | 8 | Settings table design | **Approve as drafted** | Empty by design, no vocabulary of its own, no item column, no tooling classification. | Applying `0130`; the whole suggestion feature. |
 
 **Only #2 blocks `0129`.** #1 blocks option creation. #3 blocks reclassification.
@@ -944,3 +949,189 @@ report?
 
 **Not in this PR.** All three layers are proposals; #593 ships the command that
 makes any of them possible.
+
+---
+---
+
+# Appendix D — Narrowed scope: gap-fill only
+
+**2026-09-15 · supersedes parts of B and C · nothing approved, applied or created.**
+
+Scope instruction: gap-fill first, cleanup later; we are not redesigning the
+taxonomy. This appendix is what #593 actually proposes. Where it conflicts with
+Appendix B or C, **this wins**.
+
+## D1 · What is out, and stays out
+
+| Deferred | Status |
+|---|---|
+| `Turnkey`, `Finished Goods`, `Raw ingredients` | **Unchanged.** No retirement, no option removal, no reclassification. C2 #5 recommended retiring two of them; **that recommendation is withdrawn** — retiring `Turnkey` destroys the only record that those nine products are turnkey-supplied, and there is nowhere yet to put it. |
+| Bulk formulation reclassification | Deferred. The B5 recommendation stands as a recommendation and is acted on by nobody. |
+| Sourcing-arrangement field | Deferred. Still no home, still no recommendation. |
+| Batch size, yield, container format | **Withdrawn from the field set** — see D4. |
+| Charge-defaults table | **Removed from this PR.** The draft DDL now sits at `docs/proposals/product-type-charge-defaults-table.sql`, out of the migration tree, for a separate PR. |
+| Monitoring beyond the command | Deferred. The command built in #593 stays; the admin surface, the ingestion hook and the scheduled run are all held until a recipient is agreed. |
+| Sandbox residue | **Not deleted, not touched** — see D6. |
+
+## D2 · Essential versus optional
+
+**Essential to safely support two new types.** Each of these, absent, produces a
+wrong or silent outcome:
+
+| # | Change | What its absence causes | In #593 |
+|---:|---|---|:--:|
+| 1 | `MAPPING` entries for both values | Products resolve `unmapped` the moment an option is created | ✓ |
+| 2 | Mapping shipped **before** the options exist | The window in #1, invisible because CI is a dated fixture | ✓ |
+| 3 | `SCHEMA_PENDING`, not `NO_SCHEMA` | A false finished answer: "no specifications apply" to a gummy | ✓ |
+| 4 | Exhaustiveness test permitting declared ahead-of-vocabulary entries | #2 is impossible — the test forbids the safe order | ✓ |
+| 5 | A `formulated` schema row before flipping off `SCHEMA_PENDING` | A schema id resolving to a `product_types` row that does not exist | draft `0129` |
+
+**Optional — real improvements, none required for correctness:**
+
+| Change | Why it can wait |
+|---|---|
+| The nine held-back spec fields (D3) | JSONB append; adding later is additive and cheap |
+| Admin-visible unresolved-disposition surface | Useful; needs a recipient decision first |
+| Ingestion-time comparison | Layered on top of a surface that does not exist yet |
+| Scheduled vocabulary run | Needs a named destination |
+| Charge-defaults table | Separate concern entirely |
+
+**Nothing is required in Library filtering or pinned specs.** Filters read the
+live vocabulary, so new options appear on their own; pins are frozen at
+attachment and cannot be disturbed by a new option or a new schema row.
+
+## D3 · The revised field list
+
+**As instructed, Flavour was split from Fragrance and Viscosity from Density.
+That produced 17 fields.** Under the narrowing instruction the draft now carries
+**8**, with the other **9 documented and held back** — not rejected.
+
+### The 8 in `0129`
+
+| # | Key | Label | Why it is minimum |
+|---:|---|---|---|
+| 1 | `fm_description` | Description | Every existing leaf schema opens with one |
+| 2 | `fm_form` | Form | The discriminator that makes one schema viable |
+| 3 | `fm_net_content` | Net content / fill | Count, volume or weight |
+| 4 | `fm_actives` | Actives / reference formula | The formulation identity itself |
+| 5 | `fm_additional_details` | Additional details | Pattern — all three packaging schemas |
+| 6 | `fm_factory_1` | Factory 1 | Pattern |
+| 7 | `fm_factory_2` | Factory 2 | Pattern |
+| 8 | `fm_packout_details` | Packout details | Pattern |
+
+Four are the existing pattern; four carry the product's identity.
+
+### The 9 held back
+
+`Appearance / colour` · `Flavour` · `Fragrance` · `pH` · `Viscosity` ·
+`Density` · `Allergens` · `Shelf life` · `Storage conditions`
+
+Each is plausibly useful and none is needed to make the types usable.
+`field_schema` is JSONB, so adding any of them is an additive migration
+appending to an array — cheap enough that shipping them speculatively buys
+nothing, while an unused caption is a cost paid every time the form is opened.
+
+### Applicability — a correction
+
+**C1 claimed pH does not apply to gummies and always applies to lubricants and
+topicals, and called pH and Viscosity "the two form-dependent fields". That is
+withdrawn.** It was an invented scientific default. Whether pH, viscosity or
+density applies depends on the formulation and on the measurement method, and
+neither this schema nor the code around it is entitled to decide it.
+
+**Every field is optional.** An empty field means "not recorded" — the same
+thing it means on every packaging schema — and is not a claim that the property
+does not exist. There is consequently **no per-family applicability table**, and
+the earlier ●/◐/○ grid should not be relied on.
+
+This strengthens rather than weakens the one-schema case: if applicability
+varies by formulation rather than by family, a per-family split would encode a
+distinction that is not there.
+
+## D4 · Bulk coverage, checked against a real record
+
+Take `Cirqadian - Raw Materials, Away Message 100ml` — a bulk formulation
+sitting in `Raw ingredients` today.
+
+C3 said the field set "may owe" batch size, yield and container format if bulk
+took an identity type. **Checked against that record, all three are withdrawn**,
+because none is a property of the product:
+
+| Candidate | What it actually is | Where it belongs |
+|---|---|---|
+| Batch size | A **production measurement** — varies per run and per quote | Production inputs, per assembly and tier |
+| Yield | A **production measurement** — an outcome of a run, not a property of the formulation | Production inputs |
+| Container / drum format | Either **packaging** (which has its own schemas) or a packout fact | `Primary`/`Tertiary` schema, or `fm_packout_details` |
+
+The eight fields cover this record without them: description, form
+(bulk/liquid), net content, actives, factories, packout details.
+
+**This also removes the last reason the bulk decision touched the field set.**
+C3 decoupled `0129` from the bulk rule on sequencing grounds; D4 removes the
+dependency itself. The bulk question is now purely about which products carry
+which type — deferred, and touching nothing in this PR.
+
+## D5 · Vocabulary monitoring — narrow first, deferred
+
+Per instruction the command built in #593 is all that ships. The first
+implementation **when it is built** should be an admin-visible count and list
+of products with unresolved dispositions, and it must keep four states apart —
+collapsing them is what makes such a surface useless:
+
+| State | Meaning | Action |
+|---|---|---|
+| `unmapped` | Nobody has dispositioned this value | Add a `MAPPING` entry |
+| `schema_pending` | Dispositioned; a schema is owed | Build the schema |
+| `no_schema` | Deliberate finished answer | **None — not a problem** |
+| `no_type` | No authoritative type at source | Classify in HubSpot, or it is Nexus-local |
+
+Two of these need action, one is finished, one is a data gap. A surface
+reporting a single "unresolved" number would present the finished answer as a
+defect.
+
+**Ingestion preserves source data without treating the record as ready.**
+Storing the raw value is deliberate — fidelity to the source outranks local
+validation — and is a separate question from whether a record is ready to be
+used. The two must not be conflated in either direction.
+
+Scheduled checks and notification remain deferred until a recipient is agreed.
+
+## D6 · Sandbox residue — a separate investigation
+
+C2 #7 recommended "stop sandbox products reaching the shared database". **That
+was asserted, not established, and is withdrawn as a recommendation.** I inferred
+the cause from two facts — dev and production share a database, and the Products
+client is portal-aware — without tracing the actual write path.
+
+It is now its own investigation, and its questions are:
+
+1. What write path put sandbox-portal product ids into the production database?
+   `pullFromHubSpot` from a dev session, a create, or something else?
+2. What environment controls exist on that path today, and which apply?
+3. Does anything in Nexus distinguish a row sourced from the sandbox from one
+   sourced from production? (`hubspot_product_id` alone does not.)
+4. Would the vocabulary change have any effect on it at all? **I do not believe
+   it would**, and no claim in this proposal should rest on that.
+
+**No residue is deleted.** The 29 rows stay exactly where they are until the
+write path is understood; deleting evidence before the investigation would
+remove the only record of how it happened.
+
+## D7 · Decisions needed to release #593
+
+Only three, and each is small:
+
+| # | Decision | Blocks | Recommendation |
+|---:|---|---|---|
+| 1 | The two option values — label and internal value | Creating the options in both portals | `Ingestibles`/`Ingestibles`, `Topicals`/`Topicals`; label = value deliberately |
+| 2 | The 8-field minimum, and that the 9 are held back | Applying `0129` | Approve the 8; add later by additive migration if wanted |
+| 3 | Merging #593 itself | Nothing downstream — the PR creates no option and applies no migration | Merge when 1 and 2 are settled, or merge now and settle them before `0129` |
+
+**#593 is releasable on its own.** It adds two inert mapping entries, one
+command and one unapplied draft. Nothing it contains can change a product, a
+quote or a classification.
+
+Everything else in Appendices A–C is deferred and needs no decision now:
+`Lubricants & Intimate Care`, `Turnkey`, `Finished Goods`, bulk, sourcing
+arrangement, the residue investigation, monitoring, and the charge-defaults
+table.

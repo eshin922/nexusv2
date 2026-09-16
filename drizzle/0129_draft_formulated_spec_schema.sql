@@ -22,11 +22,45 @@
 -- product families" is not a data-integrity question at all: it is whether one
 -- label set reads correctly to an operator filling it in.
 --
--- Form is therefore a FIELD, not three schemas. A gummy leaves viscosity
--- empty; a cologne leaves flavour empty. Packaging already works this way --
--- a rigid box leaves `sp_coating` empty -- and splitting on emptiness would
--- multiply schemas without adding a single guarantee.
+-- Form is therefore a FIELD, not three schemas.
 --
+-- EVERY FIELD HERE IS OPTIONAL, and this migration asserts nothing about which
+-- ones a given product records. An earlier draft said a gummy "has no
+-- meaningful pH" and a lubricant always has one. That was an invented
+-- scientific default: whether pH, viscosity or density applies depends on the
+-- formulation and on the measurement method, and neither this schema nor any
+-- code around it is entitled to decide that for an operator.
+--
+-- Nothing validates, ranges, requires or rejects a value. An empty field means
+-- "not recorded", which is the same thing it means on every packaging schema
+-- and is not a claim that the property does not exist.
+--
+-- That is also the strongest argument for ONE schema rather than three: if
+-- applicability varies by formulation rather than by family, a per-family
+-- split would encode a distinction that is not there.
+--
+-- ── EIGHT FIELDS: THE MINIMUM, NOT THE PROPOSAL ──────────────────────────
+--
+-- An earlier draft carried seventeen, after splitting Flavour from Fragrance
+-- and Viscosity from Density as instructed. This is the narrowed set: the four
+-- fields every existing leaf schema already has -- Description, Additional
+-- details, Factory 1 and 2, Packout details -- plus the four that carry a
+-- formulated product's identity: Form, Net content, Actives.
+--
+-- NINE FIELDS ARE HELD BACK, not rejected:
+--
+--   Appearance / colour   Flavour   Fragrance   pH
+--   Viscosity   Density   Allergens   Shelf life   Storage conditions
+--
+-- Each is plausibly useful and none is needed to make the two new types
+-- usable. `product_types.field_schema` is JSONB, so adding any of them later
+-- is an additive migration appending to an array -- cheap enough that shipping
+-- them speculatively buys nothing, and an unused caption on an operator's form
+-- is a real cost paid every time the form is opened.
+--
+-- EVERY FIELD IS OPTIONAL. Which ones a product records depends on the
+-- formulation and the measurement method, and this schema decides none of it.
+
 -- ── SEQUENCING ───────────────────────────────────────────────────────────
 --
 -- `spec-schema-mapping.ts` maps Ingestibles and Topicals to SCHEMA_PENDING
@@ -47,14 +81,7 @@ VALUES (
       { "key": "fm_description",        "label": "Description",                  "wide": true },
       { "key": "fm_form",               "label": "Form" },
       { "key": "fm_net_content",        "label": "Net content / fill" },
-      { "key": "fm_appearance",         "label": "Appearance / colour" },
       { "key": "fm_actives",            "label": "Actives / reference formula" },
-      { "key": "fm_flavor_fragrance",   "label": "Flavour / fragrance" },
-      { "key": "fm_ph",                 "label": "pH" },
-      { "key": "fm_viscosity",          "label": "Viscosity / density" },
-      { "key": "fm_allergens",          "label": "Allergens" },
-      { "key": "fm_shelf_life",         "label": "Shelf life" },
-      { "key": "fm_storage",            "label": "Storage conditions" },
       { "key": "fm_additional_details", "label": "Additional details",           "wide": true },
       { "key": "fm_factory_1",          "label": "Factory 1" },
       { "key": "fm_factory_2",          "label": "Factory 2" },

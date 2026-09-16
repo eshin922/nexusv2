@@ -21,7 +21,6 @@ const DRAFT_EXEMPT = new Set([
   // and the Settings design are open business decisions, and applying either
   // would settle one by migration.
   "0129_draft_formulated_spec_schema",
-  "0130_draft_product_type_charge_defaults",
 ]);
 
 const files = readdirSync("drizzle")
