@@ -211,13 +211,19 @@ export type ScenarioVersion = {
   copiedFromQuoteId: string | null;
   createdAt: Date;
   updatedAt: Date;
-  /** Slice RI.8 — quote completeness flags powering state-aware
-   * routing on Project Detail (version-row clicks + scenario card
-   * action buttons). hasSetupComplete = has at least 1 SKU AND at
-   * least 1 tier with non-null qty. hasCostInputs = has any
-   * packaging / production / freight / bulk_raw data. Together
-   * they pick the right default surface for entering a quote
-   * (Setup / Costs / Pricing). */
+  /** Slice RI.8 — quote completeness flags that USED TO power
+   * state-aware routing on Project Detail (version-row clicks +
+   * scenario card action buttons). hasSetupComplete = has at least
+   * 1 SKU AND at least 1 tier with non-null qty. hasCostInputs =
+   * has any packaging / production / freight / bulk_raw data.
+   *
+   * TODO(follow-up): no reader since generic quote-opening controls
+   * were pointed at Setup. Both are still COMPUTED by the query
+   * below, so they cost two subqueries per scenario card for
+   * nothing. Left in place rather than removed because dropping
+   * them is a loader + SQL change, not a navigation fix; delete
+   * both fields and their subqueries once nothing else claims
+   * them. */
   hasSetupComplete: boolean;
   hasCostInputs: boolean;
 };
