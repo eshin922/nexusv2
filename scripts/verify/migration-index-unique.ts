@@ -20,8 +20,6 @@ const DRAFT_EXEMPT = new Set([
   // Product Type vocabulary expansion. Both are reviewable-only: the field set
   // and the Settings design are open business decisions, and applying either
   // would settle one by migration.
-  "0129_draft_formulated_spec_schema",
-  "0130_draft_widen_spec_schema_check",
 ]);
 
 const files = readdirSync("drizzle")

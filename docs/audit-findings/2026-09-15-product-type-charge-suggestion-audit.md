@@ -1341,7 +1341,7 @@ cascade from its snapshot. That is the guard working; the cleanup now cascades.
 
 | # | Step | Act |
 |---:|---|---|
-| **1** | **Apply both migrations** | Journal `0129` and `0130`, remove from `DRAFT_EXEMPT`, `npm run db:migrate`. **Nothing runs these automatically** — not build, not deploy, not CI. |
+| **1** | **Apply both migrations** | `npm run db:migrate` — nothing else. Both are **journaled in the reviewed commit**, so there is no edit to the journal or to any verifier allowlist at release time. The pending set is exactly `0129` then `0130`, verified against production. **Nothing runs these automatically** — not build, not deploy, not CI. |
 | **1a** | Verify the schema row and the CHECK | `product_types.id = 'leaf_formulated'` exists with 8 fields; the CHECK lists `formulated` |
 | **2** | **Deploy and verify the activation code** | Merge this PR. Then confirm on production that `resolveSpecSchema('Ingestibles')` is reachable — no product can carry it yet, so this verifies deployment, not behaviour |
 | **3** | **Only then create the HubSpot options** | Both portals: label `Ingestibles`/value `Ingestibles`, label `Topicals`/value `Topicals` |

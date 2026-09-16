@@ -16,6 +16,10 @@ import {
   resolveSpecSchema,
   specSchemaMappingIsExhaustive,
   mappedProductTypeValues,
+  encodePinnedSchema,
+  decodePinnedSchema,
+  SPEC_SCHEMA_PRODUCT_TYPE_ID,
+  type SpecSchemaId,
 } from "../../src/lib/product-structure/spec-schema-mapping.ts";
 
 /**
@@ -190,4 +194,65 @@ test("the mapping disposes every snapshot value, and any extra is deliberate", (
     [...AHEAD_OF_VOCABULARY].sort(),
     "a mapping entry exists that is neither in the snapshot nor a declared proposal",
   );
+});
+
+/* -- encode/decode round trip ------------------------------------------- */
+
+test("every supported schema id round-trips through a pin", async () => {
+  // Derived from SPEC_SCHEMA_PRODUCT_TYPE_ID rather than a literal list, so a
+  // schema added tomorrow is covered by this test the moment it is added. A
+  // hand-written list would keep passing while silently omitting the new one --
+  // which is exactly how `decodePinnedSchema` came to miss `formulated`: it
+  // selected ids by string comparison, so the omission compiled cleanly and a
+  // stored, valid pin decoded as `unmapped`.
+  const ids = Object.keys(SPEC_SCHEMA_PRODUCT_TYPE_ID) as SpecSchemaId[];
+  assert.ok(ids.length >= 4, `expected at least four schemas, saw ${ids.length}`);
+  assert.ok(ids.includes("formulated" as SpecSchemaId), "formulated is not a supported schema");
+
+  for (const id of ids) {
+    const encoded = encodePinnedSchema({ kind: "schema", schemaId: id });
+    assert.equal(encoded, id, `${id} did not encode to itself`);
+
+    const decoded = decodePinnedSchema(encoded);
+    assert.equal(decoded?.kind, "schema", `${id} decoded as ${decoded?.kind}, not a schema`);
+    assert.equal(
+      (decoded as { kind: "schema"; schemaId: SpecSchemaId }).schemaId,
+      id,
+      `${id} did not survive the round trip`,
+    );
+
+    // And it names a real field-set row, or the pin points at nothing.
+    assert.ok(
+      SPEC_SCHEMA_PRODUCT_TYPE_ID[id]?.startsWith("leaf_"),
+      `${id} has no product_types row id`,
+    );
+  }
+});
+
+test("the non-schema pins round-trip too, and stay distinct", () => {
+  // These four are the reason the round trip cannot simply assert "decodes to
+  // something": each is a different answer, and collapsing any two loses the
+  // distinction the four kinds exist for.
+  assert.equal(decodePinnedSchema("no_schema")?.kind, "no_schema");
+  assert.equal(decodePinnedSchema("schema_pending", "Raw ingredients")?.kind, "schema_pending");
+  assert.equal(decodePinnedSchema("unmapped", "Something")?.kind, "unmapped");
+  assert.equal(decodePinnedSchema("no_type"), null);
+});
+
+test("an unknown stored value decodes safely, and is not coerced", () => {
+  // The CHECK makes this unreachable through the database, so reaching it means
+  // the constraint was bypassed. It must NOT become `no_schema` -- that is a
+  // finished answer, and reporting a bypassed constraint as one would hide it.
+  const rogue = decodePinnedSchema("not_a_schema");
+  assert.equal(rogue?.kind, "unmapped", "an unrecognised pin was coerced");
+  assert.equal((rogue as { kind: "unmapped"; value: string }).value, "not_a_schema");
+
+  // Absence is not a value.
+  assert.equal(decodePinnedSchema(null), null);
+  assert.equal(decodePinnedSchema(undefined), null);
+  assert.equal(decodePinnedSchema(""), null);
+
+  // A value that merely CONTAINS a schema id must not match one.
+  assert.equal(decodePinnedSchema("formulated_x")?.kind, "unmapped");
+  assert.equal(decodePinnedSchema("PRIMARY")?.kind, "unmapped");
 });

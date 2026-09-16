@@ -1,7 +1,10 @@
--- Permit `formulated` as a stored spec-schema pin (DRAFT — intentionally
--- absent from drizzle/meta/_journal.json until release approval).
+-- Permit `formulated` as a stored spec-schema pin. JOURNALED and PENDING.
 --
--- NOT APPLIED. Reviewable only.
+-- Journaled as part of the reviewed commit, for the same reason as 0129: the
+-- release step is `npm run db:migrate` and nothing else. NOT APPLIED to
+-- production.
+--
+-- Runs SECOND, and both run BEFORE the activation code deploys.
 --
 -- ── WHY THIS IS REQUIRED, NOT OPTIONAL ───────────────────────────────────
 --

@@ -1,12 +1,13 @@
--- Formulated spec schema (DRAFT — intentionally absent from
--- drizzle/meta/_journal.json until the field set is approved and the
--- Ingestibles / Topicals options are agreed).
+-- Formulated spec schema. JOURNALED and PENDING.
 --
--- NOT APPLIED. Reviewable only. Applying this before the field set is
--- confirmed would put a labelled form in front of operators that nobody has
--- agreed reads correctly for a gummy, a lubricant and a cream at once — which
--- is the open question this migration exists to make concrete rather than to
--- settle.
+-- Journaled deliberately, as part of the reviewed commit rather than by an
+-- edit during release: `npm run db:migrate` applies it with no ad-hoc change
+-- to the journal or to any verifier allowlist. NOT APPLIED to production.
+--
+-- Runs FIRST of the two, and both run BEFORE the activation code deploys. The
+-- code maps Ingestibles and Topicals to the `formulated` schema, which resolves
+-- to the row this inserts; deploying ahead of it leaves that id pointing at a
+-- `product_types` row that does not exist.
 --
 -- ── WHAT THIS ADDS ───────────────────────────────────────────────────────
 --

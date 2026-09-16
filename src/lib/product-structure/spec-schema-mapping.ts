@@ -27,7 +27,7 @@
  * listing the permitted stored values, and a pin of an id the CHECK does not
  * name is rejected at write time by a constraint violation rather than by a
  * guard with a message. The two must move together — see
- * `drizzle/0130_draft_widen_spec_schema_check.sql`.
+ * `drizzle/0130_widen_spec_schema_check.sql`.
  */
 export type SpecSchemaId = "primary" | "secondary" | "tertiary" | "formulated";
 

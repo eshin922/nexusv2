@@ -58,9 +58,10 @@ await sql.unsafe(`
 // ═══ 0 · the migrations, applied here and only here ════════════════════════
 console.log("\n── 0 · migrations ────────────────────────────────────────");
 
-// 0129 — the field-set row. 0130 — the widened CHECK. Applied directly because
-// both are unjournaled drafts: `db:migrate` would not run them, which is the
-// property under test everywhere except this line.
+// 0129 — the field-set row. 0130 — the widened CHECK. Applied inline rather
+// than by `db:migrate`, so the walk controls the moment each lands: the
+// refusal below has to be attempted BETWEEN them, which running the migrator
+// cannot express.
 await sql.unsafe(`
   INSERT INTO product_types (id, name, scope, description, field_schema, placeholder, hidden)
   VALUES ('leaf_formulated', 'Formulated', 'leaf',
