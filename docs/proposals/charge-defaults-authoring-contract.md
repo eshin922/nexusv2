@@ -37,6 +37,31 @@ It follows from C1 and C2 rather than being a separate promise: nothing
 re-derives an authored charge, so there is nothing for a rule change to reach.
 An admin editing a default changes what the *next* component is offered.
 
+### C3a · A default never becomes a charge without a person affirming it
+
+**Proposed for adoption as the governing rule** — decision table §6.
+
+> A default may never become a charge without a person affirming it for that
+> instance. Any path that would apply one otherwise must either be refused, or
+> the key must first be made fine enough to be right without asking.
+
+This is what makes a **single key** (product type) sufficient despite being
+over-inclusive: a stock bottle and a custom bottle are both `Primary`, and that
+costs an operator one glance rather than a wrong charge — **as long as the
+glance is unavoidable**. The invariant is the thing being relied on, so it is
+written down rather than assumed.
+
+The paths that would break it, and must therefore be refused or re-keyed:
+
+- a bulk or fast-path add that completes without the suggestion list being seen
+- quote copy, scenario clone, template instantiation, import, or any API write
+  that applies defaults with no operator present
+- a default that carries an amount (the schema has none; adding one changes the
+  claim from "consider this" to "this costs that")
+- warning or blocking because a component *lacks* a suggested charge
+- readiness, margin, or the NetSuite projection reading the rule table instead
+  of the authored charge
+
 ### C4 · "None expected" still permits a deliberate charge
 
 A `none_expected` verdict suppresses **suggestions**. It must never disable,
@@ -116,6 +141,7 @@ Stated so the wiring can be checked rather than believed:
 |---|---|
 | C1 / C3 | The import boundary — a rendering path importing `charge-defaults` |
 | C2 | Change a rule, then re-open a quote authored before the change: its charges, their amounts and their presence are unchanged |
+| C3a | Every path that creates a charge from a default passes through a control the operator must see. A bulk/copy/import path that applies one is the failure |
 | C4 | With a `none_expected` type, the add-charge control is present and functional |
 | §3 prohibitions | An authored charge from a suggestion carries no classification and no item until an operator sets them |
 

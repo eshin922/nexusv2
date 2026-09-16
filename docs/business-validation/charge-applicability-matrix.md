@@ -3,6 +3,14 @@
 **2026-09-16 · for business review. Nothing here is implemented, seeded, or
 approved. No production migration, deployment or classification change.**
 
+> **⚠ CORRECTED IN FOUR PLACES by
+> [`charge-coverage-decision-table.md`](charge-coverage-decision-table.md),
+> the later read.** The MISTR lubricant example cites the wrong set of rows
+> (§6.2); "not a component type" overstates what a Direct Product cannot own
+> (§3, §6.1); the NetSuite status understates the environment problem (§2); and
+> the OQ4 argument rests on a basis that document retracts (§8). Each is flagged
+> inline below. The rest stands.
+
 This is the deliverable that blocks business review of the charge-defaults
 Settings feature and CD's Costs redesign. It proposes, for **every** current
 product type and supported service, which one-time charges Nexus should offer,
@@ -60,6 +68,11 @@ formulated types actually attract all live on the wrong side of it.
 Resolving the same destinations against production NetSuite is separate work and
 is not done. Read "Mapped" as "mapped in the environment Nexus currently talks
 to", never as production readiness.
+
+**And it is worse than "not production-verified".** The mapping table records no
+environment at all, no production credential has ever been configured, and
+posting uses the account-scoped internal id rather than the portable item code.
+Decision table §3 has the evidence and what a cutover would require.
 
 **Applicability is not posting readiness.** A charge can be correctly suggested,
 correctly accepted, and still not post. `samples` and `other_service` are in
@@ -122,8 +135,13 @@ a rule that never fires, because the authoring surface offers defaults when a
 > **This is the most important finding in the table, and it is not obvious from
 > it.** These five cover **129 catalogued leaves**, including every MISTR gummy
 > and every MISTR lubricant (§5). The charges those products genuinely attract —
-> R&D, testing, setup — are **quote/assembly-owned and unsuggestible**. A
-> per-type default against `Turnkey` would be inert.
+> R&D, testing, setup — are **quote/assembly-owned and unsuggestible**.
+>
+> **CORRECTED.** "A per-type default against `Turnkey` would be inert" was
+> overstated. A Direct Product CAN own a component charge — the model permits it
+> and `ensureChargeInstance` accepts any quote leaf. What it cannot own is
+> production economics, which is a narrower and harder gap. See the decision
+> table §2.
 
 **Needs review (4 types).** One Time Charges, Raw ingredients, Ingestibles,
 Topicals. Each has a specific unresolved question, in §6 and §7.
@@ -213,13 +231,20 @@ Five real catalogue products: Multi, Perform, Prepare, Probiotic, Recover Gummy.
 | **Existing cost fields** | `assembly_production_inputs.rd_total`, `.testing_micros_total`, `.setup_fee_total`, `.bulk_raw_cost` |
 | **NetSuite** | `otc_formulation` → OTC-0050 ✓ · `otc_setup` → OTC-0024 ✓ · `otc_testing` **unmapped** |
 | **Ownership (proposed)** | R&D charge: **Product / R&D**. Setup: **PM**. Testing: **Quality** |
-| **Verdict** | **UNSUPPORTED by charge defaults.** A `Turnkey` rule would be inert; an `Ingestibles` rule would fire only after reclassification, which is not proposed |
+| **Verdict** | **CORRECTED — see decision table §2.** A `Turnkey` rule is not inert: a Direct Product can own a component charge. What these products cannot carry is setup / R&D / testing, because a Direct Product has no production-input row and structurally cannot have one |
 
 **What this example is for.** It is the clearest case that the Settings feature
 and the firm's actual one-time-charge practice **do not yet meet**. Reviewing
 charge defaults for gummies is reviewing a surface that cannot carry the answer.
 
 ### 6.2 · MISTR lubricants — `MISTRLBSTKS-SB-1/-2`, `-WB-1/-2`
+
+> **⚠ SUPERSEDED — WRONG SET OF ROWS.** These four are unattached catalogue rows
+> created 2026-08-14 and are on no quote. The lubricants in play are four
+> `DPS-MISTR-*` rows under `Raw ingredients`, attached to quote
+> `0cc928ae…` as Direct Products. Reconciled by exact identifier in the decision
+> table §1. An unattached row cannot demonstrate how a charge behaves, and this
+> example should not have used one.
 
 Four real products: Lubricant-1 at 2oz and 4oz, Lubricant-2 at 2oz and 4oz.
 
@@ -308,6 +333,13 @@ A folding carton printed to the customer's artwork.
 ## 8 · What this settles — OQ3 and OQ4
 
 ### OQ4 · Does a rule belong to a product type, or to a type-and-something?
+
+> **⚠ THE BASIS OF THIS ANSWER IS RETRACTED** by the decision table §6.
+> Over-inclusiveness is free while every default requires confirmation, so
+> stock-vs-custom ambiguity does not by itself argue for a second key. What
+> would require one is a *behaviour* — a default becoming a committed fact with
+> nobody affirming it. The conclusion below (keep one key) is unchanged; the
+> reasoning for it is replaced.
 
 **Answer, from the examples: a product type alone is NOT sufficient, and the
 evidence is in the catalogue rather than in principle.**
