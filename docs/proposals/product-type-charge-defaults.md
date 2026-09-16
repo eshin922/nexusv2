@@ -1,7 +1,7 @@
 # Product Type → charge defaults · Settings feature
 
-**2026-09-16 · for review · no migration applied, no rule seeded, nothing merged
-or deployed.**
+**2026-09-16 · for review · verified against an isolated database. No production
+migration, no deployment, no seeded rule.**
 
 Separate from the Ingestibles/Topicals gap-fill, which is released. This changes
 no classification and depends on none. Costs and production changes are out of
@@ -188,15 +188,43 @@ reason is the writer set, not a judgement about triggers.**
 Every reference to either table in the repository:
 
 ```
-src/app/actions/charge-defaults.ts      4 writers, 1 reader
-src/db/schema.ts                        definitions
-drizzle/0131_…sql                       the DDL
-scripts/verify/migration-index-unique.ts   records the draft
+src/app/actions/charge-defaults.ts        4 writers, 1 reader
+scripts/gate-1b/charge-defaults-walk.ts   the isolated walk, which writes
+                                          around the actions deliberately
+src/db/schema.ts                          definitions
+drizzle/0131_…sql                         the DDL
+scripts/verify/…                          the index + the writer guard
 ```
 
-**There is no other writer.** No seed, no migration backfill, no script, no
-second action module, no external process. Four functions in one file, each
-admin-gated.
+**No other writer.** No seed, no migration backfill, no second action module,
+no external process. Four functions in one file, each admin-gated.
+
+`scripts/verify/charge-defaults-writers.ts` now enforces that, in `verify:ci`.
+A second writer fails the build with the file and line, so the premise is
+re-checked every commit rather than remembered. It also fails if it stops
+matching the action module at all — an instrument that can no longer express a
+violation must not report a clean result (Pattern 60). That failure mode was
+confirmed by introducing a violating file and watching it exit 1.
+
+### The limit of that evidence — stated, not buried
+
+**Repository references do not prove no external writer exists.** They prove
+nothing was added to *this repository*. A psql session, a query in the Supabase
+SQL editor, a future service, a restored dump, or anyone holding the connection
+string writes this database without appearing anywhere in a static scan, and
+always will. On a shared dev/prod project that is not hypothetical.
+
+So the honest statement of the recommendation is narrower than "a trigger is
+unnecessary":
+
+> The invariant is enforced and serialized for **every writer that goes through
+> the application**, and no other application writer exists. For a writer that
+> does not, the only place that could hold it is the database.
+
+That is a reasonable basis for review and for merging. It is not a proof, and
+if anyone starts writing these tables from outside the application the question
+reopens on that fact alone. A constraint trigger remains cleanly addable later:
+adding one to tables with no violating rows is an ordinary additive migration.
 
 ### Why a transaction alone would NOT have been enough
 
@@ -212,117 +240,186 @@ transaction-scoped, so it releases on commit, on rollback, and on a crash. It is
 per-type, so two admins editing different types do not queue. Direct precedent:
 `sku-registry.ts`, `leaves.ts`, `hubspot-pull.ts`.
 
-`tests/unit/charge-defaults.test.ts` asserts, per writer, that the lock is taken
-**before** the first read — the ordering is the whole protection, and it is the
-kind that survives a refactor only if something checks it.
-
-### What a constraint trigger would and would not add
-
-It would make the contradiction impossible rather than merely reported, for a
-writer that bypasses these actions. Since no such writer exists, what it buys
-today is protection against a future one — and it costs a deferred constraint
-trigger on a shared production database, which this repo has exactly one of, and
-which refused a migration in a way that took real time to diagnose.
-
-**That diagnosis is not the reason for this recommendation, and should not be
-read as one.** The reason is that the writer set is one module. If that stops
-being true the answer changes, and the honest way to hold this is a test rather
-than a memory:
-
-> **`charge-defaults-writers` (proposed, small):** assert that the only files
-> writing `product_type_charge_profile` or `product_type_charge_defaults` are
-> the action module and the schema definition. A second writer fails the build,
-> and the DB-enforcement question reopens on evidence instead of by recollection.
-
-That test is **not in this PR** — it is a one-file addition worth landing with
-the reviewer's agreement about its scope rather than assumed. The premise it
-protects is stated here so the recommendation can be re-checked.
+**This is now verified executing, not merely present** — §7.
 
 ---
 
-## 7 · Status — foundation versus what remains
+## 7 · Verified against an isolated database
 
-**Implemented and green** (`npm run verify:ci` clean, 3,259 unit tests passing):
+`npm run validation:charge-defaults-walk` — **63 checks, 0 failures, repeatable
+across runs.** Isolated Postgres on `127.0.0.1:55432`; the walk refuses to start
+against anything else. The draft DDL was applied there and nowhere else, and it
+was applied **unjournaled**, so the migrator's pending set is unchanged.
+
+| Asked for | How it was established |
+|---|---|
+| **Missing rule / reviewed none / suggestions transitions** | Every transition driven through the real actions and read back through the real read path, both directions, including withdrawing a review |
+| **Two concurrent admins on the same type** | Three ways — see below |
+| **Audit failure rolls back the data change** | A trigger rejects the audit row; the profile the action would have written is absent afterwards. Repeated for the rule table, where the write has a different shape. The trigger is then dropped and the same call succeeds, so a later PASS is not the trigger still firing |
+| **Non-admin refusal with no writes** | All four writers **and the read** refused `FORBIDDEN` as a PM; a full signature of both tables and the audit-log count are byte-identical before and after |
+| **Contradictory stored state reported and refused safely** | The contradiction was written **around** the actions, which the database permits — that is the point. The read names it and which side is inconsistent; re-recording a verdict over it is refused; removing the rule resolves it |
+| **`None expected` distinct from unreviewed** | Both read through the real path; the two produce different operator sentences, and only one claims somebody decided |
+
+### The concurrency evidence, specifically
+
+Three separate things, because the obvious one proves the least:
+
+1. **The hazard is real.** A control runs the *same statements with the lock
+   removed* and produces the contradiction. Without it, "no contradiction
+   observed" is equally consistent with a working lock and with a race that
+   never existed.
+2. **The action waits on the lock.** Deterministic: the walk holds the same
+   advisory lock from a separate connection, fires `setNoneExpected`, and
+   observes that it does not complete and has written nothing — then completes
+   the moment the lock is released. A *different* product type is unaffected
+   (12 ms), so the lock is per type rather than global.
+3. **Competing writes settle consistently.** 25 rounds of `setNoneExpected` and
+   `upsertChargeDefault` fired simultaneously at the same type: zero
+   contradictions, and the stored rows consistent every time. Plus two admins
+   writing the same rule (both succeed, exactly one row) and a concurrent
+   remove-and-add (either order legitimate; the result is always a state the
+   resolver can name).
+
+### The UI, and what was actually clicked
+
+Driven in a browser against that same database, as `admin@nexus-validation.invalid`:
+
+| Path | Result |
+|---|---|
+| `/admin/charge-defaults` loads | All 16 live HubSpot types, in the portal's display order, all **Needs review** |
+| Label/value divergence | `Primary Packaging`, `Secondary Packaging` and `Logistics` each render the label with **“stored as …”** beneath — the value a rule is keyed by |
+| Record **None expected** with a note | Chip flips, row shows reviewer email, date and note; success notice |
+| Select a charge → **Add** | Row becomes **Suggestions**, reviewer + date, rule listed |
+| Toggle **preselection** | Caption moves “offered, not ticked” → “ticked by default”; note survives |
+| **None expected** while a rule exists | Rendered **disabled**, and the accessibility tree carries the reason: *“Remove the 1 suggested charge(s) first — recording "none expected" will not discard rules somebody added.”* Pattern 47(f) |
+| **Remove** the last rule | Row renders **Inconsistent** with the detail, in the alert treatment — the contradiction reaching an admin, not being smoothed away |
+| **None expected** on the contradiction | Resolves to a consistent reviewed-none |
+| **Clear review** | Returns the row to **Needs review** |
+| Nav + index | “Charge defaults” present in the admin nav |
+
+**One defect was found this way and fixed.** Deleting a rule from another
+connection and then clicking Remove on the now-stale screen produced the right
+refusal — *“Secondary has no tooling rule to remove”* — while the row it named
+**remained on screen**, because only the success path re-read. A refusal that
+denies the existence of something the operator can see reads as a broken
+control. The refusal path now refreshes too, and the re-test shows both the
+message and the corrected state (the row becomes **Inconsistent**, which is what
+that type genuinely is). `router.refresh()` re-renders the server tree without
+disturbing client state, so a half-typed note survives it.
+
+### What is still NOT verified
+
+- **The non-admin UI path.** `requireAdminPage()`'s redirect was not exercised;
+  the isolated server available to this session runs as admin and restarting it
+  would have disturbed a session in use. The **action-layer** refusal is
+  verified for all five entry points, and the page guard is the same one every
+  other admin section uses — but the redirect itself is asserted, not observed.
+- **Anything against the production database.** Nothing has run there. The
+  migration remains unapplied.
+- **The authoring surface.** It does not exist; see the contract document.
+
+---
+
+## 8 · Status — foundation versus what remains
+
+**Implemented and green.** `npm run verify:ci` clean (now including
+`verify:charge-defaults-writers`), 3,259 unit tests passing, 63-check isolated
+walk passing.
 
 | | |
 |---|---|
-| Draft DDL, unjournaled and unapplied | `drizzle/0131_…sql` |
+| Draft DDL, unjournaled, unapplied in production | `drizzle/0131_…sql` |
 | Drizzle definitions for both tables | `src/db/schema.ts` |
 | The resolver — pure, total over four states | `src/lib/commercial-recovery/charge-defaults.ts` |
 | Admin actions — gated, transactional, audited in-transaction, serialized per type | `src/app/actions/charge-defaults.ts` |
 | Settings surface rendering all four states distinctly | `src/app/admin/charge-defaults/` |
-| Admin nav + index entry | `src/app/admin/sections.ts` |
-| 16 tests, one per requirement | `tests/unit/charge-defaults.test.ts` |
+| Writer-boundary guard, in `verify:ci` | `scripts/verify/charge-defaults-writers.ts` |
+| Isolated-environment walk | `scripts/gate-1b/charge-defaults-walk.ts` |
+| 16 unit tests | `tests/unit/charge-defaults.test.ts` |
 
-**Not implemented, and deliberately so:**
+**Not implemented, deliberately:**
 
 | | Why |
 |---|---|
-| **The migration is not applied** | Pending approval. Additive and safe ahead of code, but unapplied means unapplied |
-| **Authoring-surface wiring** | Touches Costs — out of scope by instruction. Contract specified separately |
-| **No seeded rule** | Every product type currently reads "needs review", which is the truthful state |
-| **The writer-set test of §6** | Proposed, not written |
-| **Retired-option handling** | The surface shows a reviewed-but-retired type with a warning; nothing prunes. See OQ2 |
+| **The migration is not applied in production** | Pending approval |
+| **Authoring-surface wiring** | Touches Costs — out of scope. Contract specified separately |
+| **No seeded rule** | Every product type reads “needs review”, which is the truthful state |
+| **Non-admin UI redirect** | See §7 |
 
-**Not verified:** nothing has run against a database. The write path's
-behaviour — the advisory lock, the transactional audit, the refusals — is
-asserted structurally and by unit test, not by executing it. The isolated
-harness remains blocked by the `world.ts` seed defect, and preview origins are
-not authenticated. Closing this needs either the harness repair or a
-post-application check on the real database, and it should be closed before the
-feature is trusted rather than after.
+### The store is built; the content is not approved
+
+Settings can now **store** defaults. Nothing here approves **what they should
+be**, or **who owns them**. Those are business questions and the schema has no
+opinion on either — which is why it ships empty, and why an unreviewed type says
+so rather than saying “none”.
 
 ---
 
-## 8 · The four open questions, with recommendations
+## 9 · Next deliverable — the applicability matrix
 
-Marked by whether they genuinely **block** the Settings feature.
+**The next business-review deliverable is the product/service type → charge
+applicability matrix.** It is not in this PR and is not an engineering artifact.
+Until it exists:
 
-### OQ1 · Should the cross-table invariant be a database constraint?
+- **No rule is seeded.** Seeding one would make a claim on the firm's behalf
+  that nobody has made.
+- **No schema expansion is proposed.** In particular, no second key on a rule —
+  see OQ4.
+- **CD's Costs redesign remains paused**, pending that matrix. The authoring
+  surface is where a default would meet an operator, and designing it before the
+  applicability question is settled would fix a shape around an unanswered one.
 
-**Recommendation: no, per §6. Land the writer-set test instead.**
-**Does not block.** The invariant is enforced and serialized today; the question
-is about defence in depth against a writer that does not exist. It can be
-reopened on evidence at any time, and the constraint remains addable later —
-adding one to tables with no violating rows is a clean migration.
+**OQ3 and OQ4 are to be resolved through concrete examples** — real products and
+real charges, worked through — rather than in the abstract. Both questions turn
+on facts about the firm's catalogue that a general answer cannot settle, and the
+matrix is where those examples would live.
 
-### OQ2 · What happens when a HubSpot option is retired?
+### The four open questions
 
-**Recommendation: show it, never prune it.** The surface already lists a
+#### OQ1 · Should the invariant be a database constraint?
+
+**Recommendation: no, per §6, with the limitation there stated plainly.** The
+writer guard now holds the premise for every commit. **Does not block** — the
+invariant is enforced and serialized today, and verified executing.
+
+#### OQ2 · What happens when a HubSpot option is retired?
+
+**Recommendation: show it, never prune it.** The surface lists a
 reviewed-but-retired type with a warning and keeps its Remove controls, because
 a rule nobody can see is a rule nobody can remove. Automatic deletion would
-discard a firm decision on the strength of a vocabulary edit made elsewhere.
-**Does not block** — the behaviour is implemented; what is open is whether an
-admin should additionally be *prompted* to clean up, which is a later polish.
+discard a firm decision because of a vocabulary edit made elsewhere.
+**Does not block** — implemented; what is open is whether an admin should also
+be *prompted* to clean up, which is later polish.
 
-### OQ3 · Who maintains these?
+#### OQ3 · Who maintains these?
 
-**Recommendation: name an owner before seeding anything, not before merging.**
-This is the same unanswered question as the unmapped Product Types, and an admin
-surface with no named owner is the shape that decays — but an empty, truthful
-"needs review" list decays into nothing worse than itself.
-**Does not block the feature. It blocks the first seeded rule**, which is where
-an unowned surface starts making claims on the firm's behalf.
+**Resolve through the matrix, from concrete examples.** The abstract question —
+"who owns charge defaults" — has no answer that survives contact with a real
+case; the useful version is "for these twelve real charges, who decided, and who
+would notice if it were wrong." An admin surface with no named owner is the
+shape that decays, but an empty, truthful "needs review" list decays into
+nothing worse than itself.
+**Does not block the feature. It blocks the first seeded rule.**
 
-### OQ4 · Does a rule belong to a product type, or to a type-and-something?
+#### OQ4 · Does a rule belong to a product type, or to a type-and-something?
 
-**Recommendation: type only, for now, and accept over-inclusiveness.** The audit
-found real facts Product Type cannot determine — stock versus custom tooling,
-printed versus unprinted. A per-type default is therefore over-inclusive by
-design and the operator declines what does not apply; `preselected: false` is
-exactly the setting for a charge that often-but-not-always applies.
-**This is the one that genuinely blocks — not the build, but the seeding.** If
-the answer turns out to be type-and-something, rules seeded against type alone
-would have to be re-authored, and the second key would be a schema change.
-Confirming it before the first rule is written costs nothing; confirming it after
-costs a migration and a re-review.
+**Resolve through the matrix, from concrete examples — and this is the one that
+genuinely blocks.** The audit found facts Product Type cannot determine: stock
+versus custom tooling, printed versus unprinted. Whether that makes a per-type
+default *acceptably* over-inclusive is a question about how often it would be
+wrong, which only worked examples can answer.
 
-**So: one question blocks the first rule (OQ4), one blocks the first seed for a
-different reason (OQ3), and none block reviewing or merging the feature.**
+It blocks the **first rule**, not the merge. If the answer turns out to be
+type-and-something, rules written against type alone need re-authoring and the
+second key is a schema change. Confirming it before the first rule costs
+nothing; confirming it after costs a migration and a re-review.
+
+**So: none of the four blocks reviewing or merging. OQ4 blocks the first rule;
+OQ3 blocks the first seed. Both are matrix work, not engineering work.**
 
 ---
 
-## 9 · What is in the PR
+## 10 · What is in the PR
 
 | File | |
 |---|---|
@@ -332,6 +429,8 @@ different reason (OQ3), and none block reviewing or merging the feature.**
 | `src/app/actions/charge-defaults.ts` | Admin actions |
 | `src/app/admin/charge-defaults/page.tsx` + `charge-defaults-table.tsx` | Settings surface |
 | `src/app/admin/sections.ts` | Nav + index entry |
+| `scripts/verify/charge-defaults-writers.ts` | Writer-boundary guard, wired into `verify:ci` |
+| `scripts/gate-1b/charge-defaults-walk.ts` | Isolated-environment walk |
 | `tests/unit/charge-defaults.test.ts` | 16 tests |
 | `scripts/verify/migration-index-unique.ts` | Records the draft |
 | this document + the authoring contract | |

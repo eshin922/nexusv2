@@ -1,7 +1,13 @@
 # Charge defaults · the authoring integration contract
 
 **2026-09-16 · specification only. Nothing here is built — wiring it touches
-Costs, which is out of scope by instruction.**
+Costs, which is out of scope by instruction, and CD's Costs redesign is paused
+pending the product/service type → charge applicability matrix.**
+
+This document specifies how defaults would be consumed. It does NOT propose any
+rule, and it does not assume the matrix's answer: if applicability turns out to
+depend on more than product type (OQ4), §4's single-type read is the part that
+changes, and the four clauses below are unaffected.
 
 Companion to
 [`product-type-charge-defaults.md`](product-type-charge-defaults.md). That

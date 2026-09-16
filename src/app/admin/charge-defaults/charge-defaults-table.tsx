@@ -76,6 +76,19 @@ export function ChargeDefaultsTable({
         const r = await action(fd);
         if (!r.ok) {
           setError(r.error?.message ?? "The change was refused.");
+          // REFRESH ON REFUSAL TOO, and this is not symmetry for its own sake.
+          //
+          // The most likely reason a write is refused is that the screen is
+          // stale — another admin removed the rule, or recorded a verdict,
+          // since this page was rendered. Without the re-read the operator is
+          // told "there is no such rule" while the rule is still listed in
+          // front of them, which reads as a broken control rather than as an
+          // out-of-date screen. Found by clicking Remove on a rule that had
+          // been deleted from another connection.
+          //
+          // Safe to do here: `router.refresh()` re-renders the server tree and
+          // leaves client state alone, so a half-typed note survives it.
+          router.refresh();
           return;
         }
         setNotice(done);
