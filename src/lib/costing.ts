@@ -11,6 +11,7 @@ import {
 } from "./costing-nodes";
 import {
   OTC_COLUMN_TO_CHARGE,
+  PRODUCTION_MARKUP_CATEGORY,
   chargePolicy,
   componentChargeMarkupAuthority,
   isComponentChargeKey,
@@ -1478,7 +1479,12 @@ export function componentChargeEconomics(
   return out;
 }
 
-export const PRODUCTION_MARKUP_CATEGORY = "Production";
+// RELOCATED to `commercial-recovery/registry.ts`, and re-exported here so the
+// existing import sites are untouched. It had to move: the component charge
+// authority table binds two of its keys to this same value, and `registry.ts`
+// cannot import `costing.ts` -- costing already imports registry, so the
+// reverse is a cycle. One binding, read by both ownership paths.
+export { PRODUCTION_MARKUP_CATEGORY } from "./commercial-recovery/registry";
 // Bulk raw used to resolve `Raw ingredients`, which has never had a default
 // row and therefore priced through `Other` — silently, and correctly only
 // because both sat at 0.30. It is the same authority now, in name as well as

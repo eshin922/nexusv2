@@ -77,6 +77,8 @@
     "db:studio": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs studio",
     "verify:product-type-vocabulary": "node --experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs --env-file=.env.local scripts/verify/product-type-vocabulary-live.ts",
     "verify:migration-index": "node --experimental-strip-types scripts/verify/migration-index-unique.ts",
+    "validation:owned-production-fee-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/owned-production-fee-walk.ts",
+    "validation:owned-fee-payload-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/owned-fee-payload-walk.ts",
     "validation:sku-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-allocation-walk.ts",
     "probe:hubspot-property-capability": "cross-env NODE_OPTIONS=--experimental-strip-types node --env-file=.env.local scripts/gate-1b/hubspot-property-capability-probe.ts",
     "validation:sku-create-walk": "cross-env NODE_OPTIONS=\"--experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs\" node --env-file=.env.validation.local scripts/gate-1b/sku-create-path-walk.ts",
