@@ -291,6 +291,48 @@ reported INDETERMINATE for the real frozen line and **verified for the emitter**
 `emitAccountingLines` produces one line, quantity 1, the amount as the line, at
 the resolved item — and sends nothing.
 
+### 7.1 · The payload, closed on a purpose-built quote
+
+`npm run validation:owned-fee-payload-walk` — **0 failures, 0 indeterminate,
+repeatable.**
+
+The other walk stops at `provisional_tier` on an existing quote. **That quote is
+deliberately untouched and is the evidence that posting is correctly refused**
+for a total the customer was told was a floor. This walk builds its own fully
+costed, non-provisional quote instead — one product at a real unit cost, which
+is the only difference that matters, since a tier is provisional exactly when a
+UNIT line is unpriced.
+
+Both supported keys, through the real path, **nothing sent**:
+
+| | `project_setup` | `rd_formulation` |
+|---|---|---|
+| Cost | $1,000 | $2,500 |
+| Destination | `otc_setup` | `otc_formulation` |
+| Resolved item | 81001 | 81002 |
+| Quantity | 1 | 1 |
+| Amount | **140,000c** | **350,000c** |
+
+The amounts are the costs at the configured Production rate — 1,000 × 1.40 and
+2,500 × 1.40 — and the two differ, so a payload that crossed them would be
+caught rather than coincidentally passing.
+
+**No duplicate recovery**, at three levels: exactly two OTC lines project;
+exactly one accounting line per charge emits; and the emitted total is
+**490,000c against a frozen OTC subtotal of 490,000c, exactly**. The unit
+subtotal (560,000c) is real and excluded — it posts by its own path — so the
+equality is not satisfied by a quote that priced nothing.
+
+`testing_micros` is asserted to still refuse as a component charge.
+
+**Two assertions in this walk were wrong before the code was.** It matched
+frozen and emitted lines on `COMPONENT_CHARGE_LABELS`, which is the authoring
+picker's vocabulary ("R&D / formulation"), while a line carries its charge
+POLICY label ("R&D") — a pre-existing, deliberate divergence. And it reconciled
+the emitted total against the whole tier total rather than the OTC subtotal,
+which measured two different things. Both were fixture errors reported as
+failures, and both are recorded here because the fix was to the measurement.
+
 ---
 
 ## 6 · Tracked separately, unchanged
