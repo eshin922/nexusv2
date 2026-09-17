@@ -312,7 +312,7 @@ production database today.** What refuses it is three application-level maps.
 | 2 | `COMPONENT_CHARGE_LABELS` | add three labels | no |
 | 3 | `COMPONENT_CHARGE_MARKUP_AUTHORITY` | add three entries — **a markup category each** | **YES** |
 | 4 | `COMPONENT_CHARGE_DESTINATION` (`component-charge-destination.ts`) | `project_setup → otc_setup`, `rd_formulation → otc_formulation`, `testing_micros → otc_testing` — all three destinations already exist in BV-011 | confirm only |
-| 5 | The authoring surface | `add-component-charges-sheet` already takes a `quoteLeafId` and is kind-agnostic. It needs to be reachable from a standalone product's row | **Costs surface — paused** |
+| 5 | The authoring surface | **Nothing to do — CORRECTED.** `assembly-tree-body.tsx` already passes `onAddCharges` for any row whose `commercialKind === "product"`, so the existing sheet opens on a standalone product today. This line previously read "Costs surface — paused", which was wrong | **none** |
 | 6 | `product_type_charge_defaults.charge_key` CHECK | **only if** these become suggestible in #596. Separate, optional, and the table is empty | separate |
 
 **Path 3 is the real dependency.** `componentChargeMarkupAuthority` is total over
