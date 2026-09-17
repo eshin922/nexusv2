@@ -23,16 +23,14 @@
  * unclassified tooling charge rather than defaulting. A suggestion carrying
  * one would make that accounting choice from a product category.
  *
- * A NetSuite item. `other_service` chooses its item PER LINE, frozen at send,
- * because it is the catch-all and carries no single accounting meaning --
- * migration 0090 refuses it a firm-level row by CHECK for that reason. Every
- * other destination means one thing and takes a firm-wide mapping. Either way
- * a default here would be a second answer to a question already answered
- * elsewhere.
+ * A NetSuite item. `other_service` AND `otc_testing` choose their item PER
+ * LINE, frozen at send -- `PER_LINE_DESTINATIONS` at HEAD, verified executing
+ * by `validation:per-line-destination-walk`. Anything here would be a second
+ * answer to a question the frozen selection already answers.
  *
- * (An earlier version of this comment said `otc_testing` was per-line too. It
- * is not, and the difference matters: testing needs one admin mapping, not a
- * per-instance mechanism.)
+ * (This comment was briefly changed to say testing took a firm-wide mapping,
+ * on the strength of migration 0090's text. That text predates the Case 0
+ * extension and is stale; the runtime set is the authority. Restored.)
  *
  * A readiness verdict. Whether a charge is APPLICABLE and whether its
  * destination is mapped and verified are different questions with different

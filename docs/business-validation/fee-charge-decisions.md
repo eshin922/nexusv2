@@ -1,333 +1,257 @@
 # `project_setup`, `rd_formulation`, `testing_micros` as owned charges
 
-**2026-09-16 · decisions needed before implementation. #596 held. No code
-extension, migration, seeding, restructuring or production change. NetSuite
-account provenance stays a separate release item.**
+**2026-09-16 · review answers. #596 held. No code extension, migration,
+seeding, scope expansion or production change.**
 
-Direction confirmed: reuse standalone product cost lines and charge instances,
-no Item Group dependency, no migration unless a verified gap requires one.
-
-**This document corrects two claims I made earlier.** Both are flagged where
-they appear (§3, §5).
+Candidate head for this round: **`f93f2e0c`** plus the commit adding
+`scripts/gate-1b/per-line-destination-walk.ts` and the corrections below.
+The evidence command is `npm run validation:per-line-destination-walk` —
+**13 pass, 0 fail, 1 reported INDETERMINATE.**
 
 ---
 
-## 1 · The decision table
+## 1 · Testing, reconciled against runtime code — **I was wrong**
 
-| | `project_setup` | `rd_formulation` | `testing_micros` |
-|---|---|---|---|
-| **Existing supported path** | `assembly_production_inputs.setup_fee_total` | `.rd_total` | `.testing_micros_total` |
-| **Live rows using it** | **41** (Item Group) | **22** Item Group + **9** Direct Service | **4**, Direct Service only |
-| **Existing markup treatment** | `PRODUCTION_MARKUP_CATEGORY` → **`Production` 0.40** | same | same |
-| **How that rate is reached** | `chargeEconomicsFor` applies one category to **all seven** fee columns — the column does not choose a rate | same | same |
-| **Recommended for an owned charge** | **`Production` 0.40** | **`Production` 0.40** | **`Production` 0.40** |
-| **Recovery modes** | `included` · `separate` · (`absorbed` permitted by policy, refused downstream) | same | same |
-| **Customer presentation** | `included` → recovered inside the unit price, no line · `separate` → its own line, keyed `otc:instance:<id>` | same | same |
-| **BV-011 destination** | `otc_setup` | `otc_formulation` | `otc_testing` |
-| **Governed item type** | non-inventory | non-inventory | non-inventory |
-| **Destination resolved?** | **Yes** — OTC-0024 | **Yes** — OTC-0050 | **NO — unmapped** |
-| **Per-instance item selection?** | **No** | **No** | **No** — see §3 |
-| **Blocks sending?** | no | no | **yes, until mapped** |
+**`otc_testing` IS in `PER_LINE_DESTINATIONS` at HEAD.** My previous round said
+it took a firm-wide mapping and needed no per-instance selection. That was
+wrong, and the way it was wrong matters: I read migration `0090`'s comment,
+which was accurate when written, and treated it as governing. It predates the
+Case 0 extension. **The runtime set is the authority; a migration comment is
+evidence about the day it was written.**
 
-*(Every "resolved" is in the one configured account; see §8.)*
+`src/lib/netsuite/bv011-destinations.ts` states the reason:
 
-### The markup rationale
+> `otc_testing` is per-line for a different reason, settled by Accounting in
+> Case 0: the account carries several genuinely distinct testing items (Micro
+> Testing, HRIPT, Re-Test) that one firm-wide mapping would collapse.
 
-**Preserve the amount when the owner moves.** A setup fee costs what it costs;
-which row on the quote owns it is an attribution fact, and attribution must not
-move arithmetic — Pattern 58, and the OD-028 defect class. If `setup_fee_total`
-on an Item Group recovers at 0.40, a `project_setup` charge on a standalone
-product must recover at 0.40, or the same fee prices differently depending on a
-structural choice the customer never sees.
+### The trace — authoring → freeze → readiness → posting
 
-That is the whole argument, and it is why the recommendation is the *existing*
-rate rather than a better one.
-
-### The complication, which is pre-existing and which I am not fixing here
-
-**Two component charge types already price differently depending on who owns
-them:**
-
-| Charge | As a component charge | As a production column |
+| Stage | Behaviour at HEAD | Demonstrated |
 |---|---|---|
-| `tooling` | `Tooling` **0.20** | `Production` **0.40** |
-| `artwork_plate` | `Manufacturing` **0.30** | `Production` **0.40** |
+| **The switch** | `isPerLineDestination('otc_testing') === true`; exactly two per-line destinations, and `otc_setup` / `otc_formulation` are not among them | **executed** |
+| **Authoring** | `saveDestinationMapping` **refuses** a firm-wide row for it — *"OTC - Testing has no firm-wide NetSuite item by design — its item is chosen per line."* Refused rather than accepted-and-ignored, because a firm default would silently win over the per-line choice. A firm-wide destination still accepts one, so the refusal is not blanket | **executed** |
+| **Freeze** | A **Direct Service** line resolves its selection by asking the predicate (`isPerLineDestination(dest)`) and reading `quote_other_service_items` by leaf. A **component-charge** line freezes `selectedNetsuiteItem: null` **unconditionally** | **executed** (predicate + the hard-coded null) |
+| **Readiness** | `isPerLineDestination(destination)` → an empty frozen selection raises `per_line_destination_unresolved`, whose remediation sends the operator to **Costs**, not Settings — the latter would ask an admin for a row the schema forbids | **partly. See below** |
+| **Posting** | The **frozen** selection is carried as `netsuiteItemId`, not the current one: for this destination the operator's choice *is* the governance | not driven — no line reached posting |
 
-Same commercial fact, a 20-point and a 10-point divergence, decided by owner.
-That is live today and predates this proposal.
+### What could NOT be demonstrated, reported as its own outcome
 
-**It bears on the decision in one specific way.** "Match the component
-siblings" would put the three new keys at `Manufacturing` or `Tooling`;
-"preserve the existing path" puts them at `Production`. They disagree because
-the two families already disagree.
+**INDETERMINATE — the readiness stage could not be driven end to end.** No
+snapshot in the isolated environment carries any frozen line, so
+`assessProjectionReadiness` short-circuits at `no_frozen_matrix` and the
+per-line branch is never reached. My first attempt appended a synthetic line to
+such a snapshot and reported "no blocker" — a true reading of a state that has
+nothing to do with the behaviour under test. It is reported as a third outcome
+rather than folded into a pass.
 
-**Recommendation: `Production` for all three, and do not widen the divergence.**
-The three new keys have **no component-path sibling** — unlike `tooling` and
-`artwork_plate`, nothing already prices them on the component side — so
-choosing the existing rate introduces no new inconsistency and moves no money.
+What **was** established without a frozen matrix: the blocker's operator
+instruction is distinct from every other unresolved-destination state, and
+sends a person to Costs rather than Settings.
 
-**Raised separately, not for this change:** whether `tooling` and
-`artwork_plate` should price identically regardless of owner. That is a real
-question, it has live rows on both sides, and answering it inside a scope change
-would move amounts on existing quotes.
+**Closing it needs a frozen-matrix fixture in the isolated environment.** That
+is its own piece of work and is not in this scope.
+
+### What this does to the proposal — a verified gap that requires a migration
+
+The same file carries the constraint that decides it:
+
+> `quote_other_service_items` is keyed by OWNER — (quote, assembly XOR leaf) —
+> with no destination discriminator. That holds only while at most ONE per-line
+> destination can attach to a given owner… The moment a per-line destination
+> arrives as an OTC FEE COLUMN, one assembly could need two selections and the
+> key admits one — that needs a `destination` column, a new unique key, and a
+> backfill. **Do not add such a destination here without doing that first.**
+
+**Demonstrated against the database, not read:** the table has **no**
+destination column, and `qosi_leaf_unique` — `UNIQUE (quote_leaf_id) WHERE
+quote_leaf_id IS NOT NULL` — **refused a second selection for the same owner**
+in the walk.
+
+So an owned `testing_micros` charge trips exactly the case the comment warns
+against: an owner could hold an Other-Service selection and a Testing selection,
+and the key admits one.
+
+**Revised recommendation — the three keys split:**
+
+| Key | Destination | Per-line? | Verdict |
+|---|---|:--:|---|
+| `project_setup` | `otc_setup` | no | **Proceed.** Firm-wide mapping, already resolved. No migration |
+| `rd_formulation` | `otc_formulation` | no | **Proceed.** Same |
+| **`testing_micros`** | `otc_testing` | **yes** | **HOLD.** Needs the selection table to gain a `destination` discriminator, a new unique key and a backfill — plus a place on a component charge to record the selection at all, since freeze hard-codes it null |
+
+**My previous "no migration" claim holds for two of the three and not the
+third.** This is the verified gap that would justify one, and it should be its
+own scoped change rather than folded in.
 
 ---
 
-## 2 · Recovery and customer presentation
+## 2 · Duplicate guard — concrete cases
 
-Governed by the **one-time class rule** (Edward, 2026-08-24): every charge whose
-grain is `one_time` permits all three treatments. These three inherit it; no
-per-charge narrowing exists or is proposed.
+The question is what **recorded facts** distinguish one cost represented twice
+from two genuinely separate fees that share a category.
 
-| Election | What the customer sees | Where the money is |
-|---|---|---|
-| `included` | nothing — no separate line | recovered inside the owning product's unit price |
-| `separate` | its own one-time line, named by the charge policy, sub-captioned as caused by this component | its own accounting line |
-| `absorbed` | nothing | **refused downstream** — `ConstructedCommercial.absorbedCost` is read by nothing, so absorbing would drop the cost as well as the revenue |
+### Case A · The same cost, twice — a duplicate
 
-**Billable for every owner, and this is verified rather than assumed.** A
-component charge line is keyed `otc:instance:<chargeInstanceId>` with
-`owningAssemblyId: null` — it does **not** key per assembly. That is why the
-seven live standalone-product charges bill correctly.
-
-The contrast matters: the *production column* path keys its lines
-`otc:<assemblyId>:<field>`, which a leaf with no parent assembly cannot satisfy.
-That is the defect `isUnbillablePlacement` refuses for Direct Services — revenue
-the engine counted and the document never billed, $1,727.60 on a real quote.
-
-**So the charge-instance mechanism is billable where the production-column
-mechanism is not.** This is a stronger reason to prefer it than the one I gave
-before (that the production table carries group-only policy columns). Both hold;
-this one is structural.
-
----
-
-## 3 · Per-instance item selection — correcting an earlier claim
-
-**I wrote in two documents that "`other_service` and `otc_testing` choose their
-item per line, frozen at send." That is wrong about testing.**
-
-Migration `0090` states the rule and its reason:
-
-> Every other BV-011 destination means one thing, so one firm-wide mapping is
-> correct for all of them. `OTC - Other Service` is the catch-all…
-
-**`other_service` is the only destination taking a per-line selection.** It is
-refused a firm-level row by CHECK precisely because it has no single accounting
-meaning.
-
-| Charge | Item selection |
-|---|---|
-| `project_setup` | firm-wide mapping · **resolved** |
-| `rd_formulation` | firm-wide mapping · **resolved** |
-| **`testing_micros`** | **firm-wide mapping · NOT resolved.** No per-instance selection needed or wanted — testing means one thing |
-| `other_service` | per-line, frozen at send, in `quote_other_service_items` |
-
-**So the testing requirement is a single admin action — map `otc_testing` — not
-a per-instance mechanism.** Until it happens, a `testing_micros` charge is
-authorable, costable and elective, and cannot be sent.
-
-*(A related pre-existing gap, noted not fixed: `quote_other_service_items` is
-keyed assembly-XOR-Direct-Service-leaf, so a **standalone product** owning an
-`other_service` charge would have nowhere to record its item. It never bites
-today because `other_service` also has no governed markup rate — it is
-`unclassified`, recovers nothing, and cannot be sent. Two refusals that agree.)*
-
----
-
-## 4 · Who these charges are actually exposed to
-
-**Not standalone-only. Nothing enforces that, and it should not be described as
-if something did.**
-
-`quote_charge_instances.owner_ref` is `'@quote'` or **any** `quote_leaves.id`.
-No constraint, and no application check, narrows a charge key by owner kind.
-
-### The four affected owners
-
-| Owner | Live leaves | Gets these keys after the change? |
-|---|---|---|
-| **Quote** (`@quote`) | — | **Already has them.** 16 `project_setup` instances exist, created from the Item Group's column via the recovery path |
-| **Item Group member** | 221 | **Yes — new** |
-| **Standalone product** | 39 | **Yes — new.** The target |
-| **Standalone service** | 12 | **Yes — new** |
-
-### The paths that consult the vocabulary — the complete list
-
-| Path | Reads | Owner-aware? |
-|---|---|---|
-| `add-component-charges-sheet.tsx` | `COMPONENT_CHARGE_KEYS` | **no** — takes a bare `quoteLeafId` |
-| `component-charges/create.ts` | `isComponentChargeKey` | **no** |
-| `costing.ts` charge economics | `componentChargeMarkupAuthority` | **no** |
-| `commercial-projection.ts` | `componentChargeDestination` | **no** |
-| `charge-defaults.ts` + `/admin/charge-defaults` | `COMPONENT_CHARGE_KEYS` | **no** |
-
-### The two collision surfaces this creates
-
-The business-unique constraint is `(quote_id, charge_key, owner_ref, label)`, so
-a charge owned by a leaf and one owned by `@quote` are **different rows and both
-permitted** — correctly, since they are different facts. But:
-
-1. **Item Group member + the group's own column.** A member owning
-   `project_setup` while the group's `setup_fee_total` also carries one. These
-   may be genuinely different fees (a component-specific set-up and the run's).
-   **Recommend: allow, and surface both on the Costs review, rather than refuse
-   a legitimate combination.**
-2. **Direct Service + its own governed input.** A Direct Service whose identity
-   is Testing owning a `testing_micros` charge while `.testing_micros_total`
-   carries one. **These are duplicates by construction** — the column *is* that
-   service's one governed input.
-   **Recommend: refuse this one.** Narrow, checkable, and the only case where
-   the same key on the same leaf means the same fee twice.
-
-**If review wants standalone-only instead**, enforcement belongs in
-`component-charges/create.ts` — reject a fee key whose owning leaf is a group
-member or a service — and the authoring sheet must offer the three keys only
-where they are permitted, or operators will meet a refusal after doing the work.
-**I do not recommend this**: an Item Group member causing a set-up fee is a real
-commercial fact, and refusing it would push operators back to the group's single
-column, which is the shape this work exists to stop depending on.
-
----
-
-## 5 · The five cost lines — correcting what they are
-
-**I implied component identity that a cost line does not carry.** Correcting it
-changes what the example demonstrates.
-
-### What a cost line actually is
-
-`assembly_leaf_inputs` columns: `line_group_id`, `sort_order`, `supplier`,
-`category`, `markup_pct` (+ source), `qty_per_sellable_unit`, `unit_cost`,
-`purchase_qty`, `inventory_eligible`, `notes`, `pricing_vendor_*`,
-`pricing_date`.
-
-**There is no name column, no Library leaf reference, and no unit of measure.**
-
-So the five lines in the earlier example are **five financial rows under one
-product**, distinguished only by `supplier`, `category`, `sort_order` and
-`notes`. "The bottle" is not a thing Nexus knows about — it is a row whose notes
-say bottle.
-
-### What that means, stated plainly
-
-| | Cost line | Library component |
-|---|---|---|
-| Identity | none — supplier + category + notes | a Library leaf: SKU, name, HubSpot id |
-| Specification | none | `leaf_specs`, schema-pinned |
-| Can own charges | no | yes — it is a `quote_leaf` |
-| Appears on the customer document | no — folded into the product's unit price | yes, when it is a group member |
-
-**So Example 2 demonstrates costing, not structure.** A standalone product can be
-costed from several priced elements, each with its own supplier and markup, and
-present as one line. It does **not** give those elements identity.
-
-**If the firm needs each element to have identity** — its own SKU, spec, charges
-and customer line — that is Library membership, and today membership means an
-Item Group. **That is the honest boundary**, and it is exactly where a verified
-gap might later justify a migration. Nothing here routes around it, and nothing
-here pretends a cost line is a component.
-
-### No BOM, and no unit conversion
-
-The math is one multiplication:
+A Direct Service leaf whose identity is **Testing / Micros**:
 
 ```
-lineCost = unitCost × (qtyPerSellableUnit ?? 1)
+quote_leaves            id = L, commercial_kind = 'service', identity = testing_micros
+assembly_production_inputs   quote_leaf_id = L, tier = T, testing_micros_total = 900.00
+quote_charge_instances       owner_quote_leaf_id = L, charge_key = 'testing_micros'
+quote_charge_instance_tiers  tier = T, cost_amount = 900.00
 ```
 
-`purchase_qty` does not enter the costing input at all. There is no
-bill-of-materials, no explosion, no yield, and no unit-of-measure anywhere on
-the row.
+**Recorded facts that make this a duplicate — no judgement required:**
 
-**Two bottles per unit.** `unit_cost` = the price of one bottle,
-`qty_per_sellable_unit` = `2`. Exact, and already how the field is used.
+1. `DIRECT_SERVICE_PRODUCTION_INPUT[testing_micros] = 'testingMicrosTotal'` —
+   that column **is** this leaf's one governed input.
+2. `OTC_COLUMN_TO_CHARGE['testingMicrosTotal'] = 'testing_micros'` — the charge
+   key resolves to the same column.
+3. The charge's owner **is** the leaf that owns the column.
 
-**Bulk measured by weight.** There is no UOM, so **the operator chooses the
-basis and Nexus never checks it.** Two idioms produce the same number:
+Composition 1→2→3 is exact: the leaf's identity determines one column, the
+column determines one charge key, and both rows sit on the same owner. **They
+are two representations of one governed value**, and the amounts need not match
+for that to be true — a $900 column and a $500 charge is the same duplication,
+mis-stated.
 
-| | `unit_cost` | `qty_per_sellable_unit` | line cost |
-|---|---:|---:|---:|
-| basis = kg | `18.0000` | `0.0125` | `0.2250` |
-| basis = unit | `0.2250` | `1` | `0.2250` |
+Only three identities can collide this way: `formulation` → `rd_formulation`,
+`testing_micros` → `testing_micros`, `other_service` → `other_service`.
+`filling_blending` and `packout_assembly` map to recurring columns that are in
+no charge-key map, so they cannot.
 
-**Prefer the first.** `unit_cost` is `numeric(10,4)` — four decimal places — so
-a genuinely small per-unit cost loses precision or rounds to zero, while
-`qty_per_sellable_unit` is unconstrained numeric and carries the fraction
-exactly. Keeping `unit_cost` at the purchase scale is the safer idiom.
+**Guard: refuse.** Narrow, computable from recorded facts, and the only case
+where identical facts mean one fee.
 
-**What Nexus does not do, and is not proposed to do:** convert grams to
-kilograms, validate that two lines use the same basis, or derive a per-unit
-quantity from a formulation. An operator who enters grams on one line and
-kilograms on another gets two correct multiplications and one wrong quote.
+### Case B · Two separate fees sharing a category — not a duplicate
+
+**B1 — two testings on one component.** A carton fails micro and is re-tested:
+
+```
+instance 1  owner_ref = L, charge_key = 'testing_micros', label = 'Micro Testing'
+instance 2  owner_ref = L, charge_key = 'testing_micros', label = 'Re-Test'
+```
+
+**The distinguishing recorded fact is `label`.** The business-unique key is
+`(quote_id, charge_key, owner_ref, label)` with `NULLS NOT DISTINCT`, so two
+same-key charges on one owner **can only exist if their labels differ** — the
+constraint forces the distinction to be recorded rather than assumed. Both are
+real, both bill, and the Accounting items behind them genuinely differ, which is
+precisely why Case 0 made testing per-line.
+
+> **And B1 is representable but not postable today**, for the §1 reason: the
+> selection table admits one row per owner, so two testing charges on one owner
+> cannot carry two different NetSuite items. The same tripwire, reached from the
+> other direction.
+
+**B2 — a group's set-up and a component's set-up.**
+
+```
+instance 1  owner_ref = '@quote'   charge_key = 'project_setup'   (from the Item Group column)
+instance 2  owner_ref = L          charge_key = 'project_setup'   (a component-caused set-up)
+```
+
+**The distinguishing recorded fact is `owner_ref`.** A run set-up and a
+component-specific set-up are different commercial facts, and the owner is what
+says so. Both rows are permitted by the unique key and **should be** — refusing
+this is what pushes operators back to the group's single column.
+
+**Guard: allow, and surface both together on Costs so a person can see they are
+two.** Nexus cannot tell a legitimate pair from a mis-entered one; it can make
+the pair visible, which is the honest limit.
+
+### The rule, in one line
+
+> Refuse only where the recorded facts prove identity: **same owner, and the
+> charge key is the one that owner's own governed production input already
+> occupies.** Every other repetition is distinguished by `owner_ref` or by
+> `label`, both of which the schema already forces to be recorded.
 
 ---
 
-## 6 · Supplier-included versus separately incurred — unchanged
+## 3 · Markup — reuse the existing authority, introduce no rate
 
-Preserved exactly as stated, because the distinction is the double-billing
-guard:
+**Corrected framing.** My previous round wrote "Production 0.40" throughout,
+which reads as proposing a rate. **No rate is being proposed.** The rate lives in
+`markup_defaults.Production` — admin-editable, currently 0.40 — and is resolved
+at compute time by `resolveMarkupStrict`. What is chosen is the **category
+binding**.
 
-| Situation | What Nexus holds |
+**Reuse the existing binding, not a second copy of the string:**
+
+```ts
+// costing.ts today
+export const PRODUCTION_MARKUP_CATEGORY = "Production";
+// …applied by chargeEconomicsFor to all seven fee columns
+rateCategory: ratePct === null ? null : PRODUCTION_MARKUP_CATEGORY,
+```
+
+The component authority table should reference **that binding**:
+
+```ts
+project_setup:   { kind: "governed", category: PRODUCTION_MARKUP_CATEGORY },
+rd_formulation:  { kind: "governed", category: PRODUCTION_MARKUP_CATEGORY },
+```
+
+**One mechanical obstacle, and its resolution.** `costing.ts` imports from
+`registry.ts`, so `registry.ts` cannot import from `costing.ts` — the constant
+must **move to `registry.ts`** and `costing.ts` import it from there. Not a
+rewrite: one declaration relocated, one import added, no call site changed, and
+`chargeEconomicsFor` keeps using the same binding it uses now.
+
+Writing `category: "Production"` in the authority table would compile and be
+correct today, and would be a **second copy free to drift** from the one
+`chargeEconomicsFor` reads. One binding is the point.
+
+**What this guarantees:** if an admin changes the Production rate, the owned
+charge and the production column move together, because they resolve the same
+category through the same map. Attribution does not move arithmetic — Pattern 58.
+
+*(`testing_micros`'s authority is held with the rest of that key, per §1.)*
+
+---
+
+## 4 · What changed in this round
+
+| | |
 |---|---|
-| The supplier's per-unit price **already covers** the work | **No charge instance.** The cost is inside `unit_cost`, and there is nothing else to record |
-| DPS **separately incurs** the cost and recovers it in the sell price | **A charge instance, elected `included`.** `unit_cost` must not also contain it |
-| DPS separately incurs it and bills it as its own line | **A charge instance, elected `separate`** |
+| `scripts/gate-1b/per-line-destination-walk.ts` | **new** — the four-stage trace, isolated-only, self-cleaning |
+| `package.json` | the walk's script entry |
+| `src/lib/commercial-recovery/charge-defaults.ts` | **reverted** — my last round changed this comment to say testing was firm-wide. Restored, with the runtime set cited |
+| `docs/proposals/product-type-charge-defaults.md` | same revert |
+| this document | rewritten around the three answers |
 
-`included` means *DPS incurred this separately and is recovering it inside the
-unit price.* It does **not** mean the supplier absorbed it. Reading it the second
-way, and entering the charge as well, is how one amount travels twice.
-
-**No structural guard exists**, and none is proposed — both shapes are
-internally consistent and only the supplier quote distinguishes them. The
-surface should require the operator to state which quote a charge comes from; a
-cost with no separate quote behind it is already in the unit price.
-
-**Existing amounts and behaviour are unchanged by everything in this document.**
-No existing charge, column, rate or election moves.
+**No change to `registry.ts`, `component-charge-destination.ts`,
+`commercial-projection.ts` or any schema.** The §3 relocation is recommended,
+not made.
 
 ---
 
-## 7 · Decisions needed
+## 5 · Decisions, revised
 
-| # | Decision | Blocks |
+| # | Decision | Status |
 |---:|---|---|
-| **1** | **Markup category for the three keys.** Recommended: `Production` 0.40 for all three, preserving the existing path's amount (§1) | **The whole change.** A key with no authority resolves `unclassified`, recovers nothing and cannot be sent |
-| **2** | **Map `otc_testing`** to a NetSuite item | `testing_micros` only — the other two are resolved |
-| **3** | **Exposure policy (§4).** Recommended: allow all component owners; refuse only a Direct Service owning the key its own governed input already carries | authoring behaviour |
-| **4** | **Confirm the cost-line/component boundary (§5)** — that costing several elements under one product, without giving them identity, meets the need | whether a later structural gap is real |
-| **5** | **Owner-dependent rates for `tooling` and `artwork_plate` (§1)** — raised separately; answering it inside this change would move existing amounts | nothing here |
+| **1** | **`project_setup` + `rd_formulation`**: bind to `PRODUCTION_MARKUP_CATEGORY`, relocating the constant to `registry.ts` so there is one copy | ready for approval — no migration |
+| **2** | **`testing_micros`**: **held.** Per-line destination; needs a `destination` discriminator on `quote_other_service_items`, a new unique key, a backfill, and somewhere on a component charge to record a selection | needs its own scoped change |
+| **3** | **Duplicate guard**: refuse same-owner-same-governed-input (§2 Case A); allow and surface everything else | ready for approval |
+| **4** | **Frozen-matrix fixture** for the isolated environment, so readiness and posting can be driven | separate, and it would close the INDETERMINATE above |
 
 ---
 
-## 8 · Smallest implementation scope
+## 6 · Tracked separately, unchanged
 
-**Four map entries and one guard. No migration. No new table, column, module or
-engine.**
+**The $1,727.60 unbillable placement.** Quote `4781e4bb`, named in
+`unbillable-placements.ts`: a Direct Service leaf's charge placed
+`separate_line`, counted as tier revenue by the engine while the customer
+document billed nothing for it — $1,727.60 / $3,283.00 / $172.20 / $1,727.60
+across four tiers. Electing it is now refused
+(`DIRECT_SERVICE_NOT_SEPARATELY_BILLABLE`); the detector finds states created
+before the refusal existed.
 
-| # | File | Change |
-|---:|---|---|
-| 1 | `commercial-recovery/registry.ts` | add three keys to `COMPONENT_CHARGE_KEYS` |
-| 2 | same | add three `COMPONENT_CHARGE_LABELS` |
-| 3 | same | add three `COMPONENT_CHARGE_MARKUP_AUTHORITY` entries — **decision 1** |
-| 4 | `netsuite/component-charge-destination.ts` | `project_setup → otc_setup`, `rd_formulation → otc_formulation`, `testing_micros → otc_testing` |
-| 5 | `component-charges/create.ts` | refuse a Direct Service owning the key its own production input carries — **decision 3** |
-| 6 | Costs surface | reach the existing `add-component-charges-sheet` from a standalone product row. **CD work is paused; not in scope** |
+**Tracked as `docs/defects/DEFECT-2026-09-16-unbillable-direct-service-placement.md`.
+Not investigated, not repaired, and the affected quote is not touched** —
+correcting one of these changes what a real customer owes, which is why the
+module detects rather than repairs.
 
-**Why no migration.** `quote_charge_instances.charge_key` is the full
-`recovery_charge` enum and already contains all three keys; the only owner
-constraint is `owner_ref = '@quote'` XOR `owner_ref = owner_quote_leaf_id`.
-Such a charge is already representable in the production database.
-
-**Tests that would accompany it** (not written): the three keys resolve a
-governed rate and a destination; a `separate` election on a standalone product
-produces an `otc:instance:` line; the Direct Service duplicate is refused; and
-no existing charge's rate, destination or election changes.
-
-**Explicitly out of scope:** `assembly_production_inputs` and its `0082`
-constraints; `product_type_charge_defaults` (whether these become *suggestible*
-is a separate question for #596, and the table stays empty either way); NetSuite
-account provenance (§7 of the coverage decision table, its own release item);
-any MISTR restructuring; any seeded rule.
-
-**#596 remains held. Nothing above is implemented.**
+**#596 remains held. Nothing in §5 is implemented.**

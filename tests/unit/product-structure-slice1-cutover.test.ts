@@ -85,6 +85,12 @@ const classifiedIdentityFiles = new Set([
   // `recovery-persistence-walk.ts` deliberately is NOT here: it names no
   // identity token, and the sweep rejects a registry entry it cannot match --
   // which is what keeps this list from accumulating stale claims.
+  // CLASSIFIED — enduring, and NOT an attachment conversion. The per-line
+  // destination walk reads `quote_leaf_id` in two places only: to pick any leaf
+  // to attempt a second per-line selection against, and to observe that
+  // `qosi_leaf_unique` refuses it. It converts nothing, writes no cost identity,
+  // and removes both rows in `finally`. Isolated-database only.
+  "scripts/gate-1b/per-line-destination-walk.ts",
   "scripts/gate-1b/frozen-instruction-contrast.ts",
   "scripts/gate-1b/recovery-impact-certify.ts",
   "scripts/gate-1b/recovery-walk-state.ts",
