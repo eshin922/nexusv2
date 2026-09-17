@@ -244,6 +244,10 @@ const PERMITTED_IMPORTERS = [
   // authoring path will, so a contradiction reads identically in both places.
   "src/app/actions/charge-defaults.ts",
   "src/app/admin/charge-defaults/charge-defaults-table.tsx",
+  // Reads SUGGESTIBLE_CHARGE_KEYS only. It offers what this feature's draft
+  // DDL permits, which is NOT the widened component vocabulary -- see the
+  // constant's own header.
+  "src/app/admin/charge-defaults/page.tsx",
 ];
 
 test("defaults are read at authoring time only, never at render", () => {
@@ -367,8 +371,16 @@ test("the write path cannot store a classification, an item, or an unknown charg
   for (const banned of ["toolingClassification", "mould_collar", "cutting_die", "netsuiteItem", "netsuite_item"]) {
     assert.doesNotMatch(code, new RegExp(banned), `the admin actions write ${banned}`);
   }
-  // A charge identity is checked against the governed registry, not retyped.
-  assert.match(code, /COMPONENT_CHARGE_KEYS/);
+  // A charge identity is checked against a governed list, not retyped -- and
+  // specifically against the FIVE this feature's draft CHECK permits, not the
+  // widened component vocabulary. Offering a key the database refuses would be
+  // a control that always fails.
+  assert.match(code, /SUGGESTIBLE_CHARGE_KEYS/);
+  assert.doesNotMatch(
+    code,
+    /COMPONENT_CHARGE_KEYS/,
+    "the Settings action must not offer keys the draft DDL refuses",
+  );
 });
 
 /* ── the last rule, and why removal is refused ─────────────────────────── */

@@ -85,6 +85,11 @@ const classifiedIdentityFiles = new Set([
   // `recovery-persistence-walk.ts` deliberately is NOT here: it names no
   // identity token, and the sweep rejects a registry entry it cannot match --
   // which is what keeps this list from accumulating stale claims.
+  // CLASSIFIED — enduring, and NOT an attachment conversion. The owned-fee walk
+  // selects an existing standalone `quote_leaf_id` to own a charge and to cost
+  // it per tier. It creates no attachment, converts no identity, and removes
+  // every row it wrote. Isolated-database only.
+  "scripts/gate-1b/owned-production-fee-walk.ts",
   // CLASSIFIED — enduring, and NOT an attachment conversion. The per-line
   // destination walk reads `quote_leaf_id` in two places only: to pick any leaf
   // to attempt a second per-line selection against, and to observe that

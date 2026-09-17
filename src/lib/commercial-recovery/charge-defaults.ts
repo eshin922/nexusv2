@@ -47,6 +47,29 @@
 import type { ComponentChargeKey } from "./registry";
 
 /**
+ * What #596's Settings surface may offer — the five its DRAFT DDL permits.
+ *
+ * DELIBERATELY NOT `COMPONENT_CHARGE_KEYS`. That vocabulary widened to admit
+ * `project_setup` and `rd_formulation` as OWNED charges, which is a different
+ * question from whether a Product Type may SUGGEST them. The draft
+ * `product_type_charge_defaults.charge_key` CHECK still names five, so reading
+ * the wider constant here would offer an admin two options the database
+ * refuses -- a control that always fails, which is worse than one that is
+ * absent.
+ *
+ * Widening this is a decision plus a CHECK replacement on an empty table, and
+ * it belongs with #596's review rather than arriving as a side effect of the
+ * ownership work.
+ */
+export const SUGGESTIBLE_CHARGE_KEYS = [
+  "print_plates",
+  "tooling",
+  "artwork_plate",
+  "samples",
+  "other_service",
+] as const satisfies readonly ComponentChargeKey[];
+
+/**
  * One suggested charge.
  *
  * `preselected` is a STARTING POSITION for a checkbox, not an assertion that

@@ -1,7 +1,7 @@
 import { requireAdminPage } from "@/lib/admin-guard";
 import { loadHubspotProductTypeOptions } from "@/lib/hubspot-product-type-vocabulary";
 import { listChargeDefaults } from "@/app/actions/charge-defaults";
-import { COMPONENT_CHARGE_KEYS } from "@/lib/commercial-recovery/registry";
+import { SUGGESTIBLE_CHARGE_KEYS } from "@/lib/commercial-recovery/charge-defaults";
 import { ChargeDefaultsTable, type ChargeDefaultsRowView } from "./charge-defaults-table";
 
 /**
@@ -125,7 +125,7 @@ export default async function ChargeDefaultsAdminPage() {
         </p>
       )}
 
-      <ChargeDefaultsTable rows={rows} chargeKeys={[...COMPONENT_CHARGE_KEYS]} />
+      <ChargeDefaultsTable rows={rows} chargeKeys={[...SUGGESTIBLE_CHARGE_KEYS]} />
     </div>
   );
 }

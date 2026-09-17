@@ -1,7 +1,16 @@
 # `project_setup`, `rd_formulation`, `testing_micros` as owned charges
 
-**2026-09-16 · review answers. #596 held. No code extension, migration,
-seeding, scope expansion or production change.**
+**2026-09-16 · review answers, and the bounded extension is now IMPLEMENTED for
+`project_setup` and `rd_formulation`. #596 itself stays held — no production
+migration, deployment, seeding or CD change.**
+
+> **Implemented:** the two keys are component-ownable, bound to the shared
+> `PRODUCTION_MARKUP_CATEGORY`, and resolving `otc_setup` / `otc_formulation`.
+> **`testing_micros` is NOT** — §1's per-line finding stands, and its existing
+> paths and per-line selection are untouched. Evidence:
+> `npm run validation:owned-production-fee-walk` — **0 failures, 3
+> indeterminate** — plus `legacy-otc-owner-boundary`'s double-emission
+> falsifications, now covering both new keys.
 
 Candidate head for this round: **`f93f2e0c`** plus the commit adding
 `scripts/gate-1b/per-line-destination-walk.ts` and the corrections below.

@@ -244,6 +244,14 @@ export const COMPONENT_CHARGE_KEYS = [
   "tooling",
   "artwork_plate",
   "samples",
+  // Production fees an OWNER other than an Item Group may cause -- a standalone
+  // product bought complete still incurs a set-up or a development charge, and
+  // before this it had nowhere to put one: `assembly_production_inputs` is
+  // restricted to assemblies and Direct Services by `0082`.
+  //
+  // `testing_micros` is NOT here; see COMPONENT_CHARGE_MARKUP_AUTHORITY.
+  "project_setup",
+  "rd_formulation",
   "other_service",
 ] as const satisfies readonly RecoveryChargeKey[];
 
@@ -255,6 +263,8 @@ export const COMPONENT_CHARGE_LABELS: Record<ComponentChargeKey, string> = {
   tooling: "Tooling & dies",
   artwork_plate: "Artwork & prepress",
   samples: "Samples & PPS",
+  project_setup: "Project setup",
+  rd_formulation: "R&D / formulation",
   other_service: "Other",
 };
 
@@ -302,6 +312,32 @@ export type ComponentChargeMarkupAuthority =
   | { kind: "governed"; category: string }
   | { kind: "unclassified"; reason: string };
 
+/**
+ * The markup authority every PRODUCTION-OWNED one-time fee resolves through.
+ *
+ * ── WHY IT LIVES HERE AND NOT IN `costing.ts` ────────────────────────────
+ *
+ * `chargeEconomicsFor` applies this to all seven production fee columns, and
+ * the component authority table below binds two of its keys to the SAME value.
+ * Those are the two sides of one decision -- what a set-up fee is worth does
+ * not depend on whether an Item Group's column or a component's charge carries
+ * it -- so they must read ONE binding.
+ *
+ * Writing `"Production"` in both places would compile, be correct the day it
+ * was written, and be free to drift. `costing.ts` already imports this module,
+ * so the constant moves here and `costing.ts` imports it; the reverse would be
+ * a cycle.
+ *
+ * ── IT IS A CATEGORY, NOT A RATE ─────────────────────────────────────────
+ *
+ * The percentage lives in `markup_defaults` and is admin-editable. Nothing here
+ * or downstream hard-codes one: `resolveMarkupStrict` looks this category up at
+ * compute time. Changing the rate in Settings therefore moves the column and
+ * the owned charge together, which is the property `charge-key-ownership-walk`
+ * asserts by changing it.
+ */
+export const PRODUCTION_MARKUP_CATEGORY = "Production";
+
 export const COMPONENT_CHARGE_MARKUP_AUTHORITY = {
   // A plate is commercially a tool. Its own accounting destination does not
   // give it its own pricing policy -- that would need a separate disposition.
@@ -311,6 +347,21 @@ export const COMPONENT_CHARGE_MARKUP_AUTHORITY = {
   artwork_plate: { kind: "governed", category: "Manufacturing" },
   // Physical pre-production goods, produced on a manufacturing run.
   samples: { kind: "governed", category: "Manufacturing" },
+  // ── OWNED PRODUCTION FEES ─────────────────────────────────────────────
+  //
+  // Bound to the SAME constant `chargeEconomicsFor` applies to
+  // `setup_fee_total` and `rd_total`, so the two ownership paths cannot price
+  // one fee differently. Attribution must not move arithmetic (Pattern 58):
+  // whether an Item Group's column or a standalone product's charge carries a
+  // set-up fee is a statement about who caused it, not about what it is worth.
+  //
+  // `testing_micros` is deliberately ABSENT. Its destination `otc_testing` is
+  // per-line, and `quote_other_service_items` is keyed by owner with no
+  // destination discriminator -- one owner cannot hold two selections. Adding
+  // it here would make a charge that is authorable, costable, and unsendable.
+  // See `docs/business-validation/fee-charge-decisions.md` SS1.
+  project_setup: { kind: "governed", category: PRODUCTION_MARKUP_CATEGORY },
+  rd_formulation: { kind: "governed", category: PRODUCTION_MARKUP_CATEGORY },
   other_service: {
     kind: "unclassified",
     reason:

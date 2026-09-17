@@ -10,7 +10,8 @@ import {
 import { writeAuditEntry } from "@/lib/audit";
 import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
 import { requireAdminAction } from "@/lib/admin-guard";
-import { COMPONENT_CHARGE_KEYS, type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import { type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import { SUGGESTIBLE_CHARGE_KEYS } from "@/lib/commercial-recovery/charge-defaults";
 import {
   resolveChargeDefaults,
   type ChargeDefaultRow,
@@ -61,7 +62,7 @@ const lockFor = (value: string) =>
   sql`select pg_advisory_xact_lock(hashtextextended(${`product_type_charge_defaults:${value}`}, 0))`;
 
 function requireChargeKey(raw: string): ComponentChargeKey {
-  if (!(COMPONENT_CHARGE_KEYS as readonly string[]).includes(raw)) {
+  if (!(SUGGESTIBLE_CHARGE_KEYS as readonly string[]).includes(raw)) {
     throw new ActionGuardError(
       ERR.VALIDATION,
       `${raw} is not a supported component charge.`,
