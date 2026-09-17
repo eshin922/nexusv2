@@ -85,6 +85,21 @@ const classifiedIdentityFiles = new Set([
   // `recovery-persistence-walk.ts` deliberately is NOT here: it names no
   // identity token, and the sweep rejects a registry entry it cannot match --
   // which is what keeps this list from accumulating stale claims.
+  // CLASSIFIED — enduring, and NOT an attachment conversion. The payload walk
+  // BUILDS its own quote_leaf for a fixture quote it also deletes. It converts
+  // no identity and touches no existing attachment. Isolated-database only.
+  "scripts/gate-1b/owned-fee-payload-walk.ts",
+  // CLASSIFIED — enduring, and NOT an attachment conversion. The owned-fee walk
+  // selects an existing standalone `quote_leaf_id` to own a charge and to cost
+  // it per tier. It creates no attachment, converts no identity, and removes
+  // every row it wrote. Isolated-database only.
+  "scripts/gate-1b/owned-production-fee-walk.ts",
+  // CLASSIFIED — enduring, and NOT an attachment conversion. The per-line
+  // destination walk reads `quote_leaf_id` in two places only: to pick any leaf
+  // to attempt a second per-line selection against, and to observe that
+  // `qosi_leaf_unique` refuses it. It converts nothing, writes no cost identity,
+  // and removes both rows in `finally`. Isolated-database only.
+  "scripts/gate-1b/per-line-destination-walk.ts",
   "scripts/gate-1b/frozen-instruction-contrast.ts",
   "scripts/gate-1b/recovery-impact-certify.ts",
   "scripts/gate-1b/recovery-walk-state.ts",

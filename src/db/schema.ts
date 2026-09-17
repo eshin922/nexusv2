@@ -3114,6 +3114,102 @@ export const productionCompletions = pgTable(
   ],
 );
 
+// ---------- product type → charge defaults (Settings; draft 0131) ----------
+
+/**
+ * The reviewed verdict for one HubSpot Product Type.
+ *
+ * ── THE ROW'S EXISTENCE IS HALF THE ANSWER ───────────────────────────────
+ *
+ * No row means NOBODY HAS LOOKED, which is not the same as "no charges apply"
+ * and must never render as it. The row's presence is what turns an absence
+ * into a decision, which is why `reviewedByUserId` and `reviewedAt` are NOT
+ * NULL: a verdict nobody owns is precisely the state this table exists to be
+ * distinguished from.
+ */
+export const productTypeChargeProfile = pgTable(
+  "product_type_charge_profile",
+  {
+    /**
+     * HubSpot's RAW INTERNAL option value, never its label.
+     *
+     * Not an enum and not a foreign key: this references someone else's
+     * vocabulary and must never become a definition of one. Three options
+     * diverge label-from-value (`Primary Packaging` -> `Primary`), so a
+     * label-keyed rule would miss roughly half the catalogue.
+     */
+    productTypeValue: text("product_type_value").primaryKey(),
+    /** `defaults` | `none_expected`. */
+    verdict: text("verdict").notNull(),
+    reviewedByUserId: uuid("reviewed_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    note: text("note"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id),
+  },
+  (t) => [
+    check(
+      "product_type_charge_profile_verdict_values",
+      sql`${t.verdict} in ('defaults', 'none_expected')`,
+    ),
+  ],
+);
+
+/**
+ * One suggested charge for one Product Type.
+ *
+ * `preselected` is a STARTING POSITION for a checkbox, never an assertion that
+ * the charge applies — the operator confirms before anything becomes a charge.
+ *
+ * Carries no tooling classification and no NetSuite item, and must never
+ * acquire either: both would make an accounting decision from a product
+ * category, and `componentChargeDestination` deliberately refuses an
+ * unclassified tooling charge rather than defaulting.
+ */
+export const productTypeChargeDefaults = pgTable(
+  "product_type_charge_defaults",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** A rule cannot exist without a verdict saying rules exist. */
+    productTypeValue: text("product_type_value")
+      .notNull()
+      .references(() => productTypeChargeProfile.productTypeValue, {
+        onDelete: "cascade",
+      }),
+    /** One of the five governed component charge identities. */
+    chargeKey: text("charge_key").notNull(),
+    preselected: boolean("preselected").notNull().default(false),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id),
+  },
+  (t) => [
+    check(
+      "product_type_charge_defaults_charge_key_values",
+      sql`${t.chargeKey} in ('print_plates', 'tooling', 'artwork_plate', 'samples', 'other_service')`,
+    ),
+    // One rule per (type, charge). Two rows for one pair would be two answers
+    // to one question with nothing to say which was meant.
+    uniqueIndex("product_type_charge_defaults_pair_idx").on(
+      t.productTypeValue,
+      t.chargeKey,
+    ),
+    index("product_type_charge_defaults_type_idx").on(t.productTypeValue),
+  ],
+);
+
 // ---------- assembly_leaves (M:N junction; Phase A.1 v2) ----------
 
 // Junction table linking assemblies (per-quote ASYs) to leaves

@@ -298,7 +298,7 @@ export const fakeHubSpot: HubSpotOperations = {
     record("product-type-options", {});
     fail("product-type-options");
     // MIRRORS THE PRODUCTION OPTION SET -- portal 21497798 (STANDARD),
-    // 16 non-hidden options, captured read-only 2026-09-12.
+    // 18 non-hidden options, re-read read-only 2026-09-16.
     //
     // TWO corrections are recorded here because both were mine.
     //
@@ -338,6 +338,14 @@ export const fakeHubSpot: HubSpotOperations = {
       ["Finished Goods", "Finished Goods"],
       ["Turnkey", "Turnkey"],
       ["Tertiary Packaging", "Tertiary Packaging"],
+      // Added to production HubSpot 2026-09-15, with the formulated-schema
+      // release. The fixture was captured on 2026-09-12 and did NOT carry
+      // them, so the isolated Settings surface rendered 16 types while
+      // production offered 18 -- a fixture reporting its own age as the
+      // firm's vocabulary. Re-read from production 2026-09-16: 18 options,
+      // these two at displayOrder 16 and 17, label and value identical.
+      ["Ingestibles", "Ingestibles"],
+      ["Topicals", "Topicals"],
     ].map(([value, label], i) => ({ label, value, displayOrder: i }));
   },
   async updateProduct(hubspotProductId, input) {
