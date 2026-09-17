@@ -60,12 +60,21 @@ const { createComponentChargesAs } = await import(
   "../../src/lib/component-charges/create.ts"
 );
 const { getCostingBundle } = await import("../../src/app/actions/costing.ts");
+const { projectCommercial } = await import("../../src/lib/commercial-projection.ts");
+const { freezeCommercialLineSet } = await import("../../src/lib/commercial-freeze.ts");
+const { assessProjectionReadiness } = await import(
+  "../../src/lib/netsuite/projection-readiness.ts"
+);
+const { db } = await import("../../src/db/index.ts");
 
 const KEYS = ["project_setup", "rd_formulation"] as const;
 const createdInstanceIds: string[] = [];
 let originalRate: string | null = null;
 /** Module-scoped: the `finally` below must be able to remove it. */
 let seededColumnRow: string | null = null;
+let snapshotId: string | null = null;
+const seededDestinations: string[] = [];
+let acceptedTierRestore: { quoteId: string; prior: string | null } | null = null;
 
 const chargeEconomicsOf = async (quoteId: string) => {
   const b = await getCostingBundle(quoteId);
@@ -87,6 +96,7 @@ const purge = async () => {
     select id from quote_charge_instances where label = 'ZZ-WALK line set-up'
   `;
   for (const r of stale) {
+    await sql`delete from quote_charge_recovery where charge_instance_id = ${r.id}`;
     await sql`delete from quote_charge_instance_tiers where charge_instance_id = ${r.id}`;
     await sql`delete from quote_charge_instances where id = ${r.id}`;
   }
@@ -146,8 +156,10 @@ try {
     if (mapped === 0) {
       indeterminate(
         `${expect[k]} mapping presence`,
-        "the isolated database carries no destination mappings; both ARE resolved " +
-          "in the configured (sandbox) account, which is a separate release concern",
+        "the isolated database carries no destination mappings. Both ARE resolved " +
+          "in the configured (sandbox) account -- account provenance is a separate " +
+          "release concern. Stand-ins are seeded later so the readiness stage can " +
+          "be driven, and removed afterwards",
       );
     } else {
       check(`and ${expect[k]} has a resolved mapping`, mapped === 1, `${mapped} row(s)`);
@@ -369,14 +381,169 @@ try {
 
   // ═══ 6 · freeze and readiness ═════════════════════════════════════════
   console.log("\n── freeze and readiness ───────────────────────────────────");
-  indeterminate(
-    "freeze and readiness could not be driven for this charge",
-    "no snapshot in the isolated environment carries a frozen line, so " +
-      "`assessProjectionReadiness` short-circuits at `no_frozen_matrix` before the " +
-      "line loop. Same limit as `per-line-destination-walk`; closing it needs a " +
-      "frozen-matrix fixture. The projection's component-charge branch and the " +
-      "destination it resolves ARE covered by unit falsification.",
+  // The previous round reported this INDETERMINATE because no snapshot in the
+  // isolated environment carried a frozen line. That was true, and it was not a
+  // reason to stop: the frozen matrix is BUILT here, from this quote's own
+  // projection, by the real freeze writer.
+  // ── RECOVERY DECIDES THE PRESENTATION, so elect one ──────────────────
+  //
+  // The first version of this section asserted an OTC line with NO election
+  // recorded, and reported a failure. The code was right and the fixture was
+  // wrong: an unelected charge is not `separate`, and `included` correctly
+  // emits no separate line at all. Both presentations are asserted below, so
+  // the check can tell them apart instead of assuming one.
+  const electAs = async (mode: "included" | "separate") => {
+    await sql`
+      insert into quote_charge_recovery
+        (quote_id, charge_key, mode, charge_instance_id, elected_by_user_id)
+      values (${sp.quote_id}, 'project_setup', ${mode}, ${owned[0].id}, ${pm.id})
+      on conflict (charge_instance_id) do update set mode = ${mode}, elected_at = now()
+    `;
+    const b = await getCostingBundle(sp.quote_id);
+    if (!b.ok) throw new Error("getCostingBundle failed");
+    return projectCommercial(b.data as never);
+  };
+
+  const asIncluded = await electAs("included");
+  const includedOtc = asIncluded.lines.filter(
+    (l) => l.kind === "otc" && l.displayName.includes("Project setup"),
   );
+  check(
+    "elected `included`, the charge emits NO separate customer line",
+    includedOtc.length === 0,
+    `${includedOtc.length} line(s) — it is recovered inside the unit price`,
+  );
+
+  const projection = await electAs("separate");
+
+  const otcLines = projection.lines.filter((l) => l.kind === "otc");
+  const ours = otcLines.find((l) => l.displayName.includes("Project setup"));
+  check(
+    "the owned charge PROJECTS as its own one-time line",
+    !!ours,
+    otcLines.map((l) => l.displayName).join(", ") || "(no otc lines)",
+  );
+  check(
+    "keyed by INSTANCE, not per assembly -- which is why it bills for a standalone owner",
+    !!ours && ours.key.startsWith("otc:instance:"),
+    ours?.key ?? "",
+  );
+  check(
+    "carrying the resolved accounting destination",
+    ours?.bv011Destination === "otc_setup",
+    String(ours?.bv011Destination),
+  );
+  check(
+    "and no unresolved-destination reason",
+    (ours?.destinationUnresolvedReason ?? null) === null,
+    String(ours?.destinationUnresolvedReason),
+  );
+
+  const [snap] = await sql<{ id: string }[]>`
+    insert into quote_snapshots (quote_id, version_number, effective_from, sent_at, created_by_user_id)
+    values (${sp.quote_id},
+            (select coalesce(max(version_number),0)+1 from quote_snapshots where quote_id = ${sp.quote_id}),
+            now(), now(), ${pm.id})
+    returning id
+  `;
+  snapshotId = snap.id;
+
+  await db.transaction(async (tx) => {
+    await freezeCommercialLineSet(tx as never, snap.id, projection);
+  });
+
+  const frozen = await sql<{
+    display_name: string;
+    bv011_destination: string | null;
+    selected_netsuite_item_id: string | null;
+  }[]>`
+    select display_name, bv011_destination, selected_netsuite_item_id
+      from quote_snapshot_lines where quote_snapshot_id = ${snap.id}
+  `;
+  check("the freeze wrote lines", frozen.length > 0, `${frozen.length} line(s)`);
+  const frozenOurs = frozen.find((f) => f.display_name.includes("Project setup"));
+  check(
+    "including the owned charge, its destination RECORDED on the frozen line",
+    frozenOurs?.bv011_destination === "otc_setup",
+    String(frozenOurs?.bv011_destination),
+  );
+  check(
+    "and NO per-line item selection, because otc_setup is firm-wide",
+    (frozenOurs?.selected_netsuite_item_id ?? null) === null,
+    "a per-line destination would have had nowhere to record one",
+  );
+
+  // Readiness needs an accepted tier. Recorded, then restored in `finally`.
+  const [priorTier] = await sql<{ customer_accepted_tier_id: string | null }[]>`
+    select customer_accepted_tier_id from quotes where id = ${sp.quote_id}
+  `;
+  acceptedTierRestore = {
+    quoteId: sp.quote_id,
+    prior: priorTier?.customer_accepted_tier_id ?? null,
+  };
+  await sql`
+    update quotes set customer_accepted_tier_id = ${tiers[0].id} where id = ${sp.quote_id}
+  `;
+
+  // The isolated database carries no destination mappings at all, so readiness
+  // would block on `unmapped_destination` for a reason that is an ENVIRONMENT
+  // fact rather than a property of this charge. Seeded here -- with values that
+  // are plainly stand-ins -- so the stage can actually be driven. Removed in
+  // `finally`; production mappings and their account provenance are a separate
+  // release concern and are not touched by this.
+  for (const [dest, code] of [
+    ["otc_setup", "ZZ-WALK-SETUP"],
+    ["otc_formulation", "ZZ-WALK-FORM"],
+  ] as const) {
+    await sql`
+      insert into netsuite_destination_item_map
+        (destination, netsuite_item_code, netsuite_internal_id, resolved_by_user_id)
+      values (${dest}, ${code}, ${"9999" + String(dest.length)}, ${pm.id})
+      on conflict (destination) do nothing
+    `;
+    seededDestinations.push(dest);
+  }
+
+  const readiness = await assessProjectionReadiness(sp.quote_id);
+  const kinds = readiness.ready ? [] : readiness.blockers.map((b) => b.kind);
+  console.log(`     readiness: ready=${readiness.ready} blockers=[${kinds.join(", ")}]`);
+
+  check(
+    "readiness reaches the LINE loop -- no `no_frozen_matrix`",
+    !kinds.includes("no_frozen_matrix"),
+    kinds.join(", ") || "none",
+  );
+  check(
+    "the owned charge is NOT blocked as an unresolved per-line destination",
+    !kinds.includes("per_line_destination_unresolved"),
+    "firm-wide destination, so no selection is owed",
+  );
+  check(
+    "nor as an ungoverned or unrecorded component destination",
+    !kinds.some((k) => String(k).includes("ungoverned") || String(k).includes("not_recorded")),
+    kinds.join(", ") || "none",
+  );
+
+  if (readiness.ready) {
+    const emittedReal = emitAccountingLines(readiness.lines as never);
+    const mine = (emittedReal as unknown as Record<string, unknown>[]).find((l) =>
+      String(l.description ?? "").includes("Project setup"),
+    );
+    check("the real frozen line emits a posting payload", !!mine,
+      `${emittedReal.length} line(s) emitted`);
+    if (mine) {
+      check("as a one-time charge at quantity 1", Number(mine.quantity) === 1,
+        JSON.stringify(mine).slice(0, 140));
+      console.log("     real payload:", JSON.stringify(mine));
+    }
+  } else {
+    indeterminate(
+      "the posting payload for the real frozen line",
+      `readiness did not resolve: ${kinds.join(", ")}. Those are properties of this ` +
+        `fixture quote, and the checks above establish the charge itself raised ` +
+        `none of them.`,
+    );
+  }
 
   // ═══ 7 · the Item Group is unaffected ═════════════════════════════════
   console.log("\n── existing arithmetic is unchanged ───────────────────────");
@@ -411,10 +578,28 @@ try {
        where category = ${PRODUCTION_MARKUP_CATEGORY}
     `;
   }
+  for (const d of seededDestinations) {
+    await sql`delete from netsuite_destination_item_map
+               where destination = ${d} and netsuite_item_code like 'ZZ-WALK-%'`;
+  }
+  if (acceptedTierRestore) {
+    await sql`
+      update quotes set customer_accepted_tier_id = ${acceptedTierRestore.prior}
+       where id = ${acceptedTierRestore.quoteId}
+    `;
+  }
+  if (snapshotId) {
+    await sql`delete from quote_snapshot_line_tiers where quote_snapshot_line_id in
+      (select id from quote_snapshot_lines where quote_snapshot_id = ${snapshotId})`;
+    await sql`delete from quote_snapshot_lines where quote_snapshot_id = ${snapshotId}`;
+    await sql`delete from quote_snapshot_tier_totals where quote_snapshot_id = ${snapshotId}`;
+    await sql`delete from quote_snapshots where id = ${snapshotId}`;
+  }
   if (seededColumnRow) {
     await sql`delete from assembly_production_inputs where id = ${seededColumnRow}`;
   }
   for (const id of createdInstanceIds) {
+    await sql`delete from quote_charge_recovery where charge_instance_id = ${id}`;
     await sql`delete from quote_charge_instance_tiers where charge_instance_id = ${id}`;
     await sql`delete from quote_charge_instances where id = ${id}`;
   }

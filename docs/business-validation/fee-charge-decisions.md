@@ -11,6 +11,12 @@ migration, deployment, seeding or CD change.**
 > `npm run validation:owned-production-fee-walk` — **0 failures, 3
 > indeterminate** — plus `legacy-otc-owner-boundary`'s double-emission
 > falsifications, now covering both new keys.
+>
+> **Freeze and readiness are now DRIVEN, not indeterminate.** The earlier round
+> reported them blocked because no snapshot in the isolated environment carried
+> a frozen line. That was true and was not a reason to stop: the walk now builds
+> the frozen matrix from the quote's own projection with the real freeze writer,
+> then runs readiness against it. Remaining detail in §7.
 
 Candidate head for this round: **`f93f2e0c`** plus the commit adding
 `scripts/gate-1b/per-line-destination-walk.ts` and the corrections below.
@@ -245,6 +251,45 @@ not made.
 | **2** | **`testing_micros`**: **held.** Per-line destination; needs a `destination` discriminator on `quote_other_service_items`, a new unique key, a backfill, and somewhere on a component charge to record a selection | needs its own scoped change |
 | **3** | **Duplicate guard**: refuse same-owner-same-governed-input (§2 Case A); allow and surface everything else | ready for approval |
 | **4** | **Frozen-matrix fixture** for the isolated environment, so readiness and posting can be driven | separate, and it would close the INDETERMINATE above |
+
+---
+
+## 7 · Freeze → readiness → posting, driven
+
+`npm run validation:owned-production-fee-walk`, repeatable, self-cleaning.
+
+**Both presentations, from one election:**
+
+| Election | Customer line | Verified |
+|---|---|---|
+| `included` | **none** — recovered inside the unit price | ✓ |
+| `separate` | its own line, keyed `otc:instance:<id>` | ✓ |
+
+The first version of this section asserted an OTC line with **no election
+recorded** and reported a failure. The code was right and the fixture was
+wrong — an unelected charge is not `separate`, and `included` correctly emits
+nothing. Both are now asserted, so the check can tell them apart instead of
+assuming one.
+
+**Freeze.** The real writer wrote 5 lines, the owned charge among them, with
+`bv011_destination = otc_setup` **recorded on the frozen line** and
+`selected_netsuite_item_id` null — correct, because `otc_setup` is firm-wide. A
+per-line destination there would have had nowhere to record a selection, which
+is §1's finding reached from the freeze side.
+
+**Readiness.** Reaches the line loop — no `no_frozen_matrix`. The charge raises
+**no blocker of its own**: not `per_line_destination_unresolved`, not
+`ungoverned`, not `destination_not_recorded`. `unmapped_destination` was
+cleared by seeding stand-in mappings the isolated database lacks (removed
+afterwards; production mappings and their account provenance are untouched).
+
+**One blocker remains: `provisional_tier`** — the fixture quote's tier total is
+provisional, so an order cannot be posted for a number the customer was told was
+a floor. That is a property of that quote, not of the charge, and clearing it
+would mean manufacturing a different quote. The posting payload is therefore
+reported INDETERMINATE for the real frozen line and **verified for the emitter**:
+`emitAccountingLines` produces one line, quantity 1, the amount as the line, at
+the resolved item — and sends nothing.
 
 ---
 
