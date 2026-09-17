@@ -3,6 +3,14 @@
 **2026-09-17 · read-only. No class created, merged, renamed or reclassified. No
 field added. No production write. No historical classification altered.**
 
+> **Followed by [`2026-09-17-netsuite-class-rule-test.md`](2026-09-17-netsuite-class-rule-test.md)**,
+> which tests a candidate Class rule against the same account and **corrects two
+> characterisations here**: `WFG842`/`WFL844` are not "wrongly defaulted" (their
+> default fits the observed meaning; they have never been ordered), and the
+> `Secondary -` overrides are **historical, not a live practice** — Corrugated
+> ended August 2024. It also resolves the Business Segment value names, which
+> this audit could not.
+
 Requested before any change to classification or to the Nexus design.
 
 ---
@@ -334,7 +342,7 @@ row.
 | Logistics | 8 / 11 | unchanged | **keep** |
 | Formulation | 1 / 8 | unchanged | **keep** |
 | **Turnkey** | 2 items that never post / 3 Assembly lines that do | Give the finished-good **Assembly** items a Turnkey item default, so the class stops depending on line-level entry | **gap to fill** |
-| **Turnkey — `WFG842`/`WFL844`** | default to Turnkey, never post | Confirm whether these are sold turnkey | **requires business decision** |
+| **Turnkey — `WFG842`/`WFL844`** | default to Turnkey, never post | **CORRECTED** by the rule-test audit: they are W LABS cologne sprays — complete manufactured consumer products — so their default FITS the observed meaning. They have simply never been ordered. Not "wrongly defaulted" | **keep the default; no action** |
 | **Secondary - Cards, Booklets** | 0 items / 89 lines | Either give the ~40 items this default, or stop using the variant and let `Cards, Booklets` stand | **requires business decision** |
 | **Secondary - Corrugated** | 0 items / 11 lines | Same question, smaller | **requires business decision** |
 | **Cards, Booklets** | 51 / 68 | Its relationship to variant 66 is the decision above; nothing to change on its own | **requires business decision** |
