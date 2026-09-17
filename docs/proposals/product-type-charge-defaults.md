@@ -444,6 +444,39 @@ so rather than saying “none”.
 
 ---
 
+## 8.1 · THE GAP: this model cannot suggest setup or R&D
+
+**Recorded explicitly, not fixed here.**
+
+`project_setup` and `rd_formulation` are now **component-ownable** — PR #597,
+separated from this work and carrying no migration. Once it deploys, an operator
+can add either fee to a standalone product or an Item Group member **manually**,
+and it costs, prices, recovers, freezes and posts.
+
+**This Settings model cannot suggest either of them.** The draft
+`product_type_charge_defaults.charge_key` CHECK names five identities, and
+`SUGGESTIBLE_CHARGE_KEYS` deliberately mirrors that five rather than reading the
+now-wider `COMPONENT_CHARGE_KEYS`. So an admin cannot write a rule saying
+"a Formulation component usually carries R&D", and no such rule will ever be
+offered.
+
+**Owning a charge and having a Product Type suggest it are different
+questions**, and only the first is answered. The gap is deliberate: offering an
+admin two options the database refuses would be a control that always fails.
+
+| | State |
+|---|---|
+| Adding setup / R&D to a product | **works, manually, after #597 deploys** |
+| A Product Type suggesting either | **not possible** |
+| Closing that | a decision, then a CHECK replacement on an empty table |
+
+**Not done in this step, on instruction:** the CHECK is not widened, no rule is
+seeded, and no authoring integration is built. Recorded so the limitation is
+legible rather than discovered by an admin looking for a charge that is not
+listed.
+
+---
+
 ## 9 · The applicability matrix
 
 **The product/service type → charge applicability matrix is now delivered:**

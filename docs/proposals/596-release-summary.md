@@ -3,8 +3,19 @@
 **2026-09-16 · head `43219672` · HELD pending release approval.**
 No production migration applied, nothing deployed, no rule seeded.
 
-Eleven commits, 33 files. Two separable bodies of work with **different release
-requirements**, and the difference is the point of this document.
+> **SEPARATED 2026-09-16.** Body **A** now ships on its own as **PR #597**
+> (`feat/owned-production-fees`, head `b909c4a7`) — no migration, verified
+> standalone. **#596 is now body B only:** the charge-defaults Settings feature
+> and migration 0131, still held. §1's B requirements and §2's ordering are the
+> live part of this document; §3's A section describes what #597 delivers.
+>
+> **The gap that separation leaves is recorded in
+> [`product-type-charge-defaults.md`](product-type-charge-defaults.md) §8.1:**
+> this Settings model cannot suggest setup or R&D, although operators can add
+> those charges manually once #597 deploys.
+
+Two separable bodies of work with **different release requirements**, and the
+difference is the point of this document.
 
 | | Needs a migration? | Available on deploy? |
 |---|:--:|---|
