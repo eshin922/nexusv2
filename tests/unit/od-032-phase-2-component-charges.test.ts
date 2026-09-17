@@ -791,7 +791,7 @@ test("F3 · the engine identifies a charge by instance id, never by label", () =
 // The V1 vocabulary, as dispositioned
 // ══════════════════════════════════════════════════════════════════════
 
-test("the component vocabulary is exactly the dispositioned five", () => {
+test("the component vocabulary is exactly the dispositioned seven", () => {
   assert.deepEqual(
     [...COMPONENT_CHARGE_KEYS].sort(),
     [
@@ -804,7 +804,23 @@ test("the component vocabulary is exactly the dispositioned five", () => {
       // the same authority and posts to the same BV-011 destination.
       "samples",
       "tooling",
-    ],
+      // ── ADDED, and the addition is a disposition ────────────────────────
+      //
+      // A standalone quoted product is a full commercial citizen -- it costs,
+      // marks up, recovers, prints and posts under its own SKU -- and until
+      // these two it had nowhere to record a set-up or development fee it
+      // caused, because `assembly_production_inputs` is restricted to
+      // assemblies and Direct Services by migration `0082`.
+      //
+      // They price through PRODUCTION_MARKUP_CATEGORY, the same authority
+      // their production columns resolve, so moving the owner moves no money.
+      //
+      // `testing_micros` was considered WITH these and deliberately excluded:
+      // `otc_testing` is per-line, and a component charge freezes
+      // `selectedNetsuiteItem: null`, so it would be authorable and unsendable.
+      "project_setup",
+      "rd_formulation",
+    ].sort(),
   );
 });
 
@@ -824,6 +840,8 @@ test("every component charge type has an explicit pricing authority", () => {
       artwork_plate: "Manufacturing",
       other_service: "UNCLASSIFIED",
       print_plates: "Tooling",
+      project_setup: "Production",
+      rd_formulation: "Production",
       samples: "Manufacturing",
       tooling: "Tooling",
     },
@@ -854,11 +872,28 @@ test("no component charge inherits its rate from an owner", () => {
   );
 });
 
-test("project_setup is NOT component-owned", () => {
-  // Its absence is the rule, not an omission: engagement-level setup is a
-  // different commercial fact and stays quote-owned.
-  assert.equal(isComponentChargeKey("project_setup"), false);
-  assert.equal(isComponentChargeKey("container_freight"), false);
+test("a setup fee may be OWNED, and engagement-level setup is still quote-owned", () => {
+  // ── SUPERSEDES "project_setup is NOT component-owned" ─────────────────
+  //
+  // The prior disposition read: "engagement-level setup is a different
+  // commercial fact and stays quote-owned." The first half of that is still
+  // true and is not what changed. What changed is that a set-up fee an OWNER
+  // causes -- a standalone product's run changeover -- had nowhere to go, and
+  // was being forced through an Item Group it did not belong to.
+  //
+  // Both now exist and are told apart by `owner_ref`: '@quote' for the
+  // engagement, the leaf id for the one that leaf caused. That is the recorded
+  // fact, not an inference.
+  assert.equal(isComponentChargeKey("project_setup"), true);
+  assert.equal(isComponentChargeKey("rd_formulation"), true);
+
+  // Unchanged, and the controls that say the widening was NARROW.
+  assert.equal(isComponentChargeKey("testing_micros"), false,
+    "per-line destination with nowhere to record the selection");
+  assert.equal(isComponentChargeKey("container_freight"), false,
+    "landed, not one-time");
+  assert.equal(isComponentChargeKey("duty_tariffs"), false);
+  assert.equal(isComponentChargeKey("tooling_artwork_legacy"), false);
   assert.equal(isComponentChargeKey("print_plates"), true);
 });
 
@@ -994,5 +1029,72 @@ test("the election writer no longer depends on the constraint being dropped", ()
     ),
     false,
     "the writer still names the unique that 0110 drops",
+  );
+});
+
+/* ── the duplicate guard ───────────────────────────────────────────────── */
+
+test("a Direct Service's own governed fee cannot also be an owned charge", async () => {
+  // THE RULE, and what it is not. It prevents TWO REPRESENTATIONS of one
+  // governed fee. It is not a claim that two costs are economically identical,
+  // and it compares no amounts -- a $900 column beside a $500 charge is the
+  // same duplication, mis-stated.
+  //
+  // The composition that decides it, asserted so a future reader can see it is
+  // exact rather than a heuristic:
+  //
+  //   identity -> DIRECT_SERVICE_PRODUCTION_INPUT -> column
+  //   column   -> OTC_COLUMN_TO_CHARGE            -> charge key
+  const { DIRECT_SERVICE_PRODUCTION_INPUT, DIRECT_SERVICE_IDENTITIES } =
+    await import("../../src/lib/product-structure/direct-service.ts");
+  const { OTC_COLUMN_TO_CHARGE } = await import(
+    "../../src/lib/commercial-recovery/registry.ts"
+  );
+
+  const collides = Object.fromEntries(
+    DIRECT_SERVICE_IDENTITIES.map((id) => [
+      id,
+      OTC_COLUMN_TO_CHARGE[DIRECT_SERVICE_PRODUCTION_INPUT[id]] ?? null,
+    ]),
+  );
+
+  // Exactly three identities can collide. `filling_blending` and
+  // `packout_assembly` map to RECURRING columns that are in no charge map, so
+  // no charge key can duplicate them and the guard must not invent one.
+  assert.deepEqual(collides, {
+    formulation: "rd_formulation",
+    testing_micros: "testing_micros",
+    other_service: "other_service",
+    filling_blending: null,
+    packout_assembly: null,
+  });
+});
+
+test("the guard refuses narrowly, and says where the fee goes instead", () => {
+  const src = readFileSync("src/lib/component-charges/create.ts", "utf8");
+
+  // It turns on the OWNER's own governed input, not on the key alone.
+  assert.match(src, /governedKeyForOwner/);
+  assert.match(src, /DIRECT_SERVICE_PRODUCTION_INPUT\[serviceIdentity\]/);
+  assert.match(src, /key === governedKeyForOwner/);
+
+  // A refusal that only says "no" is a dead end. This one names the surface.
+  assert.match(src, /Production input instead/);
+  assert.match(src, /separately incurred can still be added/i);
+
+  // AND IT MUST NOT REACH FURTHER. Two charges of one type on one component,
+  // or a component's fee beside an Item Group's, are separately incurred
+  // obligations -- refusing them would push operators back to the single
+  // column this work exists to stop depending on. Differing labels do not
+  // prove distinctness; they only make the distinction recorded.
+  assert.doesNotMatch(
+    src,
+    /owner_ref\s*===\s*['"]@quote['"]/,
+    "the guard must not compare against the quote-owned charge",
+  );
+  assert.doesNotMatch(
+    src,
+    /assemblyId[\s\S]{0,40}throw new ActionGuardError/,
+    "the guard must not refuse an Item Group member",
   );
 });

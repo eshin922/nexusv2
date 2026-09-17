@@ -367,7 +367,13 @@ test("DIVERGENCE · Run setup is not offered, and the disposition is why", () =>
   );
 
   const keys = [...COMPONENT_CHARGE_KEYS];
-  assert.equal(keys.length, 5, "V1 offers five component types");
+  // SEVEN now, not five: `project_setup` and `rd_formulation` were added so a
+  // standalone product could own a fee it causes. That does NOT resolve this
+  // divergence, and the distinction is easy to lose -- `project_setup` is the
+  // governed engagement/run set-up fee with an existing destination
+  // (`otc_setup`), while the prototype's "Run setup" is a separate type that
+  // still has none. The disposition below is untouched.
+  assert.equal(keys.length, 7, "V1 offers seven component types");
   assert.ok(
     !keys.some((k) => String(k).includes("run_setup")),
     "Run setup is out of V1 pending an Accounting destination",

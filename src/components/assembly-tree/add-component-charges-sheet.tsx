@@ -63,6 +63,8 @@ const HINT: Record<ComponentChargeKey, string> = {
   tooling: "cutting die, mould or collar for this component",
   artwork_plate: "design, adaptation and proofing labour",
   samples: "pre-production samples of this component",
+  project_setup: "one-off set-up or changeover for this product's run",
+  rd_formulation: "development or formulation work quoted separately",
   other_service: "label required · e.g. “foil stamping die spec”",
 };
 
