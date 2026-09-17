@@ -6,6 +6,12 @@ no class created, renamed, merged or reclassified. Nothing changed.**
 Continues `2026-09-17-netsuite-class-structure-audit.md`, which established the
 account's shape. This tests the rule.
 
+> **Followed by [`2026-09-17-netsuite-class-gap-evidence.md`](2026-09-17-netsuite-class-gap-evidence.md)**,
+> which fills in the populations behind the gaps this document names — and finds
+> that the manufactured-product definition **over-captures 211 `Filling and
+> Packout Services` items**, that Tertiary Packaging is **not** a gap, and that
+> `Finished Goods` already mixes a unit and a bundle.
+
 > **Candidate rule.** NetSuite Class identifies the **nature of the
 > customer-contracted deliverable** represented by a sales line. It does **not**
 > identify the breadth of the customer relationship, sourcing arrangement,
