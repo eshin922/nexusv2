@@ -3,6 +3,7 @@ import type { OtherServiceSelection } from "./commercial-projection";
 import type { ChargeElection } from "./commercial-recovery/resolve";
 import {
   computeQuoteCosting,
+  type ComponentChargeInput,
   type CostingCellOverride,
   type CostingCellTarget,
   type CostingFreightComponentTierCost,
@@ -130,6 +131,7 @@ export type CostingStoreState = {
 
   // Mutable inputs (PM edits flow here; recompute fires on every change)
   globalPriceAdjPct: number;
+  freightMarkupPct: number;
   // Slice 9.2 — per-quote target margin override. NULL = inherit
   // firm-level. Reverse-solve goal + verdict bands use the effective
   // value (`?? firmSettings.targetMarginPct`).
@@ -141,6 +143,8 @@ export type CostingStoreState = {
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
   assemblyProduction: StoredAssemblyProductionRow[];
+  /** Economics used by the server; identity metadata alone cannot reconstruct cost. */
+  componentCharges: ComponentChargeInput[];
   // Slice R6.2 — multi-leg journey freight model. Three sparse arrays
   // (groups → legs → leg-tiers) + customer-arranges-meta. The store
   // mutates one array at a time on PM edit; recompute pipes through
@@ -388,6 +392,7 @@ export type HydrateSnapshot = {
   quoteId: string;
   projectId: string;
   globalPriceAdjPct: number;
+  freightMarkupPct: number;
   // Slice 9.2 — per-quote target margin override (NULL = inherit firm).
   targetMarginPct: number | null;
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
@@ -397,6 +402,8 @@ export type HydrateSnapshot = {
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
   assemblyProduction: StoredAssemblyProductionRow[];
+  /** Economics used by the server; identity metadata alone cannot reconstruct cost. */
+  componentCharges: ComponentChargeInput[];
   freightLegGroups: StoredFreightLegGroup[];
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
@@ -607,22 +614,12 @@ export function costingInputFromSnapshot(
   s: HydrateSnapshot,
 ): Required<QuoteCostingInput> {
   return {
-    // TODO(od-032-phase-3): carry component-owned charges on HydrateSnapshot.
-    //
-    // Empty is CORRECT today and will stop being correct the moment the phase-4
-    // sheet can author one: no UI exists to create a component charge, so no
-    // quote has any, and an empty array is the whole truth rather than a
-    // convenient default.
-    //
-    // Written as a marked TODO rather than a bare `[]` because a bare `[]` here
-    // would read as a decision — Pattern 54 — and the phase that must change it
-    // is the phase that makes it wrong.
-    componentCharges: [],
+    componentCharges: s.componentCharges,
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,
       targetMarginPct: s.targetMarginPct,
-      freightMarkupPct: 0,
+      freightMarkupPct: s.freightMarkupPct,
     },
     firmSettings: s.firmSettings,
     markupDefaults: s.markupDefaults,
@@ -647,21 +644,12 @@ export function buildCostingInput(
   s: Parameters<typeof recompute>[0],
 ): Required<QuoteCostingInput> {
   return {
-    // TODO(od-032-phase-3): carry component-owned charges on HydrateSnapshot.
-    //
-    // Empty is CORRECT today and will stop being correct the moment the phase-4
-    // sheet can author one: no UI exists to create a component charge, so no
-    // quote has any, and an empty array is the whole truth rather than a
-    // convenient default.
-    //
-    // Written as a marked TODO rather than a bare `[]` because a bare `[]` here
-    // would read as a decision — Pattern 54 — and the phase that must change it
-    // is the phase that makes it wrong.
-    componentCharges: [],
+    componentCharges: s.componentCharges,
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,
       targetMarginPct: s.targetMarginPct,
+      freightMarkupPct: s.freightMarkupPct,
     },
     firmSettings: s.firmSettings,
     markupDefaults: s.markupDefaults,
@@ -696,29 +684,7 @@ export function buildCostingInput(
 // the server-precompute optimization for costing while letting the
 // client populate the warnings slice without extending HydrateSnapshot.
 function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
-  const input: QuoteCostingInput = {
-    quote: {
-      id: snapshot.quoteId,
-      globalPriceAdjPct: snapshot.globalPriceAdjPct,
-      targetMarginPct: snapshot.targetMarginPct,
-    },
-    firmSettings: snapshot.firmSettings,
-    markupDefaults: snapshot.markupDefaults,
-    skus: snapshot.skus,
-    tiers: snapshot.tiers,
-    packaging: snapshot.packaging,
-    production: snapshot.production,
-    assemblyProduction: snapshot.assemblyProduction,
-    freightLegGroups: snapshot.freightLegGroups,
-    freightLegs: snapshot.freightLegs,
-    freightLegTiers: snapshot.freightLegTiers,
-    freightComponentTierCosts: snapshot.freightComponentTierCosts,
-    freightShipmentBreaks: snapshot.freightShipmentBreaks,
-    cellOverrides: snapshot.cellOverrides,
-    cellTargets: snapshot.cellTargets,
-        chargeElections: snapshot.chargeElections ?? [],
-    lifts: snapshot.lifts,
-  };
+  const input = costingInputFromSnapshot(snapshot);
   return validateQuote(input, snapshot.costing);
 }
 
@@ -738,6 +704,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     projectId: initial.projectId,
     globalPriceAdjPct: initial.globalPriceAdjPct,
     targetMarginPct: initial.targetMarginPct,
+    freightMarkupPct: initial.freightMarkupPct,
     firmSettings: initial.firmSettings,
     markupDefaults: initial.markupDefaults,
     skus: initial.skus,
@@ -745,6 +712,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     packaging: initial.packaging,
     production: initial.production,
     assemblyProduction: initial.assemblyProduction,
+    componentCharges: initial.componentCharges,
     freightLegGroups: initial.freightLegGroups,
     freightLegs: initial.freightLegs,
     freightLegTiers: initial.freightLegTiers,
@@ -789,6 +757,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
         targetMarginPct: snapshot.targetMarginPct,
+        freightMarkupPct: snapshot.freightMarkupPct,
         firmSettings: snapshot.firmSettings,
         markupDefaults: snapshot.markupDefaults,
         skus: snapshot.skus,
@@ -796,6 +765,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         packaging: snapshot.packaging,
         production: snapshot.production,
         assemblyProduction: snapshot.assemblyProduction,
+        componentCharges: snapshot.componentCharges,
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
@@ -846,6 +816,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
         targetMarginPct: snapshot.targetMarginPct,
+        freightMarkupPct: snapshot.freightMarkupPct,
         firmSettings: snapshot.firmSettings,
         markupDefaults: snapshot.markupDefaults,
         skus: snapshot.skus,
@@ -853,6 +824,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         packaging: snapshot.packaging,
         production: snapshot.production,
         assemblyProduction: snapshot.assemblyProduction,
+        componentCharges: snapshot.componentCharges,
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,

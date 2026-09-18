@@ -2128,6 +2128,8 @@ export async function getCostingBundle(
       quoteId: quote.id,
       projectId: quote.projectId,
       chargeElections,
+      componentCharges: [...(input.componentCharges ?? [])],
+      freightMarkupPct: input.quote.freightMarkupPct ?? 0,
       // Identity + names for the customer document's OTC lines. Read once,
       // here, so the projection never looks anything up for itself.
       componentChargeMeta: await readExistingComponentCharges(quoteId),

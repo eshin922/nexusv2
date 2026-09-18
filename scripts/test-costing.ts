@@ -1,7 +1,7 @@
 // Slice 8 unit-test harness for src/lib/costing.ts
 //
 // Run via:
-//   node --experimental-strip-types scripts/test-costing.ts
+//   npm run test:costing
 //
 // Builds the canonical Gift Set → Lip Oil 10ml → {Bottle, Cap, Label}
 // fixture from CLAUDE.md / actions/costing.ts spec, runs computeQuoteCosting,
@@ -20,7 +20,10 @@ import {
 const input: QuoteCostingInput = {
   quote: { id: "q1", globalPriceAdjPct: 0 },
   firmSettings: { targetMarginPct: 0.35, floorMarginPct: 0.25 },
-  markupDefaults: { Manufacturing: 0.3, Other: 0.3 },
+  // The canonical example expects 30% on production. BV-013 requires that
+  // authority explicitly: Manufacturing/Other no longer supply its fallback.
+  // This is fixture configuration, not a change to any firm's stored rate.
+  markupDefaults: { Production: 0.3, Manufacturing: 0.3, Other: 0.3 },
   skus: [
     {
       id: "gs",

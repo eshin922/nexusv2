@@ -49,6 +49,8 @@
     "verify:product-structure-slice1": "node --env-file=.env.validation.local --experimental-strip-types scripts/product-structure/slice1-preflight.ts",
     "test:netsuite-adapter": "node --experimental-strip-types scripts/test-netsuite-adapter.ts",
     "test:unit": "node --experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs --test tests/unit/*.test.ts tests/unit/*.test.tsx",
+    "test:costing": "node --experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs scripts/test-costing.ts",
+    "validation:financial-parity-walk": "node --env-file=.env.validation.local --experimental-strip-types --experimental-loader=./scripts/support/src-resolver.mjs tests/integration/financial-parity-walk.ts",
     "test:e2e": "node --env-file=.env.validation.local node_modules/@playwright/test/cli.js test",
     "test:e2e:headed": "node --env-file=.env.validation.local node_modules/@playwright/test/cli.js test --headed",
     "admin:release-unanswered": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/admin/release-unanswered-edit.ts",
