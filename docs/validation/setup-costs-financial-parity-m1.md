@@ -96,7 +96,7 @@ Two existing Costs harness cases are stale: VAL-101 fills a cell but never
 blurs/presses Enter before awaiting a save; VAL-103 still expects the removed
 debounce and leaves its second cell focused. The production component
 explicitly commits on blur/Enter. The first trace shows the typed value still
-focused with no POST; the second expects two receipts but gets one. VAL-101
+focused with no POST; the second expects two receipts but gets zero. VAL-101
 also targets the retired combined Tooling/artwork input; the current UI has
 separate Tooling and Artwork fields. Proposed separate harness-only repair:
 exercise the real commit gesture, use the existing separate fields while
@@ -104,6 +104,38 @@ preserving their aggregate amount, and retain DB read-back, reload, refusal,
 audit and network assertions. Do not change save behavior to satisfy an old
 test. Durable traces and logs are under
 `C:/Code/nexus-validation-runs/financial-browser-20260918-0955`.
+
+The separate harness-only correction was then exercised. **VAL-101 passes**:
+seven current Production fields (including Tooling 5 + Artwork 5 in place of
+the same aggregate 10), exact database read-back, reload persistence, negative
+input refusal with rollback and no extra audit, and strict browser/network
+diagnostics. The legacy combined field remains null.
+
+**VAL-103 remains a blocker.** Explicit Enter on both cells and waiting for
+the drawer navigation to settle do not repair it: the two expected save
+receipts are absent. Running it alone after reseeding also fails. Therefore
+the initial debounce-only explanation was incomplete. Do not classify this
+remaining result as a harmless selector issue or claim concurrent browser
+editing is certified. Establish the cause on unchanged main and the candidate
+before changing the application. The failing test retains both database and
+audit assertions; none were relaxed.
+
+**VAL-209 remains a browser acceptance gap.** Its fixture renders the current
+Pricing page with an above-floor tier summary and per-tier "Lift all ... to
+floor" controls, but not the `.psr-action-card` recommendation CTA the test
+expects. It fails before staging/applying. No conclusion about the repaired
+Apply action follows from that missing precondition. Reconcile fixture and
+current interaction authority, then prove staging, discard, apply-once,
+reload, return-to-baseline and old-tab refusal on the mounted surface.
+
+The owned port-3101 server and descendants were stopped after checking process
+identity. Run-scoped fixtures were reset; traces/reports were copied outside
+the worktree. Automatic approval review rejected generated-directory cleanup
+without a specific reason, so the owned generated paths and safe browser env
+file remain. Port 3100 and the pre-existing shared validation container were
+not touched. The dedicated local database is retained for investigation.
+This is diagnostic acceptance evidence, **not a full clean-tree merge-gate
+certification**.
 
 1. Concurrent Pricing apply and required-basis checks are covered by the second repair above. This is not a claim that every independent writer elsewhere has received a concurrency audit.
 2. Complete mounted/browser acceptance of the existing Pricing caller with the stricter contract, including old-tab refusal and return to baseline.

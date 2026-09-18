@@ -24,6 +24,10 @@ async function openProduction(page: import("@playwright/test").Page) {
   if ((await trigger.getAttribute("aria-expanded")) !== "true") {
     await trigger.click();
   }
+  // Opening the drawer changes the route. Wait for that receipt before
+  // starting the cost-edit scenario, rather than editing the outgoing tree.
+  await page.waitForURL(url => url.searchParams.get("section") === "production");
+  await page.waitForLoadState("networkidle");
 }
 
 test("VAL-101 creates and persists basic production pricing inputs", async ({
@@ -84,10 +88,10 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
     },
     "CM assembly tier total": { value: "50.00", column: "cm_assembly_total" },
     "Setup fee total": { value: "10.00", column: "setup_fee_total" },
-    "Tooling / artwork total": {
-      value: "10.00",
-      column: "tooling_artwork_total",
-    },
+    // New quotes use the two governed fields. Preserve the original combined
+    // fixture's $10 total while proving both current inputs persist.
+    "Tooling total": { value: "5.00", column: "tooling_total" },
+    "Artwork total": { value: "5.00", column: "artwork_total" },
     "R&D fee total": { value: "10.00", column: "rd_total" },
     "Other service fee total": {
       value: "10.00",
@@ -103,15 +107,16 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
           new URL(fixture.deepLinks.costs, "http://127.0.0.1").pathname &&
         response.ok(),
     );
-    await page
+    const cell = page
       .getByRole("spinbutton", { name: `${label} · Validation 100` })
-      .first()
-      .fill(expected.value);
+      .first();
+    await cell.fill(expected.value);
+    await cell.press("Enter");
     await actionResponse;
     await expect.poll(async () => {
       const [row] = await sql`
         select filling_blending_cost, cm_assembly_total, setup_fee_total,
-               tooling_artwork_total, rd_total, other_service_total
+               tooling_artwork_total, tooling_total, artwork_total, rd_total, other_service_total
         from assembly_production_inputs
         where tier_id = ${fixture.tierIds[0]}
       `;
@@ -124,7 +129,7 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
       .poll(async () => {
         const [row] = await sql`
           select filling_blending_cost, cm_assembly_total, setup_fee_total,
-                 tooling_artwork_total, rd_total, other_service_total
+                 tooling_artwork_total, tooling_total, artwork_total, rd_total, other_service_total
           from assembly_production_inputs
           where tier_id = ${fixture.tierIds[0]}
         `;
@@ -134,7 +139,9 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
         filling_blending_cost: "100.00",
         cm_assembly_total: "50.00",
         setup_fee_total: "10.00",
-        tooling_artwork_total: "10.00",
+        tooling_artwork_total: null,
+        tooling_total: "5.00",
+        artwork_total: "5.00",
         rd_total: "10.00",
         other_service_total: "10.00",
       });
@@ -169,12 +176,13 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
         new URL(response.url()).pathname ===
           new URL(fixture.deepLinks.costs, "http://127.0.0.1").pathname,
     );
-    await page
+    const rejectedCell = page
       .getByRole("spinbutton", {
         name: "Filling / blending tier total · Validation 100",
       })
-      .first()
-      .fill("-1");
+      .first();
+    await rejectedCell.fill("-1");
+    await rejectedCell.press("Enter");
     await rejectedResponse;
     await expect(
       page.getByRole("alert").filter({ hasText: /must be at least 0/i }).first(),
@@ -208,7 +216,7 @@ test("VAL-101 creates and persists basic production pricing inputs", async ({
   expect(networkLedger.filter((entry) => entry.blocked)).toEqual([]);
 });
 
-test("VAL-103 concurrent debounced cost edits persist without save loss", async ({
+test("VAL-103 rapid committed cost edits persist without save loss", async ({
   page,
   networkLedger,
 }) => {
@@ -314,13 +322,16 @@ test("VAL-103 concurrent debounced cost edits persist without save loss", async 
     })
     .first();
 
-  // Both edits occur before either cell's 500 ms debounce can complete.
+  // Commit both fields without waiting for the first receipt. Current Costs
+  // saves on blur/Enter, so filling a focused field alone is not a save.
   await filling.fill("125");
+  await filling.press("Enter");
   await assemblyCost.fill("75");
+  await assemblyCost.press("Enter");
 
   await expect
     .poll(() => actionResponses.length, {
-      message: "both debounced Server Actions reached the browser",
+      message: "both committed Server Actions reached the browser",
     })
     .toBe(2);
   expect(actionResponses.map((entry) => entry.status)).toEqual([200, 200]);
