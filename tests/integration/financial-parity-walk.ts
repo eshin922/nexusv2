@@ -15,6 +15,7 @@ try {
   const { computeQuoteCosting } = await import("../../src/lib/costing.ts");
   const { buildCostingInput, costingInputFromSnapshot, makeCostingStore } = await import("../../src/lib/costing-store.ts");
   const { costBaseFingerprint } = await import("../../src/lib/pricing-cost-base.ts");
+  const { pricingAuthorityBaseline } = await import("../../src/lib/pricing-stale-guard.ts");
   const [actor] = await sql`select id from users where clerk_user_id = 'validation_clerk_pm'`;
   assert.ok(actor, "isolated PM fixture required");
   const [owner] = await sql`
@@ -44,6 +45,13 @@ try {
   const store = makeCostingStore(snapshot);
   assert.deepEqual(computeQuoteCosting(buildCostingInput(store.getState())), snapshot.costing, "server and store outputs");
   const staged = costBaseFingerprint(fromSnapshot);
+  const canonical = new Map(snapshot.skus.map(s => [s.id, s.canonicalQuoteLeafId]));
+  const authorityBaseline = pricingAuthorityBaseline({
+    globalAdj: String(snapshot.globalPriceAdjPct),
+    tierAdj: new Map(snapshot.tiers.filter(t => t.tierPriceAdjPct !== null).map(t => [t.id, String(t.tierPriceAdjPct)])),
+    lifts: new Map(snapshot.lifts.map(l => [`${l.quoteLeafId}:${l.tierId}`, String(l.liftPct)])),
+    overrides: new Map(snapshot.cellOverrides.map(o => [`${canonical.get(o.quoteSkuId)}:${o.tierId}`, String(o.sellPriceOverride)])),
+  });
   const before = await sql`select global_price_adj_pct from quotes where id=${owner.quote_id}`;
   const changed = await updateComponentChargeCostAs(actor.id, { quoteId: owner.quote_id,
     chargeInstanceId: charge.id, tierId: tiers[0].id, cost: "800" });
@@ -52,7 +60,7 @@ try {
   assert.ok(fresh.ok, JSON.stringify(fresh));
   assert.notEqual(costBaseFingerprint(costingInputFromSnapshot(fresh.data)), staged);
   const applied = await applyPricingAdjustments({ quoteId: owner.quote_id, lifts: [], overrides: [],
-    tierAdjustments: [], globalAdjPct: .1234, intent: "apply", economicFingerprint: staged });
+    tierAdjustments: [], globalAdjPct: .1234, intent: "apply", authorityBaseline, economicFingerprint: staged });
   assert.equal(applied.ok, false, "stale Pricing must be refused");
   if (!applied.ok) assert.equal(applied.error.code, "COSTS_STALE", JSON.stringify(applied));
   assert.deepEqual(await sql`select global_price_adj_pct from quotes where id=${owner.quote_id}`, before);

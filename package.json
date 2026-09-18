@@ -51,6 +51,7 @@
     "test:unit": "node --experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs --test tests/unit/*.test.ts tests/unit/*.test.tsx",
     "test:costing": "node --experimental-strip-types --experimental-loader=./tests/support/server-contract-loader.mjs scripts/test-costing.ts",
     "validation:financial-parity-walk": "node --env-file=.env.validation.local --experimental-strip-types --experimental-loader=./scripts/support/src-resolver.mjs tests/integration/financial-parity-walk.ts",
+    "validation:pricing-concurrency-walk": "node --env-file=.env.validation.local --experimental-strip-types --experimental-loader=./scripts/support/src-resolver.mjs tests/integration/pricing-concurrency-walk.ts",
     "test:e2e": "node --env-file=.env.validation.local node_modules/@playwright/test/cli.js test",
     "test:e2e:headed": "node --env-file=.env.validation.local node_modules/@playwright/test/cli.js test --headed",
     "admin:release-unanswered": "node --env-file=.env.local --experimental-strip-types --conditions=react-server --experimental-loader ./scripts/support/src-resolver.mjs scripts/admin/release-unanswered-edit.ts",

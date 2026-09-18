@@ -133,6 +133,10 @@ const classifiedIdentityFiles = new Set([
   // address are not interchangeable, and a shared separator invites one to be
   // parsed as the other.
   "src/lib/pricing-apply-plan.ts",
+  // CLASSIFIED — concurrency protection uses canonical quote_leaf_id to lock
+  // commercial inputs, and assembly_id only for the existing group worksheet.
+  // It neither constructs nor translates an attachment identity.
+  "src/lib/pricing-basis-lock.ts",
   // CLASSIFIED — canonical, and it never resolves. The cost-base fingerprint
   // names `quoteLeafId` only as part of a freight component row's composite
   // identity, so that two rows for different commercial lines cannot digest to

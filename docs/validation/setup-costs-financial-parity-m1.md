@@ -41,10 +41,72 @@ The walk is under `tests/integration` so root TypeScript checks it, but the data
 
 Diagnosis: the fixture expected a 30% production markup but configured only Manufacturing and Other. The current governed engine requires the Production category explicitly and correctly refuses that fallback. Adding `Production: 0.3` to this synthetic fixture restores **every original expected value**, with no change to engine arithmetic or any stored rate. `npm run test:costing` now uses the existing TypeScript resolver; the merge-gate invocation and script header point to it. The repaired check passes. Expected values were not changed to obtain green.
 
+## Concurrent Pricing apply: second bounded repair
+
+A controlled real-action test reproduced a second defect: Pricing read the
+stale-check basis before opening its write transaction. Holding its eventual
+quote update, committing an owned-fee change from 100 to 800, then releasing
+the update allowed stale pricing to commit. The original probe recorded
+`staleApplyAccepted: true`; the repaired action returns `COSTS_STALE` and
+leaves the saved adjustment unchanged.
+
+`lockPricingBasis` now protects the input rows through the read/check/write
+transaction. Parent locks also block newly inserted children through existing
+foreign keys; existing input rows protect updates and deletes. Shared locks
+on the two Settings authorities protect category/rate insertions as well as
+updates. Shared Library locks allow different quotes using the same product
+to proceed. No schema change or cooperation from an advisory-lock protocol
+in existing cost writers is required.
+
+The explicitly scoped database transaction makes existing readers use the
+same connection through AsyncLocalStorage. Outside that scope the exported
+database uses its existing pool. This prevents three simultaneous applies
+from occupying all three connections while waiting for their own readers.
+Nested transactions remain savepoints; rollback and connection isolation are
+exercised against PostgreSQL. Cache revalidation occurs after commit.
+
+Both intents require the previously saved pricing basis. Apply also requires
+the cost fingerprint; Return to baseline intentionally does not. Unsupported
+intents are refused. Busy locks time out rather than replaying the operator's
+decision, with a readable stale-data refusal. Shared Settings edits may wait
+briefly while a Pricing transaction is active; this is an explicit tradeoff.
+
+`npm run validation:pricing-concurrency-walk` passes in the dedicated local
+clone, including nine blocked mutations (updates, deletes and inserts), the
+original race, two competing applies (one success, one stale refusal), missing
+bases, successful return to baseline, busy-quote refusal, nested rollback,
+and four other quote scopes draining through a three-connection pool while
+the original quote is held. All temporary charges and pricing edits are
+restored in `finally`; audit evidence stays in the disposable clone.
+
+The identity inventory gate detected the new lock helper. It is classified
+as a canonical input locker, with assembly identity used only for the
+existing group worksheet. No check was disabled. Full unit suite after that
+classification: **3,252 pass, zero fail/skipped**; `verify:ci` passes.
+
 ## Remaining M1 acceptance work
 
-1. Reproduce and address concurrent writes between Pricing's stale read and commit; no concurrency guarantee is claimed here.
-2. Decide/enforce the reachable optional-baseline contract after caller inventory. The application caller supplies an authority baseline; economic baseline may intentionally be null for return-to-baseline. This repair does not silently change that behavior.
+Browser diagnostic run `financial-browser-20260918-0955` uses the dedicated
+local clone on port 3101 (3100 belongs to an unrelated process). All five
+quote-state deep links pass with strict diagnostics. The real Preview → Send
+→ Client Review lifecycle also passes. This is partial acceptance, not a
+completed merge gate.
+
+Two existing Costs harness cases are stale: VAL-101 fills a cell but never
+blurs/presses Enter before awaiting a save; VAL-103 still expects the removed
+debounce and leaves its second cell focused. The production component
+explicitly commits on blur/Enter. The first trace shows the typed value still
+focused with no POST; the second expects two receipts but gets one. VAL-101
+also targets the retired combined Tooling/artwork input; the current UI has
+separate Tooling and Artwork fields. Proposed separate harness-only repair:
+exercise the real commit gesture, use the existing separate fields while
+preserving their aggregate amount, and retain DB read-back, reload, refusal,
+audit and network assertions. Do not change save behavior to satisfy an old
+test. Durable traces and logs are under
+`C:/Code/nexus-validation-runs/financial-browser-20260918-0955`.
+
+1. Concurrent Pricing apply and required-basis checks are covered by the second repair above. This is not a claim that every independent writer elsewhere has received a concurrency audit.
+2. Complete mounted/browser acceptance of the existing Pricing caller with the stricter contract, including old-tab refusal and return to baseline.
 3. Legacy costing check diagnosis is complete as recorded above. Retain the explicit category in that fixture and the supported resolver invocation.
 4. Mounted/browser acceptance for edit/reload, Pricing preview/apply/undo and sent/frozen lifecycles; role/refusal scenarios. All remain required before UI replacement or release.
 5. Full merge-gate environment ownership, browser suites and rollback rehearsal. Current source/unit/action evidence is deliberately narrower.
