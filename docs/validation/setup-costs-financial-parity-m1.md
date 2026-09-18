@@ -86,6 +86,44 @@ classification: **3,252 pass, zero fail/skipped**; `verify:ci` passes.
 
 ## Remaining M1 acceptance work
 
+### September 18 follow-up: navigation and mounted Pricing
+
+The blocker descriptions below are the earlier checkpoint, superseded for
+VAL-103 and VAL-209 by this follow-up. The rapid-save failure reproduced on
+unchanged main as well as this candidate. Opening a Costs drawer rebuilt its
+URL with only `section`, dropping `tier`. The tier synchronizer then launched
+a competing navigation; both edit handlers reached their Server Action call
+but the browser never sent the saves. Opening the complete deep link directly
+made the same unchanged save scenario pass.
+
+`CostBuildAccordion` now changes only the section parameter, preserving the
+selected tier and other URL state. It still uses shallow history replacement.
+With normal drawer clicks restored, VAL-103 passes: both receipts, exact
+125/75 database values, two field-specific audits, and reload persistence.
+VAL-101 also passes alongside it. No amount, save gesture, or calculation was
+changed. The harness checks that opening the module retains the active tier.
+
+The current Pricing shell deliberately removed the old ActionCard targeted
+by VAL-209. Its replacement test drives the actual ComplianceGrid floor offer
+and proves staging without a write, repeat-click idempotence, discard, one
+Apply audit, preservation of unrelated direct prices/tier adjustments, and
+reload. Extended mounted acceptance also passes: a persisted cost change
+refuses the old page's Apply; a competing lift refuses the old pricing basis;
+both leave the competing state and audit count intact. Return to computed
+baseline removes pricing levers without touching source costs. The two
+competing writes are isolated SQL fixtures, not claims of a second browser
+operator journey; real writer/concurrency paths remain covered by the action
+walk. All fixture changes are restored in `finally`.
+
+Investigation and validation logs:
+`C:/Code/nexus-validation-runs/financial-parity-diagnosis-20260918`.
+Final combined browser run: **9 passed**, retries disabled, one worker, hard
+outer timeout. It includes all five quote-state deep links, Preview → Send →
+Client Review, VAL-101, VAL-103, and the extended VAL-209. `verify:ci` passes;
+the full unit suite remains **3,252 passed, zero failed or skipped**.
+The retained local clone/server are still a diagnostic environment, not a
+claim that the full fresh-environment merge checklist has been completed.
+
 Browser diagnostic run `financial-browser-20260918-0955` uses the dedicated
 local clone on port 3101 (3100 belongs to an unrelated process). All five
 quote-state deep links pass with strict diagnostics. The real Preview → Send

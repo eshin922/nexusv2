@@ -52,9 +52,13 @@ export function CostBuildAccordion({
       // Update URL without triggering Next.js navigation (avoids
       // server re-render). Deep-link survives page refresh.
       if (typeof window !== "undefined") {
-        const base = `/projects/${projectId}/quotes/${quoteId}/costs`;
-        const url = id ? `${base}?section=${id}` : base;
-        window.history.replaceState({}, "", url);
+        // A section is view state. Preserve the selected tier and other query
+        // state instead of dropping them and triggering tier canonicalization
+        // while the operator is beginning a cost edit.
+        const url = new URL(window.location.href);
+        if (id) url.searchParams.set("section", id);
+        else url.searchParams.delete("section");
+        window.history.replaceState(null, "", url);
       }
     },
     [projectId, quoteId, openId],

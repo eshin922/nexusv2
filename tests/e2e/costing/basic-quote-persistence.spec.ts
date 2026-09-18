@@ -18,16 +18,20 @@ async function manifest(): Promise<FixtureManifest> {
 test.describe.configure({ mode: "serial" });
 
 async function openProduction(page: import("@playwright/test").Page) {
+  // Tier selection is independent of opening a module. Dropping it starts a
+  // competing router transition that can strand a subsequent Server Action.
+  await expect.poll(() => new URL(page.url()).searchParams.get("tier")).not.toBeNull();
+  const selectedTier = new URL(page.url()).searchParams.get("tier");
   const trigger = page.locator(
     'button[aria-controls="section-production-drawer"]',
   );
   if ((await trigger.getAttribute("aria-expanded")) !== "true") {
     await trigger.click();
   }
-  // Opening the drawer changes the route. Wait for that receipt before
-  // starting the cost-edit scenario, rather than editing the outgoing tree.
+  // The drawer updates its shareable URL without a server navigation.
   await page.waitForURL(url => url.searchParams.get("section") === "production");
   await page.waitForLoadState("networkidle");
+  expect(new URL(page.url()).searchParams.get("tier")).toBe(selectedTier);
 }
 
 test("VAL-101 creates and persists basic production pricing inputs", async ({
