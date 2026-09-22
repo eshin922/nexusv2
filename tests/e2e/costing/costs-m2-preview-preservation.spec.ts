@@ -81,7 +81,9 @@ test(`${fixtureName}: read-only preview preserves the cost stack and returns to 
   }
   await page.setViewportSize({ width: 1728, height: 1080 });
   expect(writes, "view changes must not write").toBe(0);
-  await preview.getByRole("link", { name: "Leave preview" }).click();
+  // The preview banner and its exit control were retired; leave the preview
+  // explicitly through the route so this test covers the surface itself.
+  await page.goto(originalUrl.toString().replace(/[?&]preview=[^&]+/, ""));
   await expect(preview).toHaveCount(0);
   expect(new URL(page.url()).searchParams.get("tier")).toBe(tier);
   await expect(stack).toHaveText(originalStack, { useInnerText: true });

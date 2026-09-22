@@ -235,22 +235,9 @@ test("nothing in the preview is a form control", async () => {
   await m.unmount();
 });
 
-test("the notice is concise, says what it is, and offers the way out", async () => {
+test("the costs workspace does not render the retired preview banner", async () => {
   const m = await mount(body());
-  const notice = m.find(".cm2-notice");
-  assert.ok(notice);
-  assert.match(notice!.textContent ?? "", /M2 preview/i);
-  assert.match(notice!.textContent ?? "", /read-only/i);
-  // The explanation is behind a disclosure rather than occupying the workspace.
-  assert.ok(notice!.querySelector("details summary"), "detail is not collapsed");
-
-  const exit = m.find(".cm2-notice-exit") as HTMLAnchorElement | null;
-  assert.ok(exit, "no way to leave the preview");
-  assert.equal(
-    exit!.getAttribute("href"),
-    "/projects/p/quotes/q/costs?section=freight",
-    "leaving keeps the operator's open section and drops only the switch",
-  );
+  assert.equal(m.findAll(".cm2-notice").length, 0);
   await m.unmount();
 });
 test("internal markup category keys render as operator labels", () => {

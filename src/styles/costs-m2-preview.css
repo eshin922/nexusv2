@@ -41,51 +41,6 @@
   --cm2-acc-i: var(--accent-ink);
 }
 
-/* ── Preview notice ────────────────────────────────────────────────────────
-   A concise notice, not a paragraph. The workspace belongs to the cost table;
-   an explanatory block at the top of it is the thing being previewed pushed
-   below the fold. */
-
-.cm2-notice {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 7px 12px;
-  margin-bottom: 10px;
-  border: 1px solid var(--warn);
-  border-radius: 7px;
-  background: var(--warn-soft);
-  font-size: 11.5px;
-  color: var(--ink-2);
-  line-height: 1.4;
-}
-.cm2-notice-tag {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  font-weight: 500;
-  color: var(--warn);
-  white-space: nowrap;
-}
-.cm2-notice details { display: inline; }
-.cm2-notice summary {
-  display: inline;
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 11.5px;
-}
-.cm2-notice details[open] summary { color: var(--ink-3); }
-.cm2-notice-detail {
-  flex-basis: 100%;
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--ink-2);
-  line-height: 1.5;
-}
-.cm2-notice-exit { margin-left: auto; }
-
 /* ── View switcher — prototype `ctl()` ─────────────────────────────────── */
 
 .cm2-views { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
