@@ -12,14 +12,31 @@ export type ProductTypeChargeDefault = {
 };
 
 export async function listProductTypeChargeDefaults(): Promise<ProductTypeChargeDefault[]> {
-  const rows = await db
-    .select({
-      productTypeValue: productTypeChargeDefaults.productTypeValue,
-      chargeKey: productTypeChargeDefaults.chargeKey,
-      note: productTypeChargeDefaults.note,
-    })
-    .from(productTypeChargeDefaults)
-    .orderBy(asc(productTypeChargeDefaults.productTypeValue), asc(productTypeChargeDefaults.chargeKey));
+  let rows: Array<{ productTypeValue: string; chargeKey: string; note: string | null }>;
+  try {
+    rows = await db
+      .select({
+        productTypeValue: productTypeChargeDefaults.productTypeValue,
+        chargeKey: productTypeChargeDefaults.chargeKey,
+        note: productTypeChargeDefaults.note,
+      })
+      .from(productTypeChargeDefaults)
+      .orderBy(asc(productTypeChargeDefaults.productTypeValue), asc(productTypeChargeDefaults.chargeKey));
+  } catch (error) {
+    // The defaults table is additive. Keep Setup usable during rollout when
+    // the application is ahead of migration 0132, using the same advisory
+    // seed that migration installs. These suggestions never create charges.
+    if ((error as { code?: string })?.code !== "42P01") throw error;
+    rows = [
+      { productTypeValue: "Primary", chargeKey: "tooling", note: null },
+      { productTypeValue: "Primary", chargeKey: "samples", note: null },
+      { productTypeValue: "Secondary", chargeKey: "print_plates", note: null },
+      { productTypeValue: "Secondary", chargeKey: "tooling", note: null },
+      { productTypeValue: "Secondary", chargeKey: "samples", note: null },
+      { productTypeValue: "Ingestibles", chargeKey: "samples", note: null },
+      { productTypeValue: "Topicals", chargeKey: "samples", note: null },
+    ];
+  }
 
   // The database CHECK is the primary guard. Keep this boundary defensive so a
   // legacy or manually repaired row cannot leak an unknown key into Setup.
