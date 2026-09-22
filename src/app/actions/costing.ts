@@ -1896,11 +1896,11 @@ export async function getCostingBundle(
     try {
       quoteRows = await timed("quote_lookup", quoteId, db
         .select({
-          quotes,
-          revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
+        quotes,
+        revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
           // THE PAYLOAD WITNESS — the same statement, the same instant, and
           // therefore the same snapshot the legacy `revision` is the `xmax` OF.
-          witness: sql<string>`pg_current_snapshot()::text`,
+        witness: sql<string>`pg_current_snapshot()::text`,
         })
         .from(quotes)
         .where(eq(quotes.id, quoteId))
