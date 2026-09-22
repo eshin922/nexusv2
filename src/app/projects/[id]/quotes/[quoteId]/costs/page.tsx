@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, isNull, ne, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   // Slice 11.5 — NEW-model cost-data tables (Step 2 schema).
@@ -158,12 +158,31 @@ export default async function CostBuildPage({
     });
     console.log(`[costs:${tag}] post-auth ${elapsed()} memory=${heapMb()}MB`);
 
-    const quoteRows = await db
-      .select({ quote: quotes, project: projects })
-      .from(quotes)
-      .innerJoin(projects, eq(projects.id, quotes.projectId))
-      .where(eq(quotes.id, quoteId))
-      .limit(1);
+    let quoteRows: Array<{ quote: typeof quotes.$inferSelect; project: typeof projects.$inferSelect }>;
+    try {
+      quoteRows = await db
+        .select({ quote: quotes, project: projects })
+        .from(quotes)
+        .innerJoin(projects, eq(projects.id, quotes.projectId))
+        .where(eq(quotes.id, quoteId))
+        .limit(1);
+    } catch (error) {
+      // Keep Costs readable while the additive freight migration is rolling
+      // through production. Once 0131 is applied, the primary read supplies
+      // the persisted decision; until then the honest state is undecided.
+      if ((error as { code?: string })?.code !== "42703") throw error;
+      const { freightIntent: _freightIntent, ...legacyQuoteColumns } = getTableColumns(quotes);
+      const legacyRows = await db
+        .select({ quote: legacyQuoteColumns, project: projects })
+        .from(quotes)
+        .innerJoin(projects, eq(projects.id, quotes.projectId))
+        .where(eq(quotes.id, quoteId))
+        .limit(1);
+      quoteRows = legacyRows.map(({ quote, project }) => ({
+        quote: { ...quote, freightIntent: "undecided" },
+        project,
+      })) as typeof quoteRows;
+    }
     if (quoteRows.length === 0) notFound();
     const { quote, project } = quoteRows[0];
     if (project.id !== projectId) notFound();
