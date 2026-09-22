@@ -4,6 +4,7 @@ import {
   and,
   asc,
   eq,
+  getTableColumns,
   inArray,
   isNotNull,
   isNull,
@@ -1887,23 +1888,44 @@ export async function getCostingBundle(
     // bundle. See the `revision` field on HydrateSnapshot for why this is a
     // database transaction marker rather than a wall clock, and why it is
     // taken at the start rather than the end.
-    const quoteRows = await timed("quote_lookup", quoteId, db
-      .select({
+    let quoteRows: Array<{
+      quotes: typeof quotes.$inferSelect;
+      revision: string;
+      witness: string;
+    }>;
+    try {
+      quoteRows = await timed("quote_lookup", quoteId, db
+        .select({
         quotes,
         revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
-        // THE PAYLOAD WITNESS — the same statement, the same instant, and
-        // therefore the same snapshot the legacy `revision` is the `xmax` OF.
-        //
-        // This is phase 1, the earliest read in the bundle, so it is the only
-        // statement that can speak for a payload `reconcile` applies whole.
-        // The full snapshot answers exactly what its `xmax` could only bound:
-        // two reads either side of a commit carry the same `xmax` and
-        // different in-progress lists (proof P1, measured).
+          // THE PAYLOAD WITNESS — the same statement, the same instant, and
+          // therefore the same snapshot the legacy `revision` is the `xmax` OF.
         witness: sql<string>`pg_current_snapshot()::text`,
-      })
-      .from(quotes)
-      .where(eq(quotes.id, quoteId))
-      .limit(1));
+        })
+        .from(quotes)
+        .where(eq(quotes.id, quoteId))
+        .limit(1));
+    } catch (error) {
+      // Production may briefly run ahead of the database migration that adds
+      // freight_intent. Keep the costing bundle readable while that migration
+      // is applied; the persisted field is used automatically afterwards.
+      if ((error as { code?: string })?.code !== "42703") throw error;
+      const { freightIntent: _freightIntent, ...legacyQuoteColumns } =
+        getTableColumns(quotes);
+      const legacyRows = await timed("quote_lookup_legacy", quoteId, db
+        .select({
+          quotes: legacyQuoteColumns,
+          revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
+          witness: sql<string>`pg_current_snapshot()::text`,
+        })
+        .from(quotes)
+        .where(eq(quotes.id, quoteId))
+        .limit(1));
+      quoteRows = legacyRows.map((row) => ({
+        ...row,
+        quotes: { ...row.quotes, freightIntent: "undecided" },
+      })) as typeof quoteRows;
+    }
     if (quoteRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
     const quote = quoteRows[0].quotes;
