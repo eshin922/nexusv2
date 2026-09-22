@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { renderToBuffer } from "@react-pdf/renderer";
 
-import { and, asc, desc, eq, inArray, isNull, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
@@ -262,11 +262,24 @@ async function logAudit(args: {
 }
 
 async function loadQuoteOrThrow(quoteId: string) {
-  const rows = await db
-    .select()
-    .from(quotes)
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
+  let rows: Array<typeof quotes.$inferSelect>;
+  try {
+    rows = await db
+      .select()
+      .from(quotes)
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+  } catch (error) {
+    if ((error as { code?: string })?.code !== "42703") throw error;
+    const { freightIntent: _freightIntent, ...legacyQuoteColumns } =
+      getTableColumns(quotes);
+    const legacyRows = await db
+      .select(legacyQuoteColumns)
+      .from(quotes)
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+    rows = legacyRows.map((quote) => ({ ...quote, freightIntent: "undecided" })) as typeof rows;
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.QUOTE_NOT_FOUND, "Quote not found");
   return rows[0];

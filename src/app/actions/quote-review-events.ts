@@ -1,16 +1,14 @@
 "use server";
 
-import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   auditLog,
   quoteReviewEvents,
   quoteReviewEventType,
-  quotes,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
-import { requireRevisable } from "@/lib/quote-guards";
+import { quoteById, requireRevisable } from "@/lib/quote-guards";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
   ActionGuardError,
@@ -89,14 +87,7 @@ export async function addQuoteReviewEvent(
     const user = await ensureUser();
 
     // Load quote for the guard + versionNumber snapshot.
-    const [quote] = await db
-      .select()
-      .from(quotes)
-      .where(eq(quotes.id, quoteId))
-      .limit(1);
-    if (!quote) {
-      throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
-    }
+    const quote = await quoteById(quoteId);
     requireRevisable(quote); // sent | accepted only
 
     const result = await db.transaction(async (tx) => {
