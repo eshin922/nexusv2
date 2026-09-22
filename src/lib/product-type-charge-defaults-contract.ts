@@ -1,8 +1,9 @@
-import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import { COMPONENT_CHARGE_KEYS, type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import type { ProductTypeChargeKey } from "@/lib/product-type-charge-defaults";
 
 export type ProductTypeChargeRule = {
   productTypeValue: string;
-  chargeKey: ComponentChargeKey;
+  chargeKey: ProductTypeChargeKey;
 };
 
 /** Build the Setup lookup using HubSpot's raw option value, never its label. */
@@ -11,7 +12,9 @@ export function indexProductTypeChargeRules(
 ): Record<string, ComponentChargeKey[]> {
   const indexed: Record<string, ComponentChargeKey[]> = {};
   for (const rule of rules) {
-    (indexed[rule.productTypeValue] ??= []).push(rule.chargeKey);
+    if ((COMPONENT_CHARGE_KEYS as readonly string[]).includes(rule.chargeKey)) {
+      (indexed[rule.productTypeValue] ??= []).push(rule.chargeKey as ComponentChargeKey);
+    }
   }
   return indexed;
 }

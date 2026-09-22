@@ -7,7 +7,8 @@ import { productTypeChargeDefaults } from "@/db/schema";
 import { requireAdminAction } from "@/lib/admin-guard";
 import { writeAuditEntry } from "@/lib/audit";
 import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
-import { COMPONENT_CHARGE_KEYS, type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import { COMPONENT_CHARGE_KEYS } from "@/lib/commercial-recovery/registry";
+import { ASSOCIATED_COST_KEYS, type ProductTypeChargeKey } from "@/lib/product-type-charge-defaults";
 import { loadHubspotProductTypeOptions } from "@/lib/hubspot-product-type-vocabulary";
 
 /**
@@ -19,7 +20,7 @@ import { loadHubspotProductTypeOptions } from "@/lib/hubspot-product-type-vocabu
 export async function saveProductTypeChargeDefaults(
   productTypeValue: string,
   requestedKeys: readonly string[],
-): Promise<ActionResult<{ productTypeValue: string; chargeKeys: ComponentChargeKey[] }>> {
+): Promise<ActionResult<{ productTypeValue: string; chargeKeys: ProductTypeChargeKey[] }>> {
   return runAction(async () => {
     const admin = await requireAdminAction();
     if (typeof productTypeValue !== "string" || !Array.isArray(requestedKeys)) {
@@ -39,12 +40,12 @@ export async function saveProductTypeChargeDefaults(
       );
     }
 
-    const allowed = new Set<string>(COMPONENT_CHARGE_KEYS);
+    const allowed = new Set<string>([...COMPONENT_CHARGE_KEYS, ...ASSOCIATED_COST_KEYS]);
     const uniqueKeys = [...new Set(requestedKeys)];
     if (uniqueKeys.some((key) => !allowed.has(key))) {
       throw new ActionGuardError(ERR.VALIDATION, "One or more charge types are invalid.");
     }
-    const chargeKeys = uniqueKeys as ComponentChargeKey[];
+    const chargeKeys = uniqueKeys as ProductTypeChargeKey[];
 
     const changed = await db.transaction(async (tx) => {
       const prior = await tx

@@ -5,9 +5,26 @@ import { productTypeChargeDefaults } from "@/db/schema";
 import { COMPONENT_CHARGE_KEYS, type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
 import { indexProductTypeChargeRules } from "@/lib/product-type-charge-defaults-contract";
 
+export const ASSOCIATED_COST_KEYS = [
+  "filling_blending",
+  "cm_assembly_packout",
+  "project_setup",
+  "rd_formulation",
+  "testing_micros",
+] as const;
+export type AssociatedCostKey = (typeof ASSOCIATED_COST_KEYS)[number];
+export type ProductTypeChargeKey = ComponentChargeKey | AssociatedCostKey;
+export const ASSOCIATED_COST_LABELS: Record<AssociatedCostKey, string> = {
+  filling_blending: "Filling / blending",
+  cm_assembly_packout: "CM assembly / packout",
+  project_setup: "Setup / tooling",
+  rd_formulation: "R&D / formulation",
+  testing_micros: "Stability / potency / micros testing",
+};
+
 export type ProductTypeChargeDefault = {
   productTypeValue: string;
-  chargeKey: ComponentChargeKey;
+  chargeKey: ProductTypeChargeKey;
   note: string | null;
 };
 
@@ -64,7 +81,7 @@ export async function listProductTypeChargeDefaults(): Promise<ProductTypeCharge
 
   // The database CHECK is the primary guard. Keep this boundary defensive so a
   // legacy or manually repaired row cannot leak an unknown key into Setup.
-  const known = new Set<string>(COMPONENT_CHARGE_KEYS);
+  const known = new Set<string>([...COMPONENT_CHARGE_KEYS, ...ASSOCIATED_COST_KEYS]);
   return rows.filter(
     (row): row is ProductTypeChargeDefault => known.has(row.chargeKey),
   );

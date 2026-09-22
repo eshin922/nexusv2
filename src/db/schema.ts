@@ -1555,7 +1555,7 @@ export const productTypeChargeDefaults = pgTable(
     index("product_type_charge_defaults_type_idx").on(t.productTypeValue),
     check(
       "product_type_charge_defaults_charge_key_values",
-      sql`${t.chargeKey} IN ('print_plates', 'tooling', 'artwork_plate', 'samples', 'other_service')`,
+      sql`${t.chargeKey} IN ('print_plates', 'tooling', 'artwork_plate', 'samples', 'other_service', 'filling_blending', 'cm_assembly_packout', 'project_setup', 'rd_formulation', 'testing_micros')`,
     ),
     check(
       "product_type_charge_defaults_type_not_blank",

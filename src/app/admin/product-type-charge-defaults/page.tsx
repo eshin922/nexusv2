@@ -19,11 +19,11 @@ export default async function ProductTypeChargeDefaultsPage() {
     <main className="ptcd-page">
       <header className="ptcd-header">
         <p className="eyebrow">Admin · Setup defaults</p>
-        <h1>One-time charge suggestions by Product Type</h1>
+        <h1>Associated cost suggestions by Product Type</h1>
         <p>
           Product Types and their internal values come directly from HubSpot.
-          Choose which component-owned one-time charges Setup should suggest for
-          each type.
+          Choose which component and production-associated costs Setup should
+          suggest for each HubSpot Product Type.
         </p>
       </header>
 

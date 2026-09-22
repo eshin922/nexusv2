@@ -4,11 +4,15 @@ import { useState, useTransition } from "react";
 import {
   saveProductTypeChargeDefaults,
 } from "@/app/actions/product-type-charge-defaults";
-import type { ProductTypeChargeDefault } from "@/lib/product-type-charge-defaults";
+import {
+  ASSOCIATED_COST_KEYS,
+  ASSOCIATED_COST_LABELS,
+  type ProductTypeChargeDefault,
+  type ProductTypeChargeKey,
+} from "@/lib/product-type-charge-defaults";
 import {
   COMPONENT_CHARGE_KEYS,
   COMPONENT_CHARGE_LABELS,
-  type ComponentChargeKey,
 } from "@/lib/commercial-recovery/registry";
 import type { HubspotProductTypeOption } from "@/lib/hubspot-product-type-vocabulary";
 
@@ -19,7 +23,7 @@ export function ProductTypeChargeDefaultsEditor({
   options: readonly HubspotProductTypeOption[];
   rules: readonly ProductTypeChargeDefault[];
 }) {
-  const initial: Record<string, ComponentChargeKey[]> = {};
+  const initial: Record<string, ProductTypeChargeKey[]> = {};
   for (const rule of rules) {
     (initial[rule.productTypeValue] ??= []).push(rule.chargeKey);
   }
@@ -30,7 +34,7 @@ export function ProductTypeChargeDefaultsEditor({
   const [savingType, setSavingType] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function toggle(typeValue: string, chargeKey: ComponentChargeKey) {
+  function toggle(typeValue: string, chargeKey: ProductTypeChargeKey) {
     setSelected((current) => {
       const next = new Set(current[typeValue] ?? []);
       if (next.has(chargeKey)) next.delete(chargeKey);
@@ -86,7 +90,7 @@ export function ProductTypeChargeDefaultsEditor({
               </span>
             </div>
             {notes.length > 0 && <p className="ptcd-note">{notes.join(" ")}</p>}
-            <div className="ptcd-choices" aria-label={`Suggested charges for ${option.label}`}>
+            <div className="ptcd-choices" aria-label={`Suggested associated costs for ${option.label}`}>
               {COMPONENT_CHARGE_KEYS.map((chargeKey) => (
                 <label key={chargeKey} className="ptcd-choice">
                   <input
@@ -95,6 +99,16 @@ export function ProductTypeChargeDefaultsEditor({
                     onChange={() => toggle(option.value, chargeKey)}
                   />
                   <span>{COMPONENT_CHARGE_LABELS[chargeKey]}</span>
+                </label>
+              ))}
+              {ASSOCIATED_COST_KEYS.map((chargeKey) => (
+                <label key={chargeKey} className="ptcd-choice ptcd-choice-associated">
+                  <input
+                    type="checkbox"
+                    checked={keys.includes(chargeKey)}
+                    onChange={() => toggle(option.value, chargeKey)}
+                  />
+                  <span>{ASSOCIATED_COST_LABELS[chargeKey]}</span>
                 </label>
               ))}
             </div>

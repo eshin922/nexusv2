@@ -925,6 +925,13 @@
       "when": 1789980060000,
       "tag": "0133_ingestible_component_charge_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1789980120000,
+      "tag": "0134_associated_cost_taxonomy",
+      "breakpoints": true
     }
   ]
 }
