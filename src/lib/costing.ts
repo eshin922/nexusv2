@@ -24,6 +24,7 @@ import {
 } from "./commercial-recovery/construct";
 import type { ChargeElection } from "./commercial-recovery/resolve";
 import { isUnbillablePlacement } from "./commercial-recovery/unbillable-placements";
+import { packagingLineOverride } from "./costs/packaging-markup-authority";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -211,6 +212,13 @@ export type CostingPackagingInput = {
   qtyPerSellableUnit: number | null;
   category: string | null;
   markupPct: number | null;
+  /**
+   * The persisted provenance of `markupPct`. Older/direct math callers that
+   * omit this retain the historic meaning (a non-null value is an override).
+   * Database-backed rows marked `category_default` carry a cached display value
+   * which must not mask the live Settings default during pricing.
+   */
+  markupPctSource?: "category_default" | "manual_override" | null;
 };
 
 /**
@@ -2258,14 +2266,15 @@ function computeLeafPerTier(args: {
   for (const p of packaging) {
     const lineCost = num(p.unitCost) * num(p.qtyPerSellableUnit, 1);
     packagingLineCosts.push(lineCost);
+    const lineOverride = packagingLineOverride(p.markupPct, p.markupPctSource);
     const resolution = resolveMarkup({
       defaults: markupDefaults,
       category: p.category,
-      lineMarkupPct: p.markupPct,
+      lineMarkupPct: lineOverride,
     });
     // Preserves the original expression exactly, including its NULLITY check:
     // a line markup of 0 is a decision and must beat the category default.
-    const markup = p.markupPct !== null ? p.markupPct : resolution.value;
+    const markup = lineOverride !== null ? lineOverride : resolution.value;
     const lineSell = lineCost * (1 + markup);
 
     const base = nodeKey(sku.id, tier.id, "pkg", p.lineGroupId);
@@ -2304,7 +2313,7 @@ function computeLeafPerTier(args: {
             // resolveMarkup, called without it, would pick the category
             // default. Marking the resolver's winner would state the wrong
             // provenance on exactly those lines.
-            chosen: p.markupPct !== null ? c.label === "Line override" : c.chosen,
+            chosen: lineOverride !== null ? c.label === "Line override" : c.chosen,
             unavailableReason: c.unavailableReason,
           })),
         },

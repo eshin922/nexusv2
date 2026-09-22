@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as schema from "./schema";
 
 // In dev, prefer DIRECT_URL over DATABASE_URL. Both URLs should
@@ -226,5 +227,24 @@ if (process.env.NEXT_PUBLIC_VERCEL_ENV !== "production") {
   );
 }
 
-export const db = drizzle(client, { schema });
-export type Db = typeof db;
+const database = drizzle(client, { schema });
+export type Db = typeof database;
+type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+const transactionContext = new AsyncLocalStorage<Transaction>();
+
+// Existing readers can participate in an explicitly scoped transaction without
+// exposing a transaction handle as a serializable Next server-action argument.
+// Outside that scope this is the same database and pool as before. Resolve and
+// bind methods on access so independent requests never share a transaction.
+export const db: Db = new Proxy(database, {
+  get(_target, property) {
+    const current = transactionContext.getStore() ?? database;
+    const value = Reflect.get(current, property);
+    return typeof value === "function" ? value.bind(current) : value;
+  },
+});
+
+export function inDatabaseTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+  const current = transactionContext.getStore() ?? database;
+  return current.transaction(tx => transactionContext.run(tx, () => work(tx)));
+}

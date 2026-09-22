@@ -60,3 +60,6 @@ Thumbs.db
 # tracked ones. They belong in the slice that consumes them (public/, or an
 # asset directory), never swept in by an unrelated `git add -A`.
 /*.png
+
+# clerk configuration (can include secrets)
+/.clerk/

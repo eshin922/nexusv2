@@ -3,6 +3,7 @@ import type { OtherServiceSelection } from "./commercial-projection";
 import type { ChargeElection } from "./commercial-recovery/resolve";
 import {
   computeQuoteCosting,
+  type ComponentChargeInput,
   type CostingCellOverride,
   type CostingCellTarget,
   type CostingFreightComponentTierCost,
@@ -21,6 +22,13 @@ import {
   type QuoteCostingResult,
 } from "./costing";
 import { validateQuote, type WarningSpec } from "./validation";
+import {
+  compareWitness,
+  included as witnessIncludes,
+  parseWitness,
+  parseWriteId,
+  type Witness,
+} from "./costing-witness";
 
 // ============================================================================
 // Slice 8 — Costing store (Zustand, per-quote instance)
@@ -130,6 +138,7 @@ export type CostingStoreState = {
 
   // Mutable inputs (PM edits flow here; recompute fires on every change)
   globalPriceAdjPct: number;
+  freightMarkupPct: number;
   // Slice 9.2 — per-quote target margin override. NULL = inherit
   // firm-level. Reverse-solve goal + verdict bands use the effective
   // value (`?? firmSettings.targetMarginPct`).
@@ -141,6 +150,8 @@ export type CostingStoreState = {
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
   assemblyProduction: StoredAssemblyProductionRow[];
+  /** Economics used by the server; identity metadata alone cannot reconstruct cost. */
+  componentCharges: ComponentChargeInput[];
   // Slice R6.2 — multi-leg journey freight model. Three sparse arrays
   // (groups → legs → leg-tiers) + customer-arranges-meta. The store
   // mutates one array at a time on PM edit; recompute pipes through
@@ -269,6 +280,23 @@ export type CostingStoreState = {
   /** ms epoch the current await began — bounds the gate so it cannot wedge. */
   awaitedSince: number;
 
+  /**
+   * Writes this client has had acknowledged and not yet seen come back.
+   *
+   * A SET OF (write, domain) PAIRS, not a maximum. Two concurrent writes must
+   * both be satisfied, and a response arriving out of order contributes its
+   * entry exactly as if it had arrived in order. Each entry names the guarded
+   * slice it affects, because a Packaging write need only be included by the
+   * statement that READS Packaging — the commercial-settings statement runs in
+   * an earlier phase of the same bundle and is systematically older, so
+   * requiring inclusion there would reject correct bundles forever.
+   */
+  floor: ReadonlyArray<{ readonly writeId: string; readonly domain: string }>;
+  /** The witness of the last APPLIED read, per guarded slice. */
+  appliedWitness: Readonly<Record<string, string>>;
+  /** Domains the most recent reader declared it witnesses. Empty = none. */
+  guardedDomains: readonly string[];
+
   // Actions
   hydrate: (snapshot: HydrateSnapshot) => void;
   reconcile: (snapshot: HydrateSnapshot) => void;
@@ -276,6 +304,22 @@ export type CostingStoreState = {
   awaitCommitted: (revision: number) => void;
   /** Abandon the causal requirement without claiming it was satisfied. */
   releaseAwaited: () => void;
+  /**
+   * Record a write this client must see come back before a read may replace it.
+   *
+   * `outcome` is not decoration. A snapshot reports a transaction as finished
+   * whether it committed or aborted, so inclusion evidence cannot tell the two
+   * apart — the caller's knowledge that the write SUCCEEDED is the only thing
+   * that can, and the parameter is required so that knowledge has to be stated
+   * rather than assumed from a truthy id.
+   */
+  armWrite: (args: {
+    outcome: WriteOutcome;
+    writeId: string | null;
+    domains: readonly string[];
+  }) => void;
+  /** Drop every outstanding requirement — quote change, unmount. Never a timer. */
+  clearWriteFloor: () => void;
   updatePackagingCell: (rowId: string, fields: PackagingCellFields) => void;
   updatePackagingLineMeta: (
     lineGroupId: string,
@@ -355,9 +399,20 @@ export type HydrateSnapshot = {
    * Freshness authority for reconciliation ordering.
    *
    * A Postgres transaction marker — `pg_snapshot_xmax(pg_current_snapshot())`
-   * — captured on the FIRST read of `getCostingBundle`. It advances when a
-   * transaction commits, so it orders snapshots by **what they could see**,
-   * not by when they finished.
+   * — captured on the FIRST read of `getCostingBundle`.
+   *
+   * ⚠ IT DOES NOT ADVANCE ON COMMIT. This comment used to say it did, and
+   * that claim was the basis of the gate below. `xmax` is *one past the highest
+   * COMPLETED xid*, so it moves when a transaction is ASSIGNED AN XID — when a
+   * writer starts — and a commit on its own moves nothing. Measured on
+   * PostgreSQL 16.14 (proof P1): a lower xid held open while a higher one
+   * committed produced `14346:14348:14346` before the commit and
+   * `14348:14348:` after it — **the same xmax, different data**.
+   *
+   * What it does support: `xmax` is non-decreasing in real time, so a STRICTLY
+   * greater revision means a strictly later read, which sees a superset of
+   * completed transactions. Equality supports nothing at all. That is the
+   * whole extent of this field's authority.
    *
    * A wall clock cannot do this job. Stamped at completion it orders render
    * completion, which loses the earlier-start/later-finish race:
@@ -372,9 +427,16 @@ export type HydrateSnapshot = {
    * strictly lower than B's and is rejected regardless of arrival order. It is
    * also skew-free: one database clock rather than N function-instance clocks.
    *
-   * Conservative by construction. A read beginning before a commit may still
-   * observe it, so its revision can understate freshness — that costs a
-   * discarded update, never a corrupted one.
+   * NOT conservative by construction, and this comment used to claim it was.
+   * The error runs in the dangerous direction: because equal revisions carry
+   * no ordering information, a read that PREDATES the operator's write can
+   * report the same number as one that follows it, pass the gate, and revert a
+   * confirmed value on screen. That is the measured Packaging defect, not a
+   * discarded update.
+   *
+   * The sound instrument is the full snapshot rather than its upper bound —
+   * see `src/lib/costing-witness.ts`, which decides inclusion and ordering
+   * exactly where this number can only guess.
    *
    * This exists because reconciliation previously had NO ordering guarantee:
    * the provider cancelled a pending *timer*, but each scheduled call had
@@ -385,9 +447,32 @@ export type HydrateSnapshot = {
    * fresher snapshot arrived.
    */
   revision: number;
+  /**
+   * Per-read-statement freshness evidence — `pg_current_snapshot()` as text,
+   * keyed by the guarded slice the statement populates.
+   *
+   * Optional for legacy/test readers; the production `getCostingBundle`
+   * reader supplies payload and Packaging witnesses. A domain with no entry is
+   * explicitly unguarded — it cannot arm a write floor or claim freshness.
+   *
+   * A slice with no entry is UNGUARDED — named, not assumed. Silence must not
+   * read as a guarantee; that is precisely how `revision` came to be trusted
+   * for something it never established.
+   */
+  witnesses?: Readonly<Partial<Record<string, string>>>;
+  /**
+   * Which slices THIS READER emits witnesses for.
+   *
+   * The client may only arm a requirement for a domain in this set. It is what
+   * makes partial wiring structurally impossible rather than merely discouraged:
+   * with no reader declaring anything, nothing can ever arm, and the whole
+   * mechanism is inert.
+   */
+  guardedDomains?: readonly string[];
   quoteId: string;
   projectId: string;
   globalPriceAdjPct: number;
+  freightMarkupPct: number;
   // Slice 9.2 — per-quote target margin override (NULL = inherit firm).
   targetMarginPct: number | null;
   firmSettings: { targetMarginPct: number; floorMarginPct: number };
@@ -397,6 +482,8 @@ export type HydrateSnapshot = {
   packaging: StoredPackagingRow[];
   production: StoredProductionRow[];
   assemblyProduction: StoredAssemblyProductionRow[];
+  /** Economics used by the server; identity metadata alone cannot reconstruct cost. */
+  componentCharges: ComponentChargeInput[];
   freightLegGroups: StoredFreightLegGroup[];
   freightLegs: StoredFreightLeg[];
   freightLegTiers: StoredFreightLegTier[];
@@ -506,6 +593,7 @@ export type PackagingLineMetaFields = Partial<
     StoredPackagingRow,
     | "category"
     | "markupPct"
+    | "markupPctSource"
     | "qtyPerSellableUnit"
     | "pricingVendorHubspotCompanyId"
     | "pricingVendorNameSnapshot"
@@ -607,22 +695,12 @@ export function costingInputFromSnapshot(
   s: HydrateSnapshot,
 ): Required<QuoteCostingInput> {
   return {
-    // TODO(od-032-phase-3): carry component-owned charges on HydrateSnapshot.
-    //
-    // Empty is CORRECT today and will stop being correct the moment the phase-4
-    // sheet can author one: no UI exists to create a component charge, so no
-    // quote has any, and an empty array is the whole truth rather than a
-    // convenient default.
-    //
-    // Written as a marked TODO rather than a bare `[]` because a bare `[]` here
-    // would read as a decision — Pattern 54 — and the phase that must change it
-    // is the phase that makes it wrong.
-    componentCharges: [],
+    componentCharges: s.componentCharges,
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,
       targetMarginPct: s.targetMarginPct,
-      freightMarkupPct: 0,
+      freightMarkupPct: s.freightMarkupPct,
     },
     firmSettings: s.firmSettings,
     markupDefaults: s.markupDefaults,
@@ -647,21 +725,12 @@ export function buildCostingInput(
   s: Parameters<typeof recompute>[0],
 ): Required<QuoteCostingInput> {
   return {
-    // TODO(od-032-phase-3): carry component-owned charges on HydrateSnapshot.
-    //
-    // Empty is CORRECT today and will stop being correct the moment the phase-4
-    // sheet can author one: no UI exists to create a component charge, so no
-    // quote has any, and an empty array is the whole truth rather than a
-    // convenient default.
-    //
-    // Written as a marked TODO rather than a bare `[]` because a bare `[]` here
-    // would read as a decision — Pattern 54 — and the phase that must change it
-    // is the phase that makes it wrong.
-    componentCharges: [],
+    componentCharges: s.componentCharges,
     quote: {
       id: s.quoteId,
       globalPriceAdjPct: s.globalPriceAdjPct,
       targetMarginPct: s.targetMarginPct,
+      freightMarkupPct: s.freightMarkupPct,
     },
     firmSettings: s.firmSettings,
     markupDefaults: s.markupDefaults,
@@ -690,35 +759,176 @@ export function buildCostingInput(
   };
 }
 
+/**
+ * How a write ended, as far as the client can tell.
+ *
+ * `unknown` is a first-class answer and the reason this is an enum rather than
+ * a boolean. A timed-out request, a dropped connection or an unreadable
+ * response leaves the outcome genuinely undetermined — and an undetermined
+ * write must never arm, because the requirement would retire the moment its
+ * transaction ENDED, whichever way it ended (proof P1 · F2).
+ */
+export type WriteOutcome = "acknowledged" | "failed" | "unknown";
+
+/** The witness set a snapshot carries, as a plain record. Empty when none. */
+function witnessesOf(snapshot: HydrateSnapshot): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [domain, text] of Object.entries(snapshot.witnesses ?? {})) {
+    if (typeof text === "string") out[domain] = text;
+  }
+  return out;
+}
+
+/**
+ * The domain whose witness speaks for the WHOLE payload.
+ *
+ * `getCostingBundle` assembles ~30 statements in four sequential phases, and
+ * `reconcile` applies all of them or none. So the payload needs ONE ordering
+ * axis, and it has to be the EARLIEST read — phase 1, the quote lookup —
+ * because that is the only statement no other phase precedes.
+ *
+ * This is deliberately the same statement, and therefore the same instant,
+ * that `HydrateSnapshot.revision` is taken from: `revision` IS this witness's
+ * `xmax`. The witness does not widen the claim, it sharpens it — an exact
+ * comparison where the number could only give a bound, and where equal numbers
+ * gave nothing at all.
+ *
+ * Its LIMIT, stated because it is the same limit `revision` always had: a
+ * later phase of the stored payload can have been read after this phase of the
+ * incoming one. That was true of `revision` before any of this existed and is
+ * not made worse here; per-slice witnesses are what narrow it, slice by slice,
+ * as readers grow them.
+ */
+export const PAYLOAD_ORDERING_DOMAIN = "bundle";
+
+/**
+ * May this read replace what is stored, and which requirements does it settle?
+ *
+ * Extracted so every branch is assertable without constructing a store, and so
+ * the rule reads in one place instead of being spread through `reconcile`.
+ *
+ * Returns `null` to HOLD. Holding is not failure: it is the correct answer
+ * whenever freshness cannot be established, and the caller recovers by reading
+ * again rather than by accepting what it could not verify.
+ *
+ * `ordering` tells the caller WHICH instrument decided, because the legacy
+ * `revision` comparison must not run when a witness has already answered:
+ *
+ *   "reset"   a different quote. Nothing stored describes it, so nothing
+ *             stored may refuse it.
+ *   "witness" the payload axis was compared exactly. `revision` is a weaker
+ *             instrument for the same question and consulting it as well would
+ *             reintroduce the very rejection this replaces — two reads either
+ *             side of a commit can carry the SAME revision, so `<=` refuses the
+ *             fresh one as readily as the stale one.
+ *   "legacy"  no usable witness pair for the payload axis. The caller applies
+ *             the strict `revision` rule exactly as it always did.
+ */
+export function evaluateReconcile(
+  incoming: {
+    witnesses?: Readonly<Partial<Record<string, string>>>;
+    quoteId: string;
+  },
+  stored: {
+    floor: ReadonlyArray<{ writeId: string; domain: string }>;
+    appliedWitness: Readonly<Record<string, string>>;
+    quoteId: string;
+  },
+): {
+  /** Witnesses to record, parsed and keyed by domain. */
+  accepted: Record<string, string>;
+  /** Floor entries that survive — those this read did not prove. */
+  retained: Array<{ writeId: string; domain: string }>;
+  /** Which instrument decided the ordering. See the doc above. */
+  ordering: "reset" | "witness" | "legacy";
+} | null {
+  const parsed = new Map<string, Witness>();
+  for (const [domain, text] of Object.entries(incoming.witnesses ?? {})) {
+    const witness = parseWitness(text);
+    // FAIL CLOSED. An unparseable witness proves nothing: it does not dominate
+    // and it cannot establish inclusion, so it is treated as absent rather
+    // than as permission.
+    if (witness) parsed.set(domain, witness);
+  }
+  const texts = (): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [domain, witness] of parsed) out[domain] = witness.text;
+    return out;
+  };
+
+  // A DIFFERENT QUOTE, FIRST AND UNCONDITIONALLY.
+  //
+  // This used to be decided AFTER the witness comparison, which made the reset
+  // refusable: a new quote whose read happened to be older than the one stored
+  // for the quote being LEFT was rejected, and the previous quote's
+  // requirements and witnesses survived into a quote they say nothing about.
+  //
+  // Nothing stored describes this quote, so nothing stored may refuse it, and
+  // there is no ordering question to ask — two quotes' reads are not competing
+  // descriptions of one thing.
+  if (stored.quoteId !== incoming.quoteId) {
+    return { accepted: texts(), retained: [], ordering: "reset" };
+  }
+
+  // ORDERING OF THE WHOLE PAYLOAD.
+  //
+  // `reconcile` replaces every slice, so something has to speak for all of
+  // them. Where both sides carry the payload witness that comparison is exact
+  // and it DECIDES — the caller must not then also apply the legacy number,
+  // because equal revisions either side of a commit is precisely the measured
+  // case this exists to fix.
+  const incomingPayload = parsed.get(PAYLOAD_ORDERING_DOMAIN);
+  const storedPayload = parseWitness(
+    stored.appliedWitness[PAYLOAD_ORDERING_DOMAIN],
+  );
+  const ordering: "witness" | "legacy" =
+    incomingPayload && storedPayload ? "witness" : "legacy";
+  if (incomingPayload && storedPayload) {
+    if (compareWitness(incomingPayload, storedPayload) !== "dominates") {
+      return null;
+    }
+  }
+
+  // ORDERING, per slice. A slice's witness is compared against the witness of
+  // the read that last populated THAT slice — never against a bundle-wide
+  // number, because the phases of one bundle do not read at the same moment.
+  // The payload axis is skipped: it was decided above, on its own terms.
+  for (const [domain, witness] of parsed) {
+    if (domain === PAYLOAD_ORDERING_DOMAIN) continue;
+    const priorText = stored.appliedWitness[domain];
+    if (priorText === undefined) continue;
+    const prior = parseWitness(priorText);
+    if (!prior) continue; // nothing trustworthy to compare against
+    if (compareWitness(witness, prior) !== "dominates") return null;
+  }
+
+  // INCLUSION, per slice. Only entries whose own domain is present are
+  // consulted; an entry for a domain this read does not witness cannot be
+  // settled by it, and the read is held rather than applied over it.
+  const retained: Array<{ writeId: string; domain: string }> = [];
+  for (const entry of stored.floor) {
+    const witness = parsed.get(entry.domain);
+    if (!witness) return null; // required witness missing — hold, then re-read
+    const writeId = parseWriteId(entry.writeId);
+    if (writeId === null) return null; // unparseable requirement — fail closed
+    if (!witnessIncludes(writeId, witness)) return null;
+    // Proven. It does not survive into `retained`.
+  }
+
+  return {
+    accepted: { ...stored.appliedWitness, ...texts() },
+    retained,
+    ordering,
+  };
+}
+
 // Slice 9.5 — compute warnings from a hydrate/reconcile snapshot.
 // Snapshots arrive with server-pre-computed `costing`; warnings are
 // computed client-side from the snapshot's inputs + costing. Keeps
 // the server-precompute optimization for costing while letting the
 // client populate the warnings slice without extending HydrateSnapshot.
 function warningsFromSnapshot(snapshot: HydrateSnapshot): WarningSpec[] {
-  const input: QuoteCostingInput = {
-    quote: {
-      id: snapshot.quoteId,
-      globalPriceAdjPct: snapshot.globalPriceAdjPct,
-      targetMarginPct: snapshot.targetMarginPct,
-    },
-    firmSettings: snapshot.firmSettings,
-    markupDefaults: snapshot.markupDefaults,
-    skus: snapshot.skus,
-    tiers: snapshot.tiers,
-    packaging: snapshot.packaging,
-    production: snapshot.production,
-    assemblyProduction: snapshot.assemblyProduction,
-    freightLegGroups: snapshot.freightLegGroups,
-    freightLegs: snapshot.freightLegs,
-    freightLegTiers: snapshot.freightLegTiers,
-    freightComponentTierCosts: snapshot.freightComponentTierCosts,
-    freightShipmentBreaks: snapshot.freightShipmentBreaks,
-    cellOverrides: snapshot.cellOverrides,
-    cellTargets: snapshot.cellTargets,
-        chargeElections: snapshot.chargeElections ?? [],
-    lifts: snapshot.lifts,
-  };
+  const input = costingInputFromSnapshot(snapshot);
   return validateQuote(input, snapshot.costing);
 }
 
@@ -738,6 +948,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     projectId: initial.projectId,
     globalPriceAdjPct: initial.globalPriceAdjPct,
     targetMarginPct: initial.targetMarginPct,
+    freightMarkupPct: initial.freightMarkupPct,
     firmSettings: initial.firmSettings,
     markupDefaults: initial.markupDefaults,
     skus: initial.skus,
@@ -745,6 +956,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     packaging: initial.packaging,
     production: initial.production,
     assemblyProduction: initial.assemblyProduction,
+    componentCharges: initial.componentCharges,
     freightLegGroups: initial.freightLegGroups,
     freightLegs: initial.freightLegs,
     freightLegTiers: initial.freightLegTiers,
@@ -769,6 +981,9 @@ export function makeCostingStore(initial: HydrateSnapshot) {
     lastAppliedRevision: initial.revision,
     awaitedRevision: null,
     awaitedSince: 0,
+    floor: [],
+    appliedWitness: witnessesOf(initial),
+    guardedDomains: initial.guardedDomains ?? [],
     lastUserEditAt: 0,
 
     // Highest outstanding revision governs: two rapid writes must not let the
@@ -783,12 +998,77 @@ export function makeCostingStore(initial: HydrateSnapshot) {
 
     releaseAwaited: () => set(() => ({ awaitedRevision: null, awaitedSince: 0 })),
 
+    /**
+     * Arm a requirement, or decline to.
+     *
+     * THREE CONDITIONS, ALL NECESSARY, and each one guards a different way of
+     * being wrong:
+     *
+     *   outcome === "acknowledged"  — a snapshot cannot distinguish a commit
+     *     from an abort (proof P1 · F2: `pg_visible_in_snapshot` returns TRUE
+     *     for a transaction that rolled back and left nothing behind, and the
+     *     client predicate agrees). The caller's knowledge that the write
+     *     SUCCEEDED is the only commit evidence in the system. An `unknown`
+     *     outcome — timeout, dropped connection, unreadable response — must
+     *     never arm, because the requirement would retire the instant its
+     *     transaction ended, whichever way it ended.
+     *
+     *   a parseable writeId  — `null` means no write happened at all (the
+     *     no-op paths return before their UPDATE), so there is nothing to
+     *     await. A requirement that can never be included is the one thing
+     *     that genuinely wedges reconciliation.
+     *
+     *   the domain is GUARDED  — arming for a slice whose reader emits no
+     *     witness would hold every subsequent read forever. With no reader
+     *     declaring anything, `guardedDomains` is empty and nothing arms: the
+     *     mechanism is inert until its reader lands, by construction rather
+     *     than by remembering to keep it so.
+     *
+     * Arming at DISPATCH rather than at acknowledgement is prohibited by the
+     * first condition: at dispatch the outcome is by definition unknown.
+     */
+    armWrite: ({ outcome, writeId, domains }) =>
+      set((s) => {
+        if (outcome !== "acknowledged") return {};
+        if (writeId === null || parseWriteId(writeId) === null) return {};
+        const additions = domains
+          .filter((d) => s.guardedDomains.includes(d))
+          .filter(
+            (d) => !s.floor.some((e) => e.writeId === writeId && e.domain === d),
+          )
+          .map((d) => ({ writeId, domain: d }));
+        if (additions.length === 0) return {};
+        return { floor: [...s.floor, ...additions] };
+      }),
+
+    clearWriteFloor: () => set(() => ({ floor: [], appliedWitness: {} })),
+
+    /**
+     * A RESET — a different quote, or a fresh start. Never a gated update.
+     *
+     * The distinction is load-bearing and was previously left implicit: this
+     * adopted the snapshot unconditionally while leaving `awaitedRevision`
+     * dangling from the quote being left, so a requirement belonging to one
+     * quote could outlive it. Everything that describes "what this client is
+     * waiting to see come back" is therefore cleared here, and the witnesses
+     * are REPLACED by the incoming set rather than merged into it.
+     *
+     * `reconcile` is the gated path. If this ever starts consulting the floor
+     * or the stored witnesses it has stopped being a reset, which is what the
+     * accompanying test exists to catch.
+     */
     hydrate: (snapshot) =>
       set({
+        floor: [],
+        appliedWitness: witnessesOf(snapshot),
+        guardedDomains: snapshot.guardedDomains ?? [],
+        awaitedRevision: null,
+        awaitedSince: 0,
         quoteId: snapshot.quoteId,
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
         targetMarginPct: snapshot.targetMarginPct,
+        freightMarkupPct: snapshot.freightMarkupPct,
         firmSettings: snapshot.firmSettings,
         markupDefaults: snapshot.markupDefaults,
         skus: snapshot.skus,
@@ -796,6 +1076,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         packaging: snapshot.packaging,
         production: snapshot.production,
         assemblyProduction: snapshot.assemblyProduction,
+        componentCharges: snapshot.componentCharges,
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
@@ -825,15 +1106,52 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         // Ordering guard. A snapshot must be strictly newer than the one
         // already applied, or it is discarded untouched.
         //
-        // Equality is rejected as well as staleness: two renders stamped in
-        // the same millisecond carry the same data, so re-applying one can
-        // only cost work and risk clobbering an optimistic edit made in
-        // between.
+        // Equality is rejected as well as staleness.
+        //
+        // The REASON stated here was false: it claimed two renders stamped in
+        // the same millisecond carry the same data. They need not. `xmax` is
+        // one past the highest COMPLETED xid, so a read taken before a commit
+        // and one taken after it report the same number whenever a HIGHER xid
+        // completed first — measured as `14346:14348:14346` vs `14348:14348:`
+        // (proof P1). Equal revisions can differ in exactly the write the
+        // operator is waiting for.
+        //
+        // Rejecting on equality remains the right DEFAULT while this number is
+        // the only evidence available: it declines both reads rather than
+        // guessing between them, and it still avoids re-applying work and
+        // clobbering an optimistic edit made in between. It is a default, not
+        // a proof, and a witness supersedes it where one is carried.
         //
         // Returning `{}` leaves every slice — packaging, production, freight,
         // overrides, targets — exactly as it is. This is what stops a server
         // render that predates an operator's save from erasing it.
-        if (snapshot.revision <= s.lastAppliedRevision) return {};
+        // FAIL CLOSED on an unparseable revision. `Number(undefined)` is
+        // `NaN`, and `NaN <= n` is FALSE — so a snapshot with no usable
+        // revision used to fall straight through this guard and apply,
+        // defeating ordering entirely on the one path that most needed it.
+        // A revision that is not a finite number is not evidence of anything.
+        if (!Number.isFinite(snapshot.revision)) return {};
+        // Ordering and inclusion. Inert until a reader emits witnesses and a
+        // writer supplies ids — with neither, `witnesses` is undefined and
+        // `floor` is empty, so this reports "legacy" and the guard below is
+        // what decides, exactly as it always has.
+        const verdict = evaluateReconcile(snapshot, s);
+        if (verdict === null) return {};
+        // THE LEGACY NUMBER IS A FALLBACK, NOT AN ADDITIONAL HURDLE.
+        //
+        // Running it unconditionally made the measured repair impossible:
+        // apply the pre-commit read, then deliver the post-commit one that
+        // PROVES it contains the operator's write, and `14348 <= 14348`
+        // rejects it before dominance is ever consulted. The requirement never
+        // retires and the surface re-reads forever. Two reads either side of a
+        // commit carrying the same revision is not an edge case — it is what
+        // happens whenever a higher xid completes first.
+        //
+        // So it runs only when nothing better answered: no payload witness on
+        // one side or the other, which is every snapshot today.
+        if (verdict.ordering === "legacy") {
+          if (snapshot.revision <= s.lastAppliedRevision) return {};
+        }
         return {
         // Causal requirement is satisfied only by a snapshot that actually
         // reaches the awaited revision. Anything lower is held by the
@@ -846,6 +1164,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         projectId: snapshot.projectId,
         globalPriceAdjPct: snapshot.globalPriceAdjPct,
         targetMarginPct: snapshot.targetMarginPct,
+        freightMarkupPct: snapshot.freightMarkupPct,
         firmSettings: snapshot.firmSettings,
         markupDefaults: snapshot.markupDefaults,
         skus: snapshot.skus,
@@ -853,6 +1172,7 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         packaging: snapshot.packaging,
         production: snapshot.production,
         assemblyProduction: snapshot.assemblyProduction,
+        componentCharges: snapshot.componentCharges,
         freightLegGroups: snapshot.freightLegGroups,
         freightLegs: snapshot.freightLegs,
         freightLegTiers: snapshot.freightLegTiers,
@@ -867,6 +1187,20 @@ export function makeCostingStore(initial: HydrateSnapshot) {
         warnings: warningsFromSnapshot(snapshot),
         persistedWarnings: snapshot.persistedWarnings,
         lastAppliedRevision: snapshot.revision,
+        // RETIREMENT HAPPENS HERE, and only here. Coupling it to application
+        // rather than to evidence alone is what keeps the stored witness at
+        // least as new as the read that settled a requirement: retire on a
+        // read that was REJECTED and the stored witness still predates the
+        // write, so a later stale read could dominate it, meet an empty floor,
+        // and revert the value.
+        //
+        // `retained` is the entries this read did not prove. Under
+        // all-or-nothing application it is always empty, because an unproven
+        // entry holds the whole reconcile above — but the rule is written as
+        // the filter it is rather than as its current consequence.
+        floor: verdict.retained,
+        appliedWitness: verdict.accepted,
+        guardedDomains: snapshot.guardedDomains ?? s.guardedDomains,
         lastUserEditAt: 0,
         };
       }),
@@ -1212,6 +1546,15 @@ export const selectLastUserEditAt = (s: CostingStoreState) => s.lastUserEditAt;
 
 export const selectUpdatePackagingCell = (s: CostingStoreState) =>
   s.updatePackagingCell;
+/**
+ * The arming action, for surfaces that hold a reconciliation requirement.
+ *
+ * Selected as an action rather than reached through `getState()` so the call
+ * site reads as a store interaction and the dependency is visible in the
+ * component's subscriptions.
+ */
+export const selectArmWrite = (s: CostingStoreState) => s.armWrite;
+
 export const selectUpdatePackagingLineMeta = (s: CostingStoreState) =>
   s.updatePackagingLineMeta;
 export const selectUpdateProductionCell = (s: CostingStoreState) =>

@@ -26,6 +26,7 @@ import {
   mapLeafToHubspotCreate,
 } from "../../src/lib/hubspot-mapper.ts";
 import { isKnownHubspotProductTypeValue } from "../../src/lib/hubspot-product-type-vocabulary.ts";
+import { fakeHubSpot } from "../harness/providers/fake-hubspot.ts";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const read = (p: string) => readFile(path.join(root, p), "utf8");
@@ -41,7 +42,9 @@ async function code(p: string): Promise<string> {
 }
 
 /**
- * The PRODUCTION vocabulary, as read from the property definition 2026-08-13.
+ * A representative production vocabulary for pure predicate tests. The two
+ * newly added HubSpot options are confirmed by the operator; live UI choices
+ * still come from the configured provider at runtime.
  *
  * A fixture for the pure predicate only — never a source of truth. The sandbox
  * portal's option set is genuinely different (it has `Corrugated` and
@@ -73,6 +76,9 @@ const LIVE_OPTIONS = [
   },
   { label: "Finished Goods", value: "Finished Goods", displayOrder: 13 },
   { label: "Turnkey", value: "Turnkey", displayOrder: 14 },
+  { label: "Tertiary Packaging", value: "Tertiary Packaging", displayOrder: 15 },
+  { label: "Ingestibles", value: "Ingestibles", displayOrder: 16 },
+  { label: "Topicals", value: "Topicals", displayOrder: 17 },
 ];
 
 const DIVERGENT: Array<[label: string, value: string]> = [
@@ -153,6 +159,17 @@ test("every non-divergent option round-trips on its own value", () => {
   for (const o of LIVE_OPTIONS) {
     assert.equal(isKnownHubspotProductTypeValue(o.value, LIVE_OPTIONS), true);
   }
+});
+
+test("isolated preview vocabulary includes the new HubSpot types", async () => {
+  const options = await fakeHubSpot.listProductTypeOptions();
+  assert.deepEqual(
+    options.filter((o) => ["Ingestibles", "Topicals"].includes(o.value)),
+    [
+      { label: "Ingestibles", value: "Ingestibles", displayOrder: 16 },
+      { label: "Topicals", value: "Topicals", displayOrder: 17 },
+    ],
+  );
 });
 
 test("the vocabulary is fetched, never hard-coded", async () => {

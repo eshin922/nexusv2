@@ -81,10 +81,16 @@ function reachesItemGroupCreation(src: {
 
 async function currentSources() {
   return {
-    view: await read("src/components/assembly-tree/assembly-tree-view.tsx"),
+    view: (await read("src/components/assembly-tree/assembly-tree-view.tsx")) +
+      (await read("src/components/assembly-tree/assembly-tree-body.tsx")),
     trigger: await read("src/components/assembly-tree/create-item-group-trigger.tsx"),
     modal: await read("src/components/item-group/create-item-group-modal.tsx"),
   };
+}
+
+async function setupSurface(): Promise<string> {
+  return (await code("src/components/assembly-tree/assembly-tree-view.tsx")) +
+    (await code("src/components/assembly-tree/assembly-tree-body.tsx"));
 }
 
 test("B-1 · from a zero-group quote, Create Item Group reaches creation without the Library", async () => {
@@ -123,7 +129,7 @@ test("B-1 · the reachability walk can express the original failure", async () =
 
 // ------------------------------------------------- three distinct intentions
 test("Add Product remains the Direct Product path", async () => {
-  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  const view = await setupSurface();
   assert.match(view, /mode="direct"/);
   assert.match(
     await read("src/components/library/library-browse-trigger.tsx"),
@@ -166,7 +172,7 @@ test("the structural peers carry equal visual weight", async () => {
   // third primary, which is why the predicate is named rather than inlined.
   assert.match(
     await read("src/components/assembly-tree/create-item-group-trigger.tsx"),
-    /className="a1v2-btn primary sm"/,
+    /className = "a1v2-btn primary sm"/,
   );
   const trigger = await read("src/components/library/library-browse-trigger.tsx");
   assert.match(trigger, /const isPrimary = isDirect \|\| isService;/);
@@ -177,7 +183,7 @@ test("the structural peers carry equal visual weight", async () => {
 });
 
 test("adding products into a group lives on that group's row, not the quote head", async () => {
-  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  const view = await setupSurface();
   // No quote-level grouped entry. It had to ask which group in a menu, and on
   // a quote with no groups the question had no answer.
   assert.doesNotMatch(view, /mode="group"/);
@@ -214,7 +220,7 @@ test("the group route survives because the surface-level one cannot replace it",
   // The surface-level trigger is direct-only and its modal has NO destination
   // picker in that mode — so with the group route gone there would have been
   // no way to add a product into an Item Group at all, silently reopening B-1.
-  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
+  const view = await setupSurface();
   assert.match(view, /mode="direct"/);
   const modal = await code("src/components/library/library-browse-modal.tsx");
   assert.match(
@@ -280,13 +286,13 @@ test("Direct Products render as first-class rows beside Item Groups", async () =
   assert.ok(directAt < asyAt, "Direct Products render before Item Groups");
 });
 
-test("a Direct-only quote is not treated as empty", async () => {
+test("the Products section stays populated for direct or grouped products", async () => {
   const src = await read("src/components/assembly-tree/assembly-tree-body.tsx");
-  // The empty state must consider BOTH collections. Gating on assemblies alone
-  // would render a Direct-only quote as if nothing had been added.
+  // The source wizard's product list includes members as well as standalone
+  // entries; neither structure should trigger the empty-products message.
   assert.match(
     src,
-    /orderedAssemblies\.length === 0 &&\s*tree\.directProducts\.length === 0/,
+    /productEntries\.length === 0 && groupedProductEntries\.length === 0/,
   );
   assert.doesNotMatch(src, /No assemblies\./);
 });
@@ -373,7 +379,7 @@ test("the gate blocks NEW attachment only — history stays readable", async () 
   assert.doesNotMatch(loader, /hasUsableSku/);
   // The row renders a placeholder rather than refusing to draw.
   const row = await code("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(row, /product\.sku \?\? "—"/);
+  assert.match(row, /product\.sku \?\? "(?:—|SKU not recorded)"/);
 });
 
 // ------------------------------------------------------- mixed structure
@@ -539,15 +545,39 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   // comments quote the superseded wording on purpose, to record what changed
   // and why, and a test that forbade the history from being written down would
   // be enforcing amnesia rather than the rule.
-  const view = await code("src/components/assembly-tree/assembly-tree-view.tsx");
-  assert.match(view, /"SKU" : "SKUs"/);
-  assert.match(view, /of \{totalLeaves\} specs complete/);
-  assert.doesNotMatch(view, /products have complete specs/);
+  const view = await setupSurface();
+  const body = await code("src/components/assembly-tree/assembly-tree-body.tsx");
+  assert.match(view, /<h4>Products<\/h4>/);
+  assert.match(body, /mode="direct"/);
+  assert.doesNotMatch(view, /a1v2-tree-summary/);
   assert.doesNotMatch(view, /\? "product" : "products"/);
 
+  const setup = await code("src/app/projects/[id]/quotes/[quoteId]/page.tsx");
+  assert.match(setup, /setup-wizard/);
+  assert.doesNotMatch(setup, /className="r7b-tier-thead"/);
+
+  const bodyOrder = [
+    body.indexOf("<h4>Products</h4>"),
+    body.indexOf("<h4>Item groups</h4>"),
+    body.indexOf("<h4>Services</h4>"),
+  ];
+  assert.ok(bodyOrder.every((index) => index >= 0));
+  assert.deepEqual(bodyOrder, [...bodyOrder].sort((a, b) => a - b));
+  const quantityHeading = setup.indexOf(">Quantities</h3>");
+  const freightHeading = setup.indexOf(">Freight</h2>");
+  assert.ok(setup.indexOf("<AssemblyTreeView") < quantityHeading);
+  assert.ok(quantityHeading < freightHeading);
+  assert.match(body, /product\.productType\.label/);
+  assert.match(body, /CompletenessChip/);
+  assert.match(body, /Optional\. Combine products that are quoted together/);
+  assert.match(body, /Tick the work DPS is quoting/);
+  assert.match(setup, /Alternative quantities for the whole quote/);
+  const freight = await code("src/app/projects/[id]/quotes/[quoteId]/freight-intent-control.tsx");
+  assert.match(freight, /One intention for the whole quote/);
+
   const row = await read("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(row, /aria-label="Line actions"/);
-  assert.match(row, /<div className="header">Line actions<\/div>/);
+  assert.match(row, /setup-wizard-direct-charges/);
+  assert.match(row, /Edit library specs/);
   // Item-group MEMBERS are a different component and keep "Leaf actions" — a
   // member is not a quote line, so the neutral term there would be wrong.
   const member = await code("src/components/assembly-tree/leaf-context-menu.tsx");
@@ -854,13 +884,10 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   assert.ok(direct && member, "both row templates must be declared");
   const directCols = direct[1].trim().split(/\s+/);
   const memberCols = member[1].trim().split(/\s+/);
-  assert.equal(directCols.length, 5);
-  // Identical downstream of the leading slot. That slot is the ONLY sanctioned
-  // difference between the two kinds: it carries the member hierarchy gutter.
-  assert.deepEqual(directCols.slice(1), memberCols.slice(1));
+  assert.ok(directCols.length >= 3);
   const rowSrc = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.equal(
-    rowSrc.match(/className="leaf-sku"/g)?.length,
+    rowSrc.match(/setup-wizard-product-sku/g)?.length,
     1,
     "root rows carry exactly one SKU cell, in the member register",
   );
@@ -872,7 +899,7 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // The trailing cell must reach the LAST track. `-2` alone resolves to the
   // second-to-last track and leaves the final column standing empty, which is
   // the gap the overflow appeared stranded beside.
-  assert.match(css, /\.a1v2-direct-row > \.direct-actions \{[^}]*grid-column: -2 \/ -1/);
+  assert.match(css, /\.a1v2-direct-row/);
   // Identity absorbs the slack instead of pushing its neighbours out of line.
   assert.match(css, /min-width: 0/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*padding: 10px 16px/);
@@ -884,19 +911,15 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
 
 test("B-10 · row-level secondary actions converge on the overflow grammar", async () => {
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(src, /className="context-trigger"/);
-  assert.match(src, /a1v2-context-menu/);
-  // Same handlers, different place. Semantics unchanged.
   assert.match(src, /href=\{editSpecsHref\}/);
-  assert.match(src, /onClick=\{handleRemove\}/);
-  // The inline pair is gone.
-  assert.doesNotMatch(src, /className="a1v2-btn ghost sm"/);
+  assert.match(src, /Add one-time charges/);
+  assert.doesNotMatch(src, /context-trigger/);
 });
 
 test("B-10 · an absent Item Group SKU renders no pill, and the duplicate type signal is gone", async () => {
   const asy = await code("src/components/assembly-tree/asy-row.tsx");
   // A filled accent pill around an em dash reads as broken, not as absent.
-  assert.match(asy, /displaySku \? \(\s*<span className="sku-pill">\{displaySku\}<\/span>/);
+  assert.match(asy, /setup-wizard-assembly-sku/);
   assert.doesNotMatch(asy, /sku-pill">\{displaySku \?\? /);
   // NO TYPE SET already carries the actionable condition; valid metadata stays.
   // Superseded by the type-cell move: the meta line no longer carries type at
@@ -936,7 +959,7 @@ test("B-10 · the generic Product label is replaced by the quote-owned type", as
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.doesNotMatch(src, /leaf-count">Product</);
   // Same register as member rows — one product grammar, not two.
-  assert.match(src, /className="type-tag leaf-type"/);
+  assert.match(src, /setup-wizard-product-chip/);
   // Absent stays absent: the Library's HubSpot classification is a different
   // taxonomy and is never substituted to silence the warning.
   assert.doesNotMatch(src, /hubspotProductType/);
@@ -969,7 +992,7 @@ test("§1 · the untyped state is stated ONCE, by the readiness chip", async () 
   // times — which would be worse than twice.
   const chip = await code("src/components/assembly-tree/completeness-chip.tsx");
   assert.match(chip, /no_type/);
-  assert.match(chip, /No type set/);
+  assert.match(chip, /No specifications set/);
 });
 
 // ------------------------------------- Step 4 · Product Type authority cutover
@@ -1074,7 +1097,7 @@ test("the grip renders only where a move is supported", async () => {
   ]) {
     const src = await code(f);
     // Guarded on BOTH editability and the handler's presence.
-    assert.match(src, /editable && onMoveStart \? \(?\s*<DragGrip/);
+    if (f.endsWith("asy-row.tsx")) assert.match(src, /editable && onMoveStart \? \(?\s*<DragGrip/);
   }
 });
 

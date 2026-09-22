@@ -221,10 +221,8 @@ export async function InnerRail({
                 const targetQuoteId = activeQuoteId ?? s.latestQuoteId;
                 return (
                   <div className="ml-4 mt-1 mb-2 flex flex-col gap-0.5 border-l border-rule pl-2">
-                    {/* Slice RI.8 F-2 fix — Setup is the bare quote
-                        index page, not a /setup segment. */}
                     <Link
-                      href={`/projects/${projectId}/quotes/${targetQuoteId}`}
+                      href={`/projects/${projectId}/quotes/${targetQuoteId}/setup`}
                       className="text-[11px] text-ink-3 hover:text-ink"
                     >
                       Setup

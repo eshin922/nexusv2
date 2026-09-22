@@ -142,6 +142,8 @@ function snapshot(): HydrateSnapshot {
     // Empty is production's whole state: the writer refuses every election
     // that changes anything until the cutover is complete.
     chargeElections: [],
+    componentCharges: [],
+    freightMarkupPct: 0,
   componentChargeMeta: [],
     globalPriceAdjPct: 0.1,
     targetMarginPct: null,
@@ -176,6 +178,8 @@ function storeState(snap: HydrateSnapshot) {
     quoteId: snap.quoteId,
     projectId: snap.projectId,
     globalPriceAdjPct: snap.globalPriceAdjPct,
+    freightMarkupPct: snap.freightMarkupPct,
+    componentCharges: snap.componentCharges,
     targetMarginPct: snap.targetMarginPct,
     firmSettings: snap.firmSettings,
     markupDefaults: snap.markupDefaults,

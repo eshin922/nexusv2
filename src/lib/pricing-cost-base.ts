@@ -35,8 +35,8 @@
 import type { QuoteCostingInput } from "./costing";
 
 /** Six decimals: far below a cent, far above float noise at this depth. */
-const q = (n: number | null | undefined): number =>
-  n === null || n === undefined ? 0 : Math.round(n * 1e6) / 1e6;
+const q = (n: number | null | undefined): number | null =>
+  n === null || n === undefined ? null : Math.round(n * 1e6) / 1e6;
 
 /**
  * A stable digest of everything the price depends on that the PM does not own.
@@ -69,7 +69,7 @@ export function costBaseFingerprint(input: QuoteCostingInput): string {
 
   // Population and shape. A leaf appearing or leaving changes what is blended.
   for (const s of [...input.skus].sort((a, b) => a.id.localeCompare(b.id))) {
-    parts.push(`sku:${s.id}:${s.skuRole}:${s.parentSkuId ?? ""}:${q(s.qtyPerParent)}`);
+    parts.push(`sku:${s.id}:${s.skuRole}:${s.parentSkuId ?? ""}:${q(s.qtyPerParent)}:${s.canonicalQuoteLeafId ?? ""}`);
   }
 
   for (const p of [...input.packaging].sort((a, b) =>
@@ -86,9 +86,33 @@ export function costBaseFingerprint(input: QuoteCostingInput): string {
     `${a.quoteSkuId}${a.tierId}`.localeCompare(`${b.quoteSkuId}${b.tierId}`),
   )) {
     parts.push(
-      `prod:${pr.quoteSkuId}:${pr.tierId}:${q(pr.fillingBlendingCost)}:${q(pr.cmAssemblyTotal)}:${q(pr.setupFeeTotal)}:${q(pr.toolingArtworkTotal)}:${q(pr.toolingTotal)}:${q(pr.artworkTotal)}:${q(pr.rdTotal)}:${q(pr.otherServiceTotal)}:${q(pr.bulkRawCost)}:${q(pr.actualUnitsProduced)}:${pr.allocateServiceFeesToCost ? 1 : 0}`,
+      `prod:${pr.quoteSkuId}:${pr.tierId}:${q(pr.fillingBlendingCost)}:${q(pr.cmAssemblyTotal)}:${q(pr.setupFeeTotal)}:${q(pr.toolingArtworkTotal)}:${q(pr.toolingTotal)}:${q(pr.artworkTotal)}:${q(pr.rdTotal)}:${q(pr.testingMicrosTotal)}:${q(pr.otherServiceTotal)}:${q(pr.bulkRawCost)}:${pr.allocateServiceFeesToCost ? 1 : 0}`,
     );
   }
+
+  // Group worksheets and owned fees are independent engine inputs, not
+  // recoverable from the legacy production array or charge identity metadata.
+  // Sort serialized rows to keep database ordering out of the decision.
+  const groupProduction = (input.assemblyProduction ?? []).map((p) => [
+    p.assemblyId, p.tierId, p.allocateServiceFeesToCost,
+    q(p.fillingBlendingCost), q(p.cmAssemblyTotal), q(p.setupFeeTotal),
+    q(p.toolingArtworkTotal), q(p.toolingTotal), q(p.artworkTotal),
+    q(p.rdTotal), q(p.testingMicrosTotal), q(p.otherServiceTotal),
+    q(p.bulkRawCost),
+  ]);
+  for (const row of groupProduction.map((p) => JSON.stringify(p)).sort()) {
+    parts.push(`assemblyprod:${row}`);
+  }
+  const charges = (input.componentCharges ?? []).map((c) => JSON.stringify([
+    c.chargeInstanceId, c.tierId, c.chargeKey, c.ownerRef, q(c.cost),
+  ]));
+  for (const row of charges.sort()) parts.push(`charge:${row}`);
+  const elections = (input.chargeElections ?? []).map((e) => JSON.stringify([
+    e.chargeKey, e.chargeInstanceId ?? null, e.mode,
+  ]));
+  for (const row of elections.sort()) parts.push(`election:${row}`);
+  // actualUnitsProduced is operational reconciliation. The engine prices
+  // against quoted tier quantities; recording output must not invalidate pricing.
 
   // Both freight models. A quote carrying legs resolves through them; one
   // carrying shipment breaks resolves through the worksheet, and which one is

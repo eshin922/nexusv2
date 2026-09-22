@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useStore } from "zustand";
 import {
+  evaluateReconcile,
   makeCostingStore,
   type CostingStore,
   type CostingStoreState,
@@ -145,10 +146,10 @@ export function CostingStoreProvider({
   // Two independent protections. They guard different failures and neither
   // substitutes for the other:
   //
-  //   ORDERING (authoritative, in the store) — `snapshot.revision` vs
-  //   `lastAppliedRevision`. Guarantees a server render that predates one
-  //   already applied can never overwrite it, no matter what order the
-  //   responses arrive in.
+  //   ORDERING (authoritative, in the store) — the full read witness when both
+  //   snapshots carry it, with the strictly increasing legacy revision as a
+  //   fallback. This prevents an older server render from replacing a newer
+  //   applied snapshot, regardless of response arrival order.
   //
   //   QUIET PERIOD (here) — defers while the operator is actively typing, so
   //   even a genuinely newer snapshot does not interrupt mid-entry.
@@ -171,7 +172,27 @@ export function CostingStoreProvider({
       if (!state) return;
       // Drop a snapshot already superseded rather than holding a retry timer
       // alive for it through the whole quiet period.
-      if (snap.revision <= state.lastAppliedRevision) {
+      //
+      // THE NUMERIC PRE-FILTER IS A FALLBACK HERE TOO. This is a second copy
+      // of the store's ordering rule, and running it unconditionally defeated
+      // the store's fix from one layer up: two reads either side of a commit
+      // carry the SAME revision, so `<=` discarded the read that PROVES it
+      // contains the operator's write, and the store never saw it. Measured
+      // as `14346:14348:14346` then `14348:14348:`, both revision 14348
+      // (proof P1).
+      //
+      // `evaluateReconcile` is the single rule; asking it here keeps the
+      // pre-filter from disagreeing with the thing it is filtering for. A
+      // `null` verdict means the store would refuse this snapshot, so there is
+      // nothing to gain by scheduling it.
+      const verdict = evaluateReconcile(snap, state);
+      if (verdict === null) {
+        return;
+      }
+      if (
+        verdict.ordering === "legacy" &&
+        snap.revision <= state.lastAppliedRevision
+      ) {
         return;
       }
       // F-3 Phase B — write causality. Monotonicity above proves this snapshot

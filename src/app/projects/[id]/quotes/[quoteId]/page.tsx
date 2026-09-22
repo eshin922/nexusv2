@@ -7,7 +7,6 @@ import {
   quoteClientTargets,
   quotes,
   quoteTiers,
-  users,
 } from "@/db/schema";
 // canonical-scenario-create-flow Step 3 — legacy SKU table imports
 // removed: quoteSkus, packagingInputs, productionInputs (data
@@ -17,6 +16,10 @@ import {
 // path uses <AssemblyTreeView> exclusively.
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { readExistingComponentCharges } from "@/lib/component-charges/read";
+import {
+  indexProductTypeChargeDefaults,
+  listProductTypeChargeDefaults,
+} from "@/lib/product-type-charge-defaults";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -26,16 +29,15 @@ import { AttachmentListTrigger } from "@/components/quote-attachments/attachment
 // dropped: Setup now uses canonical .r7b-head inline structure
 // (no Eyebrow/ActionCluster components). The primitives stay shipped
 // for Costs / Pricing / Quote / Mark-Accepted (RI.9 work intact).
-import { YourNextMoveBanner } from "@/components/nav/your-next-move-banner";
 import { NavShell } from "@/components/nav/nav-shell";
-import { resolveSurfaceHref } from "@/lib/nav/surface-routes";
-import { SURFACE_META } from "@/lib/nav/surface-meta";
 import { recordSurfaceVisit } from "@/app/actions/surface-visits";
 import { AddTierButton } from "./add-tier-button";
 import { TierRow } from "./tier-row";
 import { TierPresetPicker } from "./tier-preset-picker";
 import { NotesEditor } from "./notes-editor";
+import { FreightIntentControl } from "./freight-intent-control";
 import { canEditLibraryProduct } from "@/lib/permissions/library-product";
+import { COSTS_M3_PREVIEW_VALUE } from "@/lib/costs/m2-preview-switch";
 
 export default async function QuoteBuilderPage({
   params,
@@ -63,17 +65,16 @@ export default async function QuoteBuilderPage({
     .select({
       quote: quotes,
       project: projects,
-      pm: { name: users.name, email: users.email },
     })
     .from(quotes)
     .innerJoin(projects, eq(projects.id, quotes.projectId))
-    .leftJoin(users, eq(users.id, projects.pmUserId))
     .where(eq(quotes.id, quoteId))
     .limit(1);
 
   if (quoteRows.length === 0) notFound();
-  const { quote, project, pm } = quoteRows[0];
+  const { quote, project } = quoteRows[0];
   if (project.id !== projectId) notFound(); // URL tampering
+  const costsUrl = `/projects/${project.id}/quotes/${quote.id}/costs?preview=${COSTS_M3_PREVIEW_VALUE}`;
 
   // canonical-scenario-create-flow — read-path branching dropped.
   // Every quote routes to the new ASY/LEAF tree; loadAssemblyTree
@@ -92,6 +93,7 @@ export default async function QuoteBuilderPage({
   // bidirectional micro-slice (queued next-but-one after this)
   // restores the write path before pre-launch review.
   const assemblyTree = await loadAssemblyTree(quoteId);
+  const productTypeChargeDefaults = await listProductTypeChargeDefaults();
 
   // Phase A.1 v2 impl-4 — product-type options for the Add Product
   // modal's ASY/LEAF type selectors. Loaded unconditionally (cheap
@@ -153,25 +155,9 @@ export default async function QuoteBuilderPage({
         </Link>
       </div>
 
-      {/* §6.b path-B migration commit 2 — page chrome restructured to
-          match canonical 7bsetup.jsx PageHead (lines 86-107). Inline
-          eyebrow + h1 + sub + actions per .r7b-head structure. Cross-
-          surface primitives (<Eyebrow>, <ActionCluster>) stay shipped
-          for Costs / Pricing / Quote / Mark-Accepted; Setup uses
-          canonical R7b CSS directly.
-
-          h1 italic 30px (canonical .r7b-head h1); em-wrapped suffix
-          renders non-italic 22px ink-3 (canonical .r7b-head h1 em).
-          Sub-copy preserves "we're" per Edward's earlier disposition
-          (designer notes line 7 + Edward's first-person-plural call;
-          canonical JSX has "you're" — Pattern 28 conflict, "we're"
-          wins per Edward directive).
-
-          ".actions" class matches the canonical CSS selector
-          (.r7b-head .actions) — JSX in 7bsetup.jsx line 101 uses
-          "r7b-actions" which is a CD prototype bug; the CSS rule
-          uses .actions inside .r7b-head, so that's what works. */}
-      <div className="r7b-head">
+      {/* The delivered wizard hero sits above the two-step workflow frame;
+          the attachment action remains available beside the quote context. */}
+      <div className="r7b-head setup-wizard-hero" id="setup-attachments">
         <div className="lhs">
           <div className="eyebrow">
             {project.clientName ?? project.dealName}
@@ -180,14 +166,14 @@ export default async function QuoteBuilderPage({
             <span className="sep">·</span>
             v{quote.versionNumber} draft
           </div>
-          <h1>
-            Setup <em>· SKUs, tiers, notes</em>
-          </h1>
+          <h1 className="setup-wizard-title">Products and services, bottom-up.</h1>
           <p className="sub">
-            The starting shape of the quote. What we&rsquo;re selling, in
-            what quantities, with what context. Cost goes on the next
-            surface.
-            {pm?.name ? ` · PM ${pm.name}` : ""}
+            <span className="setup-wizard-head-copy">
+            No finished-good question, no derived quote type. A product is
+            whatever DPS supplies — a bag, a box, a gummy, an eyeliner, a packed
+            unit. Grouping is optional and explicit: a product becomes a
+            component by being put in an item group, not by what it is.
+            </span>
           </p>
         </div>
         {/* canonical-scenario-create-flow Step 7 — page-head actions
@@ -202,21 +188,7 @@ export default async function QuoteBuilderPage({
         </div>
       </div>
 
-      {/* Slice RI.9 § 3.3 — YOUR NEXT MOVE banner. Setup → Cost build
-          is the canonical forward step. R7b subtitle ("once SKUs and
-          tiers are settled") added via helpText prop per §6.b Step 1
-          amendment.  When quote is non-draft, the sent-status warning
-          replaces the banner. */}
-      {editable ? (
-        <YourNextMoveBanner
-          state="default"
-          label={
-            SURFACE_META.setup.nextMove?.label ?? "Continue to Costs →"
-          }
-          subtitle="once SKUs and tiers are settled"
-          href={resolveSurfaceHref("cost_build", project.id, quote.id)}
-        />
-      ) : (
+      {!editable ? (
         <div
           role="alert"
           className="mb-4 rounded-md border border-warn/40 bg-warn-soft p-3 text-sm text-warn"
@@ -224,51 +196,28 @@ export default async function QuoteBuilderPage({
           This quote is <span className="font-mono">{quote.status}</span> and not
           editable.
         </div>
-      )}
+      ) : null}
 
-      {/* §6.b path-B migration — Designer Note callout per canonical
-          7bsetup.jsx lines 464-467 + 7bstyles.css .r7b-dn rules.
+      <div className="setup-wizard-frame">
+        <div className="setup-wizard-topbar">
+          <span className="brand">Nexus</span>
+          <span className="slash">/</span>
+          <span className="frame-title">New quote</span>
+          <span className="spacer" />
+        </div>
+        <div className="setup-wizard-context">
+          <label><span>Customer</span><input value={project.clientName ?? ""} placeholder="Customer name" readOnly /></label>
+          <label><span>Project</span><input value={project.dealName} placeholder="Project or programme" readOnly /></label>
+          <label><span>Quote</span><input value={`${quote.scenarioLabel} · v${quote.versionNumber}`} placeholder="Quote name · draft" readOnly /></label>
+        </div>
+        <div className="setup-wizard-body">
+          <header className="setup-wizard-step-heading">
+            <h2>What products and services are we quoting?</h2>
+            <p>Add whatever DPS is supplying. Services can stand alone, products can stand alone, and a quote can mix both.</p>
+          </header>
 
-          Pattern 21 correction: my fidelity sweep §D incorrectly
-          flagged "DN · R7b" as prototype-only review chrome and
-          recommended strip. Now with canonical JSX available, the
-          callout IS production UI — designer-note vocabulary IS
-          part of the surface grammar. Restoring canonical structure
-          + copy verbatim.
-
-          Body copy includes the full coupled-pair + notes-split
-          sentences (my Step 1 amendment synthesized these from
-          designer notes lines 7+12+13; canonical confirms the
-          synthesis). "we're" vs canonical's "we're" — match.
-          "the row drawer" (not "the drawer") per canonical line 466. */}
-      <div className="r7b-dn">
-        <span className="lbl">DN · R7b</span>
-        Setup is the <strong>starting shape</strong> of the quote: what
-        we&rsquo;re selling, in what quantities, with what context. Cost goes
-        on Costs. The SKU and Tier tables are a{" "}
-        <strong>coupled pair</strong> — same inline-edit pattern, same
-        register, paired action vocabularies. Notes split into{" "}
-        <strong>internal</strong> (PM-only) and{" "}
-        <strong>customer-facing</strong> (renders on Quote PDF); per-SKU
-        notes live in the row drawer.
-      </div>
-
-      {/* §6.b path-B migration — canonical .r7b-grid replaces
-          .r1-setup-grid. Canonical: grid-template-columns: 2fr 1fr;
-          gap: 22px; margin-bottom: 24px (7bstyles.css line 75-79).
-
-          Phase A.1 v2 impl-2 Step 3 — Setup IA shift per brief §5.2:
-          SKUs to top, Tiers below. The `.r-a1v2-stack` modifier
-          converts the grid to a single full-width column.
-
-          impl-4 patch round (Bug, pre-prod-quote layout): applied
-          UNCONDITIONALLY. Impl-2 originally gated this on
-          usesNewSchema=true (Pattern 32 pre-prod tolerance);
-          observation that every legacy quote_skus quote in v1
-          retains the legacy ROOM-based renderer + thus the
-          horizontal 2fr/1fr layout makes the inconsistency a
-          permanent regression through v1 lifetime. Per brief intent,
-          the IA shift was always meant for ALL Setup surfaces. */}
+      {/* Existing quote editors remain the source of truth for product,
+          service, grouping and tier changes inside the Setup wizard step. */}
       <div className="r7b-grid r-a1v2-stack">
 
       {/* canonical-scenario-create-flow Step 3 — every quote
@@ -276,6 +225,7 @@ export default async function QuoteBuilderPage({
           "r7b-card">` SKU table + SkuRowList + SkuFooter chain
           removed alongside the read-path branching. AssemblyTreeView
           handles empty state internally ("No assemblies yet"). */}
+      <div id="setup-products">
       {assemblyTree ? (
         <AssemblyTreeView
           tree={assemblyTree}
@@ -303,29 +253,16 @@ export default async function QuoteBuilderPage({
           // a second charge of a type submitted with no label and silently
           // resolved to the first.
           existingComponentCharges={await readExistingComponentCharges(quoteId)}
+          suggestedChargesByProductType={indexProductTypeChargeDefaults(
+            productTypeChargeDefaults,
+          )}
         />
       ) : null}
+      </div>
 
-      {/* §6.b Step 5 — Tier table parallel register per R7b §3.4 /
-          Decision 5. Same card chrome + footer pill grammar as the
-          SKU table. Layout: Label · ★ · Qty · ×. Tier preset picker
-          lives in Step 6 (empty-state). */}
-      {/* §6.b path-B migration commit 4 — Tier table → canonical
-          r7b-card / r7b-tier-* structure (7bsetup.jsx TierRail
-          lines 250-309 + 7bstyles.css .r7b-tier-* rules at line
-          329). Drops Section wrapper; canonical .r7b-card-head
-          with .meta count caption + .r7b-tier-thead + .r7b-tier-row
-          + .r7b-tier-footer. Preset picker (.r7b-presets +
-          .r7b-presets-grid) deferred to Step 6 empty-state. */}
-      <div className="r7b-card">
-        <div className="r7b-card-head">
-          <h3>Tiers</h3>
-          <div className="actions">
-            <span className="meta" aria-label="Tier count caption">
-              {tiers.length} tier{tiers.length === 1 ? "" : "s"}
-            </span>
-          </div>
-        </div>
+      <section id="setup-tiers" aria-labelledby="setup-quantities-title">
+        <h3 className="setup-wizard-section-title" id="setup-quantities-title">Quantities</h3>
+        <p className="setup-wizard-section-lede">Alternative quantities for the whole quote. They are priced separately and never added together. A quantity is in units; what a unit means for each product is not settled here.</p>
 
         {tiers.length === 0 ? (
           // §6.b Step 6 — R7b §3.5 preset picker (empty state).
@@ -333,69 +270,77 @@ export default async function QuoteBuilderPage({
           // population. Brief: adding a 4th tier to a 3-tier preset
           // does NOT re-show the picker — guaranteed by the count
           // gate (any tier exists → picker unmounted).
-          <TierPresetPicker quoteId={quote.id} disabled={!editable} />
+          <div className="setup-wizard-indent">
+            <TierPresetPicker quoteId={quote.id} disabled={!editable} />
+          </div>
         ) : (
-          <>
-            {/* THREE columns now: label · qty · actions.
-                The Price adj column went with its input — the per-tier
-                adjustment is authored on Pricing, staged and previewed there.
-                The header outlived the cell by one commit, which left the
-                actions column rendering in the adjustment's slot. */}
-            <div className="r7b-tier-thead">
-              <span>Tier</span>
-              <span className="num">Qty</span>
-              <span></span>
+          <div className="setup-wizard-indent">
+            <div className="setup-wizard-quantity-grid">
+              {tiers.map((t) => (
+                <TierRow
+                  key={t.id}
+                  tier={{
+                    id: t.id,
+                    label: t.label,
+                    qty: t.qty,
+                    recommended: t.recommended,
+                  }}
+                  disabled={!editable}
+                />
+              ))}
+              {editable ? (
+                <div className="setup-wizard-add-tier"><AddTierButton quoteId={quote.id} /></div>
+              ) : null}
             </div>
-            {tiers.map((t) => (
-              <TierRow
-                key={t.id}
-                tier={{
-                  id: t.id,
-                  label: t.label,
-                  qty: t.qty,
-                  recommended: t.recommended,
-                }}
-                disabled={!editable}
-              />
-            ))}
-          </>
-        )}
-        {editable && (
-          <div className="r7b-tier-footer">
-            <AddTierButton quoteId={quote.id} />
-            {/* Step 6 adds "+ Add preset" sibling here per R7b's
-                paired action vocabulary (designer notes §3.4 line
-                98: "+ Add product / + Add preset"). */}
           </div>
         )}
-      </div>
+      </section>
       </div>
       {/* end .r1-setup-grid */}
+
+          <div>
+        <h2 className="setup-wizard-section-title">Freight</h2>
+        <div className="mt-[9px] border-l-2 border-rule pl-4">
+          <div id="setup-freight">
+            <FreightIntentControl
+              quoteId={quoteId}
+              initialValue={quote.freightIntent}
+              disabled={!editable}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* §6.b Step 7 — Notes split per R7b designer notes §3.6.
           Two side-by-side audience-distinct cards (internal purple
           / customer-facing green). No wrapping Section card — the
           NotesEditor renders its own card chrome per zone. */}
-      <NotesEditor
-        quoteId={quote.id}
-        projectId={projectId}
-        internalNotes={quote.internalNotes}
-        customerFacingNotes={quote.customerFacingNotes}
-        disabled={!editable}
-      />
+      <div id="setup-notes">
+        <NotesEditor
+          quoteId={quote.id}
+          projectId={projectId}
+          internalNotes={quote.internalNotes}
+          customerFacingNotes={quote.customerFacingNotes}
+          disabled={!editable}
+        />
+      </div>
 
-      {/* Slice RI.8 step 1.5 — `Cost inputs` Section block removed.
-          The "Continue to Costs →" CTA now lives in the
-          page-head action cluster per R1 source line 16. PMs
-          have a single canonical path forward, not a redundant
-          mid-page section.
+          <footer className="setup-wizard-footer">
+            <span>Setup changes are saved as you go.</span>
+            {editable ? (
+              <Link
+                className="setup-wizard-continue"
+                href={costsUrl}
+              >
+                Continue to Costs <span aria-hidden="true">→</span>
+              </Link>
+            ) : null}
+          </footer>
+        </div>
+      </div>
 
-          CostingSummary card removed entirely. Surface separation
-          per brief §5 + §3.5: Pricing Control Summary lives on
-          Pricing only. Was a Slice 5/6/7-era convenience
-          render; carried forward through RI.0-RI.7 unnecessarily.
-          PMs reviewing margins navigate to Pricing (via
-          page-head Continue button or inner-rail). */}
+      {/* The wizard saves its draft as the operator works, then hands directly
+          to the Costs surface. Review remains available only for old links. */}
     </main>
     </NavShell>
   );

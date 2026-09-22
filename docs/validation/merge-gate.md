@@ -44,7 +44,7 @@ All boxes are merge blockers unless explicitly classified otherwise.
 ### Server-free gates
 
 - [ ] `npm.cmd run test:unit`
-- [ ] `node --experimental-strip-types scripts/test-costing.ts`
+- [ ] `npm.cmd run test:costing` (uses the existing TypeScript import resolver)
 - [ ] `npm.cmd run prebuild`
 - [ ] `npx.cmd tsc --noEmit`
 

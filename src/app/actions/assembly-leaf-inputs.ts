@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, max } from "drizzle-orm";
+import { and, asc, eq, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import {
@@ -12,6 +12,7 @@ import {
   assemblyLeafInputs,
   assemblyLeaves,
   auditLog,
+  leaves,
   markupDefaults,
   quoteTiers,
 } from "@/db/schema";
@@ -30,6 +31,7 @@ import {
   quoteForQuoteLeaf,
 } from "@/lib/quote-guards";
 import { reconcileWarnings } from "./warnings";
+import { packagingMarkupCategory } from "@/lib/costs/packaging-markup-authority";
 
 // ---------- Slice 11.5 — assembly_leaf_inputs write actions ----------
 //
@@ -62,12 +64,54 @@ export type PackagingLineSnapshot = {
   markupPctSource: "category_default" | "manual_override" | null;
   inventoryEligible: boolean;
   notes: string | null;
+  /**
+   * The id of the transaction that performed this write, `xid8` as text.
+   *
+   * Minted by the write statement's own `RETURNING`, never by a following
+   * `SELECT`: these actions autocommit each statement separately, so a
+   * subsequent read is a DIFFERENT transaction with a different id. That is
+   * the mistake the Freight helper still makes, and it is why this one does
+   * not.
+   *
+   * `null` means NO WRITE HAPPENED — the no-op early return below, where the
+   * values already match and no `UPDATE` is issued. `pg_current_xact_id_if_assigned()`
+   * returns NULL in a transaction that has written nothing, and is used rather
+   * than `pg_current_xact_id()`, which would FORCE an assignment and burn an
+   * xid on every no-op.
+   *
+   * The client arms a reconciliation requirement on this ONLY after a known
+   * successful acknowledgement: a snapshot reports a transaction as finished
+   * whether it committed or aborted (proof P1 · F2), so the acknowledgement is
+   * the only commit evidence in the system.
+   */
+  writeId: string | null;
 };
 
 export type PackagingCellSnapshot = {
   rowId: string;
   unitCost: string | null;
   purchaseQty: string | null;
+  /**
+   * The id of the transaction that performed this write, `xid8` as text.
+   *
+   * Minted by the write statement's own `RETURNING`, never by a following
+   * `SELECT`: these actions autocommit each statement separately, so a
+   * subsequent read is a DIFFERENT transaction with a different id. That is
+   * the mistake the Freight helper still makes, and it is why this one does
+   * not.
+   *
+   * `null` means NO WRITE HAPPENED — the no-op early return below, where the
+   * values already match and no `UPDATE` is issued. `pg_current_xact_id_if_assigned()`
+   * returns NULL in a transaction that has written nothing, and is used rather
+   * than `pg_current_xact_id()`, which would FORCE an assignment and burn an
+   * xid on every no-op.
+   *
+   * The client arms a reconciliation requirement on this ONLY after a known
+   * successful acknowledgement: a snapshot reports a transaction as finished
+   * whether it committed or aborted (proof P1 · F2), so the acknowledgement is
+   * the only commit evidence in the system.
+   */
+  writeId: string | null;
 };
 
 // ---------- helpers (copied verbatim from OLD packaging.ts) ----------
@@ -169,10 +213,15 @@ export async function updateAssemblyLeafInputLineMeta(
     if (beforeRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Line not found");
     const beforeRow = beforeRows[0];
+    const [leafClassification] = await db
+      .select({ hubspotProductType: leaves.hubspotProductType })
+      .from(leaves)
+      .where(eq(leaves.id, attachment.leafId))
+      .limit(1);
 
-    const requestedVendorId = trimOrNull(
-      formData.get("pricingVendorHubspotCompanyId"),
-    );
+    const requestedVendorId = formData.has("pricingVendorHubspotCompanyId")
+      ? trimOrNull(formData.get("pricingVendorHubspotCompanyId"))
+      : beforeRow.pricingVendorHubspotCompanyId;
     let newPricingVendor: HubSpotVendor | null = null;
     if (requestedVendorId !== null) {
       if (
@@ -198,28 +247,38 @@ export async function updateAssemblyLeafInputLineMeta(
         }
       }
     }
-    const newQtyPerSellableUnit = parseDecimalInput(
-      formData.get("qtyPerSellableUnit"),
-      {
-        field: "qtyPerSellableUnit",
-        label: "Quantity per sellable unit",
-        nullable: true,
-        precision: 12,
-        scale: 4,
-        minExclusive: 0,
-      },
+    const newQtyPerSellableUnit = formData.has("qtyPerSellableUnit")
+      ? parseDecimalInput(formData.get("qtyPerSellableUnit"), {
+          field: "qtyPerSellableUnit",
+          label: "Quantity per sellable unit",
+          nullable: true,
+          precision: 12,
+          scale: 4,
+          minExclusive: 0,
+        })
+      : beforeRow.qtyPerSellableUnit;
+    const requestedCategory = formData.has("category")
+      ? trimOrNull(formData.get("category"))
+      : beforeRow.category;
+    const newCategory = packagingMarkupCategory(
+      leafClassification?.hubspotProductType,
+      requestedCategory,
     );
-    const newCategory = trimOrNull(formData.get("category"));
-    const newInventoryEligible =
-      formData.get("inventoryEligible") === "on" ||
-      formData.get("inventoryEligible") === "true";
-    const newNotes = trimOrNull(formData.get("notes"));
+    const newInventoryEligible = formData.has("inventoryEligible")
+      ? formData.get("inventoryEligible") === "on" ||
+        formData.get("inventoryEligible") === "true"
+      : beforeRow.inventoryEligible;
+    const newNotes = formData.has("notes")
+      ? trimOrNull(formData.get("notes"))
+      : beforeRow.notes;
 
-    const formMarkup = parseMarkupDecimal(
-      formData.get("markupPct"),
-      "markupPct",
-      "Packaging markup",
-    );
+    const formMarkup = formData.has("markupPct")
+      ? parseMarkupDecimal(
+          formData.get("markupPct"),
+          "markupPct",
+          "Packaging markup",
+        )
+      : beforeRow.markupPct;
     const dbMarkup = beforeRow.markupPct;
     const dbCategory = beforeRow.category;
     const dbSource = beforeRow.markupPctSource;
@@ -285,8 +344,10 @@ export async function updateAssemblyLeafInputLineMeta(
       markupPctSource: "category_default" | "manual_override" | null,
       inventoryEligible: boolean,
       notes: string | null,
+      writeId: string | null = null,
     ): PackagingLineSnapshot {
       return {
+        writeId,
         lineGroupId,
         pricingVendorHubspotCompanyId,
         pricingVendorNameSnapshot,
@@ -315,7 +376,7 @@ export async function updateAssemblyLeafInputLineMeta(
       );
     }
 
-    await db
+    const written = await db
       .update(assemblyLeafInputs)
       .set({
         pricingVendorHubspotCompanyId: newPricingVendor?.id ?? null,
@@ -328,7 +389,13 @@ export async function updateAssemblyLeafInputLineMeta(
         notes: newNotes,
         updatedAt: new Date(),
       })
-      .where(eq(assemblyLeafInputs.lineGroupId, lineGroupId));
+      .where(eq(assemblyLeafInputs.lineGroupId, lineGroupId))
+      // Same contract as the cell writer: the id comes from the statement that
+      // did the writing. Markup is per LINE, so this updates every tier row of
+      // the line group — one transaction, one id, however many rows move.
+      .returning({
+        writeId: sql<string>`pg_current_xact_id_if_assigned()::text`,
+      });
 
     await logAudit({
       userId: user.id,
@@ -355,6 +422,7 @@ export async function updateAssemblyLeafInputLineMeta(
       nextMarkupSource,
       newInventoryEligible,
       newNotes,
+      written[0]?.writeId ?? null,
     );
   });
 }
@@ -441,17 +509,30 @@ export async function updateAssemblyLeafInputCell(
     const after = { unit_cost: newUnitCost, purchase_qty: newPurchaseQty };
     const diff = diffOf(before, after);
     if (Object.keys(diff).length === 0) {
-      return { rowId, unitCost: row.unitCost, purchaseQty: row.purchaseQty };
+      // NO WRITE. No statement runs, so there is no transaction to await and
+      // nothing for the client to arm.
+      return {
+        rowId,
+        unitCost: row.unitCost,
+        purchaseQty: row.purchaseQty,
+        writeId: null,
+      };
     }
 
-    await db
+    const written = await db
       .update(assemblyLeafInputs)
       .set({
         unitCost: newUnitCost,
         purchaseQty: newPurchaseQty,
         updatedAt: new Date(),
       })
-      .where(eq(assemblyLeafInputs.id, rowId));
+      .where(eq(assemblyLeafInputs.id, rowId))
+      // The writing statement returns its OWN transaction id. A zero-row
+      // UPDATE returns no row and therefore no id, which is the correct
+      // answer: nothing was written, so nothing is awaited.
+      .returning({
+        writeId: sql<string>`pg_current_xact_id_if_assigned()::text`,
+      });
 
     // Slice 9.5 — reconcile validation warnings on action commit
     // (NULL-safe: reconcileWarnings reads from costing-bundle and
@@ -480,7 +561,12 @@ export async function updateAssemblyLeafInputCell(
 
     revalidateQuoteTree(quote.projectId, quote.id);
 
-    return { rowId, unitCost: newUnitCost, purchaseQty: newPurchaseQty };
+    return {
+      rowId,
+      unitCost: newUnitCost,
+      purchaseQty: newPurchaseQty,
+      writeId: written[0]?.writeId ?? null,
+    };
   });
 }
 

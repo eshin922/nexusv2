@@ -35,9 +35,10 @@ async function code(rel: string): Promise<string> {
 
 test("Setup offers three peer sellable-unit acts", async () => {
   const view = await code("components/assembly-tree/assembly-tree-view.tsx");
-  assert.match(view, /mode="direct"/);
-  assert.match(view, /mode="service"/);
-  assert.match(view, /<CreateItemGroupTrigger/);
+  const body = await code("components/assembly-tree/assembly-tree-body.tsx");
+  assert.match(body, /mode="direct"/);
+  assert.match(body, /mode="service"/);
+  assert.match(body, /<CreateItemGroupTrigger/);
 });
 
 test("Add Direct Service carries primary weight, like its peers", async () => {

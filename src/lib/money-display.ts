@@ -115,3 +115,19 @@ export const extendedAmount = (value: number | null | undefined): string =>
  */
 export const ladderAmount = (value: number | null | undefined): string =>
   formatMoney(value, 4);
+
+/**
+ * A resolved markup rate, as the operator reads it: `32.0%`.
+ *
+ * ONE DEFINITION, because the conversion has already been got wrong once. The
+ * node's value is a DECIMAL FRACTION (0.30), not a percentage; a second surface
+ * rendering `pct.toFixed(1) + "%"` displayed "0.3%" against a 30% rate — a 100x
+ * error in a commercial figure, and a plausible-looking one.
+ *
+ * It lived in `production-drilldown.tsx` and is here now so a surface can format
+ * a rate without importing a client component and its server actions with it.
+ * That file re-exports it, so every existing import is unchanged.
+ */
+export function fmtPct1(v: number): string {
+  return (v * 100).toFixed(1) + "%";
+}

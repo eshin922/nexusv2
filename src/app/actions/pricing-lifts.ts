@@ -36,7 +36,8 @@
 // one chip out of five.
 
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
-import { db } from "@/db";
+import { db, inDatabaseTransaction } from "@/db";
+import { lockPricingBasis, rethrowPricingContention } from "@/lib/pricing-basis-lock";
 import {
   assemblyLeafOverrides,
   assemblyLeaves,
@@ -121,9 +122,9 @@ export type ApplyPricingAdjustmentsInput = {
    * What the client believed was COMMITTED when it staged, and the economic
    * fingerprint the Preview computed against.
    *
-   * Both optional: this is a contract addition, and refusing every caller that
-   * predates it would break more than it protects. A caller that sends neither
-   * is simply unguarded — which is where every caller was until now.
+   * Optional in the wire type so an old tab receives a readable refusal.
+   * Authority is required for both intents; Apply also requires an economic
+   * basis. Returning to baseline may intentionally have no staged cost basis.
    */
   authorityBaseline?: PricingAuthorityBaseline | null;
   economicFingerprint?: string | null;
@@ -221,306 +222,318 @@ export async function applyPricingAdjustments(
 ): Promise<ActionResult<ApplyPricingAdjustmentsResult>> {
   return runAction(async () => {
     const user = await ensureUser();
-
-    const named = Array.from(
-      new Set([
-        ...input.lifts.map((l) => l.quoteLeafId),
-        ...input.overrides.map((o) => o.quoteLeafId),
-      ]),
-    );
-
-    // The quote comes from CANONICAL IDENTITY whenever the set names one, so a
-    // client-supplied quote id can never widen what is reachable: every cell
-    // written is independently proved to belong to the quote being guarded.
-    //
-    // An empty set names nothing to resolve from — that is Return to baseline,
-    // whose whole content is removals — so the quote id is the only address
-    // available, and `quoteByIdDraft` guards it the same way.
-    const quote =
-      named.length > 0
-        ? (await quoteForQuoteLeaves(named)).quote
-        : await quoteByIdDraft(input.quoteId);
-
-    if (quote.id !== input.quoteId) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "These adjustments belong to a different quote.",
-      );
+    if (input.intent !== "apply" && input.intent !== "baseline") {
+      throw new ActionGuardError(ERR.VALIDATION, "Choose Apply or Return to baseline.");
     }
+    if (!input.authorityBaseline) {
+      throw new ActionGuardError(ERR.PRICING_STALE, "Reload Pricing before applying changes; its saved pricing basis is missing.");
+    }
+    if (input.intent === "apply" && !input.economicFingerprint?.trim()) {
+      throw new ActionGuardError(ERR.COSTS_STALE, "Reload Pricing and review the costs before applying changes; its cost basis is missing.");
+    }
+    let projectId: string | undefined;
+    const result = await inDatabaseTransaction(async (tx) => {
+      await lockPricingBasis(tx, input.quoteId);
 
-    // Tiers. The same-quote trigger on the table would catch a foreign tier,
-    // but a raw trigger exception escapes as a database error rather than
-    // something an operator can read. Checked here for the message; the trigger
-    // stays as the thing that cannot be bypassed.
-    const namedTiers = Array.from(
-      new Set([
-        ...input.lifts.map((l) => l.tierId),
-        ...input.overrides.map((o) => o.tierId),
-        ...input.tierAdjustments.map((t) => t.tierId),
-      ]),
-    );
-    if (namedTiers.length > 0) {
-      const tierRows = await db
-        .select({ id: quoteTiers.id })
-        .from(quoteTiers)
+      const named = Array.from(
+        new Set([
+          ...input.lifts.map((l) => l.quoteLeafId),
+          ...input.overrides.map((o) => o.quoteLeafId),
+        ]),
+      );
+
+      // The quote comes from CANONICAL IDENTITY whenever the set names one, so a
+      // client-supplied quote id can never widen what is reachable: every cell
+      // written is independently proved to belong to the quote being guarded.
+      //
+      // An empty set names nothing to resolve from — that is Return to baseline,
+      // whose whole content is removals — so the quote id is the only address
+      // available, and `quoteByIdDraft` guards it the same way.
+      const quote =
+        named.length > 0
+          ? (await quoteForQuoteLeaves(named)).quote
+          : await quoteByIdDraft(input.quoteId);
+
+      projectId = quote.projectId;
+      if (quote.id !== input.quoteId) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "These adjustments belong to a different quote.",
+        );
+      }
+
+      // Tiers. The same-quote trigger on the table would catch a foreign tier,
+      // but a raw trigger exception escapes as a database error rather than
+      // something an operator can read. Checked here for the message; the trigger
+      // stays as the thing that cannot be bypassed.
+      const namedTiers = Array.from(
+        new Set([
+          ...input.lifts.map((l) => l.tierId),
+          ...input.overrides.map((o) => o.tierId),
+          ...input.tierAdjustments.map((t) => t.tierId),
+        ]),
+      );
+      if (namedTiers.length > 0) {
+        const tierRows = await db
+          .select({ id: quoteTiers.id })
+          .from(quoteTiers)
+          .where(
+            and(
+              inArray(quoteTiers.id, namedTiers),
+              eq(quoteTiers.quoteId, quote.id),
+            ),
+          );
+        if (tierRows.length !== namedTiers.length) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "A tier these adjustments name does not belong to this quote.",
+          );
+        }
+      }
+
+      // A lift and a direct price on one cell are mutually exclusive, and the
+      // engine already says so — it refuses the lift with the `overridden`
+      // rejection, because a lift would silently overturn a price someone set on
+      // purpose. Refused here too, so nothing is persisted that could never take
+      // effect. Not a new rule: the engine's rule, enforced before the write
+      // rather than discovered after it.
+      const overrideCells = new Set(
+        input.overrides.map((o) => applyCellId(o.quoteLeafId, o.tierId)),
+      );
+      const conflicted = input.lifts.find((l) =>
+        overrideCells.has(applyCellId(l.quoteLeafId, l.tierId)),
+      );
+      if (conflicted) {
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          "A cell cannot carry both a lift and a direct price. Remove one before applying.",
+        );
+      }
+
+      // Normalize before any writes. A refusal releases the protected basis
+      // when this transaction rolls back.
+      const intendedLifts = new Map<string, { row: AppliedLiftInput; stored: string }>();
+      for (const lift of input.lifts) {
+        const key = applyCellId(lift.quoteLeafId, lift.tierId);
+        if (intendedLifts.has(key)) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "The same cell was lifted twice in one apply.",
+          );
+        }
+        intendedLifts.set(key, { row: lift, stored: normalizeLiftPct(lift.liftPct) });
+      }
+      const intendedOverrides = new Map<
+        string,
+        { row: AppliedOverrideInput; stored: string }
+      >();
+      for (const o of input.overrides) {
+        const key = applyCellId(o.quoteLeafId, o.tierId);
+        if (intendedOverrides.has(key)) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "The same cell was priced twice in one apply.",
+          );
+        }
+        intendedOverrides.set(key, { row: o, stored: normalizeSellPrice(o.sellPrice) });
+      }
+      const intendedTierAdj = new Map<string, string>();
+      for (const t of input.tierAdjustments) {
+        if (intendedTierAdj.has(t.tierId)) {
+          throw new ActionGuardError(
+            ERR.VALIDATION,
+            "The same tier was adjusted twice in one apply.",
+          );
+        }
+        intendedTierAdj.set(t.tierId, normalizeTierAdj(t.adjPct));
+      }
+      const storedGlobalAdj = normalizeGlobalAdj(input.globalAdjPct);
+
+      // ── legacy compatibility lookup ───────────────────────────────────────
+      //
+      // OD-017 REMOVED the identity crossing this used to be. Overrides key
+      // canonically now, so there is no canonical→legacy translation on the read
+      // or write path, and the refusal that used to live here — "a direct price
+      // cannot yet be set on this line" — is gone with it. A Direct Component can
+      // hold a direct price because the table can now express one.
+      //
+      // What remains is a one-query lookup used ONLY to keep the legacy
+      // compatibility column truthful while it still exists. It is not authority:
+      // a missing junction yields NULL rather than a rejection.
+      const legacyByCanonical = new Map<string, string>();
+      const junctionRows = await db
+        .select({
+          legacyId: assemblyLeaves.id,
+          canonicalId: assemblyLeaves.quoteLeafId,
+        })
+        .from(assemblyLeaves)
+        .innerJoin(quoteLeaves, eq(quoteLeaves.id, assemblyLeaves.quoteLeafId))
         .where(
           and(
-            inArray(quoteTiers.id, namedTiers),
-            eq(quoteTiers.quoteId, quote.id),
+            eq(quoteLeaves.quoteId, quote.id),
+            isNotNull(assemblyLeaves.quoteLeafId),
           ),
         );
-      if (tierRows.length !== namedTiers.length) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "A tier these adjustments name does not belong to this quote.",
-        );
+      for (const r of junctionRows) {
+        if (!r.canonicalId) continue;
+        if (legacyByCanonical.has(r.canonicalId)) {
+          // Two junctions for one canonical attachment. R2 proves this does not
+          // happen today; if it ever does, choosing one is choosing a commercial
+          // line at random.
+          throw new ActionGuardError(
+            ERR.DATA_INTEGRITY,
+            "A commercial attachment resolves to more than one line, so no price was written.",
+          );
+        }
+        legacyByCanonical.set(r.canonicalId, r.legacyId);
       }
-    }
 
-    // A lift and a direct price on one cell are mutually exclusive, and the
-    // engine already says so — it refuses the lift with the `overridden`
-    // rejection, because a lift would silently overturn a price someone set on
-    // purpose. Refused here too, so nothing is persisted that could never take
-    // effect. Not a new rule: the engine's rule, enforced before the write
-    // rather than discovered after it.
-    const overrideCells = new Set(
-      input.overrides.map((o) => applyCellId(o.quoteLeafId, o.tierId)),
-    );
-    const conflicted = input.lifts.find((l) =>
-      overrideCells.has(applyCellId(l.quoteLeafId, l.tierId)),
-    );
-    if (conflicted) {
-      throw new ActionGuardError(
-        ERR.VALIDATION,
-        "A cell cannot carry both a lift and a direct price. Remove one before applying.",
+      // ── read what is in effect, diff, write ───────────────────────────────
+
+      const persistedLiftRows = await db
+        .select({
+          quoteLeafId: quoteLeafLifts.quoteLeafId,
+          tierId: quoteLeafLifts.tierId,
+          liftPct: quoteLeafLifts.liftPct,
+        })
+        .from(quoteLeafLifts)
+        .innerJoin(quoteTiers, eq(quoteTiers.id, quoteLeafLifts.tierId))
+        .where(eq(quoteTiers.quoteId, quote.id));
+
+      const persistedOverrideRows = await db
+        .select({
+          canonicalId: assemblyLeafOverrides.quoteLeafId,
+          tierId: assemblyLeafOverrides.tierId,
+          sellPriceOverride: assemblyLeafOverrides.sellPriceOverride,
+        })
+        .from(assemblyLeafOverrides)
+        .innerJoin(quoteTiers, eq(quoteTiers.id, assemblyLeafOverrides.tierId))
+        .where(eq(quoteTiers.quoteId, quote.id));
+
+      const persistedTierAdjRows = await db
+        .select({ id: quoteTiers.id, adj: quoteTiers.tierPriceAdjPct })
+        .from(quoteTiers)
+        .where(eq(quoteTiers.quoteId, quote.id));
+      const persistedTierAdj = new Map<string, string>();
+      for (const t of persistedTierAdjRows) {
+        if (t.adj !== null) persistedTierAdj.set(t.id, t.adj);
+      }
+
+      const persistedLifts = new Map(
+        persistedLiftRows.map((r) => [applyCellId(r.quoteLeafId, r.tierId), r.liftPct]),
       );
-    }
+      // Every persisted override is canonically addressable now, so the previous
+      // "unrepresentable, therefore skip" branch is gone. It existed to avoid
+      // deleting a price the operator could not see; with one identity domain
+      // there is no such price.
+      const persistedOverrides = new Map<string, { stored: string }>();
+      for (const r of persistedOverrideRows) {
+        persistedOverrides.set(applyCellId(r.canonicalId, r.tierId), {
+          stored: r.sellPriceOverride,
+        });
+      }
 
-    // Normalize BEFORE opening the transaction, so a bad value is rejected
-    // without having taken a lock.
-    const intendedLifts = new Map<string, { row: AppliedLiftInput; stored: string }>();
-    for (const lift of input.lifts) {
-      const key = applyCellId(lift.quoteLeafId, lift.tierId);
-      if (intendedLifts.has(key)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "The same cell was lifted twice in one apply.",
-        );
-      }
-      intendedLifts.set(key, { row: lift, stored: normalizeLiftPct(lift.liftPct) });
-    }
-    const intendedOverrides = new Map<
-      string,
-      { row: AppliedOverrideInput; stored: string }
-    >();
-    for (const o of input.overrides) {
-      const key = applyCellId(o.quoteLeafId, o.tierId);
-      if (intendedOverrides.has(key)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "The same cell was priced twice in one apply.",
-        );
-      }
-      intendedOverrides.set(key, { row: o, stored: normalizeSellPrice(o.sellPrice) });
-    }
-    const intendedTierAdj = new Map<string, string>();
-    for (const t of input.tierAdjustments) {
-      if (intendedTierAdj.has(t.tierId)) {
-        throw new ActionGuardError(
-          ERR.VALIDATION,
-          "The same tier was adjusted twice in one apply.",
-        );
-      }
-      intendedTierAdj.set(t.tierId, normalizeTierAdj(t.adjPct));
-    }
-    const storedGlobalAdj = normalizeGlobalAdj(input.globalAdjPct);
-
-    // ── legacy compatibility lookup ───────────────────────────────────────
-    //
-    // OD-017 REMOVED the identity crossing this used to be. Overrides key
-    // canonically now, so there is no canonical→legacy translation on the read
-    // or write path, and the refusal that used to live here — "a direct price
-    // cannot yet be set on this line" — is gone with it. A Direct Component can
-    // hold a direct price because the table can now express one.
-    //
-    // What remains is a one-query lookup used ONLY to keep the legacy
-    // compatibility column truthful while it still exists. It is not authority:
-    // a missing junction yields NULL rather than a rejection.
-    const legacyByCanonical = new Map<string, string>();
-    const junctionRows = await db
-      .select({
-        legacyId: assemblyLeaves.id,
-        canonicalId: assemblyLeaves.quoteLeafId,
-      })
-      .from(assemblyLeaves)
-      .innerJoin(quoteLeaves, eq(quoteLeaves.id, assemblyLeaves.quoteLeafId))
-      .where(
-        and(
-          eq(quoteLeaves.quoteId, quote.id),
-          isNotNull(assemblyLeaves.quoteLeafId),
+      // The decision itself is pure and lives in `pricing-apply-plan`, so it can
+      // be exercised without a database. Everything above this line loads state;
+      // everything below writes it.
+      // ── STALENESS ─────────────────────────────────────────────────────────
+      //
+      // A staged commercial decision was made against a state the operator could
+      // see. If that state moved, committing anyway is last-write-wins on a price
+      // and the quote silently becomes something nobody reviewed.
+      //
+      // Checked HERE: after every read that establishes current state, before the
+      // plan is built and long before anything is written.
+      const persistedAuthority = pricingAuthorityBaseline({
+        globalAdj: String(quote.globalPriceAdjPct),
+        tierAdj: persistedTierAdj,
+        lifts: persistedLifts,
+        overrides: new Map(
+          Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
         ),
-      );
-    for (const r of junctionRows) {
-      if (!r.canonicalId) continue;
-      if (legacyByCanonical.has(r.canonicalId)) {
-        // Two junctions for one canonical attachment. R2 proves this does not
-        // happen today; if it ever does, choosing one is choosing a commercial
-        // line at random.
+      });
+      const freshBundle = await getCostingBundle(quote.id);
+      if (!freshBundle.ok) {
+        throw new ActionGuardError(freshBundle.error.code, freshBundle.error.message);
+      }
+      const verdict = detectStale({
+        baseline: input.authorityBaseline ?? null,
+        persisted: persistedAuthority,
+        previewFingerprint: input.economicFingerprint ?? null,
+        currentFingerprint: costBaseFingerprint(costingInputFromSnapshot(freshBundle.data)),
+      });
+      if (verdict.stale) {
         throw new ActionGuardError(
-          ERR.DATA_INTEGRITY,
-          "A commercial attachment resolves to more than one line, so no price was written.",
+          verdict.kind === "economic_basis" ? ERR.COSTS_STALE : ERR.PRICING_STALE,
+          staleMessage(verdict),
         );
       }
-      legacyByCanonical.set(r.canonicalId, r.legacyId);
-    }
 
-    // ── read what is in effect, diff, write ───────────────────────────────
-
-    const persistedLiftRows = await db
-      .select({
-        quoteLeafId: quoteLeafLifts.quoteLeafId,
-        tierId: quoteLeafLifts.tierId,
-        liftPct: quoteLeafLifts.liftPct,
-      })
-      .from(quoteLeafLifts)
-      .innerJoin(quoteTiers, eq(quoteTiers.id, quoteLeafLifts.tierId))
-      .where(eq(quoteTiers.quoteId, quote.id));
-
-    const persistedOverrideRows = await db
-      .select({
-        canonicalId: assemblyLeafOverrides.quoteLeafId,
-        tierId: assemblyLeafOverrides.tierId,
-        sellPriceOverride: assemblyLeafOverrides.sellPriceOverride,
-      })
-      .from(assemblyLeafOverrides)
-      .innerJoin(quoteTiers, eq(quoteTiers.id, assemblyLeafOverrides.tierId))
-      .where(eq(quoteTiers.quoteId, quote.id));
-
-    const persistedTierAdjRows = await db
-      .select({ id: quoteTiers.id, adj: quoteTiers.tierPriceAdjPct })
-      .from(quoteTiers)
-      .where(eq(quoteTiers.quoteId, quote.id));
-    const persistedTierAdj = new Map<string, string>();
-    for (const t of persistedTierAdjRows) {
-      if (t.adj !== null) persistedTierAdj.set(t.id, t.adj);
-    }
-
-    const persistedLifts = new Map(
-      persistedLiftRows.map((r) => [applyCellId(r.quoteLeafId, r.tierId), r.liftPct]),
-    );
-    // Every persisted override is canonically addressable now, so the previous
-    // "unrepresentable, therefore skip" branch is gone. It existed to avoid
-    // deleting a price the operator could not see; with one identity domain
-    // there is no such price.
-    const persistedOverrides = new Map<string, { stored: string }>();
-    for (const r of persistedOverrideRows) {
-      persistedOverrides.set(applyCellId(r.canonicalId, r.tierId), {
-        stored: r.sellPriceOverride,
+      const globalAdjFrom = String(quote.globalPriceAdjPct);
+      const plan: ApplyPlan = planApply({
+        intendedLifts: new Map(
+          Array.from(intendedLifts, ([k, v]) => [k, v.stored] as const),
+        ),
+        intendedOverrides: new Map(
+          Array.from(intendedOverrides, ([k, v]) => [k, v.stored] as const),
+        ),
+        persistedLifts,
+        persistedOverrides: new Map(
+          Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
+        ),
+        intendedTierAdj,
+        persistedTierAdj,
+        globalAdjFrom,
+        globalAdjTo: storedGlobalAdj,
       });
-    }
+      const {
+        liftsSet,
+        liftsRemoved,
+        overridesSet,
+        overridesRemoved,
+        tierAdjSet,
+        tierAdjRemoved,
+        changeCount,
+      } = plan;
+      const globalAdjMoved = plan.globalAdj !== null;
 
-    // The decision itself is pure and lives in `pricing-apply-plan`, so it can
-    // be exercised without a database. Everything above this line loads state;
-    // everything below writes it.
-    // ── STALENESS ─────────────────────────────────────────────────────────
-    //
-    // A staged commercial decision was made against a state the operator could
-    // see. If that state moved, committing anyway is last-write-wins on a price
-    // and the quote silently becomes something nobody reviewed.
-    //
-    // Checked HERE: after every read that establishes current state, before the
-    // plan is built and long before anything is written.
-    const persistedAuthority = pricingAuthorityBaseline({
-      globalAdj: String(quote.globalPriceAdjPct),
-      tierAdj: persistedTierAdj,
-      lifts: persistedLifts,
-      overrides: new Map(
-        Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
-      ),
-    });
-    const freshBundle = await getCostingBundle(quote.id);
-    if (!freshBundle.ok) {
-      throw new ActionGuardError(freshBundle.error.code, freshBundle.error.message);
-    }
-    const verdict = detectStale({
-      baseline: input.authorityBaseline ?? null,
-      persisted: persistedAuthority,
-      previewFingerprint: input.economicFingerprint ?? null,
-      currentFingerprint: costBaseFingerprint(costingInputFromSnapshot(freshBundle.data)),
-    });
-    if (verdict.stale) {
-      throw new ActionGuardError(
-        verdict.kind === "economic_basis" ? ERR.COSTS_STALE : ERR.PRICING_STALE,
-        staleMessage(verdict),
+      /**
+       * THE RESULTING TIER STATE, not the requested one.
+       *
+       * This action returned `input.tierAdjustments` — an echo of what the client
+       * SENT — and the client set its committed state from it. That was survivable
+       * while every write was something the client had asked for. It stopped being
+       * survivable when a global Apply began clearing tier overrides the client
+       * never mentioned: the client kept believing four zero rows existed, resent
+       * them next Apply against a now-empty quote, the server wrote them back as
+       * `null -> 0.0000`, and the sweep cleared them again. A strict alternation,
+       * every second Apply silently suppressing the global with explicit zeros.
+       *
+       * The value the operator entered was never involved, which is why 11% and
+       * 101% "failed" while 12% and 50% "worked" — they landed on opposite phases.
+       *
+       * So the server states what IS, and the client adopts it.
+       */
+      const resultingTierAdj = new Map(persistedTierAdj);
+      for (const r of tierAdjRemoved) resultingTierAdj.delete(r.key);
+      for (const c of tierAdjSet) resultingTierAdj.set(c.key, c.to);
+      const resultingTierAdjustments: AppliedTierAdjInput[] = [...resultingTierAdj].map(
+        ([tierId, adjPct]) => ({ tierId, adjPct: Number(adjPct) }),
       );
-    }
 
-    const globalAdjFrom = String(quote.globalPriceAdjPct);
-    const plan: ApplyPlan = planApply({
-      intendedLifts: new Map(
-        Array.from(intendedLifts, ([k, v]) => [k, v.stored] as const),
-      ),
-      intendedOverrides: new Map(
-        Array.from(intendedOverrides, ([k, v]) => [k, v.stored] as const),
-      ),
-      persistedLifts,
-      persistedOverrides: new Map(
-        Array.from(persistedOverrides, ([k, v]) => [k, v.stored] as const),
-      ),
-      intendedTierAdj,
-      persistedTierAdj,
-      globalAdjFrom,
-      globalAdjTo: storedGlobalAdj,
-    });
-    const {
-      liftsSet,
-      liftsRemoved,
-      overridesSet,
-      overridesRemoved,
-      tierAdjSet,
-      tierAdjRemoved,
-      changeCount,
-    } = plan;
-    const globalAdjMoved = plan.globalAdj !== null;
+      if (changeCount === 0) {
+        // Nothing to write and nothing to record. An audit row saying an operator
+        // committed no change is noise in the one log that has to stay readable.
+        return {
+          quoteId: quote.id,
+          lifts: input.lifts,
+          overrides: input.overrides,
+          tierAdjustments: resultingTierAdjustments,
+          globalAdjPct: Number(storedGlobalAdj),
+          changeCount: 0,
+        };
+      }
 
-    /**
-     * THE RESULTING TIER STATE, not the requested one.
-     *
-     * This action returned `input.tierAdjustments` — an echo of what the client
-     * SENT — and the client set its committed state from it. That was survivable
-     * while every write was something the client had asked for. It stopped being
-     * survivable when a global Apply began clearing tier overrides the client
-     * never mentioned: the client kept believing four zero rows existed, resent
-     * them next Apply against a now-empty quote, the server wrote them back as
-     * `null -> 0.0000`, and the sweep cleared them again. A strict alternation,
-     * every second Apply silently suppressing the global with explicit zeros.
-     *
-     * The value the operator entered was never involved, which is why 11% and
-     * 101% "failed" while 12% and 50% "worked" — they landed on opposite phases.
-     *
-     * So the server states what IS, and the client adopts it.
-     */
-    const resultingTierAdj = new Map(persistedTierAdj);
-    for (const r of tierAdjRemoved) resultingTierAdj.delete(r.key);
-    for (const c of tierAdjSet) resultingTierAdj.set(c.key, c.to);
-    const resultingTierAdjustments: AppliedTierAdjInput[] = [...resultingTierAdj].map(
-      ([tierId, adjPct]) => ({ tierId, adjPct: Number(adjPct) }),
-    );
-
-    if (changeCount === 0) {
-      // Nothing to write and nothing to record. An audit row saying an operator
-      // committed no change is noise in the one log that has to stay readable.
-      return {
-        quoteId: quote.id,
-        lifts: input.lifts,
-        overrides: input.overrides,
-        tierAdjustments: resultingTierAdjustments,
-        globalAdjPct: Number(storedGlobalAdj),
-        changeCount: 0,
-      };
-    }
-
-    await db.transaction(async (tx) => {
       for (const { key } of liftsRemoved) {
         const { quoteLeafId, tierId } = parseApplyCellId(key);
         await tx
@@ -733,17 +746,17 @@ export async function applyPricingAdjustments(
           : []),
       ];
       if (derived.length > 0) await writeAuditEntries(derived, tx);
-    });
 
-    revalidateQuoteTree(quote.projectId, quote.id);
-
-    return {
-      quoteId: quote.id,
-      lifts: input.lifts,
-      overrides: input.overrides,
-      tierAdjustments: resultingTierAdjustments,
-      globalAdjPct: Number(storedGlobalAdj),
-      changeCount,
-    };
+      return {
+        quoteId: quote.id,
+        lifts: input.lifts,
+        overrides: input.overrides,
+        tierAdjustments: resultingTierAdjustments,
+        globalAdjPct: Number(storedGlobalAdj),
+        changeCount,
+      };
+    }).catch(rethrowPricingContention);
+    if (projectId && result.changeCount > 0) revalidateQuoteTree(projectId, input.quoteId);
+    return result;
   });
 }

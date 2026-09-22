@@ -13,6 +13,9 @@
 /* Mark complete, inside each module. Nexus extension over the canonical R6
    drawer toolbar, kept out of it so that file stays verbatim. */
 @import "../styles/module-completion.css";
+/* M2 read-only Costs preview. Prefix-clean (`cm2-`), and only reachable behind
+   the `?preview=costs-m2` switch — loading it changes nothing by itself. */
+@import "../styles/costs-m2-preview.css";
 @import "../styles/r1-setup.css";
 @import "../styles/r7b-setup.css";
 @import "../styles/r-a1v2-setup.css";
@@ -308,3 +311,26 @@ a {
 .border-blue-400 {
   border-color: oklch(from var(--accent) l c h / 0.4) !important;
 }
+/* Admin: HubSpot Product Type → component-owned charge suggestions. */
+.ptcd-page { color: var(--ink); max-width: 1120px; }
+.ptcd-header { margin-bottom: 22px; }
+.ptcd-header .eyebrow { font: 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.ptcd-header h1 { margin: 7px 0; font: 28px var(--display); }
+.ptcd-header p:last-child { max-width: 760px; color: var(--ink-2); line-height: 1.55; }
+.ptcd-rule { margin-bottom: 18px; padding: 14px 16px; border-left: 3px solid var(--warn); background: var(--paper-2); color: var(--ink-2); font-size: 13px; line-height: 1.55; }
+.ptcd-rule strong { color: var(--ink); }
+.ptcd-list { display: grid; gap: 10px; }
+.ptcd-row { border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); padding: 14px 16px; }
+.ptcd-row-head, .ptcd-row-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.ptcd-row-head h2 { margin: 0 0 3px; font: 17px var(--display); }
+.ptcd-row-head code { color: var(--ink-3); font: 11px var(--mono); }
+.ptcd-status { color: var(--warn); font: 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.ptcd-status.configured { color: var(--good); }
+.ptcd-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px 14px; padding: 14px 0; }
+.ptcd-choice { display: flex; align-items: center; gap: 9px; min-height: 32px; color: var(--ink-2); font-size: 13px; cursor: pointer; }
+.ptcd-choice input { accent-color: var(--accent); width: 15px; height: 15px; }
+.ptcd-row-foot { border-top: 1px solid var(--rule); padding-top: 10px; min-height: 42px; }
+.ptcd-row-foot [role="status"] { color: var(--bad); font-size: 12px; }
+.ptcd-row-foot button { border: 1px solid var(--rule); border-radius: 5px; padding: 7px 12px; color: var(--ink); background: var(--paper-2); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.ptcd-row-foot button:disabled { opacity: .5; cursor: not-allowed; }
+.ptcd-empty { padding: 18px; color: var(--ink-3); }

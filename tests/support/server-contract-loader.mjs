@@ -82,6 +82,17 @@ export async function resolve(specifier, context, nextResolve) {
     };
   }
 
+  // `next/link` — Next ships `link.js`, so Node's resolver cannot load the
+  // specifier production writes. Mapped to a plain-anchor stub: what a mounted
+  // test asks of a link is where it points, and prefetch / route interception
+  // are the framework's behaviour rather than the component's.
+  if (specifier === "next/link") {
+    return {
+      url: new URL("./next-link-stub.tsx", import.meta.url).href,
+      shortCircuit: true,
+    };
+  }
+
   // The alias is resolved BEFORE delegating: `@/lib/costing` is not a relative
   // specifier, so it would fail as a bare package name and never reach the
   // extension-recovery branch below.

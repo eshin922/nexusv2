@@ -124,7 +124,7 @@ export default async function CostingPage({
       <main className="r2-pricing r2-page">
         <div style={{ marginBottom: 8, fontSize: 13 }}>
           <Link
-            href={`/projects/${project.id}/quotes/${quote.id}`}
+            href={`/projects/${project.id}/quotes/${quote.id}/setup`}
             style={{ color: "var(--ink-3)" }}
           >
             ← Quote builder

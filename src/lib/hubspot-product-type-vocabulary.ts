@@ -50,10 +50,10 @@ export type HubspotProductTypeOption = {
  */
 let cached: HubspotProductTypeOption[] | null = null;
 
-export async function loadHubspotProductTypeOptions(): Promise<
-  HubspotProductTypeOption[]
-> {
-  if (cached) return cached;
+export async function loadHubspotProductTypeOptions(
+  { refresh = false }: { refresh?: boolean } = {},
+): Promise<HubspotProductTypeOption[]> {
+  if (cached && !refresh) return cached;
   // Through the composed provider, so an isolated runtime gets its own
   // vocabulary instead of reaching for production credentials.
   const { getApplicationDependencies } = await import(

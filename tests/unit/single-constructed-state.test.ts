@@ -99,6 +99,9 @@ test("elections reach the ENGINE, and only the engine", async () => {
     "src/app/actions/costing.ts", // loads them onto the bundle
     "src/lib/costing-store.ts", // carries them on the snapshot
     "src/lib/costing.ts", // RESOLVES them into the construction
+    // Fingerprints the stored decision to reject stale Pricing applies;
+    // it neither selects placement nor calculates recovery.
+    "src/lib/pricing-cost-base.ts",
     // Back, and for the reason R5 got wrong. The resolver passes the bundle's
     // elections to the workspace read model, which uses them ONLY to say which
     // treatment is currently in force -- it resolves nothing and prices

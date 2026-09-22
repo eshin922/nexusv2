@@ -904,6 +904,20 @@
       "when": 1789806720000,
       "tag": "0130_widen_spec_schema_check",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1789893120000,
+      "tag": "0131_quote_freight_intent",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1789980000000,
+      "tag": "0132_product_type_charge_defaults",
+      "breakpoints": true
     }
   ]
 }

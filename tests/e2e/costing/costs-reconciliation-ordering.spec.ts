@@ -47,7 +47,7 @@ test("rapid Packaging multi-cell entry survives reconciliation", async ({ page }
     if ((await pkgToggle.getAttribute("aria-expanded")) !== "true") await pkgToggle.click();
   }
 
-  const cells = page.locator(".r6-dt.pkg input[inputmode], .r6-dt.pkg input[type='number']");
+  const cells = page.locator(".r6-dt.pkg .cell-num input[type='number']");
   const count = await cells.count();
   test.skip(count < 3, `needs >=3 packaging cells, saw ${count}`);
 
@@ -82,7 +82,7 @@ test("rapid Packaging multi-cell entry survives reconciliation", async ({ page }
     await page.waitForTimeout(300);
     await pkgToggle.click();
     await page.waitForTimeout(500);
-    const after = page.locator(".r6-dt.pkg input[inputmode], .r6-dt.pkg input[type='number']");
+    const after = page.locator(".r6-dt.pkg .cell-num input[type='number']");
     for (let i = 0; i < entered.length; i += 1) {
       await expect(after.nth(i), `cell ${i} after collapse/reopen`).toHaveValue(entered[i]);
     }

@@ -78,6 +78,7 @@ import {
   resolveClientTarget,
 } from "./client-target";
 import type { ChargeElection } from "./commercial-recovery/resolve";
+import { packagingMarkupCategory } from "./costs/packaging-markup-authority";
 import type {
   ComponentChargeInput,
   CostingCellOverride,
@@ -133,6 +134,8 @@ export type AdapterQuoteLeafAttachmentRow = {
   leafSku: string;
   /** From the joined library leaf. NULL for a product. */
   serviceIdentity?: string | null;
+  /** HubSpot's current raw `hs_product_type`; it governs packaging markup category. */
+  hubspotProductType?: string | null;
 };
 
 /**
@@ -166,6 +169,7 @@ export type AdapterAssemblyLeafInputRow = {
   qtyPerSellableUnit: string | null;
   category: string | null;
   markupPct: string | null;
+  markupPctSource?: "category_default" | "manual_override" | null;
 };
 
 // Minimum columns from `assembly_production_inputs`. Production
@@ -361,6 +365,9 @@ export function buildQuoteCostingInputFromNewModel(
   // Math layer keys CostingPackagingInput by quoteSkuId which — post-adapter —
   // is the quote_leaves.id, the same identity `mathSkuId` assigns the leaf. A
   // Direct Component's cells therefore land on its leaf with no special case.
+  const productTypeByQuoteLeaf = new Map(
+    args.quoteLeafAttachments.map((leaf) => [leaf.quoteLeafId, leaf.hubspotProductType ?? null]),
+  );
   const packaging: CostingPackagingInput[] = args.assemblyLeafInputs.map(
     (ali) => ({
       quoteSkuId: ali.quoteLeafId,
@@ -368,8 +375,14 @@ export function buildQuoteCostingInputFromNewModel(
       lineGroupId: ali.lineGroupId,
       unitCost: numOrNull(ali.unitCost),
       qtyPerSellableUnit: numOrNull(ali.qtyPerSellableUnit),
-      category: ali.category,
+      // Setup's HubSpot Product Type is the category authority. Keep the
+      // stored line category only for genuinely untyped legacy/local products.
+      category: packagingMarkupCategory(
+        productTypeByQuoteLeaf.get(ali.quoteLeafId),
+        ali.category,
+      ),
       markupPct: numOrNull(ali.markupPct),
+      markupPctSource: ali.markupPctSource ?? null,
     }),
   );
 

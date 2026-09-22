@@ -222,20 +222,22 @@ test("Refresh and Restore deliberately still read the creation grant", () => {
 
 // ── what the fix must NOT have relaxed ───────────────────────────────────
 
-test("established-SKU replacement is still refused for everyone", () => {
+test("established-SKU replacement requires explicit correction confirmation and retains uniqueness checks", () => {
   const src = leaves();
   assert.match(
     src,
-    /hadSku && values\.sku !== existing\.sku/,
-    "the established-SKU guard must still be in place",
+    /hadSku && skuChanged && !values\.allowEstablishedSkuChange/,
+    "the established-SKU guard must require explicit correction confirmation",
   );
-  assert.match(src, /SKU is already established as/, "and still refuse with its reason");
-  // It must not have acquired a role escape hatch.
-  const idx = src.indexOf("hadSku && values.sku !== existing.sku");
-  const around = src.slice(idx - 400, idx + 900);
+  assert.match(src, /SKU is already established as/, "and explain the controlled correction");
+  const idx = src.indexOf("if (values.sku !== null && skuChanged)");
+  assert.ok(idx > 0, "unchanged legacy duplicate SKUs must not block unrelated edits");
+  const around = src.slice(idx, idx + 1800);
+  assert.match(around, /upper\(btrim\(\$\{leaves\.sku\}\)\)/, "corrected SKUs retain catalog uniqueness checks");
+  assert.match(around, /claimedElsewhere/, "open edits retain their exclusive SKU claim");
   assert.ok(
     !/role|canEdit|admin/.test(around),
-    "the established-SKU refusal must not consult who is asking",
+    "the correction confirmation is separate from role checks",
   );
 });
 

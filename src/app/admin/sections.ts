@@ -46,6 +46,13 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
       "Per-category markup percentages applied to packaging, production, and freight cost components.",
   },
   {
+    href: "/admin/product-type-charge-defaults",
+    label: "One-time charge suggestions",
+    nav: "HubSpot Product Type to charge suggestions",
+    index:
+      "Choose the component-owned one-time charges Setup suggests for each HubSpot Product Type. Suggestions never select or add charges for the operator.",
+  },
+  {
     href: "/admin/netsuite",
     label: "NetSuite",
     nav: "Direct Service item mappings",

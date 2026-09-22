@@ -546,10 +546,19 @@
 }
 
 /* Approved source deviations: Setup-owned product grouping and dynamic quote
-   tiers. These rules adapt only the four dispositioned conflicts; the bundled
-   freight hierarchy and visual grammar above remain authoritative. */
+   tiers, plus the constrained customs-entry cell layout below. These rules
+   adapt only dispositioned conflicts and narrow-width input visibility; the
+   bundled freight hierarchy and visual grammar above remain authoritative. */
 .freight-authority { --freight-tier-count: 3; }
 .fr-product-group { border-top: 1px solid var(--rule); background: var(--paper-2); }
+.fr-customs .fr-customs-fields { min-width: 0; }
+.fr-customs .fr-customs-fields > .fr-in { width: 100%; min-width: 0; }
+.fr-customs .fr-customs-fields .mrow { display: flex; align-items: center; justify-content: flex-end; gap: 5px; width: 100%; }
+.fr-customs .fr-customs-fields .mrow .x,
+.fr-customs .fr-customs-fields .mrow .arr { font-family: var(--mono); font-size: 9px; color: var(--ink-4); }
+.fr-customs .fr-customs-fields .mrow .fr-in { width: 42px; flex: 0 0 42px; padding: 2px 4px; font-size: 10.5px; }
+.fr-customs .fr-customs-fields .mrow .pct-symbol { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+.fr-customs .fr-customs-fields .mrow .sell { font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Shipment coverage strip (D2 amendment). Reports which components are not
    yet in any shipment, so the operator is not tracking the remainder
    mentally across modal openings. Warn register while incomplete, receding

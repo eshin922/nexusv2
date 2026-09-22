@@ -140,10 +140,10 @@ test("shipment coverage is surfaced on the Freight page", () => {
   // without opening each shipment in turn.
   assert.match(drilldown, /function shipmentCoverage\(/);
   assert.match(drilldown, /fr-coverage/);
-  assert.match(drilldown, /not yet\s*\n?\s*in any shipment/);
+  assert.match(drilldown, /not yet\s*\n?\s*in any shipment/i);
   assert.match(drilldown, /All \{productComponents\.length\} components are in a shipment\./);
   // Component chips carry their own assigned/unassigned state.
-  assert.match(drilldown, /Not yet in any shipment/);
+  assert.match(drilldown, /Not yet in any shipment/i);
 });
 
 test("coverage treats overlap as legitimate, not as double-counting", () => {
@@ -166,7 +166,7 @@ test("markup states one operator contract: whole percent", () => {
   for (const input of markupInputs) {
     assert.match(input, /step="1"/, "whole-percent fields must step by 1, not 0.01");
     assert.match(input, /placeholder="\d+"/, "a worked example must be shown");
-    assert.match(input, /aria-label="[^"]*whole percent/);
+    assert.match(input, /aria-label=(?:"[^"]*whole percent|\{`\$\{label\} markup for \$\{tier\.label\}, whole percent`\})/);
   }
 });
 

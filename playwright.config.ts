@@ -49,5 +49,11 @@ export default defineConfig({
       workers: 1,
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "setup-serial",
+      testMatch: /setup\/.*\.spec\.ts/,
+      workers: 1,
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
 });

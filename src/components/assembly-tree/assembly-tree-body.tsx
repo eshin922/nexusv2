@@ -9,6 +9,9 @@ import { AsyRow } from "./asy-row";
 import type { AssemblyLeafNode } from "@/lib/assembly-tree";
 import { AddComponentChargesSheet } from "./add-component-charges-sheet";
 import { DirectProductRow } from "./direct-product-row";
+import { CompletenessChip } from "./completeness-chip";
+import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
+import { CreateItemGroupTrigger } from "./create-item-group-trigger";
 import { attachDragProxy } from "./drag-proxy";
 import {
   applyOptimisticMove,
@@ -29,6 +32,7 @@ import {
 } from "@/app/actions/assemblies";
 import { useRouter } from "next/navigation";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
+import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
 
 // Phase A.1 v2 impl-2 Step 9 — Drag-to-reorder ASY rows.
 //
@@ -62,10 +66,12 @@ export function AssemblyTreeBody({
   projectId,
   quoteId,
   assemblies,
+  itemGroupCategories,
   fullLeafTypes,
   permissions,
   tiers,
   existingComponentCharges,
+  suggestedChargesByProductType,
   targetsByUnit,
 }: {
   tree: AssemblyTree;
@@ -73,6 +79,7 @@ export function AssemblyTreeBody({
   projectId: string;
   quoteId: string;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
+  itemGroupCategories: { id: string; name: string }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: LibraryPermissions;
   tiers: ReadonlyArray<TargetTier>;
@@ -91,6 +98,8 @@ export function AssemblyTreeBody({
     chargeKey: string;
     label: string | null;
   }>;
+  /** Advisory rules keyed by the raw HubSpot Product Type value. */
+  suggestedChargesByProductType: Record<string, ComponentChargeKey[]>;
   /** Resolved-ready targets, indexed by sellable-unit id at the tree root. */
   targetsByUnit: ReadonlyMap<string, UnitTargets>;
 }) {
@@ -534,8 +543,21 @@ export function AssemblyTreeBody({
     [proposePlanAt],
   );
 
-  const isEmpty =
-    orderedAssemblies.length === 0 && tree.directProducts.length === 0;
+  // The quote's direct line order is authoritative for drag/drop. Add a
+  // section label at kind transitions without regrouping/reordering rows, so
+  // the new Setup sections do not change persisted line order semantics.
+  const directEntries = view.direct.map((product, index) => ({
+    index,
+    product,
+  }));
+  const productEntries = directEntries.filter(({ product }) => product.commercialKind === "product");
+  const serviceEntries = directEntries.filter(({ product }) => product.commercialKind === "service");
+  const groupedProductEntries = orderedAssemblies.flatMap((assembly) =>
+    childrenOf(assembly.id).map((product) => ({
+      product,
+      groupName: assembly.name || assembly.sku || "Item group",
+    })),
+  );
 
   return (
     <div
@@ -551,15 +573,16 @@ export function AssemblyTreeBody({
       onDragOver={(e) => overZoneTail(e, { kind: "direct" })}
       onDrop={commitDrop}
     >
-      {isEmpty ? (
-        <p className="r7b-empty-state">
-          {editable
-            ? "Nothing on this quote yet · use Add Product for a single product, or Create Item Group to sell several together."
-            : "No products."}
-        </p>
-      ) : (
-        <>
-          {view.direct.map((product) => (
+      <div className="setup-wizard-data-section-header"><h4>Products</h4></div>
+      <div className="setup-wizard-indent">
+          {productEntries.length === 0 && groupedProductEntries.length === 0 ? (
+            <p className="setup-wizard-empty-copy">
+              {serviceEntries.length === 0
+                ? "Nothing on this quote yet. Add the first product below — or switch on a service further down. A quote can be products, services, or both."
+                : "No products yet. A quote can be services only."}
+            </p>
+          ) : null}
+          {productEntries.map(({ product }) => (
             <Fragment key={product.quoteLeafId}>
               {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
                 <RootLane
@@ -576,23 +599,13 @@ export function AssemblyTreeBody({
               key={product.quoteLeafId}
               product={product}
               editable={editable}
-              quoteId={quoteId}
-              tiers={tiers}
-              targets={targetsByUnit.get(product.quoteLeafId)}
               isMoving={movingLeafId === product.quoteLeafId}
               pending={optimistic?.quoteLeafId === product.quoteLeafId}
-              onMoveStart={(e) =>
-                beginMove(e, product.quoteLeafId, product.name, product.sku)
-              }
               dropEdge={dropEdgeFor({ kind: "direct" }, product.quoteLeafId)}
               onRowDragOver={(e) =>
                 overProductRow(e, { kind: "direct" }, product.quoteLeafId)
               }
               onRowDrop={commitDrop}
-              moveDestinations={moveDestinations}
-              onMove={(target, position) =>
-                moveViaMenu(product.quoteLeafId, target, position)
-              }
               // ── A DIRECT PRODUCT AUTHORS CHARGES; A DIRECT SERVICE DOES NOT
               //
               // Both render through this row. `commercialKind` is the governed
@@ -609,22 +622,79 @@ export function AssemblyTreeBody({
                   ? () => setChargeSheetLeaf(product)
                   : undefined
               }
+              chargeCount={
+                product.commercialKind === "product"
+                  ? existingComponentCharges?.filter(
+                      (charge) => charge.quoteLeafId === product.quoteLeafId,
+                    ).length ?? 0
+                  : undefined
+              }
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
             </Fragment>
           ))}
-          {/* The tail slot — appending to root. Sits directly above the Item
-              Groups, which is exactly where a root append lands, since Direct
-              Products always render before groups. */}
-          <RootLane
-            laneId="tail:above-groups"
-            index={rootLaneIndexBefore.tail}
-            active={activeLane === "tail:above-groups"}
+          {groupedProductEntries.map(({ product, groupName }) => {
+            const selectedCount = existingComponentCharges?.filter((charge) => charge.quoteLeafId === product.quoteLeafId).length ?? 0;
+            return (
+              <div className="setup-wizard-product-card" key={`product:${product.quoteLeafId}`}>
+                <div className="setup-wizard-product-head">
+                  <div>
+                    <div className="setup-wizard-product-name">
+                      {product.name}
+                      <span className="setup-wizard-product-chip">in {groupName}</span>
+                      {product.productType ? (
+                        <span className="setup-wizard-product-chip">{product.productType.label}</span>
+                      ) : null}
+                      <CompletenessChip completeness={product.specCompleteness} />
+                    </div>
+                    <div className="setup-wizard-product-sku">{product.sku ?? "SKU not recorded"}</div>
+                  </div>
+                </div>
+                <div className="setup-wizard-product-charges">
+                  <span>One-time charges · {selectedCount ? `${selectedCount} added` : "none selected"}</span>
+                  <button
+                    type="button"
+                    onClick={() => setChargeSheetLeaf(product)}
+                    disabled={!editable}
+                    aria-label="Add one-time charges"
+                    title={!editable ? "This quote is no longer a draft; charges are frozen." : undefined}
+                  >
+                    {selectedCount ? "+ Add or change charges" : "+ Add one-time charge"}
+                  </button>
+                  <a
+                    className="setup-wizard-inline-action"
+                    href={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
+                  >
+                    Edit library specs
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+          <LibraryBrowseTrigger
+            mode="direct"
+            label="+ Add a product"
+            className="setup-wizard-add-button"
+            quoteId={quoteId}
+            projectId={projectId}
             editable={editable}
-            dragging={!!movingLeafId}
-            onAcquire={acquireLane}
-            onDrop={commitDrop}
+            assemblies={assemblies}
+            fullLeafTypes={fullLeafTypes}
+            permissions={permissions}
           />
+      </div>
+          <div className="setup-wizard-data-section-header"><h4>Item groups</h4></div>
+      <RootLane
+        laneId="tail:above-groups"
+        index={rootLaneIndexBefore.tail}
+        active={activeLane === "tail:above-groups"}
+        editable={editable}
+        dragging={!!movingLeafId}
+        onAcquire={acquireLane}
+        onDrop={commitDrop}
+      />
+      <p className="setup-wizard-section-lede">Optional. Combine products that are quoted together as one thing. A product becomes a component by being put in a group — nothing is grouped automatically.</p>
+      <div className="setup-wizard-indent">
           {orderedAssemblies.map((asy) => (
             <AsyRow
               key={asy.id}
@@ -632,10 +702,7 @@ export function AssemblyTreeBody({
               editable={editable}
               projectId={projectId}
               quoteId={quoteId}
-              tiers={tiers}
-              targets={targetsByUnit.get(asy.id)}
               isDragging={dragId === asy.id}
-              onDragStart={(e) => handleAsyDragStart(e, asy.id)}
               onDragOver={(e) => handleAsyDragOver(e, asy.id)}
               movingLeafId={movingLeafId}
               pendingLeafId={optimistic?.quoteLeafId ?? null}
@@ -672,6 +739,52 @@ export function AssemblyTreeBody({
               permissions={permissions}
             />
           ))}
+          <CreateItemGroupTrigger
+            quoteId={quoteId}
+            editable={editable}
+            label="+ Combine products into an item group"
+            className="setup-wizard-add-button"
+          />
+      </div>
+          <div className="setup-wizard-data-section-header"><h4>Services</h4></div>
+      <p className="setup-wizard-section-lede">Tick the work DPS is quoting, then say where each one belongs.</p>
+      <div className="setup-wizard-indent">
+          {serviceEntries.map(({ product }) => (
+            <Fragment key={product.quoteLeafId}>
+              {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
+                <RootLane
+                  laneId={`before:${product.quoteLeafId}`}
+                  index={rootLaneIndexBefore.map.get(product.quoteLeafId)!}
+                  active={activeLane === `before:${product.quoteLeafId}`}
+                  editable={editable}
+                  dragging={!!movingLeafId}
+                  onAcquire={acquireLane}
+                  onDrop={commitDrop}
+                />
+              ) : null}
+              <DirectProductRow
+                product={product}
+                editable={editable}
+                isMoving={movingLeafId === product.quoteLeafId}
+                pending={optimistic?.quoteLeafId === product.quoteLeafId}
+                dropEdge={dropEdgeFor({ kind: "direct" }, product.quoteLeafId)}
+                onRowDragOver={(e) => overProductRow(e, { kind: "direct" }, product.quoteLeafId)}
+                onRowDrop={commitDrop}
+                editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
+              />
+            </Fragment>
+          ))}
+          <LibraryBrowseTrigger
+            mode="service"
+            label="+ Add a service"
+            className="setup-wizard-add-button"
+            quoteId={quoteId}
+            projectId={projectId}
+            editable={editable}
+            assemblies={assemblies}
+            fullLeafTypes={fullLeafTypes}
+            permissions={permissions}
+          />
           {/* The OUTWARD gesture. Dragging a member out of a group is naturally
               downward-and-left or straight down; before this there was nothing
               below the groups to land on, so the only root target was above
@@ -688,8 +801,7 @@ export function AssemblyTreeBody({
             onAcquire={acquireLane}
             onDrop={commitDrop}
           />
-        </>
-      )}
+      </div>
       {error ? (
         <div
           role="alert"
@@ -717,6 +829,11 @@ export function AssemblyTreeBody({
           componentSku={chargeSheetLeaf.sku ?? null}
           componentName={chargeSheetLeaf.name}
           productTypeLabel={chargeSheetLeaf.productType?.label ?? null}
+          suggestedKeys={
+            chargeSheetLeaf.productType
+              ? suggestedChargesByProductType[chargeSheetLeaf.productType.value] ?? []
+              : []
+          }
           existingKeys={
             existingComponentCharges?.filter(
               (c) => c.quoteLeafId === chargeSheetLeaf.quoteLeafId,

@@ -15,11 +15,13 @@ import { CreateItemGroupModal } from "@/components/item-group/create-item-group-
 export function CreateItemGroupTrigger({
   quoteId,
   editable,
-  itemGroupCategories,
+  label = "+ Create Item Group",
+  className = "a1v2-btn primary sm",
 }: {
   quoteId: string;
   editable: boolean;
-  itemGroupCategories: { id: string; name: string }[];
+  label?: string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -27,7 +29,7 @@ export function CreateItemGroupTrigger({
     <>
       <button
         type="button"
-        className="a1v2-btn primary sm"
+        className={className}
         onClick={() => setOpen(true)}
         disabled={!editable}
         aria-disabled={!editable}
@@ -39,13 +41,12 @@ export function CreateItemGroupTrigger({
             : "Group several products that are sold together"
         }
       >
-        + Create Item Group
+        {label}
       </button>
       <CreateItemGroupModal
         quoteId={quoteId}
         open={open}
         onClose={() => setOpen(false)}
-        itemGroupCategories={itemGroupCategories}
       />
     </>
   );

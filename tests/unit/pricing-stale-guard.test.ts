@@ -246,9 +246,9 @@ test("UNCHANGED state → Apply proceeds", () => {
   assert.deepEqual(verdict(), { stale: false });
 });
 
-test("a caller that sends no baseline is unguarded, not refused", () => {
-  // A contract addition. Refusing every pre-existing caller would break more
-  // than it protects; they are simply not covered yet.
+test("the pure comparator skips omitted dimensions; the action validates required bases", () => {
+  // Return to baseline can omit the economic dimension. Public Apply requires
+  // both dimensions before reaching this helper (covered by the isolated walk).
   assert.deepEqual(
     verdict({ baseline: null, persisted: authority({ globalAdj: "0.9" }) }),
     { stale: false },

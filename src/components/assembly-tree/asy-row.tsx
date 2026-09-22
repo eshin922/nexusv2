@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import type { UnitTargets } from "@/lib/client-target";
-import { ClientTargetCell, type TargetTier } from "./client-target";
 import type {
   AssemblyNode,
   AssemblyLeafNode,
-  AssemblyCompletenessRollup,
 } from "@/lib/assembly-tree";
 import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
@@ -43,7 +40,6 @@ export function AsyRow({
   projectId,
   quoteId,
   isDragging,
-  onDragStart,
   onDragOver,
   movingLeafId,
   pendingLeafId,
@@ -58,22 +54,15 @@ export function AsyRow({
   onMemberDragOverGroup,
   onMemberDragOverGroupTail,
   onMemberDropOnGroup,
-  tiers,
-  targets,
 }: {
   asy: AssemblyNode;
   editable: boolean;
   assemblies: { id: string; sku: string; name: string; leafCount: number }[];
   fullLeafTypes: LeafSpecEntryProductType[];
   permissions: LibraryPermissions;
-  /** Tier list for the Client Target drawer. */
-  tiers: ReadonlyArray<TargetTier>;
-  /** This Item Group's targets. The finished good is the sellable unit. */
-  targets: UnitTargets | undefined;
   projectId: string;
   quoteId: string;
   isDragging: boolean;
-  onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   /** Structural move in flight, held at tree level so it can cross rows. */
   movingLeafId?: string | null;
@@ -199,53 +188,13 @@ export function AsyRow({
         }
         onDrop={(e) => (movingLeafId ? onMemberDropOnGroup?.(e) : undefined)}
       >
-        {/* Phase A.1 v2 impl-2 polish — drag handle scoped to the
-            twirl glyph only (was previously the whole row, which
-            risked accidental drags when PMs clicked nearby controls
-            like the Notes trigger or context menu). The row is still
-            the drop target (onDragOver above); only the source
-            initiator narrowed. */}
-        <span
-          className="twirl drag-handle"
-          aria-hidden="true"
-          title={editable ? "Drag to reorder" : undefined}
-          draggable={editable}
-          onDragStart={editable ? onDragStart : undefined}
-        >
-          ▾
-        </span>
-        {/* No pill at all when the SKU is the governed generated placeholder.
-            An accent pill wrapped around an em dash reads as broken rather than
-            as absent. The detection reconstructs the exact generated string, so
-            an operator-authored "ASY-7" keeps its pill. */}
-        {displaySku ? (
-          <span className="sku-pill">{displaySku}</span>
-        ) : (
-          <span aria-hidden="true" />
-        )}
         <div className="name-cell">
           <div className="name">{asy.name}</div>
-          <div className="meta">
-            {asy.packLabel ? <span>{asy.packLabel}</span> : null}
-            {asy.packLabel ? <span className="sep">·</span> : null}
-            {/* Step 7 · the Item Group's CATEGORY. An Item Group has never
-                had a leaf Product Type; presenting one here is what made the
-                two taxonomies look like a single competing authority. */}
-            <span className="type-tag">{asy.category?.name ?? "—"}</span>
-          </div>
+          {displaySku ? (
+            <div className="setup-wizard-assembly-sku">{displaySku}</div>
+          ) : null}
+          {asy.packLabel ? <div className="meta"><span>{asy.packLabel}</span></div> : null}
         </div>
-        <span className="leaf-count">{asy.children.length} products</span>
-        <AsyRollupChip rollup={asy.rollup} />
-        {/* The Item Group FINISHED GOOD carries the target — never one of
-            its members. The members below get no affordance at all. */}
-        <ClientTargetCell
-          unitKind="assembly"
-          unitId={asy.id}
-          unitLabel={asy.name}
-          targets={targets}
-          tiers={tiers}
-          editable={editable}
-        />
         <AsyNotesTrigger
           assemblyId={asy.id}
           hasNote={
@@ -588,34 +537,6 @@ function LeafRow({
       </div>
     </div>
   );
-}
-
-function AsyRollupChip({ rollup }: { rollup: AssemblyCompletenessRollup }) {
-  let state: "complete" | "partial" | "empty";
-  let copy: string;
-  switch (rollup.kind) {
-    case "all_complete":
-      state = "complete";
-      copy = `✓ All ${rollup.count} products complete`;
-      break;
-    case "partial": {
-      const pending = rollup.total - rollup.complete;
-      state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} products pending`;
-      break;
-    }
-    case "mixed_with_placeholders": {
-      const pending = rollup.total - rollup.complete;
-      state = "partial";
-      copy = `⚠ ${pending} of ${rollup.total} products pending`;
-      break;
-    }
-    case "no_leaves":
-      state = "empty";
-      copy = "— No products";
-      break;
-  }
-  return <span className={`a1v2-chip ${state}`}>{copy}</span>;
 }
 
 // LeafCompletenessChip extracted to ./completeness-chip.tsx for

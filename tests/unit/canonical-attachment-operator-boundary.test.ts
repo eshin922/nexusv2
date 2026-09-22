@@ -97,21 +97,68 @@ test("packaging rolls back on BOTH the governed and the thrown path", () => {
   // per-tier cost cell. Each needs a rollback reachable from a throw.
   const catches = packaging.match(/\} catch \{/g) ?? [];
   assert.ok(catches.length >= 2, `expected >= 2 catch blocks, got ${catches.length}`);
+
+  // The line-meta path keeps its named closure; the cell path expresses the
+  // same rollback inline, because it must decide OWNERSHIP before reverting
+  // and a closure captured at dispatch cannot see a draft typed after it.
+  // Shape is not the invariant — reverting on both failure kinds is.
   const rollbacks = packaging.match(/const rollback = \(message: string\) =>/g) ?? [];
-  assert.equal(rollbacks.length, 2);
+  assert.equal(rollbacks.length, 1, "the line-meta rollback closure is still there");
   assert.match(packaging, /rollback\(result\.error\.message\)/);
+
+  // The cell path: a governed rejection and a thrown one both reach operator
+  // state, and both restore the input AND the store.
+  const cell = packaging.slice(packaging.indexOf("function fireSave()"));
+  assert.match(cell, /threw = true;/, "a thrown write is caught, not swallowed");
+  assert.match(
+    cell,
+    /if \(threw \|\| \(result !== null && !result\.ok\)\)/,
+    "governed and thrown failures share one branch",
+  );
+  assert.match(cell, /\.error\n?\s*\.message/, "the governed message reaches the operator");
+  assert.match(cell, /setUnitCost\(restore\)/);
+  assert.match(cell, /updatePackagingCell\(rowId, \{ unitCost: num\(restore\) \}\)/);
 
   // The cell path previously discarded its result entirely.
   assert.doesNotMatch(packaging, /await updateAssemblyLeafInputCell\(fd\);\n\s+mark\?\.\("action complete"\)/);
 });
 
-test("packaging captures the pre-edit value before projecting optimistically", () => {
+test("the packaging rollback target is the server-accepted value, never the optimistic store", () => {
   // Reading it back from the store at failure time would return the
-  // optimistic value, not the confirmed one.
-  assert.match(packaging, /preEditRef\.current === null\) preEditRef\.current = storeUnitCost/);
-  // Rollback restores the store as well as the local input, so the Cost Stack
-  // does not keep deriving from a value that was never persisted.
-  assert.match(packaging, /updatePackagingCell\(rowId, \{ unitCost: num\(restore \?\? ""\) \}\)/);
+  // optimistic value, not the confirmed one. `committedRef` succeeds
+  // `preEditRef`: same guarantee, plus one the old ref could not make — an
+  // EARLIER save accepted while a newer one is open advances the baseline, so
+  // a later failure restores what the server took rather than the value from
+  // before the burst. Behaviour is asserted in
+  // `packaging-cell-draft-ownership.test.tsx`; this locks the shape it needs.
+  const cell = packaging.slice(packaging.indexOf("function fireSave()"));
+
+  // Advanced by an ACCEPTED write, before the ownership check — so it happens
+  // whether or not the operator has typed since.
+  const accepted = cell.indexOf("committedRef.current = sent;");
+  assert.ok(accepted > 0, "an accepted save must advance the baseline");
+  assert.match(
+    cell.slice(accepted),
+    /if \(!owns\) return;/,
+    "the baseline advances before ownership is checked, not after",
+  );
+
+  // Read at FAILURE time, not captured at dispatch — that is what lets an
+  // earlier acceptance count.
+  assert.match(cell, /const restore = committedRef\.current;/);
+  assert.doesNotMatch(
+    cell.slice(0, cell.indexOf("startTransition")),
+    /committedRef\.current/,
+    "the rollback target must not be frozen at dispatch",
+  );
+
+  // And it is never written from a keystroke: a draft is not a confirmation.
+  const change = packaging.slice(packaging.indexOf("function handleChange(value: string)"));
+  assert.doesNotMatch(
+    change.slice(0, change.indexOf("}")),
+    /committedRef\.current =/,
+    "typing must not advance the server-accepted baseline",
+  );
 });
 
 test("production service-fee cells roll back on the thrown path too", () => {

@@ -66,24 +66,13 @@ const HINT: Record<ComponentChargeKey, string> = {
   other_service: "label required · e.g. “foil stamping die spec”",
 };
 
-/**
- * Suggestions, by product type.
- *
- * SUGGESTED, NEVER PRE-CHECKED. A pre-checked box is how a phantom charge
- * reaches a customer document with nobody having decided it — suggestion is a
- * prompt, selection is an act. The chips render; the boxes stay empty.
- */
-const SUGGESTED_BY_TYPE: Record<string, ComponentChargeKey[]> = {
-  "secondary packaging": ["print_plates", "tooling", "samples"],
-  "primary packaging": ["tooling", "samples"],
-};
-
 export function AddComponentChargesSheet({
   quoteId,
   quoteLeafId,
   componentSku,
   componentName,
   productTypeLabel,
+  suggestedKeys,
   existingKeys,
   onClose,
 }: {
@@ -92,6 +81,8 @@ export function AddComponentChargesSheet({
   componentSku: string | null;
   componentName: string;
   productTypeLabel: string | null;
+  /** Configured by admins against the raw HubSpot Product Type value. */
+  suggestedKeys: readonly ComponentChargeKey[];
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -114,8 +105,7 @@ export function AddComponentChargesSheet({
 
   useEffect(() => setMounted(true), []);
 
-  const suggestions =
-    SUGGESTED_BY_TYPE[(productTypeLabel ?? "").toLowerCase()] ?? [];
+  const suggestions = suggestedKeys;
 
   const ownedCount = (k: ComponentChargeKey) =>
     existingKeys.filter((e) => e.chargeKey === k).length;
@@ -215,10 +205,10 @@ export function AddComponentChargesSheet({
         </header>
 
         <div className="od032-sheet-body">
-          {suggestions.length > 0 && (
+          {suggestions.length > 0 ? (
             <div className="od032-suggest">
               <span className="od032-suggest-label">
-                Common on {productTypeLabel?.toLowerCase()}
+                Common on {productTypeLabel ?? "this product type"}
               </span>
               <span className="od032-chips">
                 {suggestions.map((k) => (
@@ -228,6 +218,17 @@ export function AddComponentChargesSheet({
                 ))}
               </span>
               <span className="od032-suggest-note">suggested · never pre-checked</span>
+            </div>
+          ) : (
+            <div className="od032-suggest" data-testid="charge-suggestions-needs-review">
+              <span className="od032-suggest-label">
+                {productTypeLabel
+                  ? `No charge suggestions are configured for ${productTypeLabel}.`
+                  : "This product has no HubSpot Product Type."}
+              </span>
+              <span className="od032-suggest-note">
+                needs review · existing quote charges are unchanged
+              </span>
             </div>
           )}
 

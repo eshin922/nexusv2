@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("../../src/app/actions/freight-worksheet.ts", import.meta.url), "utf8");
+const component = await readFile(new URL("../../src/components/costs/freight-drilldown.tsx", import.meta.url), "utf8");
 
 test("manual worksheet actions preserve provenance and draft commercial authority", () => {
   assert.match(source, /fieldProvenance: provenance/);
@@ -68,6 +69,17 @@ test("shipment facts and customs evidence retain explicit authority and provenan
   assert.match(entry, /invoiceReference/);
   assert.match(entry, /entryDescription/);
   assert.match(entry, /mergeProvenance/);
+});
+
+test("customs duty and tariff updates persist only to the selected tier", () => {
+  const start = source.indexOf("export async function updateFreightCustomsBreak");
+  const end = source.indexOf("export async function", start + 30);
+  const customs = source.slice(start, end < 0 ? undefined : end);
+  assert.match(customs, /eq\(quoteTiers\.id, tierId\).*eq\(quoteTiers\.quoteId, quote\.id\)/s);
+  assert.match(customs, /const tierIds = \[requestedTier\.id\]/);
+  assert.doesNotMatch(customs, /applyToAllTiers/);
+  assert.match(component, /data-customs-amount=\{`\$\{chargeType\}:\$\{tier\.id\}`\}/);
+  assert.match(component, /data-customs-markup=\{`\$\{chargeType\}:\$\{tier\.id\}`\}/);
 });
 
 test("tracking is the only post-send editable worksheet fact", () => {
