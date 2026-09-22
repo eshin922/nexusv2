@@ -8,7 +8,10 @@ import { requireAdminAction } from "@/lib/admin-guard";
 import { writeAuditEntry } from "@/lib/audit";
 import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/action-result";
 import { COMPONENT_CHARGE_KEYS } from "@/lib/commercial-recovery/registry";
-import { ASSOCIATED_COST_KEYS, type ProductTypeChargeKey } from "@/lib/product-type-charge-defaults";
+import {
+  ASSOCIATED_COST_KEYS,
+  type ProductTypeChargeKey,
+} from "@/lib/product-type-charge-defaults-contract";
 import { loadHubspotProductTypeOptions } from "@/lib/hubspot-product-type-vocabulary";
 
 /**

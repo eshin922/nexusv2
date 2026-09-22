@@ -4,12 +4,12 @@ import { useState, useTransition } from "react";
 import {
   saveProductTypeChargeDefaults,
 } from "@/app/actions/product-type-charge-defaults";
+import type { ProductTypeChargeDefault } from "@/lib/product-type-charge-defaults";
 import {
   ASSOCIATED_COST_KEYS,
   ASSOCIATED_COST_LABELS,
-  type ProductTypeChargeDefault,
   type ProductTypeChargeKey,
-} from "@/lib/product-type-charge-defaults";
+} from "@/lib/product-type-charge-defaults-contract";
 import {
   COMPONENT_CHARGE_KEYS,
   COMPONENT_CHARGE_LABELS,
