@@ -129,6 +129,19 @@
   display: flex;
   flex-direction: column;
 }
+.od032-picker-section {
+  padding: 9px 4px 5px;
+  border-bottom: 1px solid oklch(0.88 0.012 85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.42 0.14 255);
+}
+.od032-picker-section-secondary {
+  margin-top: 5px;
+  color: oklch(0.68 0.012 255);
+}
 .od032-pick {
   width: 100%;
   display: flex;
@@ -173,6 +186,15 @@
 .od032-pick-name {
   display: block;
   font-size: 13px;
+}
+.od032-pick-suggested {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.62 0.13 70);
 }
 .od032-pick-hint {
   display: block;

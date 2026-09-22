@@ -41,7 +41,7 @@
  * is being assumed on their behalf; it is not a control.
  */
 
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   COMPONENT_CHARGE_KEYS,
@@ -106,6 +106,18 @@ export function AddComponentChargesSheet({
   useEffect(() => setMounted(true), []);
 
   const suggestions = suggestedKeys;
+  // Keep every governed charge available, but make the Product Type
+  // association visible in the picker itself. Previously the type only
+  // appeared in the summary chip while the rows were rendered as one flat
+  // list, which made a configured association look disconnected from the
+  // choices it was meant to guide.
+  const suggestedSet = new Set<ComponentChargeKey>(suggestions);
+  const chargeRows = COMPONENT_CHARGE_KEYS.map((key) => ({
+    key,
+    suggested: suggestedSet.has(key),
+  }));
+  const suggestedRows = chargeRows.filter((row) => row.suggested).map((row) => row.key);
+  const otherRows = chargeRows.filter((row) => !row.suggested).map((row) => row.key);
 
   const ownedCount = (k: ComponentChargeKey) =>
     existingKeys.filter((e) => e.chargeKey === k).length;
@@ -233,11 +245,22 @@ export function AddComponentChargesSheet({
           )}
 
           <ul className="od032-picker">
-            {COMPONENT_CHARGE_KEYS.map((k) => {
+            {suggestedRows.length > 0 && (
+              <li className="od032-picker-section" aria-hidden="true">
+                <span>Suggested for {productTypeLabel ?? "this product type"}</span>
+              </li>
+            )}
+            {[...suggestedRows, ...otherRows].map((k, index) => {
               const owned = ownedCount(k);
               const on = picked.has(k);
               return (
-                <li key={k}>
+                <Fragment key={k}>
+                  {index === suggestedRows.length && suggestedRows.length > 0 && (
+                    <li className="od032-picker-section od032-picker-section-secondary" aria-hidden="true">
+                      <span>All other charge types</span>
+                    </li>
+                  )}
+                <li data-suggested={suggestedSet.has(k) ? "yes" : undefined}>
                   <button
                     type="button"
                     className="od032-pick"
@@ -253,6 +276,9 @@ export function AddComponentChargesSheet({
                       <span className="od032-pick-name">
                         {COMPONENT_CHARGE_LABELS[k]}
                       </span>
+                      {suggestedSet.has(k) && (
+                        <span className="od032-pick-suggested">common on this type</span>
+                      )}
                       <span className="od032-pick-hint">{HINT[k]}</span>
                       {/* A WARNING, NOT A BLOCK. Two dies on one carton is a
                           real thing; selecting a type the component already
@@ -301,6 +327,7 @@ export function AddComponentChargesSheet({
                     />
                   )}
                 </li>
+                </Fragment>
               );
             })}
           </ul>
