@@ -11,6 +11,19 @@ export type ProductTypeChargeDefault = {
   note: string | null;
 };
 
+const FORMULATED_PRODUCT_TYPE_SUGGESTIONS: ProductTypeChargeDefault[] = [
+  {
+    productTypeValue: "Ingestibles",
+    chargeKey: "tooling",
+    note: "Suggested from the Production tooling/setup line; the operator confirms applicability per component.",
+  },
+  {
+    productTypeValue: "Topicals",
+    chargeKey: "tooling",
+    note: "Suggested from the Production tooling/setup line; the operator confirms applicability per component.",
+  },
+];
+
 export async function listProductTypeChargeDefaults(): Promise<ProductTypeChargeDefault[]> {
   let rows: Array<{ productTypeValue: string; chargeKey: string; note: string | null }>;
   try {
@@ -36,6 +49,17 @@ export async function listProductTypeChargeDefaults(): Promise<ProductTypeCharge
       { productTypeValue: "Ingestibles", chargeKey: "samples", note: null },
       { productTypeValue: "Topicals", chargeKey: "samples", note: null },
     ];
+  }
+
+  // Migration 0133 adds the formulated-product tooling suggestion. During a
+  // rolling deploy the application can be ahead of that migration, so merge
+  // the same advisory defaults until the database row is present. Existing
+  // rows win, preserving any administrator decision for that type/key.
+  const existing = new Set(rows.map((row) => `${row.productTypeValue}\u0000${row.chargeKey}`));
+  for (const fallback of FORMULATED_PRODUCT_TYPE_SUGGESTIONS) {
+    if (!existing.has(`${fallback.productTypeValue}\u0000${fallback.chargeKey}`)) {
+      rows.push(fallback);
+    }
   }
 
   // The database CHECK is the primary guard. Keep this boundary defensive so a
