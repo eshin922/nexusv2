@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, getTableColumns } from "drizzle-orm";
 import { db } from "@/db";
 import {
   projects,
@@ -61,15 +61,34 @@ export default async function QuoteBuilderPage({
     surfaceKey: "setup",
   });
 
-  const quoteRows = await db
-    .select({
-      quote: quotes,
-      project: projects,
-    })
-    .from(quotes)
-    .innerJoin(projects, eq(projects.id, quotes.projectId))
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
+  let quoteRows: Array<{ quote: typeof quotes.$inferSelect; project: typeof projects.$inferSelect }>;
+  try {
+    quoteRows = await db
+      .select({
+        quote: quotes,
+        project: projects,
+      })
+      .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+  } catch (error) {
+    // Production may briefly run ahead of the additive freight migration.
+    // Keep Setup usable with an explicit undecided intent until the column is
+    // present; the normal query resumes automatically after migration.
+    if ((error as { code?: string })?.code !== "42703") throw error;
+    const { freightIntent: _freightIntent, ...legacyQuoteColumns } = getTableColumns(quotes);
+    const legacyRows = await db
+      .select({ quote: legacyQuoteColumns, project: projects })
+      .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+    quoteRows = legacyRows.map(({ quote, project }) => ({
+      quote: { ...quote, freightIntent: "undecided" },
+      project,
+    })) as typeof quoteRows;
+  }
 
   if (quoteRows.length === 0) notFound();
   const { quote, project } = quoteRows[0];

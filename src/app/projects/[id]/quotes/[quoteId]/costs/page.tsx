@@ -141,11 +141,12 @@ export default async function CostBuildPage({
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
   const { section: expandedSection, preview: previewParam } = await searchParams;
-  // M2. Absent parameter means the original workspace, so every existing link
-  // keeps its current behaviour and turning the preview off leaves nothing
-  // behind — see `m2-preview-switch.ts` for why the switch is a URL parameter.
-  const m2Preview = isCostsM2PreviewEnabled(previewParam);
-  const m3Preview = isCostsM3PreviewEnabled(previewParam);
+  // The reviewed Costs surface is now the default route. Keep the named
+  // switches for explicit read-only M2 and editable M3 links, while allowing
+  // existing links with no preview parameter to land on the shipped surface.
+  const defaultCostsSurface = previewParam === undefined;
+  const m2Preview = defaultCostsSurface || isCostsM2PreviewEnabled(previewParam);
+  const m3Preview = defaultCostsSurface || isCostsM3PreviewEnabled(previewParam);
   const tag = quoteId.slice(0, 8);
   console.log(`[costs:${tag}] start memory=${heapMb()}MB`);
 
