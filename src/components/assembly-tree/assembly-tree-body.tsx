@@ -30,6 +30,7 @@ import {
   moveProductMembership,
   reorderAssemblies,
 } from "@/app/actions/assemblies";
+import { detachQuoteProduct } from "@/app/actions/quote-products";
 import { useRouter } from "next/navigation";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
 import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
@@ -111,6 +112,8 @@ export function AssemblyTreeBody({
   const [dragId, setDragId] = useState<string | null>(null);
   const router = useRouter();
   const [, startReorderTransition] = useTransition();
+  const [removingQuoteLeafId, setRemovingQuoteLeafId] = useState<string | null>(null);
+  const [, startRemoveTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   /**
    * The component whose charges sheet is open — OD-032 phase 4.
@@ -131,6 +134,27 @@ export function AssemblyTreeBody({
   // types satisfy it structurally.
   const [chargeSheetLeaf, setChargeSheetLeaf] =
     useState<ChargeSheetTarget | null>(null);
+
+  const removeDirectProduct = useCallback(
+    (quoteLeafId: string) => {
+      const fd = new FormData();
+      fd.set("quoteId", quoteId);
+      fd.set("quoteLeafId", quoteLeafId);
+      setRemovingQuoteLeafId(quoteLeafId);
+      startRemoveTransition(async () => {
+        setError(null);
+        const result = await detachQuoteProduct(fd);
+        if (!result.ok) {
+          setError(result.error.message);
+          setRemovingQuoteLeafId(null);
+          return;
+        }
+        setRemovingQuoteLeafId(null);
+        router.refresh();
+      });
+    },
+    [quoteId, router],
+  );
 
   const orderedAssemblies = useMemo(() => {
     if (!optimisticOrder) return tree.assemblies;
@@ -627,8 +651,14 @@ export function AssemblyTreeBody({
                   ? existingComponentCharges?.filter(
                       (charge) => charge.quoteLeafId === product.quoteLeafId,
                     ).length ?? 0
+                : undefined
+              }
+              onRemove={
+                product.commercialKind === "product"
+                  ? () => removeDirectProduct(product.quoteLeafId)
                   : undefined
               }
+              removePending={removingQuoteLeafId === product.quoteLeafId}
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
             </Fragment>
@@ -770,6 +800,8 @@ export function AssemblyTreeBody({
                 dropEdge={dropEdgeFor({ kind: "direct" }, product.quoteLeafId)}
                 onRowDragOver={(e) => overProductRow(e, { kind: "direct" }, product.quoteLeafId)}
                 onRowDrop={commitDrop}
+                onRemove={() => removeDirectProduct(product.quoteLeafId)}
+                removePending={removingQuoteLeafId === product.quoteLeafId}
                 editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
               />
             </Fragment>

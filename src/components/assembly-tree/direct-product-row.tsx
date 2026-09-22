@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { DirectProductNode } from "@/lib/assembly-tree";
 import { leafCostDisplay } from "@/lib/leaf-cost-display";
 import { CompletenessChip } from "./completeness-chip";
@@ -15,6 +16,8 @@ export function DirectProductRow({
   onRowDragOver,
   onRowDrop,
   onAddCharges,
+  onRemove,
+  removePending = false,
   chargeCount = 0,
 }: {
   product: DirectProductNode;
@@ -26,11 +29,22 @@ export function DirectProductRow({
   onRowDragOver?: (e: React.DragEvent) => void;
   onRowDrop?: (e: React.DragEvent) => void;
   onAddCharges?: () => void;
+  onRemove?: () => void;
+  removePending?: boolean;
   chargeCount?: number;
 }) {
   // Keep the shared cost register available to non-visual consumers without
   // reintroducing the legacy quantity/cost line into the setup card.
   const costDisplay = leafCostDisplay(product.unitCost);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const handleRemove = () => {
+    if (!onRemove || !editable || removePending) return;
+    if (!confirmingRemove) {
+      setConfirmingRemove(true);
+      return;
+    }
+    onRemove();
+  };
   return (
     <div
       className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}${savingStructure ? " structure-pending" : ""}`}
@@ -65,6 +79,22 @@ export function DirectProductRow({
           <a className="setup-wizard-inline-action" href={editSpecsHref}>
             Edit library specs
           </a>
+          {onRemove ? (
+            <button
+              type="button"
+              className="setup-wizard-inline-action setup-wizard-remove-action"
+              onClick={handleRemove}
+              disabled={!editable || removePending}
+              aria-label={`Remove ${product.name} from this quote`}
+              title={!editable ? "This quote is no longer a draft." : undefined}
+            >
+              {removePending
+                ? "Removing..."
+                : confirmingRemove
+                  ? "Confirm remove"
+                  : "Remove"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

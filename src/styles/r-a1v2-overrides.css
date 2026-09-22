@@ -646,6 +646,8 @@
   white-space: nowrap;
 }
 .setup-wizard-inline-action:hover { border-color: var(--accent); background: var(--paper-2); }
+.setup-wizard-remove-action { color: var(--bad); }
+.setup-wizard-remove-action:hover { border-color: var(--bad); color: var(--bad); }
 .setup-wizard-product-charges > button,
 .setup-wizard-direct-charges > button { margin-left: auto; }
 .setup-wizard-product-charges > .setup-wizard-inline-action,
