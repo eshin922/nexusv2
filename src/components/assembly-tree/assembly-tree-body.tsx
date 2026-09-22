@@ -652,7 +652,13 @@ export function AssemblyTreeBody({
                 </div>
                 <div className="setup-wizard-product-charges">
                   <span>One-time charges · {selectedCount ? `${selectedCount} added` : "none selected"}</span>
-                  <button type="button" onClick={() => setChargeSheetLeaf(product)} disabled={!editable}>
+                  <button
+                    type="button"
+                    onClick={() => setChargeSheetLeaf(product)}
+                    disabled={!editable}
+                    aria-label="Add one-time charges"
+                    title={!editable ? "This quote is no longer a draft; charges are frozen." : undefined}
+                  >
                     {selectedCount ? "+ Add or change charges" : "+ Add one-time charge"}
                   </button>
                   <a
@@ -678,6 +684,15 @@ export function AssemblyTreeBody({
           />
       </div>
           <div className="setup-wizard-data-section-header"><h4>Item groups</h4></div>
+      <RootLane
+        laneId="tail:above-groups"
+        index={rootLaneIndexBefore.tail}
+        active={activeLane === "tail:above-groups"}
+        editable={editable}
+        dragging={!!movingLeafId}
+        onAcquire={acquireLane}
+        onDrop={commitDrop}
+      />
       <p className="setup-wizard-section-lede">Optional. Combine products that are quoted together as one thing. A product becomes a component by being put in a group — nothing is grouped automatically.</p>
       <div className="setup-wizard-indent">
           {orderedAssemblies.map((asy) => (

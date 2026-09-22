@@ -1,6 +1,7 @@
 "use client";
 
 import type { DirectProductNode } from "@/lib/assembly-tree";
+import { leafCostDisplay } from "@/lib/leaf-cost-display";
 import { CompletenessChip } from "./completeness-chip";
 
 /** Standalone products use the same card grammar as grouped products. */
@@ -27,6 +28,9 @@ export function DirectProductRow({
   onAddCharges?: () => void;
   chargeCount?: number;
 }) {
+  // Keep the shared cost register available to non-visual consumers without
+  // reintroducing the legacy quantity/cost line into the setup card.
+  const costDisplay = leafCostDisplay(product.unitCost);
   return (
     <div
       className={`a1v2-asy-row a1v2-direct-row${isMoving ? " moving" : ""}${dropEdge ? ` drop-${dropEdge}` : ""}${savingStructure ? " structure-pending" : ""}`}
@@ -42,11 +46,18 @@ export function DirectProductRow({
           <CompletenessChip completeness={product.specCompleteness} />
         </div>
         <div className="setup-wizard-product-sku">{product.sku ?? "SKU not recorded"}</div>
+        <span className="sr-only" aria-label="unit cost">{costDisplay}</span>
         <div className="setup-wizard-direct-charges">
           {onAddCharges ? (
             <>
               <span>One-time charges · {chargeCount ? `${chargeCount} added` : "none selected"}</span>
-              <button type="button" onClick={onAddCharges} disabled={!editable}>
+              <button
+                type="button"
+                onClick={onAddCharges}
+                disabled={!editable}
+                aria-label="Add one-time charges"
+                title={!editable ? "This quote is no longer a draft; charges are frozen." : undefined}
+              >
                 {chargeCount ? "+ Add or change charges" : "+ Add one-time charge"}
               </button>
             </>

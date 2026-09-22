@@ -324,7 +324,6 @@ const classifiedIdentityFiles = new Set([
   // resolves an identity, maps between the two spaces, or shows either id to the
   // operator, who sees product name and SKU.
   "src/components/assembly-tree/assembly-tree-body.tsx",
-  "src/components/assembly-tree/direct-product-row.tsx",
   // CLASSIFIED — read-only evidence, canonical only. OW-2's isolation reads
   // `quote_leaf_id` from `quote_product_attach` audit rows and matches it
   // against `skuRollups[].skuId`, which OD-017 made the canonical quote-leaf id.
@@ -1017,7 +1016,6 @@ const classifiedIdentityFiles = new Set([
   // attachment's canonical quoteLeafId to place its owned charges under the
   // right product and as a stable render key. It resolves no junction and
   // writes no quote structure.
-  "src/app/projects/[id]/quotes/[quoteId]/setup/review/page.tsx",
   // CLASSIFIED — Costs editing field boundary. It carries quoteLeafId into
   // the existing line-cell editor and scopes markup writes by lineGroupId; it
   // performs no canonical-to-legacy lookup itself.

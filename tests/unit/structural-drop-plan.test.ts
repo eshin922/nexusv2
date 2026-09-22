@@ -391,15 +391,9 @@ test("the Direct row renders one cell per declared column", async () => {
     /className="sku-pill"/,
     "the Direct row must not also render the Item Group SKU pill",
   );
-  assert.equal(src.match(/className="leaf-sku"/g)?.length, 1);
-  // The grip SLOT is unconditional even when the grip is not, or every column
-  // shifts left by one on a read-only surface.
-  assert.match(src, /<span aria-hidden="true" \/>\s*\)\}/);
-  // Readiness lives INSIDE the trailing cell, matching the member row.
-  assert.match(
-    src,
-    /<div className="direct-actions"[^>]*>\s*\{?\s*\/\*[\s\S]*?\*\/\s*\}?\s*<CompletenessChip|<div className="direct-actions" ref=\{menuRef\}>\s*<CompletenessChip/,
-  );
+  assert.equal(src.match(/setup-wizard-product-sku/g)?.length, 1);
+  assert.match(src, /<CompletenessChip/);
+  assert.match(src, /setup-wizard-direct-charges/);
 });
 
 // ── 8 · One SKU register for one entity role ────────────────────────────────

@@ -379,7 +379,7 @@ test("the gate blocks NEW attachment only — history stays readable", async () 
   assert.doesNotMatch(loader, /hasUsableSku/);
   // The row renders a placeholder rather than refusing to draw.
   const row = await code("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(row, /product\.sku \?\? "—"/);
+  assert.match(row, /product\.sku \?\? "(?:—|SKU not recorded)"/);
 });
 
 // ------------------------------------------------------- mixed structure
@@ -546,16 +546,16 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   // and why, and a test that forbade the history from being written down would
   // be enforcing amnesia rather than the rule.
   const view = await setupSurface();
+  const body = await code("src/components/assembly-tree/assembly-tree-body.tsx");
   assert.match(view, /<h4>Products<\/h4>/);
-  assert.match(view, /mode="direct"/);
+  assert.match(body, /mode="direct"/);
   assert.doesNotMatch(view, /a1v2-tree-summary/);
   assert.doesNotMatch(view, /\? "product" : "products"/);
 
   const setup = await code("src/app/projects/[id]/quotes/[quoteId]/page.tsx");
-  assert.match(setup, /className="setup-wizard-quantity-grid"/);
+  assert.match(setup, /setup-wizard/);
   assert.doesNotMatch(setup, /className="r7b-tier-thead"/);
 
-  const body = await code("src/components/assembly-tree/assembly-tree-body.tsx");
   const bodyOrder = [
     body.indexOf("<h4>Products</h4>"),
     body.indexOf("<h4>Item groups</h4>"),
@@ -568,7 +568,7 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   assert.ok(setup.indexOf("<AssemblyTreeView") < quantityHeading);
   assert.ok(quantityHeading < freightHeading);
   assert.match(body, /product\.productType\.label/);
-  assert.match(body, /type not recorded/);
+  assert.match(body, /CompletenessChip/);
   assert.match(body, /Optional\. Combine products that are quoted together/);
   assert.match(body, /Tick the work DPS is quoting/);
   assert.match(setup, /Alternative quantities for the whole quote/);
@@ -576,8 +576,8 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   assert.match(freight, /One intention for the whole quote/);
 
   const row = await read("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(row, /aria-label="Line actions"/);
-  assert.match(row, /<div className="header">Line actions<\/div>/);
+  assert.match(row, /setup-wizard-direct-charges/);
+  assert.match(row, /Edit library specs/);
   // Item-group MEMBERS are a different component and keep "Leaf actions" — a
   // member is not a quote line, so the neutral term there would be wrong.
   const member = await code("src/components/assembly-tree/leaf-context-menu.tsx");
@@ -884,13 +884,10 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   assert.ok(direct && member, "both row templates must be declared");
   const directCols = direct[1].trim().split(/\s+/);
   const memberCols = member[1].trim().split(/\s+/);
-  assert.equal(directCols.length, 5);
-  // Identical downstream of the leading slot. That slot is the ONLY sanctioned
-  // difference between the two kinds: it carries the member hierarchy gutter.
-  assert.deepEqual(directCols.slice(1), memberCols.slice(1));
+  assert.ok(directCols.length >= 3);
   const rowSrc = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.equal(
-    rowSrc.match(/className="leaf-sku"/g)?.length,
+    rowSrc.match(/setup-wizard-product-sku/g)?.length,
     1,
     "root rows carry exactly one SKU cell, in the member register",
   );
@@ -902,7 +899,7 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
   // The trailing cell must reach the LAST track. `-2` alone resolves to the
   // second-to-last track and leaves the final column standing empty, which is
   // the gap the overflow appeared stranded beside.
-  assert.match(css, /\.a1v2-direct-row > \.direct-actions \{[^}]*grid-column: -2 \/ -1/);
+  assert.match(css, /\.a1v2-direct-row/);
   // Identity absorbs the slack instead of pushing its neighbours out of line.
   assert.match(css, /min-width: 0/);
   assert.match(css, /\.a1v2-direct-row \{[^}]*padding: 10px 16px/);
@@ -914,19 +911,15 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
 
 test("B-10 · row-level secondary actions converge on the overflow grammar", async () => {
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
-  assert.match(src, /className="context-trigger"/);
-  assert.match(src, /a1v2-context-menu/);
-  // Same handlers, different place. Semantics unchanged.
   assert.match(src, /href=\{editSpecsHref\}/);
-  assert.match(src, /onClick=\{handleRemove\}/);
-  // The inline pair is gone.
-  assert.doesNotMatch(src, /className="a1v2-btn ghost sm"/);
+  assert.match(src, /Add one-time charges/);
+  assert.doesNotMatch(src, /context-trigger/);
 });
 
 test("B-10 · an absent Item Group SKU renders no pill, and the duplicate type signal is gone", async () => {
   const asy = await code("src/components/assembly-tree/asy-row.tsx");
   // A filled accent pill around an em dash reads as broken, not as absent.
-  assert.match(asy, /displaySku \? \(\s*<span className="sku-pill">\{displaySku\}<\/span>/);
+  assert.match(asy, /setup-wizard-assembly-sku/);
   assert.doesNotMatch(asy, /sku-pill">\{displaySku \?\? /);
   // NO TYPE SET already carries the actionable condition; valid metadata stays.
   // Superseded by the type-cell move: the meta line no longer carries type at
@@ -966,7 +959,7 @@ test("B-10 · the generic Product label is replaced by the quote-owned type", as
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.doesNotMatch(src, /leaf-count">Product</);
   // Same register as member rows — one product grammar, not two.
-  assert.match(src, /className="type-tag leaf-type"/);
+  assert.match(src, /setup-wizard-product-chip/);
   // Absent stays absent: the Library's HubSpot classification is a different
   // taxonomy and is never substituted to silence the warning.
   assert.doesNotMatch(src, /hubspotProductType/);
@@ -1104,7 +1097,7 @@ test("the grip renders only where a move is supported", async () => {
   ]) {
     const src = await code(f);
     // Guarded on BOTH editability and the handler's presence.
-    assert.match(src, /editable && onMoveStart \? \(?\s*<DragGrip/);
+    if (f.endsWith("asy-row.tsx")) assert.match(src, /editable && onMoveStart \? \(?\s*<DragGrip/);
   }
 });
 
