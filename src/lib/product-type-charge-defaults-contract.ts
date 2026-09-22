@@ -1,8 +1,25 @@
-import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import { COMPONENT_CHARGE_KEYS, type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+
+export const ASSOCIATED_COST_KEYS = [
+  "filling_blending",
+  "cm_assembly_packout",
+  "project_setup",
+  "rd_formulation",
+  "testing_micros",
+] as const;
+export type AssociatedCostKey = (typeof ASSOCIATED_COST_KEYS)[number];
+export type ProductTypeChargeKey = ComponentChargeKey | AssociatedCostKey;
+export const ASSOCIATED_COST_LABELS: Record<AssociatedCostKey, string> = {
+  filling_blending: "Filling / blending",
+  cm_assembly_packout: "CM assembly / packout",
+  project_setup: "Setup / tooling",
+  rd_formulation: "R&D / formulation",
+  testing_micros: "Stability / potency / micros testing",
+};
 
 export type ProductTypeChargeRule = {
   productTypeValue: string;
-  chargeKey: ComponentChargeKey;
+  chargeKey: ProductTypeChargeKey;
 };
 
 /** Build the Setup lookup using HubSpot's raw option value, never its label. */
@@ -11,7 +28,9 @@ export function indexProductTypeChargeRules(
 ): Record<string, ComponentChargeKey[]> {
   const indexed: Record<string, ComponentChargeKey[]> = {};
   for (const rule of rules) {
-    (indexed[rule.productTypeValue] ??= []).push(rule.chargeKey);
+    if ((COMPONENT_CHARGE_KEYS as readonly string[]).includes(rule.chargeKey)) {
+      (indexed[rule.productTypeValue] ??= []).push(rule.chargeKey as ComponentChargeKey);
+    }
   }
   return indexed;
 }

@@ -3,11 +3,15 @@ import { asc } from "drizzle-orm";
 import { db } from "@/db";
 import { productTypeChargeDefaults } from "@/db/schema";
 import { COMPONENT_CHARGE_KEYS, type ComponentChargeKey } from "@/lib/commercial-recovery/registry";
-import { indexProductTypeChargeRules } from "@/lib/product-type-charge-defaults-contract";
+import {
+  ASSOCIATED_COST_KEYS,
+  indexProductTypeChargeRules,
+  type ProductTypeChargeKey,
+} from "@/lib/product-type-charge-defaults-contract";
 
 export type ProductTypeChargeDefault = {
   productTypeValue: string;
-  chargeKey: ComponentChargeKey;
+  chargeKey: ProductTypeChargeKey;
   note: string | null;
 };
 
@@ -64,7 +68,7 @@ export async function listProductTypeChargeDefaults(): Promise<ProductTypeCharge
 
   // The database CHECK is the primary guard. Keep this boundary defensive so a
   // legacy or manually repaired row cannot leak an unknown key into Setup.
-  const known = new Set<string>(COMPONENT_CHARGE_KEYS);
+  const known = new Set<string>([...COMPONENT_CHARGE_KEYS, ...ASSOCIATED_COST_KEYS]);
   return rows.filter(
     (row): row is ProductTypeChargeDefault => known.has(row.chargeKey),
   );
