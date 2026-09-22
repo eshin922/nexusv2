@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { auditLog, quoteAttachments, quotes } from "@/db/schema";
+import { auditLog, quoteAttachments } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import {
@@ -18,6 +18,7 @@ import {
   buildAttachmentStoragePath,
 } from "@/lib/supabase-server";
 import { revalidatePath } from "next/cache";
+import { quoteById } from "@/lib/quote-guards";
 
 // canonical-scenario-create-flow Step 4 — quote attachment server
 // actions.
@@ -81,14 +82,8 @@ export async function addQuoteAttachment(
 
     const user = await ensureUser();
 
-    // Verify quote exists.
-    const quoteRows = await db
-      .select()
-      .from(quotes)
-      .where(eq(quotes.id, quoteId))
-      .limit(1);
-    if (quoteRows.length === 0)
-      throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
+    // Verify quote exists through the schema-compatible quote reader.
+    await quoteById(quoteId);
 
     // Generate Storage path + upload.
     const uuid = randomUUID();

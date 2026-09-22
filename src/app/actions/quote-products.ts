@@ -2,14 +2,13 @@
 
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { leaves, quoteLeaves, quotes } from "@/db/schema";
+import { leaves, quoteLeaves } from "@/db/schema";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { writeAuditEntry } from "@/lib/audit";
 import {
   ActionGuardError,
   ERR,
   runAction,
-  assertDraft,
   type ActionResult,
 } from "@/lib/action-result";
 import { materializePackagingRows } from "@/lib/packaging-materialization";
@@ -25,17 +24,7 @@ import {
   detachDirectProduct as detachDirectProductRow,
   DirectAttachmentConflictError,
 } from "@/lib/product-structure/direct-attachment";
-
-async function loadQuoteOrThrow(quoteId: string) {
-  const rows = await db
-    .select()
-    .from(quotes)
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
-  if (rows.length === 0)
-    throw new ActionGuardError(ERR.QUOTE_NOT_FOUND, "Quote not found");
-  return rows[0];
-}
+import { quoteByIdDraft } from "@/lib/quote-guards";
 
 /**
  * Quote → Add Product. Attaches a library product DIRECTLY to the quote, with
@@ -62,8 +51,9 @@ export async function attachQuoteProduct(
 
     const user = await ensureUser();
 
-    const quote = await loadQuoteOrThrow(quoteId);
-    assertDraft(quote);
+    // The shared guard owns the legacy-schema fallback as well as the draft
+    // assertion. Keep this path aligned with every other quote write action.
+    const quote = await quoteByIdDraft(quoteId);
 
     const leafRows = await db
       .select()
@@ -187,8 +177,7 @@ export async function detachQuoteProduct(
     if (!quoteLeafId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteLeafId required");
 
-    const quote = await loadQuoteOrThrow(quoteId);
-    assertDraft(quote);
+    const quote = await quoteByIdDraft(quoteId);
 
     const user = await ensureUser();
 

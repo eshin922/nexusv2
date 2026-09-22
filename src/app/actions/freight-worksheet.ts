@@ -205,7 +205,7 @@ export async function createFreightSubcategory(fd: FormData): Promise<ActionResu
 }
 
 async function draftSubcategory(id: string) {
-  const [row] = await db.select({ subcategory: freightSubcategories, quote: quotes }).from(freightSubcategories).innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightSubcategories.id, id)).limit(1);
+  const [row] = await db.select({ subcategory: freightSubcategories, quote: { id: quotes.id, projectId: quotes.projectId } }).from(freightSubcategories).innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightSubcategories.id, id)).limit(1);
   if (!row) throw new ActionGuardError(ERR.NOT_FOUND, "Freight subcategory not found");
   await quoteByIdDraft(row.quote.id);
   return row;
@@ -254,7 +254,7 @@ export async function updateFreightDestination(fd: FormData): Promise<ActionResu
     const destination = str(fd, "destination");
     if (!id || !destination) throw new ActionGuardError(ERR.VALIDATION, "Destination is required");
     const user = await ensureUser();
-    const [row] = await db.select({ destination: freightDestinations, subcategory: freightSubcategories, quote: quotes }).from(freightDestinations)
+    const [row] = await db.select({ destination: freightDestinations, subcategory: freightSubcategories, quote: { id: quotes.id, projectId: quotes.projectId } }).from(freightDestinations)
       .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightDestinations.freightSubcategoryId))
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightDestinations.id, id)).limit(1);
     if (!row) throw new ActionGuardError(ERR.NOT_FOUND, "Freight destination not found");
@@ -382,7 +382,7 @@ export async function updateFreightDestinationBreak(fd: FormData): Promise<Actio
   return runAction(async () => {
     const id = str(fd, "breakId");
     const user = await ensureUser();
-    const [row] = await db.select({ item: freightDestinationBreaks, subcategory: freightSubcategories, quote: quotes }).from(freightDestinationBreaks)
+    const [row] = await db.select({ item: freightDestinationBreaks, subcategory: freightSubcategories, quote: { id: quotes.id, projectId: quotes.projectId } }).from(freightDestinationBreaks)
       .innerJoin(freightDestinations, eq(freightDestinations.id, freightDestinationBreaks.freightDestinationId))
       .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightDestinations.freightSubcategoryId))
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightDestinationBreaks.id, id)).limit(1);
@@ -407,7 +407,7 @@ export async function updateFreightDestinationBreakGroup(fd: FormData): Promise<
     const sourceTierId = str(fd, "sourceTierId");
     const flat = str(fd, "breakMode") === "flat";
     const user = await ensureUser();
-    const [owner] = await db.select({ quote: quotes }).from(freightDestinations)
+    const [owner] = await db.select({ quote: { id: quotes.id, projectId: quotes.projectId } }).from(freightDestinations)
       .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightDestinations.freightSubcategoryId))
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightDestinations.id, destinationId)).limit(1);
     if (!owner) throw new ActionGuardError(ERR.NOT_FOUND, "Freight destination not found");
@@ -460,7 +460,7 @@ export async function deleteFreightDestination(fd: FormData): Promise<ActionResu
   return runAction(async () => {
     const destinationId = str(fd, "destinationId");
     const user = await ensureUser();
-    const [row] = await db.select({ destination: freightDestinations, subcategory: freightSubcategories, quote: quotes }).from(freightDestinations)
+    const [row] = await db.select({ destination: freightDestinations, subcategory: freightSubcategories, quote: { id: quotes.id, projectId: quotes.projectId } }).from(freightDestinations)
       .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightDestinations.freightSubcategoryId))
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId)).where(eq(freightDestinations.id, destinationId)).limit(1);
     if (!row) throw new ActionGuardError(ERR.NOT_FOUND, "Freight destination not found");
@@ -509,7 +509,7 @@ export async function deleteFreightSubcategory(fd: FormData): Promise<ActionResu
     const user = await ensureUser();
 
     const [row] = await db
-      .select({ subcategory: freightSubcategories, quote: quotes })
+      .select({ subcategory: freightSubcategories, quote: { id: quotes.id, projectId: quotes.projectId } })
       .from(freightSubcategories)
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId))
       .where(eq(freightSubcategories.id, subcategoryId))
@@ -696,7 +696,7 @@ export async function updateFreightTracking(fd: FormData): Promise<ActionResult<
   return runAction(async () => {
     const destinationId = str(fd, "destinationId");
     const user = await ensureUser();
-    const [row] = await db.select({ destination: freightDestinations, subcategory: freightSubcategories, quote: quotes, tracking: freightDestinationTracking }).from(freightDestinations)
+    const [row] = await db.select({ destination: freightDestinations, subcategory: freightSubcategories, quote: { id: quotes.id, projectId: quotes.projectId }, tracking: freightDestinationTracking }).from(freightDestinations)
       .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightDestinations.freightSubcategoryId))
       .innerJoin(quotes, eq(quotes.id, freightSubcategories.quoteId))
       .leftJoin(freightDestinationTracking, eq(freightDestinationTracking.freightDestinationId, freightDestinations.id))

@@ -8,7 +8,6 @@ import {
   auditLog,
   leaves,
   productTypes,
-  quotes,
   itemGroupCategories,
   quoteLeaves,
 } from "@/db/schema";
@@ -26,6 +25,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
 import { moveStructuralMembership } from "@/lib/product-structure/structural-move";
 import { assertMembershipQuantity } from "@/lib/product-structure/membership-quantity";
+import { quoteByIdDraft } from "@/lib/quote-guards";
 import {
   attachGroupedMembership,
   detachGroupedMembership,
@@ -57,17 +57,6 @@ import {
 // Duplicate ASY similarly deferred — non-trivial design choice on
 // whether to clone leaves or just the ASY shell; banked for a later
 // phase or follow-up.
-
-async function loadQuoteOrThrow(quoteId: string) {
-  const rows = await db
-    .select()
-    .from(quotes)
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
-  if (rows.length === 0)
-    throw new ActionGuardError(ERR.QUOTE_NOT_FOUND, "Quote not found");
-  return rows[0];
-}
 
 /**
  * Phase A.1 v2 impl-4 Step 2 — create an ASY row in the target
@@ -139,7 +128,7 @@ export async function createAssembly(
 
     const user = await ensureUser();
 
-    const quote = await loadQuoteOrThrow(quoteId);
+    const quote = await quoteByIdDraft(quoteId);
     assertDraft(quote);
 
     // Auto-assign position = max existing + 1 for this quote.
@@ -223,7 +212,7 @@ export async function deleteAssembly(
     if (asmRows.length === 0) return;
     const asm = asmRows[0];
 
-    const quote = await loadQuoteOrThrow(asm.quoteId);
+    const quote = await quoteByIdDraft(asm.quoteId);
     assertDraft(quote);
 
     // Cascade-aware audit (mirrors deleteSku in quotes.ts). Snapshot
@@ -322,7 +311,7 @@ export async function attachAssemblyLeaf(
       throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
     const asm = asmRows[0];
 
-    const quote = await loadQuoteOrThrow(asm.quoteId);
+    const quote = await quoteByIdDraft(asm.quoteId);
     assertDraft(quote);
 
     // Verify leaf exists + not archived.
@@ -491,7 +480,7 @@ export async function updateAssemblyLeafQuantity(
       throw new ActionGuardError(ERR.NOT_FOUND, "Membership not found");
     const before = rows[0];
 
-    const quote = await loadQuoteOrThrow(before.quoteId);
+    const quote = await quoteByIdDraft(before.quoteId);
     // Composition is structure, and structure is draft-only. Post-send the
     // freeze is the record of what was sold.
     assertDraft(quote);
@@ -557,7 +546,7 @@ export async function detachAssemblyLeaf(
     if (rows.length === 0) return;
     const { junction, assembly } = rows[0];
 
-    const quote = await loadQuoteOrThrow(assembly.quoteId);
+    const quote = await quoteByIdDraft(assembly.quoteId);
     assertDraft(quote);
 
     // Compatibility detach explicitly deletes legacy first (preserving its
@@ -609,7 +598,7 @@ export async function updateAssemblyNotes(
       throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
     const asm = asmRows[0];
 
-    const quote = await loadQuoteOrThrow(asm.quoteId);
+    const quote = await quoteByIdDraft(asm.quoteId);
     assertDraft(quote);
 
     // Trim trailing whitespace + normalize empty to NULL. Lets the
@@ -676,7 +665,7 @@ export async function reorderAssemblies(
     if (ids.length === 0)
       throw new ActionGuardError(ERR.VALIDATION, "assemblyIds required");
 
-    const quote = await loadQuoteOrThrow(quoteId);
+    const quote = await quoteByIdDraft(quoteId);
     assertDraft(quote);
 
     const existing = await db
@@ -755,7 +744,7 @@ export async function reorderAssemblyLeaves(
       throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
     const asm = asmRows[0];
 
-    const quote = await loadQuoteOrThrow(asm.quoteId);
+    const quote = await quoteByIdDraft(asm.quoteId);
     assertDraft(quote);
 
     const existing = await db
@@ -833,7 +822,7 @@ export async function moveProductMembership(
     if (!existing)
       throw new ActionGuardError(ERR.NOT_FOUND, "Attachment not found.");
 
-    const quote = await loadQuoteOrThrow(existing.quoteId);
+    const quote = await quoteByIdDraft(existing.quoteId);
     assertDraft(quote);
 
     const evidence = await db.transaction(async (tx) =>

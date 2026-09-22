@@ -29,7 +29,7 @@ import { applyTierVisibility } from "@/lib/customer-tier-visibility";
 import { projectBelowFloorAuthorization } from "@/lib/below-floor-projection";
 import { findUnbillablePlacements } from "@/lib/commercial-recovery/unbillable-placements";
 import { readChargeRecoveryPricingGaps } from "@/lib/component-charges/recovery-pricing";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -263,12 +263,28 @@ export async function resolveCustomerView(args: {
 
   // Quote + project join. Consumer validates projectId separately
   // when it has one from the route (page.tsx does; api route doesn't).
-  const quoteRows = await db
-    .select({ quote: quotes, project: projects })
-    .from(quotes)
-    .innerJoin(projects, eq(projects.id, quotes.projectId))
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
+  let quoteRows: Array<{ quote: typeof quotes.$inferSelect; project: typeof projects.$inferSelect }>;
+  try {
+    quoteRows = await db
+      .select({ quote: quotes, project: projects })
+      .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+  } catch (error) {
+    if ((error as { code?: string })?.code !== "42703") throw error;
+    const { freightIntent: _freightIntent, ...legacyQuoteColumns } = getTableColumns(quotes);
+    const legacyRows = await db
+      .select({ quote: legacyQuoteColumns, project: projects })
+      .from(quotes)
+      .innerJoin(projects, eq(projects.id, quotes.projectId))
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+    quoteRows = legacyRows.map((row) => ({
+      ...row,
+      quote: { ...row.quote, freightIntent: "undecided" },
+    })) as typeof quoteRows;
+  }
   if (quoteRows.length === 0) return { ok: false, kind: "not_found" };
   const { quote, project } = quoteRows[0];
 

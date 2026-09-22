@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   assemblies,
@@ -167,6 +167,22 @@ type Quote = typeof quotes.$inferSelect;
 type FreightLeg = typeof freightLegs.$inferSelect;
 type FreightLegGroup = typeof freightLegGroups.$inferSelect;
 
+// Production can briefly run the application ahead of the database journal.
+// Keep write guards usable while the freight_intent column is being deployed;
+// the normal projection is used automatically as soon as the column exists.
+function isMissingFreightIntent(error: unknown): boolean {
+  return (error as { code?: string })?.code === "42703";
+}
+
+function legacyQuoteColumns() {
+  const { freightIntent: _freightIntent, ...columns } = getTableColumns(quotes);
+  return columns;
+}
+
+function withLegacyFreightIntent<T extends object>(quote: T): Quote {
+  return { ...quote, freightIntent: "undecided" } as T & Quote;
+}
+
 // Asserts the quote is editable (status === 'draft'). Used by callers that
 // already have the quote loaded.
 export function requireDraft(quote: Quote): void {
@@ -207,15 +223,30 @@ export function requireRevisable(quote: Quote): void {
 
 // Resolve the quote by id and assert draft. For actions keyed on quote
 // itself (vs sku or line group): updateQuoteGlobalPriceAdj, etc.
-export async function quoteByIdDraft(quoteId: string): Promise<Quote> {
-  const rows = await db
-    .select()
-    .from(quotes)
-    .where(eq(quotes.id, quoteId))
-    .limit(1);
+export async function quoteById(quoteId: string): Promise<Quote> {
+  let rows: Quote[];
+  try {
+    rows = await db
+      .select()
+      .from(quotes)
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select(legacyQuoteColumns())
+      .from(quotes)
+      .where(eq(quotes.id, quoteId))
+      .limit(1);
+    rows = legacyRows.map(withLegacyFreightIntent);
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
-  const quote = rows[0];
+  return rows[0];
+}
+
+export async function quoteByIdDraft(quoteId: string): Promise<Quote> {
+  const quote = await quoteById(quoteId);
   requireDraft(quote);
   return quote;
 }
@@ -241,12 +272,24 @@ type AssemblyLeaf = typeof assemblyLeaves.$inferSelect;
 export async function quoteForAssembly(
   assemblyId: string,
 ): Promise<{ quote: Quote; assembly: Assembly }> {
-  const rows = await db
-    .select({ quote: quotes, assembly: assemblies })
-    .from(assemblies)
-    .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
-    .where(eq(assemblies.id, assemblyId))
-    .limit(1);
+  let rows: Array<{ quote: Quote; assembly: Assembly }>;
+  try {
+    rows = await db
+      .select({ quote: quotes, assembly: assemblies })
+      .from(assemblies)
+      .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+      .where(eq(assemblies.id, assemblyId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select({ quote: legacyQuoteColumns(), assembly: assemblies })
+      .from(assemblies)
+      .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+      .where(eq(assemblies.id, assemblyId))
+      .limit(1);
+    rows = legacyRows.map((row) => ({ ...row, quote: withLegacyFreightIntent(row.quote) }));
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Assembly not found");
   const { quote, assembly } = rows[0];
@@ -274,13 +317,30 @@ export async function quoteForQuoteLeaf(quoteLeafId: string): Promise<{
   attachment: CanonicalAttachmentIdentity;
 }> {
   const attachment = await resolveCanonicalAttachmentForOperator(quoteLeafId);
-  const rows = await db
-    .select({ quote: quotes, quoteLeaf: quoteLeaves, assembly: assemblies })
-    .from(quoteLeaves)
-    .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
-    .leftJoin(assemblies, eq(assemblies.id, quoteLeaves.assemblyId))
-    .where(eq(quoteLeaves.id, quoteLeafId))
-    .limit(1);
+  let rows: Array<{
+    quote: Quote;
+    quoteLeaf: typeof quoteLeaves.$inferSelect;
+    assembly: Assembly | null;
+  }>;
+  try {
+    rows = await db
+      .select({ quote: quotes, quoteLeaf: quoteLeaves, assembly: assemblies })
+      .from(quoteLeaves)
+      .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
+      .leftJoin(assemblies, eq(assemblies.id, quoteLeaves.assemblyId))
+      .where(eq(quoteLeaves.id, quoteLeafId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select({ quote: legacyQuoteColumns(), quoteLeaf: quoteLeaves, assembly: assemblies })
+      .from(quoteLeaves)
+      .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
+      .leftJoin(assemblies, eq(assemblies.id, quoteLeaves.assemblyId))
+      .where(eq(quoteLeaves.id, quoteLeafId))
+      .limit(1);
+    rows = legacyRows.map((row) => ({ ...row, quote: withLegacyFreightIntent(row.quote) }));
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Quote leaf not found");
   const { quote, quoteLeaf, assembly } = rows[0];
@@ -312,17 +372,34 @@ export async function quoteForAssemblyLeaf(
   attachment: CanonicalAttachmentIdentity;
 }> {
   const attachment = await resolveAttachmentForOperator(assemblyLeafId);
-  const rows = await db
-    .select({
-      quote: quotes,
-      assembly: assemblies,
-      assemblyLeaf: assemblyLeaves,
-    })
-    .from(assemblyLeaves)
-    .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
-    .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
-    .where(eq(assemblyLeaves.id, assemblyLeafId))
-    .limit(1);
+  let rows: Array<{ quote: Quote; assembly: Assembly; assemblyLeaf: AssemblyLeaf }>;
+  try {
+    rows = await db
+      .select({
+        quote: quotes,
+        assembly: assemblies,
+        assemblyLeaf: assemblyLeaves,
+      })
+      .from(assemblyLeaves)
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+      .where(eq(assemblyLeaves.id, assemblyLeafId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select({
+        quote: legacyQuoteColumns(),
+        assembly: assemblies,
+        assemblyLeaf: assemblyLeaves,
+      })
+      .from(assemblyLeaves)
+      .innerJoin(assemblies, eq(assemblies.id, assemblyLeaves.assemblyId))
+      .innerJoin(quotes, eq(quotes.id, assemblies.quoteId))
+      .where(eq(assemblyLeaves.id, assemblyLeafId))
+      .limit(1);
+    rows = legacyRows.map((row) => ({ ...row, quote: withLegacyFreightIntent(row.quote) }));
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Assembly leaf not found");
   const { quote, assembly, assemblyLeaf } = rows[0];
@@ -399,12 +476,24 @@ export async function quoteForAssemblyLeafInputLineGroup(
 export async function quoteForLegGroup(
   legGroupId: string,
 ): Promise<{ quote: Quote; group: FreightLegGroup }> {
-  const rows = await db
-    .select({ quote: quotes, group: freightLegGroups })
-    .from(freightLegGroups)
-    .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
-    .where(eq(freightLegGroups.id, legGroupId))
-    .limit(1);
+  let rows: Array<{ quote: Quote; group: FreightLegGroup }>;
+  try {
+    rows = await db
+      .select({ quote: quotes, group: freightLegGroups })
+      .from(freightLegGroups)
+      .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+      .where(eq(freightLegGroups.id, legGroupId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select({ quote: legacyQuoteColumns(), group: freightLegGroups })
+      .from(freightLegGroups)
+      .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+      .where(eq(freightLegGroups.id, legGroupId))
+      .limit(1);
+    rows = legacyRows.map((row) => ({ ...row, quote: withLegacyFreightIntent(row.quote) }));
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Leg group not found");
   const { quote, group } = rows[0];
@@ -417,20 +506,40 @@ export async function quoteForLegGroup(
 export async function quoteForLeg(
   legId: string,
 ): Promise<{ quote: Quote; group: FreightLegGroup; leg: FreightLeg }> {
-  const rows = await db
-    .select({
-      quote: quotes,
-      group: freightLegGroups,
-      leg: freightLegs,
-    })
-    .from(freightLegs)
-    .innerJoin(
-      freightLegGroups,
-      eq(freightLegGroups.id, freightLegs.legGroupId),
-    )
-    .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
-    .where(eq(freightLegs.id, legId))
-    .limit(1);
+  let rows: Array<{ quote: Quote; group: FreightLegGroup; leg: FreightLeg }>;
+  try {
+    rows = await db
+      .select({
+        quote: quotes,
+        group: freightLegGroups,
+        leg: freightLegs,
+      })
+      .from(freightLegs)
+      .innerJoin(
+        freightLegGroups,
+        eq(freightLegGroups.id, freightLegs.legGroupId),
+      )
+      .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+      .where(eq(freightLegs.id, legId))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select({
+        quote: legacyQuoteColumns(),
+        group: freightLegGroups,
+        leg: freightLegs,
+      })
+      .from(freightLegs)
+      .innerJoin(
+        freightLegGroups,
+        eq(freightLegGroups.id, freightLegs.legGroupId),
+      )
+      .innerJoin(quotes, eq(quotes.id, freightLegGroups.quoteId))
+      .where(eq(freightLegs.id, legId))
+      .limit(1);
+    rows = legacyRows.map((row) => ({ ...row, quote: withLegacyFreightIntent(row.quote) }));
+  }
   if (rows.length === 0)
     throw new ActionGuardError(ERR.NOT_FOUND, "Leg not found");
   const { quote, group, leg } = rows[0];
@@ -466,11 +575,22 @@ export async function quoteForQuoteLeaves(
       "No commercial attachment was named.",
     );
   }
-  const rows = await db
-    .select({ quote: quotes, quoteLeafId: quoteLeaves.id })
-    .from(quoteLeaves)
-    .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
-    .where(inArray(quoteLeaves.id, unique));
+  let rows: Array<{ quote: Quote; quoteLeafId: string }>;
+  try {
+    rows = await db
+      .select({ quote: quotes, quoteLeafId: quoteLeaves.id })
+      .from(quoteLeaves)
+      .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
+      .where(inArray(quoteLeaves.id, unique));
+  } catch (error) {
+    if (!isMissingFreightIntent(error)) throw error;
+    const legacyRows = await db
+      .select({ quote: legacyQuoteColumns(), quoteLeafId: quoteLeaves.id })
+      .from(quoteLeaves)
+      .innerJoin(quotes, eq(quotes.id, quoteLeaves.quoteId))
+      .where(inArray(quoteLeaves.id, unique));
+    rows = legacyRows.map((row) => ({ ...row, quote: withLegacyFreightIntent(row.quote) }));
+  }
 
   if (rows.length !== unique.length) {
     // Named an attachment that does not exist. Reported without naming which,

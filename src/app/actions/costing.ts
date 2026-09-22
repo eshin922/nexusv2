@@ -967,11 +967,24 @@ export async function loadQuoteCostingInput(
   proposedElections?: ProposedElections,
 ): Promise<ActionResult<QuoteCostingInput>> {
   return runAction(async () => {
-    const quoteRows = await db
-      .select()
-      .from(quotes)
-      .where(eq(quotes.id, quoteId))
-      .limit(1);
+    let quoteRows: Array<typeof quotes.$inferSelect>;
+    try {
+      quoteRows = await db
+        .select()
+        .from(quotes)
+        .where(eq(quotes.id, quoteId))
+        .limit(1);
+    } catch (error) {
+      if ((error as { code?: string })?.code !== "42703") throw error;
+      const { freightIntent: _freightIntent, ...legacyQuoteColumns } =
+        getTableColumns(quotes);
+      const legacyRows = await db
+        .select(legacyQuoteColumns)
+        .from(quotes)
+        .where(eq(quotes.id, quoteId))
+        .limit(1);
+      quoteRows = legacyRows.map((quote) => ({ ...quote, freightIntent: "undecided" })) as typeof quoteRows;
+    }
     if (quoteRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found");
     const quote = quoteRows[0];

@@ -906,7 +906,7 @@ export async function updateLegTierCell(
         row: freightLegTiers,
         leg: freightLegs,
         group: freightLegGroups,
-        quote: quotes,
+        quote: { id: quotes.id, projectId: quotes.projectId, status: quotes.status },
       })
       .from(freightLegTiers)
       .innerJoin(freightLegs, eq(freightLegs.id, freightLegTiers.freightLegId))
