@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   searchPricingVendors,
   updateAssemblyLeafInputCell,
@@ -1798,6 +1799,7 @@ export function ChargeAmountInput({
 }) {
   const [draft, setDraft] = useState(value ?? "");
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
 
   // Server truth wins when it changes underneath — the same shape `LegDateInput`
   // uses. Wait-for-quiet upstream is what keeps this from clobbering an edit in
@@ -1826,7 +1828,11 @@ export function ChargeAmountInput({
         // still displaying a rejected number reads as saved.
         setDraft(value ?? "");
         onError(res.error.message);
+        return;
       }
+      // Costs is server-backed: refresh the costing snapshot after a charge
+      // write so the Cost Stack and every view include the new amount.
+      router.refresh();
     });
   }
 

@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { useState } from "react";
-import Link from "next/link";
 import type { CostsOverview } from "@/lib/costs/costs-overview-model";
 import type { PackagingLineTierRead } from "@/lib/costs/packaging-line-graph-read";
 import { SpreadsheetView } from "./spreadsheet-view";
@@ -82,40 +81,11 @@ export function CostsM2PreviewBody({
   onSelectTier: (tierId: string) => void;
 }) {
   const [view, setView] = useState<ViewKey>("spreadsheet");
-  const exitHref = baseParams ? `${pathname}?${baseParams}` : pathname;
   const freightParams = new URLSearchParams(baseParams);
   freightParams.set("section", "freight");
 
   return (
     <div className="cm2">
-      {/* A NOTICE, not a paragraph. The workspace belongs to the cost table;
-          an explanatory block at the top of it pushes the thing being reviewed
-          below the fold. The detail is one click away for anyone who wants it. */}
-      <div className="cm2-notice" role="note">
-        <span className="cm2-notice-tag">
-          {editMode ? "M3 preview · existing Costs edits" : "M2 preview · cost grids read-only"}
-        </span>
-        <span>
-          This quote&rsquo;s real records.{" "}
-          <details>
-            <summary>What is not here yet</summary>
-            <span className="cm2-notice-detail">
-              The new cost grids show recorded values and the engine&rsquo;s
-              resolved markup rate. The existing Freight editor remains available
-              with its normal save behavior and quote permissions.
-              {editMode
-                ? " M3 enables the existing per-tier cost, line markup and one-time fee writers. Shared one-time amounts and fee suggestions are still out of scope."
-                : " Cost-grid editing, the shared one-time amount and fee suggestions are later milestones, and are absent rather than shown as controls that do nothing."} Quote and line totals are governed in the Cost Stack above, so this surface does not restate them.
-              {!quoteEditable &&
-                " This quote is not a draft, so the standard workspace is read-only too."}
-            </span>
-          </details>
-        </span>
-        <Link className="cm2-ctl cm2-notice-exit" href={exitHref}>
-          Leave preview
-        </Link>
-      </div>
-
       {overview.gaps.length > 0 && (
         <div className="cm2-gaps" role="note">
           <strong>
