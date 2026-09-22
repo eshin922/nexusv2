@@ -9,16 +9,21 @@ import {
 import { useCostingStore } from "@/components/costing-store-provider";
 import { PackagingCompletion } from "@/components/costs/module-completion";
 import {
-  nodeKey,
   quoteScopeKey,
   readNodeValue,
-  resolveNodes,
 } from "@/lib/costing-nodes";
+import { PACKAGING_DOMAIN } from "@/lib/costs/packaging-domain";
 import {
   buildPackagingIdentityMap,
   resolvePackagingRowIdentity,
   type PackagingRowIdentity,
 } from "@/lib/costs/packaging-row-identity";
+import {
+  NO_PACKAGING_LINE_READ,
+  packagingReadKey,
+  readPackagingLineTiers,
+  type PackagingLineTierRead,
+} from "@/lib/costs/packaging-line-graph-read";
 import type { ComponentChargeForCosts } from "@/lib/component-charges/read";
 import type { ComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import {
@@ -33,6 +38,7 @@ import {
 } from "@/lib/netsuite/component-charge-destination";
 import {
   selectActiveTierId,
+  selectArmWrite,
   selectGraph,
   selectPackaging,
   selectUpdatePackagingCell,
@@ -83,6 +89,7 @@ type PackagingInputRow = {
     supplier: string | null;
     qtyPerSellableUnit: string | null;
     category: string | null;
+    categoryDerived: boolean;
     markupPct: string | null;
     markupPctSource: "category_default" | "manual_override" | null;
     inventoryEligible: boolean;
@@ -92,7 +99,7 @@ type PackagingInputRow = {
   };
 };
 
-type LineForUI = {
+export type LineForUI = {
   lineGroupId: string;
   sortOrder: number;
   quoteSkuId: string;
@@ -101,6 +108,8 @@ type LineForUI = {
   supplier: string | null;
   qtyPerSellableUnit: string | null;
   category: string | null;
+  /** True when Setup's HubSpot Product Type supplies this category. */
+  categoryDerived?: boolean;
   markupPct: string | null;
   markupPctSource: "category_default" | "manual_override" | null;
   inventoryEligible: boolean;
@@ -152,37 +161,12 @@ function fmtCurr2(n: number): string {
  * eventually looks like. So the value is read, and `markup` is read too, rather
  * than the ladder being copied here correctly this time.
  */
-type LineTierRead = {
-  /** The governed landed value. Null when the graph has no single answer. */
-  value: number | null;
-  /** The engine's RESOLVED markup for this line — the ladder's outcome, read
-   *  off the node's own resolution operand rather than recomputed. */
-  markup: number | null;
-  /** WHICH RUNG of the ladder supplied that markup — "Line override",
-   *  "Category default", and so on. The resolution node records which candidate
-   *  it chose, so the surface can tell an operator where a rate came from
-   *  instead of leaving them to infer it. */
-  markupSource: string | null;
-  /** What would apply IF THE LINE HAD NO OVERRIDE — the ladder's answer with
-   *  its top rung removed. This is what a placeholder must show: a placeholder
-   *  says "what you get if you leave this empty", so on a line that HAS an
-   *  override the resolved rate is the wrong number to offer. */
-  inheritedMarkup: number | null;
-  inheritedSource: string | null;
-};
-
-const NO_READ: LineTierRead = {
-  value: null,
-  markup: null,
-  markupSource: null,
-  inheritedMarkup: null,
-  inheritedSource: null,
-};
-
-/** Map key. `\u0000` cannot occur in a UUID, so it cannot collide. */
-function readKey(lineGroupId: string, tierId: string): string {
-  return `${lineGroupId}\u0000${tierId}`;
-}
+// M2 -- the read moved to `@/lib/costs/packaging-line-graph-read`, unchanged, so
+// the read-only Costs preview reads the same values through the same code. A
+// second surface writing its own version would be this defect at a new address.
+type LineTierRead = PackagingLineTierRead;
+const NO_READ = NO_PACKAGING_LINE_READ;
+const readKey = packagingReadKey;
 
 export function PackagingDrilldown({
   quoteId,
@@ -234,6 +218,7 @@ export function PackagingDrilldown({
         supplier: row.supplier,
         qtyPerSellableUnit: row.qtyPerSellableUnit,
         category: row.category,
+        categoryDerived: row.categoryDerived,
         markupPct: row.markupPct,
         markupPctSource: row.markupPctSource,
         inventoryEligible: row.inventoryEligible,
@@ -251,59 +236,17 @@ export function PackagingDrilldown({
     (a, b) => a.sortOrder - b.sortOrder,
   );
 
-  // One traversal for the whole drawer. `resolveNodes` fails closed per key on
-  // both missing and duplicate, so a cell with no single answer renders a dash
-  // rather than a number nobody computed.
+  const graph = useCostingStore(selectGraph);
+  // One traversal for the whole drawer, through the shared read.
   //
   // `line.quoteSkuId` is the CANONICAL `quote_leaves` id, which IS the id the
-  // engine keys — the Costs page sets it from `assembly_leaf_inputs.quoteLeafId`.
-  // (This comment previously said "assembly_leaf id". That is the junction id,
-  // which is what `sku.id` carries for a member — a different value, and
-  // believing this comment cost OD-032 Shape A a silent render miss.)
-  // its SKU rollups on for a grouped attachment — the same `mathSkuId` the
-  // adapter emits. Cost inputs are keyed on assembly_leaf_id today (OD-017), so
-  // every line that has cost data has one.
-  const graph = useCostingStore(selectGraph);
-  const reads = (() => {
-    const keys: string[] = [];
-    const keyOf = new Map<string, string>();
-    for (const line of lines) {
-      for (const t of tiers) {
-        const k = nodeKey(line.quoteSkuId, t.id, "pkg", line.lineGroupId);
-        keys.push(k);
-        keyOf.set(readKey(line.lineGroupId, t.id), k);
-      }
-    }
-    const resolved = resolveNodes(graph, keys);
-    const out = new Map<string, LineTierRead>();
-    for (const [mapKey, nodeK] of keyOf) {
-      const node = resolved.get(nodeK) ?? null;
-      if (!node || node.kind === "flagged-out") {
-        out.set(mapKey, NO_READ);
-        continue;
-      }
-      // Operand 1 is the `resolution` node the engine built for this line's
-      // markup. Reading its value is how the preview below gets the ladder's
-      // answer without re-walking the ladder.
-      const markupOperand = node.operands?.[1];
-      const candidates = markupOperand?.candidates ?? [];
-      const chosen = candidates.find((c) => c.chosen) ?? null;
-      // The ladder minus its top rung: the first rung BELOW the line override
-      // that could supply a value. Read from the engine's own candidate list,
-      // so the fallback order stays the engine's rather than a copy of it.
-      const belowOverride = candidates.find(
-        (c) => c.label !== "Line override" && c.value !== null,
-      );
-      out.set(mapKey, {
-        value: node.value,
-        markup: markupOperand ? markupOperand.value : null,
-        markupSource: chosen ? chosen.label : null,
-        inheritedMarkup: belowOverride ? belowOverride.value : null,
-        inheritedSource: belowOverride ? belowOverride.label : null,
-      });
-    }
-    return out;
-  })();
+  // engine keys. Not the junction id -- both are strings, and believing
+  // otherwise cost OD-032 Shape A a silent render miss.
+  const reads = readPackagingLineTiers(
+    graph,
+    lines.map((l) => ({ lineGroupId: l.lineGroupId, quoteLeafId: l.quoteSkuId })),
+    tiers,
+  );
 
   if (tiers.length === 0) {
     return (
@@ -573,6 +516,7 @@ function PackagingRow({
   const [pending, startTransition] = useTransition();
   const activeTierId = useCostingStore(selectActiveTierId);
   const updateLineMeta = useCostingStore(selectUpdatePackagingLineMeta);
+  const armWrite = useCostingStore(selectArmWrite);
 
   // Subscribe to the local store so governed pricing provenance and pricing
   // inputs reflect the canonical server receipt and realtime reconciliation.
@@ -644,6 +588,27 @@ function PackagingRow({
     markupDirtyRef.current = next;
     setMarkupDirtyState(next);
   };
+  /**
+   * DRAFT generation for the typed markup -- the same two-axis contract the
+   * tier cell carries, and for the same reason.
+   *
+   * A dirty flag alone says "there is an edit"; it cannot say WHICH edit. So
+   * an older save's completion, arriving after the operator has typed again,
+   * cleared the flag for a value that had never been sent, and the next
+   * reconcile took the field. The generation is advanced by the keystroke, not
+   * by the save, so a completion can tell whose value it is describing.
+   */
+  const markupGen = useRef(0);
+  /**
+   * Line-meta saves dispatched and not yet answered.
+   *
+   * EVERY line-meta save carries a markup in its payload -- vendor and
+   * category writes include `s.markupPct` -- so while one is open the store's
+   * markup is not newer than what this row is holding. It covers the one
+   * markup change that is legitimately not dirty: the category auto-fill,
+   * which sets a rate and commits it in the same gesture.
+   */
+  const metaInFlight = useRef(0);
 
   // The rate this line inherits when it has none of its own. Markup is
   // per-line, so every tier's read carries the same answer — the first one that
@@ -720,8 +685,11 @@ function PackagingRow({
     setVendorName(storeVendorName);
     setCategory(storeCategory);
     // canonicalRef always tracks server truth -- it is the rollback target --
-    // but the VISIBLE value stays the operator's while their edit is pending.
-    if (!markupDirtyRef.current) setMarkupPct(storeMarkupPct);
+    // but the VISIBLE value stays the operator's while their edit is pending
+    // OR while a save carrying a markup is still unanswered.
+    if (!markupDirtyRef.current && metaInFlight.current === 0) {
+      setMarkupPct(storeMarkupPct);
+    }
     canonicalRef.current = {
       vendorId: storeVendorId,
       vendorName: storeVendorName,
@@ -759,6 +727,11 @@ function PackagingRow({
     fd.set("qtyPerSellableUnit", line.qtyPerSellableUnit ?? "");
     fd.set("inventoryEligible", line.inventoryEligible ? "true" : "false");
     fd.set("notes", line.notes ?? "");
+    // Captured at DISPATCH. Read back at completion time it would be the
+    // generation the operator has since moved to, which is the one state this
+    // write is not entitled to speak for.
+    const markupAtDispatch = markupGen.current;
+    metaInFlight.current += 1;
     startTransition(async () => {
       // `canonicalRef` is the last SERVER-CONFIRMED state, captured before the
       // optimistic projection was applied — so it is the correct thing to
@@ -771,8 +744,13 @@ function PackagingRow({
         // DATA. It is still an asynchronous completion, so it does not get to
         // reach into a search the operator has since started.
         setCategory(previous.category);
-        setMarkupPct(previous.markupPct);
-        setMarkupDirty(false);
+        // Same boundary once more, on the markup's own axis: a failure may
+        // report itself, but it may not discard a value the operator typed
+        // after it was dispatched.
+        if (markupGen.current === markupAtDispatch) {
+          setMarkupPct(previous.markupPct);
+          setMarkupDirty(false);
+        }
         updateLineMeta(line.lineGroupId, {
           pricingVendorHubspotCompanyId: previous.vendorId,
           pricingVendorNameSnapshot: previous.vendorName,
@@ -787,8 +765,9 @@ function PackagingRow({
       try {
         result = await updateAssemblyLeafInputLineMeta(fd);
       } catch {
-        // A THROWN failure — rejected request, transport error, or a server
-        // exception that escaped runAction — never reaches the !result.ok
+        metaInFlight.current -= 1;
+        // A THROWN failure -- rejected request, transport error, or a server
+        // exception that escaped runAction -- never reaches the !result.ok
         // branch below. Without this catch the optimistic projection stays on
         // screen for a write that never happened, which is exactly how an
         // unpersisted markup edit came to look saved. Roll back and say so.
@@ -797,13 +776,23 @@ function PackagingRow({
         );
         return;
       }
+      metaInFlight.current -= 1;
       if (!result.ok) {
         rollback(result.error.message);
         return;
       }
+      // ACCEPTED. Same contract as the tier cell: the acknowledgement is the
+      // only commit evidence, and a null id means the server took no write.
+      armWrite({
+        outcome: "acknowledged",
+        writeId: result.data.writeId,
+        domains: [PACKAGING_DOMAIN],
+      });
       // Persisted. The operator's value is now the store's value, so
-      // synchronisation resumes.
-      setMarkupDirty(false);
+      // synchronisation resumes -- unless they have typed a newer markup
+      // since, in which case the field is still theirs and this receipt is
+      // not talking about it.
+      if (markupGen.current === markupAtDispatch) setMarkupDirty(false);
       setVendorId(result.data.pricingVendorHubspotCompanyId);
       setVendorName(result.data.pricingVendorNameSnapshot);
       // Deliberately does NOT set the query or leave edit mode. Every gesture
@@ -918,9 +907,11 @@ function PackagingRow({
         )}
       </div>
 
-      {/* Category — inline editable select */}
+      {/* Setup owns the category whenever the product has a HubSpot type. */}
       <div className="cat">
-        <select
+        {line.categoryDerived ? (
+          <span title="Derived from Product Type in Setup">{category || "—"}</span>
+        ) : <select
           value={category}
           disabled={disabled}
           onChange={(e) => {
@@ -929,6 +920,10 @@ function PackagingRow({
             // Auto-fill markup from category default
             const cat = categories.find((c) => c.category === v);
             if (cat) {
+              // A markup change like any other, so it takes the next
+              // generation: an earlier save's completion must not clear the
+              // flag for a rate this gesture has already replaced.
+              markupGen.current += 1;
               setMarkupPct(cat.defaultMarkupPct);
               // Chosen, not typed, and written in the same call -- so the
               // auto-filled markup is committed, not dirty.
@@ -955,7 +950,7 @@ function PackagingRow({
               {c.category}
             </option>
           ))}
-        </select>
+        </select>}
       </div>
 
       {/* Governed Pricing Vendor with compatibility-only legacy evidence. */}
@@ -1155,6 +1150,7 @@ function PackagingRow({
             onChange={(e) => {
               const v = e.target.value;
               const decimal = v === "" ? "" : (Number(v) / 100).toString();
+              markupGen.current += 1;
               setMarkupPct(decimal);
               setMarkupDirty(true);
             }}
@@ -1235,7 +1231,53 @@ function PackagingRow({
   );
 }
 
-function PackagingTierCell({
+/**
+ * One (line, tier) unit-cost cell.
+ *
+ * -- DRAFT OWNERSHIP, AND WHY TWO GENERATIONS RATHER THAN ONE FLAG --------
+ *
+ * The sync effect below used to set the local value from the store
+ * unconditionally. Wait-for-quiet does not cover that: it defers
+ * reconciliation while the operator is TYPING, and the failure measured in the
+ * browser is an operator who had paused -- a reconcile caused by a DIFFERENT
+ * cell's save then replaced their open draft (`2.3456` becoming the stored
+ * `0.5` with the caret still in the field). Reproduced identically on pre-M2
+ * `5ac569d7`, so it is a pre-existing gap rather than an M2 regression.
+ *
+ * Ownership needs TWO independent axes, and collapsing them into one flag is
+ * what the first repair attempt got wrong:
+ *
+ *   DRAFT generation (`draftGen`) advances on every KEYSTROKE. It answers
+ *   "has the operator typed since this save was dispatched?" A completion
+ *   carrying an older generation cannot clear the dirty flag, cannot revert
+ *   the field, and cannot hand ownership back -- the value it is talking about
+ *   is not the value on screen any more. A generation bumped only on SAVE
+ *   cannot express this: an old receipt still matched, and a newer UNSAVED
+ *   draft in the same cell was cleared by it.
+ *
+ *   SAVE sequence (`saveSeq` / `lastAcked`) orders the RESPONSES. It answers
+ *   "has a later attempt for this cell already been answered?" Responses are
+ *   not guaranteed to arrive in dispatch order, and a superseded outcome --
+ *   success or failure -- describes a state the cell has moved past.
+ *
+ * An ACCEPTED save advances the rollback baseline (`committedRef`) whether or
+ * not the operator has typed since: if the newer draft then fails, the value
+ * restored must be the one the server took, not the one before it. Advancing
+ * the baseline and replacing the visible value are different acts, and only
+ * the second is forbidden while a newer draft is open.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO. It does not disable the input while a
+ * save is in flight (Pattern 47(e)), it does not suppress store updates for a
+ * clean cell -- a cross-tab change still applies -- and it holds nothing on a
+ * timer. Ownership is released by a keystroke-accurate fact, not by a clock.
+ *
+ * KNOWN REMAINING GAP, not addressed here and not addressable in this file:
+ * once a commit is confirmed and ownership is released, a snapshot whose READ
+ * BEGAN BEFORE that commit is indistinguishable, client-side, from a genuinely
+ * newer one in which someone else changed the value back. See
+ * `docs/costs/packaging-draft-ownership.md`.
+ */
+export function PackagingTierCell({
   tierId,
   line,
   markupPct,
@@ -1243,6 +1285,7 @@ function PackagingTierCell({
   read,
   isActive,
   disabled,
+  writeCell = updateAssemblyLeafInputCell,
 }: {
   tierId: string;
   line: LineForUI;
@@ -1253,10 +1296,18 @@ function PackagingTierCell({
   read: LineTierRead;
   isActive: boolean;
   disabled: boolean;
+  /**
+   * The governed writer. Defaulted to the real server action and overridden
+   * ONLY by mounted tests, which need to hold a response open to reproduce the
+   * ordering these guards exist for. There is no second production writer --
+   * the seam exists so the races are assertable without a database.
+   */
+  writeCell?: typeof updateAssemblyLeafInputCell;
 }) {
   const cell = line.cells.get(tierId);
   const [pending, startTransition] = useTransition();
   const updatePackagingCell = useCostingStore(selectUpdatePackagingCell);
+  const armWrite = useCostingStore(selectArmWrite);
 
   // Slice 11.5.1 MIG-8 close-gate — subscribe to the store's
   // packaging slice to pick up cross-tab realtime reconciles.
@@ -1278,11 +1329,28 @@ function PackagingTierCell({
 
   const [unitCost, setUnitCost] = useState(storeUnitCost ?? "");
   const [cellError, setCellError] = useState<string | null>(null);
-  // Last SERVER-CONFIRMED value for this cell, captured at the first keystroke
-  // of an edit burst — before the optimistic store write. It cannot be read
-  // back from the store at failure time, because the optimistic write has
-  // already overwritten it there. Null means "no edit in flight".
-  const preEditRef = useRef<string | null>(null);
+  // -- Draft axis ---------------------------------------------------------
+  /** Advances on every keystroke, and on a change of row identity. */
+  const draftGen = useRef(0);
+  /** True while the field holds an edit no completion has accounted for. */
+  const dirtyRef = useRef(false);
+  // -- Save axis ----------------------------------------------------------
+  /** Ticket minted per dispatched save; orders responses, not keystrokes. */
+  const saveSeq = useRef(0);
+  /** Tickets dispatched and not yet answered. Size > 0 means "in flight". */
+  const inFlight = useRef<Set<number>>(new Set());
+  /** Highest ticket already answered. A lower one is superseded. */
+  const lastAcked = useRef(0);
+  /**
+   * Last value the SERVER ACCEPTED for this cell -- the rollback target.
+   *
+   * It cannot be read back from the store at failure time, because the
+   * optimistic write has already overwritten it there. An accepted save
+   * advances it; so does the store, but only while the cell is clean.
+   */
+  const committedRef = useRef(storeUnitCost ?? "");
+  /** Which row this slot was showing on the previous effect pass. */
+  const rowIdRef = useRef(cell?.rowId);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const valueRef = useRef(unitCost);
   valueRef.current = unitCost;
@@ -1292,12 +1360,36 @@ function PackagingTierCell({
   //   - same row, value changed in the store (own edit, own
   //     reconcile, or cross-tab realtime reconcile)
   //
-  // The wait-for-quiet pipe in CostingStoreProvider's
-  // scheduleReconcile (QUIET_PERIOD_MS=800ms) guarantees this
-  // effect doesn't fire mid-typing — store reconciles defer
-  // while the user is actively typing in any cell on this quote.
+  // The wait-for-quiet pipe in CostingStoreProvider's scheduleReconcile
+  // (QUIET_PERIOD_MS=800ms) defers reconciles while the operator is actively
+  // typing anywhere on this quote. That is NOT draft ownership, and this
+  // comment used to claim it was enough: the operator who lost a draft had
+  // already stopped typing, and another cell's save reconciled over them. The
+  // guard below is what protects the field; quiet is only what keeps a
+  // legitimate reconcile from interrupting entry.
   useEffect(() => {
-    setUnitCost(storeUnitCost ?? "");
+    const rowId = cell?.rowId;
+    const incoming = storeUnitCost ?? "";
+    if (rowId !== rowIdRef.current) {
+      // A DIFFERENT row now occupies this slot. The draft, and any save still
+      // open, belong to the previous one; both are orphaned rather than
+      // carried across, and an error about that row must not stick to this one.
+      rowIdRef.current = rowId;
+      draftGen.current += 1;
+      dirtyRef.current = false;
+      inFlight.current.clear();
+      committedRef.current = incoming;
+      setCellError(null);
+      setUnitCost(incoming);
+      return;
+    }
+    // OWNERSHIP. A store value may replace what is on screen only when the
+    // operator is holding nothing here -- no uncommitted draft, no unanswered
+    // save. A clean cell still takes cross-tab updates, which is the behaviour
+    // this effect was added for (Slice 11.5.1 MIG-8).
+    if (dirtyRef.current || inFlight.current.size > 0) return;
+    committedRef.current = incoming;
+    setUnitCost(incoming);
   }, [cell?.rowId, storeUnitCost]);
 
   useEffect(
@@ -1314,44 +1406,104 @@ function PackagingTierCell({
   function fireSave() {
     if (!cell) return;
     const rowId = cell.rowId;
-    const restore = preEditRef.current;
+    // Captured at DISPATCH. Read back at completion time these would describe
+    // the state the operator has moved to, which is exactly the state this
+    // write is not entitled to speak for.
+    const gen = draftGen.current;
+    const token = ++saveSeq.current;
+    const sent = valueRef.current;
     const fd = new FormData();
     fd.set("rowId", rowId);
-    fd.set("unitCost", valueRef.current);
+    fd.set("unitCost", sent);
     fd.set("purchaseQty", "");
+    inFlight.current.add(token);
     startTransition(async () => {
-      // Restore the pre-edit value in BOTH places the operator can see it —
-      // the local input and the store the Cost Stack derives from — so a
-      // failed write leaves nothing behind that looks saved.
-      const rollback = (message: string) => {
-        preEditRef.current = null;
-        setUnitCost(restore ?? "");
-        updatePackagingCell(rowId, { unitCost: num(restore ?? "") });
-        setCellError(message);
-      };
-      let result: Awaited<ReturnType<typeof updateAssemblyLeafInputCell>>;
+      let result:
+        | Awaited<ReturnType<typeof updateAssemblyLeafInputCell>>
+        | null = null;
+      let threw = false;
       try {
-        result = await updateAssemblyLeafInputCell(fd);
+        result = await writeCell(fd);
       } catch {
-        // Thrown failures bypass any ok-check. Previously this call discarded
-        // its result entirely, so neither a governed error nor a thrown one
-        // could roll the optimistic cell back.
-        rollback(
-          "The cost could not be saved and has been reverted. Please try again; if this keeps happening, report this quote.",
+        // Thrown failures bypass any ok-check -- a rejected request, a
+        // transport error, or a server exception that escaped runAction.
+        // Without this branch the optimistic projection stays on screen for a
+        // write that never happened.
+        threw = true;
+      }
+      inFlight.current.delete(token);
+      // ORPHANED. A different row occupies this slot now, so this outcome is
+      // about a cell that is no longer on screen: it may not advance the new
+      // row's rollback baseline, and its error is not the new row's error.
+      if (rowIdRef.current !== rowId) return;
+      // SUPERSEDED. A later attempt for this cell has already been answered,
+      // so this outcome describes a state the cell has moved past. Applying it
+      // would restore a value its successor replaced.
+      if (token < lastAcked.current) return;
+      lastAcked.current = token;
+
+      // Whether this completion still owns the visible value. It does not if
+      // the operator has typed since it was dispatched.
+      const owns = draftGen.current === gen;
+
+      if (threw || (result !== null && !result.ok)) {
+        setCellError(
+          threw
+            ? owns
+              ? "The cost could not be saved and has been reverted. Please try again; if this keeps happening, report this quote."
+              : "The cost could not be saved. Please try again; if this keeps happening, report this quote."
+            : (result as { ok: false; error: { message: string } }).error
+                .message,
         );
+        // Restore the accepted value in BOTH places the operator can see it --
+        // the local input and the store the Cost Stack derives from -- so a
+        // failed write leaves nothing behind that looks saved. Skipped when a
+        // newer draft is open: reporting the failure is right, discarding
+        // what the operator typed afterwards is not.
+        if (!owns) return;
+        // Read NOW, not at dispatch. An earlier save accepted while this one
+        // was open has already advanced the baseline, and restoring the
+        // dispatch-time value would discard a change the server has taken.
+        const restore = committedRef.current;
+        dirtyRef.current = false;
+        setUnitCost(restore);
+        updatePackagingCell(rowId, { unitCost: num(restore) });
         return;
       }
-      if (!result.ok) {
-        rollback(result.error.message);
-        return;
-      }
-      preEditRef.current = null;
+
+      // ACCEPTED, AND ONLY HERE.
+      //
+      // This is the one branch that knows the write COMMITTED, which is the
+      // precondition the inclusion test cannot supply for itself: a snapshot
+      // reports a transaction as finished whether it committed or aborted
+      // (proof P1 · F2). The thrown and rejected branches above return before
+      // reaching this line, so an unknown or failed outcome cannot arm.
+      //
+      // `writeId` is null when no statement ran -- the server's no-op path,
+      // where the values already matched. The store declines that too.
+      armWrite({
+        outcome: "acknowledged",
+        writeId: result?.ok ? result.data.writeId : null,
+        domains: [PACKAGING_DOMAIN],
+      });
+
+      // The baseline advances to what the server took even when a newer draft
+      // is open -- if that draft then fails, the value restored must be this
+      // one rather than the one before it.
+      committedRef.current = sent;
+      if (!owns) return;
+      dirtyRef.current = false;
       setCellError(null);
     });
   }
 
   function handleChange(value: string) {
-    if (preEditRef.current === null) preEditRef.current = storeUnitCost ?? "";
+    // Every keystroke is a NEW draft generation. A completion carrying an
+    // older one cannot speak for what is in the field now -- which is the
+    // whole difference between this and a flag bumped only when a save is
+    // issued.
+    draftGen.current += 1;
+    dirtyRef.current = true;
     setCellError(null);
     setUnitCost(value);
     if (cell) {
@@ -1609,7 +1761,7 @@ function ComponentChargeRow({
  * the in-flight flag drives the caption instead. Blocking the element mid-save
  * drops focus, which is the defect the whole pattern exists to prevent.
  */
-function ChargeAmountInput({
+export function ChargeAmountInput({
   quoteId,
   chargeInstanceId,
   tierId,

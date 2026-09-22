@@ -10,7 +10,7 @@
 // drawer panel.
 //
 // Pattern 28 verbatim copy preserved from canonical JSX:
-//   - "SKUs · cost-stack tree" header
+//   - the Products section header
 //   - "ASY all-complete / partial / empty" summary pips
 //   - "{N} of {M} leaves have complete specs" right-summary
 //
@@ -26,14 +26,13 @@
 // Footer `.a1v2-library-affordance` block removed entirely
 // (Q2 — single entry point).
 
-import type { AssemblyTree, SpecCompleteness } from "@/lib/assembly-tree";
+import type { AssemblyTree } from "@/lib/assembly-tree";
 import { indexClientTargets, type ClientTargetRow } from "@/lib/client-target";
 import type { TargetTier } from "./client-target";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
-import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
-import { CreateItemGroupTrigger } from "./create-item-group-trigger";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
+import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
 
 export function AssemblyTreeView({
   tree,
@@ -44,6 +43,7 @@ export function AssemblyTreeView({
   leafTypes,
   permissions,
   existingComponentCharges,
+  suggestedChargesByProductType,
   tiers,
   clientTargets,
 }: {
@@ -72,49 +72,13 @@ export function AssemblyTreeView({
     chargeKey: string;
     label: string | null;
   }>;
+  /** Advisory rules keyed by HubSpot's raw hs_product_type value. */
+  suggestedChargesByProductType: Record<string, ComponentChargeKey[]>;
   /** Tier list for the Client Target drawer, in display order. */
   tiers: ReadonlyArray<TargetTier>;
   /** Raw Client Target rows for the quote. Indexed here, resolved per row. */
   clientTargets: ReadonlyArray<ClientTargetRow>;
 }) {
-  // Rollup-state counters for the tree summary header (scenario ④).
-  // good = all_complete, warn = partial or mixed_with_placeholders,
-  // empty = no_leaves.
-  const counts = tree.assemblies.reduce(
-    (acc, a) => {
-      const k = a.rollup.kind;
-      if (k === "all_complete") acc.good++;
-      else if (k === "partial" || k === "mixed_with_placeholders") acc.warn++;
-      else acc.empty++;
-      return acc;
-    },
-    { good: 0, warn: 0, empty: 0 },
-  );
-
-  // Per CD's tree summary: "X of Y products have complete specs". Counts BOTH
-  // structures — a Direct Product's spec completeness matters exactly as much
-  // as a grouped one's, and omitting it would overstate readiness.
-  //
-  // The DENOMINATOR is rows whose specs can actually be completed. `no_schema`
-  // means specifications intentionally do not apply — freight, one-time
-  // charges, and now Direct Services — so counting those rows makes "M of M"
-  // unreachable by construction, and a progress figure that can never
-  // complete stops being read as progress.
-  //
-  // Surfaced by the Direct Service walk, but not caused by it: any quote
-  // already carrying a freight or one-time-charge line had the same permanent
-  // shortfall. Services made a latent arithmetic defect a visible one.
-  const applies = (n: { specCompleteness: SpecCompleteness | null }) =>
-    n.specCompleteness?.kind !== "no_schema";
-  const specRows = [
-    ...tree.assemblies.flatMap((a) => a.children),
-    ...tree.directProducts,
-  ].filter(applies);
-  const totalLeaves = specRows.length;
-  const completeLeaves = specRows.filter(
-    (n) => n.specCompleteness?.kind === "complete",
-  ).length;
-
   // Indexed ONCE for the whole tree. Every row then resolves from the same
   // governed structure rather than filtering a flat list per row.
   const targetsByUnit = indexClientTargets(clientTargets);
@@ -127,108 +91,20 @@ export function AssemblyTreeView({
   }));
 
   return (
-    <div className="a1v2-card r-a1v2-card-tree">
-      <div className="a1v2-card-head">
-        <h3>
-          SKUs <em>· cost-stack tree</em>
-        </h3>
-        <div className="actions">
-          {/* Step 10 — "N SKUs · M assemblies" counter caption per
-              brief §5.2. Reads off the same totals the tree-summary
-              header uses (totalSkus = leaf children across all
-              assemblies; totalAssemblies = top-level ASY count). */}
-          {/* "products" dates from 2f50d22, when a top-level row could only BE
-              a product. A Direct Service is a top-level row and is not one, so
-              the noun stopped being true rather than having been chosen against
-              services. SKU is the surface's own neutral term — it is this
-              card's title, it is what the caption's comment above already says,
-              and every row here has one whether it is packaging, a service, or
-              an item-group member. Neutral by vocabulary rather than by
-              branching the noun. */}
-          <span className="meta" aria-label="SKU and item group count">
-            {tree.totalSkus} {tree.totalSkus === 1 ? "SKU" : "SKUs"}
-            {" · "}
-            {tree.totalAssemblies}{" "}
-            {tree.totalAssemblies === 1 ? "item group" : "item groups"}
-          </span>
-          {/* TWO PEER STRUCTURAL ACTIONS, at equal visual weight.
-
-              + Add Product        browse the library, attach an existing
-                                   product as a standalone Direct Product.
-              + Add Direct Service browse the library's SERVICE entries and
-                                   attach one as a top-level service line. A
-                                   service is never an item group member
-                                   (BV-012 §5.c) — the gate refuses it.
-              + Create Item Group  create quote-local grouping structure. Not a
-                                   product; nothing is written to the library.
-
-              Both are primary. A ghost beside a filled button is not a peer —
-              it reads as secondary chrome, which is how the grouped choice went
-              unnoticed even after it became reachable (B-1, OW-4).
-
-              ADDING PRODUCTS INTO A GROUP IS NOT HERE. It belongs to a specific
-              Item Group, so it lives on that group's row, where the operator
-              has already named the destination by choosing which row to act on.
-              A quote-level entry had to ask for the destination in a menu, and
-              on a quote with no groups it could not be answered at all. */}
-          <LibraryBrowseTrigger
-            mode="direct"
-            quoteId={quoteId}
-            projectId={projectId}
-            editable={editable}
-            assemblies={assemblyTargets}
-            fullLeafTypes={leafTypes}
-            permissions={permissions}
-          />
-          {/* THREE peer sellable units — BV-012 §5.b. The operator states
-              what the customer is buying; nothing is inferred from which cost
-              fields later hold values. */}
-          <LibraryBrowseTrigger
-            mode="service"
-            quoteId={quoteId}
-            projectId={projectId}
-            editable={editable}
-            assemblies={assemblyTargets}
-            fullLeafTypes={leafTypes}
-            permissions={permissions}
-          />
-          <CreateItemGroupTrigger
-            quoteId={quoteId}
-            editable={editable}
-            itemGroupCategories={itemGroupCategories}
-          />
-        </div>
-      </div>
-
-      <div className="a1v2-tree-summary">
-        <span className="pip complete" />{" "}
-        <strong>{counts.good}</strong> item groups complete
-        <span style={{ color: "var(--ink-4)" }}>·</span>
-        <span className="pip partial" />{" "}
-        <strong>{counts.warn}</strong> partial
-        <span style={{ color: "var(--ink-4)" }}>·</span>
-        <span className="pip empty" />{" "}
-        <strong>{counts.empty}</strong> empty
-        <span className="right">
-          {/* No noun at all, which is the most neutral form available: the
-              denominator is already defined as rows whose specs CAN be
-              completed, so naming what those rows are adds nothing and is the
-              part that kept going wrong. */}
-          {completeLeaves} of {totalLeaves} specs complete
-        </span>
-      </div>
-
+    <div className="setup-wizard-quote-items">
       <AssemblyTreeBody
         tree={tree}
         editable={editable}
         projectId={projectId}
         quoteId={quoteId}
         assemblies={assemblyTargets}
+        itemGroupCategories={itemGroupCategories}
         tiers={tiers}
         targetsByUnit={targetsByUnit}
         fullLeafTypes={leafTypes}
         permissions={permissions}
         existingComponentCharges={existingComponentCharges}
+        suggestedChargesByProductType={suggestedChargesByProductType}
       />
     </div>
   );

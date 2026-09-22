@@ -77,7 +77,11 @@ import type { CommercialSettingsResolution } from "@/lib/commercial-settings-con
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
 import { resolveLegacyFreightAttribution } from "@/lib/freight-legacy-attribution";
-import type { HydrateSnapshot } from "@/lib/costing-store";
+import {
+  PAYLOAD_ORDERING_DOMAIN,
+  type HydrateSnapshot,
+} from "@/lib/costing-store";
+import { PACKAGING_DOMAIN } from "@/lib/costs/packaging-domain";
 import {
   parseMarginPercent,
   parsePercentDisplay,
@@ -604,6 +608,16 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
   >;
   leafRows: Array<typeof leaves.$inferSelect>;
   assemblyLeafInputRows: Array<typeof assemblyLeafInputs.$inferSelect>;
+  /**
+   * `pg_current_snapshot()` of the statement that read the rows above — the
+   * evidence of WHICH WRITES that read could see.
+   *
+   * Taken in the SAME statement, which is the whole point: a marker from any
+   * other statement describes a different snapshot. Null only when the
+   * statement returned no rows at all, which the caller resolves (see
+   * `getCostingBundle`).
+   */
+  assemblyLeafInputWitness: string | null;
   assemblyProductionInputRows: Array<
     typeof assemblyProductionInputs.$inferSelect
   >;
@@ -660,7 +674,14 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     // Direct Component — its rows existed but no loader could see them, which
     // is most of why a direct attachment was unpriceable.
     timed("nm.assembly_leaf_inputs", quoteId, db
-      .select({ assembly_leaf_inputs: assemblyLeafInputs })
+      .select({
+        assembly_leaf_inputs: assemblyLeafInputs,
+        // THE PACKAGING WITNESS. Same statement as the rows, so it describes
+        // exactly the snapshot they were read under. `pg_snapshot_xmax` alone
+        // cannot do this job: it is a bound, and two reads either side of a
+        // commit can report the same one (proof P1).
+        witness: sql<string>`pg_current_snapshot()::text`,
+      })
       .from(assemblyLeafInputs)
       .innerJoin(
         quoteLeaves,
@@ -749,6 +770,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     assemblyLeafInputRows: assemblyLeafInputJoinRows.map(
       (r) => r.assembly_leaf_inputs,
     ),
+    assemblyLeafInputWitness: assemblyLeafInputJoinRows[0]?.witness ?? null,
     assemblyProductionInputRows,
     assemblyLeafOverrideRows: assemblyLeafOverrideJoinRows.map(
       (r) => r.assembly_leaf_overrides,
@@ -1031,6 +1053,7 @@ export async function loadQuoteCostingInput(
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
           serviceIdentity: lib?.serviceIdentity ?? null,
+          hubspotProductType: lib?.hubspotProductType ?? null,
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
@@ -1043,6 +1066,7 @@ export async function loadQuoteCostingInput(
         qtyPerSellableUnit: r.qtyPerSellableUnit,
         category: r.category,
         markupPct: r.markupPct,
+        markupPctSource: r.markupPctSource,
       })),
       assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
         (r) => ({
@@ -1632,6 +1656,7 @@ export async function applyClientTargetSolveTierAdj(
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
           serviceIdentity: lib?.serviceIdentity ?? null,
+          hubspotProductType: lib?.hubspotProductType ?? null,
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
@@ -1644,6 +1669,7 @@ export async function applyClientTargetSolveTierAdj(
         qtyPerSellableUnit: r.qtyPerSellableUnit,
         category: r.category,
         markupPct: r.markupPct,
+        markupPctSource: r.markupPctSource,
       })),
       assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
         (r) => ({
@@ -1865,6 +1891,15 @@ export async function getCostingBundle(
       .select({
         quotes,
         revision: sql<string>`pg_snapshot_xmax(pg_current_snapshot())::text`,
+        // THE PAYLOAD WITNESS — the same statement, the same instant, and
+        // therefore the same snapshot the legacy `revision` is the `xmax` OF.
+        //
+        // This is phase 1, the earliest read in the bundle, so it is the only
+        // statement that can speak for a payload `reconcile` applies whole.
+        // The full snapshot answers exactly what its `xmax` could only bound:
+        // two reads either side of a commit carry the same `xmax` and
+        // different in-progress lists (proof P1, measured).
+        witness: sql<string>`pg_current_snapshot()::text`,
       })
       .from(quotes)
       .where(eq(quotes.id, quoteId))
@@ -1874,6 +1909,7 @@ export async function getCostingBundle(
     const quote = quoteRows[0].quotes;
     // Causally-ordered reconciliation revision — see HydrateSnapshot.revision.
     const bundleRevision = Number(quoteRows[0].revision);
+    const payloadWitness = quoteRows[0].witness;
 
     const commercial = commercialOverride ?? await timed(
       "commercial_settings",
@@ -1970,6 +2006,7 @@ export async function getCostingBundle(
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
           serviceIdentity: lib?.serviceIdentity ?? null,
+          hubspotProductType: lib?.hubspotProductType ?? null,
         };
       }),
       assemblyLeafInputs: newModelData.assemblyLeafInputRows.map((r) => ({
@@ -1982,6 +2019,7 @@ export async function getCostingBundle(
         qtyPerSellableUnit: r.qtyPerSellableUnit,
         category: r.category,
         markupPct: r.markupPct,
+        markupPctSource: r.markupPctSource,
       })),
       assemblyProductionInputs: newModelData.assemblyProductionInputRows.map(
         (r) => ({
@@ -2035,6 +2073,12 @@ export async function getCostingBundle(
     // additionally tracks `rowId` on packaging (for optimistic
     // row-id-keyed edits per Slice 8 sub-step 3 pattern).
     const skuList = input.skus;
+    const effectivePackagingByIdentity = new Map(
+      input.packaging.map((row) => [
+        `${row.quoteSkuId}\u0000${row.tierId}\u0000${row.lineGroupId}`,
+        row,
+      ]),
+    );
     const packagingList = newModelData.assemblyLeafInputRows.map((r) => ({
       rowId: r.id,
       // Store keys must agree with the math-leaf identity, which is canonical
@@ -2048,8 +2092,22 @@ export async function getCostingBundle(
       legacySupplier: r.supplier,
       unitCost: numOrNull(r.unitCost),
       qtyPerSellableUnit: numOrNull(r.qtyPerSellableUnit),
-      category: r.category,
-      markupPct: numOrNull(r.markupPct),
+      category:
+        effectivePackagingByIdentity.get(
+          `${r.quoteLeafId}\u0000${r.tierId}\u0000${r.lineGroupId}`,
+        )?.category ?? null,
+      markupPct:
+        r.markupPctSource === "category_default"
+          ? (() => {
+              const category = effectivePackagingByIdentity.get(
+                `${r.quoteLeafId}\u0000${r.tierId}\u0000${r.lineGroupId}`,
+              )?.category;
+              return category && markupMap[category] !== undefined
+                ? markupMap[category]
+                : null;
+            })()
+          : numOrNull(r.markupPct),
+      markupPctSource: r.markupPctSource,
     }));
     const productionList = input.production;
     // OD-028 - Item-Group production travels at its own grain now, so the
@@ -2125,6 +2183,26 @@ export async function getCostingBundle(
 
     const snapshot: HydrateSnapshot = {
       revision: bundleRevision,
+      witnesses: {
+        [PAYLOAD_ORDERING_DOMAIN]: payloadWitness,
+        // The packaging statement's own witness, which is exact. When that
+        // statement returned NO ROWS there is nothing of its own to carry, and
+        // the payload witness stands in.
+        //
+        // That substitution is SOUND rather than convenient: phase 1 completes
+        // before the parallel phase is issued, so its snapshot cannot be newer
+        // than the packaging read's. A lower bound can only under-report
+        // freshness — costing a held read and a re-read, never a wrong accept.
+        // Without it an armed write on a quote whose packaging rows were all
+        // removed could never be settled, and a requirement that can never be
+        // included is the one thing that genuinely wedges reconciliation.
+        [PACKAGING_DOMAIN]:
+          newModelData.assemblyLeafInputWitness ?? payloadWitness,
+      },
+      // Declared, not inferred. The client may arm only these, so a domain
+      // whose reader emits nothing cannot hold a read hostage — partial wiring
+      // is structurally impossible rather than merely discouraged.
+      guardedDomains: [PAYLOAD_ORDERING_DOMAIN, PACKAGING_DOMAIN],
       quoteId: quote.id,
       projectId: quote.projectId,
       chargeElections,

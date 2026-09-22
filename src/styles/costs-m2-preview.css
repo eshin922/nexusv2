@@ -1,0 +1,999 @@
+/*
+ * M2 read-only Costs preview — presentation only.
+ *
+ * PROVENANCE. Every rule below is transcribed from the canonical prototype's
+ * own inline styles in `nexus-handoff-2026-09-18-b/Nexus Costs by Product.dc.html`
+ * (`fld()`, `group()`, `edCard()`, `edField()`, `tag()`, `eyebrow()`) and from
+ * `design-tokens.md`. Where the prototype states a literal, the literal is
+ * reproduced; the source construct is named in a comment so a fidelity review
+ * can diff rule against source rather than against a screenshot.
+ *
+ * Light-mode surface and accent roles use the exact approved literals.
+ * Dark mode explicitly uses the established platform theme instead.
+ *
+ * Every selector is `cm2-`-prefixed: this loads globally.
+ */
+
+.cm2 {
+  container-type: inline-size;
+  /* prototype role -> Nexus token */
+  --cm2-surf: var(--paper);        /* SURF  — card */
+  --cm2-sunk: oklch(0.975 0.010 85); /* SUNK — distinct from page background */
+  --cm2-sunk2: var(--paper-3);     /* SUNK2 — group foot */
+  --cm2-paper: oklch(0.995 0.003 85);
+  --cm2-hair: oklch(0.94 0.008 85);
+  --cm2-bd: var(--rule);           /* BD  */
+  --cm2-bds: var(--rule-2);        /* BDS */
+  --cm2-acc-t: oklch(0.92 0.04 255);
+  --cm2-acc-i: oklch(0.28 0.12 255);
+
+  font-family: var(--ui);
+  color: var(--ink);
+  font-size: 13px;
+}
+[data-theme="dark"] .cm2 {
+  /* PAPER is the LIGHTEST surface in the prototype ramp; in dark it must be the
+     darkest, or a read-only field reads as raised rather than sunk. */
+  --cm2-paper: var(--paper-2);
+  --cm2-sunk: var(--paper-2);
+  --cm2-hair: color-mix(in oklch, var(--rule) 55%, var(--paper));
+  --cm2-acc-t: var(--accent-soft);
+  --cm2-acc-i: var(--accent-ink);
+}
+
+/* ── Preview notice ────────────────────────────────────────────────────────
+   A concise notice, not a paragraph. The workspace belongs to the cost table;
+   an explanatory block at the top of it is the thing being previewed pushed
+   below the fold. */
+
+.cm2-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--warn);
+  border-radius: 7px;
+  background: var(--warn-soft);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+.cm2-notice-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--warn);
+  white-space: nowrap;
+}
+.cm2-notice details { display: inline; }
+.cm2-notice summary {
+  display: inline;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 11.5px;
+}
+.cm2-notice details[open] summary { color: var(--ink-3); }
+.cm2-notice-detail {
+  flex-basis: 100%;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.cm2-notice-exit { margin-left: auto; }
+
+/* ── View switcher — prototype `ctl()` ─────────────────────────────────── */
+
+.cm2-views { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.cm2-costs-module {
+  border: 1px solid var(--cm2-bd);
+  border-radius: 10px;
+  background: var(--cm2-surf);
+  overflow: hidden;
+}
+.cm2-costs-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--cm2-sunk);
+  border-bottom: 1px solid var(--cm2-hair);
+}
+.cm2-costs-head h2 {
+  font-family: var(--display);
+  font-size: 18px;
+  margin: 0 0 3px;
+}
+.cm2-costs-head > .cm2-tag { margin-left: auto; }
+.cm2-costs-body { padding: 12px 14px 14px; }
+.cm2-costs-body .cm2-views { margin-bottom: 12px; }
+.cm2-ctl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 7px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 120ms;
+  white-space: nowrap;
+  border: 1px solid var(--cm2-bd);
+  background: var(--cm2-surf);
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.cm2-ctl[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--cm2-acc-t);
+  color: var(--cm2-acc-i);
+  font-weight: 500;
+}
+
+/* ── Group card — prototype `group()` ──────────────────────────────────── */
+
+.cm2-group {
+  margin: 0 0 10px;
+  background: var(--cm2-surf);
+  border: 1px solid var(--cm2-bd);
+  border-radius: 9px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.cm2-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 14px;
+  background: var(--cm2-sunk);
+  border-bottom: 1px solid var(--cm2-hair);
+}
+.cm2-group-title { font-size: 13px; font-weight: 500; }
+.cm2-group-sub {
+  font-size: 11px;
+  color: var(--ink-4);
+  margin-left: auto;
+  text-align: right;
+  line-height: 1.5;
+}
+
+/*
+ * The one grid, stated once — prototype `fld().rowStyle` / `group().grid`.
+ * `--cm2-cols` is tier count + 1 (the MARKUP % track).
+ */
+.cm2-group,
+.cm2-freight-scroll { --cm2-grid-columns: 260px repeat(var(--cm2-cols), 118px) minmax(190px, 1fr); }
+.cm2-grid,
+.cm2-row,
+.cm2-foot {
+  display: grid;
+  grid-template-columns: var(--cm2-grid-columns);
+  gap: 12px;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.cm2-fieldhead {
+  align-items: end;
+  padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--cm2-bd);
+}
+.cm2-row {
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--cm2-hair);
+}
+.cm2-row.cm2-parent {
+  background: var(--cm2-sunk);
+  border-top: 1px solid var(--cm2-bd);
+  min-height: 38px;
+}
+.cm2-foot {
+  align-items: baseline;
+  padding: 11px 16px 20px; /* 20px clears the horizontal scrollbar */
+  background: var(--cm2-sunk2);
+}
+
+/* Sticky identity column — prototype `sticky(bg)` / `fld().labelWrap`. */
+.cm2-ident {
+  min-width: 0;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--cm2-surf);
+  box-shadow:
+    -18px 0 0 0 var(--cm2-surf),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10);
+}
+.cm2-row.cm2-parent .cm2-ident,
+.cm2-fieldhead.cm2-onsunk .cm2-ident {
+  background: var(--cm2-sunk);
+  box-shadow:
+    -18px 0 0 0 var(--cm2-sunk),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10);
+}
+.cm2-foot .cm2-ident {
+  background: var(--cm2-sunk2);
+  box-shadow:
+    -18px 0 0 0 var(--cm2-sunk2),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+/* 18px per level; the guide is an INSET shadow, not a border — a border would
+   add width to a sticky track whose 260px the grid has already committed. */
+.cm2-ident[data-indent="1"] {
+  padding-left: 18px;
+  box-shadow:
+    -18px 0 0 0 var(--cm2-surf),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10),
+    inset 1px 0 0 0 var(--cm2-bd);
+}
+.cm2-ident[data-indent="2"] {
+  padding-left: 36px;
+  box-shadow:
+    -18px 0 0 0 var(--cm2-surf),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10),
+    inset 1px 0 0 0 var(--cm2-bd);
+}
+
+.cm2-label { font-size: 13px; color: var(--ink); }
+.cm2-label.cm2-strong { font-weight: 500; }
+.cm2-label.cm2-muted { color: var(--ink-3); }
+/* Secondary line — prototype `metaStyle`. Mono on a parent, plain below it. */
+.cm2-meta {
+  font-size: 11.5px;
+  color: var(--ink-4);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+.cm2-parent .cm2-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.cm2-flags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 3px;
+}
+
+/* Tier column — prototype `fld().cells[].wrap`. */
+.cm2-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 6px;
+  margin: -4px 0;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+.cm2-cell.cm2-hl { background: var(--cm2-acc-t); }
+.cm2-basis {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+
+/*
+ * READ-ONLY VALUE FIELD.
+ *
+ * The prototype's input metrics (mono 11.5px, 102px, right-aligned, 5px/7px
+ * padding, 5px radius) with a DASHED border on the sunk fill, per the fidelity
+ * checklist: a read-only state is a dashed-border field or "in module" text,
+ * "never a disabled-looking input pretending to be editable". A span, so it is
+ * read-only in the accessibility tree as well as to the eye.
+ */
+.cm2-value {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  width: 102px;
+  box-sizing: border-box;
+  text-align: right;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: var(--cm2-sunk);
+  color: var(--ink);
+  border: 1px dashed var(--cm2-bds);
+}
+.cm2-value.cm2-empty { color: var(--ink-4); }
+
+/* Editable M3 controls reuse the existing governed writers. Their normal
+   spreadsheet selectors are intentionally not loaded inside this preview,
+   so give the embedded controls the same field geometry as M2's value cells. */
+.cm2 .cell-num {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 102px;
+  max-width: 100%;
+  box-sizing: border-box;
+  border-radius: 5px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: right;
+}
+.cm2 .cell-num > input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 5px 7px !important;
+  border: 1px solid var(--cm2-bds) !important;
+  border-radius: 5px;
+  background: var(--cm2-sunk) !important;
+  color: var(--ink) !important;
+  font: inherit !important;
+  text-align: right !important;
+  outline-color: var(--cm2-acc-i);
+}
+.cm2 .cell-num > input:disabled { opacity: 0.58; }
+.cm2 .cell-num .raw {
+  display: block;
+  margin-top: 1px;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.35;
+}
+.cm2 .cell-num.empty {
+  color: var(--ink-4);
+  background: var(--cm2-sunk);
+  border: 1px dashed var(--cm2-bds);
+  padding: 5px 7px;
+  font-size: 11px;
+  font-style: italic;
+}
+
+.cm2-markup-edit {
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+}
+.cm2-markup-input-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.cm2-markup-input-wrap > span { flex: none; }
+.cm2-markup-input {
+  width: 6.5ch;
+  min-width: 6.5ch;
+  max-width: calc(100% - 1.5em);
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border: 1px solid var(--cm2-bds);
+  border-radius: 5px;
+  background: var(--cm2-sunk);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-align: right;
+}
+.cm2-markup-input:focus {
+  outline: 2px solid var(--cm2-acc-t);
+  outline-offset: 1px;
+  border-color: var(--cm2-acc-i);
+}
+.cm2-markup-input[aria-invalid="true"] { border-color: var(--warn); }
+.cm2-edit-error {
+  max-width: 100%;
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* A figure with no field around it — prototype `tierFootCells`. */
+.cm2-figure {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  width: 102px;
+  text-align: right;
+  color: var(--ink);
+}
+.cm2-figure.cm2-empty { color: var(--ink-4); }
+
+/* Trailing column — prototype `tailStyle` / `selStyle`. */
+.cm2-tail {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-3);
+  text-align: right;
+  line-height: 1.5;
+  min-width: 0;
+}
+.cm2-tail.cm2-blank {
+  font-size: 9px;
+  color: var(--warn);
+  font-style: italic;
+}
+.cm2-tailfield {
+  display: flex;
+  justify-content: flex-end;
+  align-self: start;
+  min-width: 0;
+}
+.cm2-tailfield > span {
+  font-size: 11.5px;
+  width: 180px;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border-radius: 5px;
+  border: 1px dashed var(--cm2-bds);
+  background: var(--cm2-sunk);
+  color: var(--ink);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Chips — prototype `tag()` and `eyebrow()` ─────────────────────────── */
+
+.cm2-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background: var(--cm2-sunk2);
+  border: 1px solid var(--cm2-bd);
+  color: var(--ink-3);
+}
+.cm2-tag.cm2-accent {
+  background: var(--cm2-acc-t);
+  border-color: var(--accent);
+  color: var(--cm2-acc-i);
+  font-weight: 500;
+}
+.cm2-tag.cm2-plain {
+  background: var(--cm2-paper);
+  border-color: var(--cm2-bds);
+  color: var(--ink-3);
+}
+.cm2-tag.cm2-amber {
+  background: var(--warn-soft);
+  border-color: var(--warn);
+  color: var(--warn);
+  font-weight: 500;
+}
+.cm2-tag.cm2-green {
+  background: var(--good-soft);
+  border-color: var(--good);
+  color: var(--good);
+  font-weight: 500;
+}
+.cm2-tag.cm2-purple {
+  background: oklch(0.95 0.02 300);
+  border-color: oklch(0.90 0.03 300);
+  color: oklch(0.55 0.06 300);
+  font-weight: 500;
+}
+[data-theme="dark"] .cm2-tag.cm2-purple {
+  background: oklch(0.30 0.04 300);
+  border-color: oklch(0.42 0.05 300);
+  color: oklch(0.86 0.06 300);
+}
+.cm2-eyebrow {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+/*
+ * The tier heading must FIT ITS 118px TRACK. Operator tier labels carry real
+ * names (`MOQ · 1,000 units`), so the text wraps rather than running under the
+ * next column; the quantity, when it is not already in the label, is its own
+ * muted line.
+ */
+.cm2-tierhead {
+  min-width: 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  overflow-wrap: anywhere;
+}
+.cm2-tierhead-label { display: block; }
+.cm2-tierhead-qty { display: block; color: var(--ink-4); opacity: 0.8; }
+/* The ACTIVE tier, matching the Cost Stack selection above. */
+.cm2-tierhead.cm2-hl { color: var(--cm2-acc-i); font-weight: 500; }
+.cm2-tail.cm2-eyebrow { text-align: right; }
+
+/*
+ * The tier heading as a control. Selecting a tier here is the SAME navigation
+ * the Cost Stack offers, so it looks like the heading it replaces rather than
+ * like a button: no chrome until hover, and the active one is marked by the
+ * heading's own accent state.
+ */
+.cm2-tierpick {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.cm2-tierpick:hover .cm2-tierhead { color: var(--ink-2); }
+.cm2-tierpick[aria-pressed="true"] { background: var(--cm2-acc-t); }
+
+/* Card foot as prose — where a totals row would mislead. */
+.cm2-group-foot {
+  padding: 10px 16px 14px;
+  background: var(--cm2-sunk2);
+  border-top: 1px solid var(--cm2-hair);
+  font-size: 11px;
+  color: var(--ink-4);
+  line-height: 1.5;
+}
+
+/* ── By product — prototype `edSection()` / `edCard()` / `edField()` ───── */
+
+.cm2-split {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+.cm2-picker {
+  border: 1px solid var(--cm2-bd);
+  border-radius: 10px;
+  background: var(--cm2-surf);
+  padding: 10px;
+  align-content: start;
+}
+.cm2-picker-head {
+  padding: 3px 8px 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.cm2-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+}
+.cm2-pick[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--cm2-acc-t);
+}
+/* BLOCK, not inline. Both were spans, so the name and the SKU ran together on
+   one line and `margin-top` on the meta did nothing. */
+.cm2-pick-name {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.cm2-pick[aria-pressed="true"] .cm2-pick-name {
+  font-weight: 500;
+  color: var(--cm2-acc-i);
+}
+.cm2-pick-meta {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.4;
+  color: var(--ink-4);
+  margin-top: 4px;
+}
+.cm2-pick-meta.cm2-amberink { color: var(--warn); }
+
+/* Prototype editor().formWrap and headStyle: one enclosing product panel. */
+.cm2-product-panel {
+  background: var(--cm2-sunk);
+  border: 1px solid var(--cm2-bd);
+  border-radius: 10px;
+  padding: 14px 16px 18px;
+  min-width: 0;
+}
+.cm2-product-head {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--cm2-bd);
+}
+.cm2-product-title {
+  font-family: var(--display);
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.cm2-section { margin-top: 14px; }
+.cm2-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 9px;
+  flex-wrap: wrap;
+}
+.cm2-section-title { font-family: var(--display); font-size: 16px; }
+.cm2-section-note { font-size: 11px; color: var(--ink-4); line-height: 1.4; }
+.cm2-empty-card {
+  padding: 12px 14px;
+  background: var(--cm2-surf);
+  border: 1px dashed var(--cm2-bds);
+  border-radius: 9px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.cm2-edcard {
+  background: var(--cm2-paper);
+  border: 1px solid var(--cm2-bd);
+  border-radius: 9px;
+  padding: 13px 15px 14px;
+  margin-bottom: 9px;
+}
+.cm2-edtitle {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 11px;
+}
+.cm2-edtitle-text { font-size: 12.5px; font-weight: 500; }
+.cm2-edfig {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-left: auto;
+}
+.cm2-edfig.cm2-amberink { color: var(--warn); }
+.cm2-edgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px 16px;
+}
+.cm2-edfield.cm2-span { grid-column: 1 / -1; }
+.cm2-charge-grid { grid-template-columns: repeat(var(--cm2-charge-tiers), minmax(0, 1fr)); }
+/* prototype `edField().labelStyle` */
+.cm2-edlabel {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 5px;
+}
+/*
+ * prototype `edReadOnly().staticStyle` — the bundle's OWN read-only treatment,
+ * so a read-only field keeps the editable field's footprint without pretending
+ * to be one. Dashed BDS on SUNK, ink-2, same 7px/9px box as `edField`.
+ */
+.cm2-edvalue {
+  display: block;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px dashed var(--cm2-bds);
+  background: var(--cm2-sunk);
+  color: var(--ink-2);
+  min-height: 33px;
+  box-sizing: border-box;
+}
+.cm2-edvalue.cm2-mono { font-family: var(--mono); text-align: right; }
+.cm2-edvalue.cm2-empty { color: var(--ink-4); }
+/* prototype `edField().hintStyle` */
+.cm2-edhint {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-4);
+  margin-top: 5px;
+  line-height: 1.4;
+}
+.cm2-edhint.cm2-amberink { color: var(--warn); }
+.cm2-disclosure {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--cm2-hair);
+}
+.cm2-disclosure > summary {
+  display: inline-block;
+  font-size: 11.5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--cm2-bd);
+  background: var(--cm2-surf);
+  color: var(--ink-3);
+  list-style: none;
+}
+.cm2-disclosure[open] > summary {
+  border-color: var(--accent);
+  background: var(--cm2-acc-t);
+  color: var(--cm2-acc-i);
+}
+.cm2-disclosure > summary::-webkit-details-marker { display: none; }
+.cm2-disclosure-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px 16px;
+  margin-top: 12px;
+}
+
+/* ── By module — prototype `ownerBlock()` product accordion ────────────── */
+
+.cm2-owner {
+  margin-bottom: 10px;
+  background: var(--cm2-surf);
+  border: 1px solid var(--cm2-bd);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.cm2-owner.cm2-open { border-color: var(--accent); }
+.cm2-owner-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 15px;
+  cursor: pointer;
+  background: var(--cm2-surf);
+  border: 0;
+}
+.cm2-owner.cm2-open .cm2-owner-head { background: var(--cm2-sunk); }
+.cm2-caret {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  margin-top: 3px;
+}
+.cm2-owner-title { font-size: 13.5px; font-weight: 500; }
+.cm2-owner-sub { display: block; font-size: 11.5px; color: var(--ink-4); margin-top: 3px; line-height: 1.4; }
+.cm2-owner-figs {
+  display: flex;
+  gap: 20px;
+  margin-left: auto;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.cm2-fig { text-align: right; min-width: 104px; }
+.cm2-fig-val {
+  display: block;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  margin-top: 2px;
+  color: var(--ink-4);
+}
+.cm2-owner-body {
+  border-top: 1px solid var(--cm2-bd);
+  padding: 12px 0 4px;
+}
+.cm2-owner-body .cm2-group { margin: 0 14px 10px; }
+.cm2-owner-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 15px;
+  background: var(--cm2-sunk2);
+  border-top: 1px solid var(--cm2-bd);
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+/* ── Notes, gaps, module entry ─────────────────────────────────────────── */
+
+.cm2-note {
+  margin: 0 0 11px;
+  padding: 10px 12px;
+  background: var(--cm2-sunk);
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.cm2-gaps {
+  border: 1px solid var(--warn);
+  border-radius: 7px;
+  background: var(--warn-soft);
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.cm2-gaps ul { margin: 4px 0 0; padding-left: 18px; }
+.cm2-entry {
+  font-size: 11.5px;
+  padding: 6px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--cm2-bd);
+  background: var(--cm2-paper);
+  color: var(--cm2-acc-i);
+  white-space: nowrap;
+}
+.cm2-entry:hover { border-color: var(--accent); }
+
+/* Respond to the workspace width, including the existing navigation rail. */
+.cm2-freight {
+  border: 1px solid var(--cm2-bd);
+  border-radius: 10px;
+  background: var(--cm2-surf);
+  overflow: hidden;
+  margin-top: 14px;
+}
+.cm2-freight-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--cm2-sunk);
+}
+.cm2-freight-head h2 { font-family: var(--display); font-size: 18px; margin: 0 0 3px; }
+.cm2-freight-head > .cm2-entry { margin-left: auto; }
+.cm2-freight-action {
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--cm2-acc-t);
+  color: var(--cm2-acc-i);
+  padding: 8px 14px;
+  font: 500 12.5px/1 var(--ui);
+  cursor: pointer;
+}
+.cm2-freight-assignee, .cm2-freight-empty { padding: 10px 16px; color: var(--ink-3); font-size: 11.5px; border-top: 1px solid var(--cm2-hair); }
+.cm2-freight-scroll { overflow-x: auto; }
+.cm2-freight-table { width: max-content; min-width: 100%; }
+.cm2-freight-grid-row {
+  display: grid;
+  grid-template-columns: var(--cm2-grid-columns);
+  gap: 12px;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.cm2-freight-grid-row > * { box-sizing: border-box; min-width: 0; }
+.cm2-freight-column-head { align-items: end; padding: 8px 16px 7px; border-bottom: 1px solid var(--cm2-bd); }
+.cm2-freight-column-head > * { font-family: var(--mono); font-size: 9px; line-height: 1.35; text-transform: uppercase; color: var(--ink-4); }
+.cm2-freight-column-head > :not(:first-child) { text-align: center; }
+.cm2-freight-grid-row .cm2-tierpick { max-width: 100%; }
+.cm2-freight-shipment { background: var(--cm2-sunk); padding: 0 16px; }
+.cm2-freight-shipment-title { grid-column: 1 / -1; padding: 9px 0; border-top: 1px solid var(--cm2-hair); }
+.cm2-freight-shipment-title > span { margin-right: 12px; }
+.cm2-freight-data-row { align-items: center; padding: 0 16px; }
+.cm2-freight-data-row > * { padding: 9px 8px; border-top: 1px solid var(--cm2-hair); font-weight: 400; text-align: center; }
+.cm2-freight-row-label { text-align: left !important; }
+.cm2-freight-data-row .cm2-freight-markup { font-family: var(--mono); font-size: 10px; color: var(--ink-3); line-height: 1.45; overflow-wrap: anywhere; }
+.cm2-freight-source { text-align: left !important; font-size: 10px; color: var(--ink-4); }
+.cm2-freight-shipment { background: var(--cm2-sunk); }
+.cm2-freight-edit {
+  float: right;
+  border: 1px solid var(--cm2-bd);
+  border-radius: 6px;
+  background: var(--cm2-surf);
+  color: var(--ink-2);
+  padding: 5px 10px;
+  font: 400 11px/1 var(--ui);
+  cursor: pointer;
+}
+.cm2-freight-amount { display: block; font-family: var(--mono); font-size: 11.5px; margin-bottom: 3px; }
+.cm2-freight-active { background: var(--cm2-acc-t); }
+.cm2-freight-panel-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  justify-content: flex-end;
+}
+.cm2-freight-panel-shell[hidden] { display: none; }
+.cm2-freight-panel-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: color-mix(in oklch, var(--ink) 18%, transparent);
+  cursor: default;
+}
+.cm2-freight-panel {
+  position: relative;
+  width: min(960px, 92vw);
+  height: 100dvh;
+  background: var(--paper);
+  border-left: 1px solid var(--cm2-bd);
+  box-shadow: -18px 0 48px color-mix(in oklch, var(--ink) 18%, transparent);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.cm2-freight-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--cm2-bd);
+  background: var(--cm2-surf);
+}
+.cm2-freight-panel-head h2 {
+  margin: 2px 0 0;
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 500;
+}
+.cm2-freight-panel-close {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--cm2-bd);
+  border-radius: 7px;
+  background: var(--cm2-surf);
+  color: var(--ink-2);
+  font: 400 22px/1 var(--ui);
+  cursor: pointer;
+}
+.cm2-freight-panel-body {
+  min-width: 0;
+  overflow: auto;
+  padding: 16px 18px 28px;
+}
+
+@container (max-width: 760px) {
+  .cm2-charge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cm2-split { grid-template-columns: minmax(0, 1fr); }
+  .cm2-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  .cm2-picker-head { grid-column: 1 / -1; }
+  .cm2-owner-head { flex-wrap: wrap; }
+  .cm2-owner-figs { gap: 10px; }
+  .cm2-fig { min-width: 70px; }
+  .cm2-group-head { flex-wrap: wrap; }
+  .cm2-group-sub { text-align: left; margin-left: 0; }
+}
+
+@container (max-width: 420px) {
+  .cm2-charge-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .cm2-freight-panel { width: 100vw; }
+  .cm2-freight-head { align-items: flex-start; }
+  .cm2-freight-action { width: 100%; margin-left: 0; }
+}

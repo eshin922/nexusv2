@@ -84,6 +84,9 @@ export function EditProductModal({
 }) {
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
+  const [editingEstablishedSku, setEditingEstablishedSku] = useState(false);
+  const [confirmedEstablishedSkuChange, setConfirmedEstablishedSkuChange] =
+    useState(false);
   const [url, setUrl] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const [hsType, setHsType] = useState("");
@@ -121,6 +124,8 @@ export function EditProductModal({
     if (!open || !target) return;
     setName(target.name);
     setSku(target.sku ?? "");
+    setEditingEstablishedSku(false);
+    setConfirmedEstablishedSkuChange(false);
     setUrl(target.url ?? "");
     setUnitCost(target.unitCost ?? "");
     setHsType(target.hubspotProductType ?? "");
@@ -160,7 +165,13 @@ export function EditProductModal({
     // like what this operator was editing.
     fd.set("expectedUpdatedAt", target.updatedAt ?? "");
     fd.set("name", name.trim());
-    fd.set("sku", established ? (target.sku ?? "") : sku.trim());
+    const nextSku = sku.trim();
+    const establishedSkuChanged = established && nextSku !== (target.sku ?? "");
+    fd.set("sku", nextSku);
+    fd.set(
+      "allowEstablishedSkuChange",
+      establishedSkuChanged && confirmedEstablishedSkuChange ? "true" : "false",
+    );
     fd.set("url", url.trim());
     fd.set("unitCost", unitCost.trim());
     fd.set("hubspotProductType", hsType);
@@ -271,13 +282,73 @@ export function EditProductModal({
             <span className="lbl">SKU</span>
             {established ? (
               <>
-                <input data-testid="edit-sku" value={target.sku ?? ""} disabled />
-                <span className="hint" data-testid="edit-sku-established">
-                  Established. Downstream identity may already depend on it —
-                  quotes already sent, and the NetSuite item it resolves to — so
-                  replacing it is a separate controlled correction rather than an
-                  ordinary edit.
-                </span>
+                {!editingEstablishedSku ? (
+                  <>
+                    <input data-testid="edit-sku" value={target.sku ?? ""} disabled />
+                    <button
+                      type="button"
+                      className="a1v2-btn ghost"
+                      data-testid="edit-established-sku"
+                      onClick={() => setEditingEstablishedSku(true)}
+                    >
+                      Change established SKU…
+                    </button>
+                    <span className="hint" data-testid="edit-sku-established">
+                      This SKU is already in use as the product&apos;s identity. A
+                      correction updates the library and HubSpot for future use;
+                      existing quote records are not rewritten.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      data-testid="edit-sku"
+                      value={sku}
+                      onChange={(e) => {
+                        setSku(e.target.value);
+                        setConfirmedEstablishedSkuChange(false);
+                      }}
+                      aria-describedby="edit-sku-correction-warning"
+                    />
+                    <div
+                      id="edit-sku-correction-warning"
+                      className="a1v2-error"
+                      data-testid="edit-sku-correction-warning"
+                      style={{ marginTop: 8, padding: "8px 12px", lineHeight: 1.45 }}
+                    >
+                      This changes the product&apos;s library identity and syncs the
+                      new SKU to HubSpot. Existing quotes are not rewritten. Check
+                      any NetSuite item or integrations that depend on the old SKU
+                      before continuing.
+                    </div>
+                    <label
+                      style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8 }}
+                    >
+                      <input
+                        type="checkbox"
+                        data-testid="confirm-established-sku-change"
+                        checked={confirmedEstablishedSkuChange}
+                        onChange={(e) => setConfirmedEstablishedSkuChange(e.target.checked)}
+                      />
+                      <span>
+                        I confirmed the downstream impact and want to change this
+                        established SKU.
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="a1v2-btn ghost"
+                      data-testid="cancel-established-sku-change"
+                      onClick={() => {
+                        setSku(target.sku ?? "");
+                        setEditingEstablishedSku(false);
+                        setConfirmedEstablishedSkuChange(false);
+                      }}
+                    >
+                      Keep current SKU
+                    </button>
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -401,6 +472,9 @@ export function EditProductModal({
             disabled={
               pending ||
               name.trim() === "" ||
+              (established &&
+                sku.trim() !== (target.sku ?? "") &&
+                !confirmedEstablishedSkuChange) ||
               // Saving over an unconfirmed remote state is the thing being
               // prevented; the way forward is the recovery beside it.
               held !== null

@@ -297,8 +297,11 @@ export const fakeHubSpot: HubSpotOperations = {
   async listProductTypeOptions() {
     record("product-type-options", {});
     fail("product-type-options");
-    // MIRRORS THE PRODUCTION OPTION SET -- portal 21497798 (STANDARD),
-    // 16 non-hidden options, captured read-only 2026-09-12.
+    // Mirrors the selectable option set for the isolated browser preview.
+    // The original 16 options were captured read-only on 2026-09-12; the two
+    // new options below were added to HubSpot afterward and confirmed by the
+    // operator. Without mirroring them here, local previews would show a stale
+    // dropdown even though HubSpot has the options.
     //
     // TWO corrections are recorded here because both were mine.
     //
@@ -338,6 +341,8 @@ export const fakeHubSpot: HubSpotOperations = {
       ["Finished Goods", "Finished Goods"],
       ["Turnkey", "Turnkey"],
       ["Tertiary Packaging", "Tertiary Packaging"],
+      ["Ingestibles", "Ingestibles"],
+      ["Topicals", "Topicals"],
     ].map(([value, label], i) => ({ label, value, displayOrder: i }));
   },
   async updateProduct(hubspotProductId, input) {

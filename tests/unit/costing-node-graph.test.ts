@@ -258,6 +258,36 @@ test("a category default wins when one exists", () => {
   assert.equal(ladder.value, 0.4);
 });
 
+test("a cached category-default rate never masks the current Settings default", () => {
+  const r = computeQuoteCosting(input({
+    packaging: [pkg({
+      lineGroupId: "line-cached-default",
+      unitCost: 10,
+      category: "Primary",
+      markupPct: 0.2,
+      markupPctSource: "category_default",
+    })],
+  }));
+  const line = findNode(packagingNode(r), `${LEAF}/${TIER}/pkg/line-cached-default`)!;
+  assert.equal(line.value, 14, "the live 40% Primary default wins over a stale 20% cache");
+  assert.equal(ladderOf(r, "line-cached-default").value, 0.4);
+});
+
+test("a true manual markup override still wins over the category default", () => {
+  const r = computeQuoteCosting(input({
+    packaging: [pkg({
+      lineGroupId: "line-manual-override",
+      unitCost: 10,
+      category: "Primary",
+      markupPct: 0.2,
+      markupPctSource: "manual_override",
+    })],
+  }));
+  const line = findNode(packagingNode(r), `${LEAF}/${TIER}/pkg/line-manual-override`)!;
+  assert.equal(line.value, 12);
+  assert.equal(ladderOf(r, "line-manual-override").value, 0.2);
+});
+
 test("an explicit line markup of ZERO is reported as the chosen rung", () => {
   const r = computeQuoteCosting(
     input({ packaging: [pkg({ lineGroupId: "line-z", unitCost: 10, markupPct: 0 })] }),

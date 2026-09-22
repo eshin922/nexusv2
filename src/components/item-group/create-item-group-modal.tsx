@@ -22,25 +22,19 @@ import { createAssembly } from "@/app/actions/assemblies";
 // The writer is unchanged: `createAssembly`, exactly as before. This moves the
 // entry point and the vocabulary, not the semantics.
 
-/** Step 7 · a category, not a product type. Item Groups never had one. */
-type ItemGroupCategoryOption = { id: string; name: string };
-
 export function CreateItemGroupModal({
   quoteId,
   open,
   onClose,
-  itemGroupCategories,
   onSuccess,
 }: {
   quoteId: string;
   open: boolean;
   onClose: () => void;
-  itemGroupCategories: ItemGroupCategoryOption[];
   /** Fires only on a successful create, alongside `onClose`. */
   onSuccess?: (result: { id: string; name: string }) => void;
 }) {
   const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
   const [sku, setSku] = useState("");
   const [description, setDescription] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
@@ -56,7 +50,6 @@ export function CreateItemGroupModal({
   useEffect(() => {
     if (open) return;
     setName("");
-    setCategoryId("");
     setSku("");
     setDescription("");
     setUnitPrice("");
@@ -88,7 +81,6 @@ export function CreateItemGroupModal({
     const fd = new FormData();
     fd.set("quoteId", quoteId);
     fd.set("name", name.trim());
-    if (categoryId) fd.set("itemGroupCategoryId", categoryId);
     if (sku) fd.set("sku", sku.trim());
     if (description) fd.set("description", description.trim());
     if (unitPrice) fd.set("unitPrice", unitPrice.trim());
@@ -149,22 +141,7 @@ export function CreateItemGroupModal({
                   autoFocus
                 />
               </div>
-              <div className="row-pair">
-                <div className="field">
-                  <span className="lbl">Item group category</span>
-                  <select
-                    value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value)}
-                  >
-                    <option value="">— Pick a category —</option>
-                    {itemGroupCategories.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
+              <div className="field">
                   <span className="lbl">SKU</span>
                   <input
                     type="text"
@@ -172,7 +149,6 @@ export function CreateItemGroupModal({
                     onChange={(e) => setSku(e.target.value)}
                     placeholder="auto-generated if blank"
                   />
-                </div>
               </div>
               <div className="field">
                 <span className="lbl">Description</span>

@@ -112,6 +112,25 @@ const classifiedIdentityFiles = new Set([
   // re-key, which is the defect this module exists to prevent. Nothing to
   // retire: it should be canonical-only forever.
   "src/lib/costs/packaging-row-identity.ts",
+  // CLASSIFIED — enduring, canonical-only. The M2 Costs read model. Keys every
+  // owner and every cost row on `quoteLeafId`, the identity a cost row carries
+  // post-OD-017, and names `assemblyLeafId` only for a group MEMBER's junction
+  // — which it carries as the React key and never as a cost-row lookup. An
+  // Item Group's `quoteLeafId` is explicitly null, because a group owns no cost
+  // row and coercing a member's id in is what put a group's economics on one of
+  // its components. Nothing to retire.
+  "src/lib/costs/costs-overview-model.ts",
+  // CLASSIFIED — enduring, canonical-only. The shared packaging-line graph
+  // read, lifted out of `packaging-drilldown.tsx` so the drawer and the M2
+  // preview read one implementation. `quoteLeafId` is the identity the ENGINE
+  // keys its line nodes on, so naming it here is the contract; the type's own
+  // comment records that the junction id is a different value and must not be
+  // passed. Nothing to retire.
+  "src/lib/costs/packaging-line-graph-read.ts",
+  // CLASSIFIED — enduring, canonical-only. The store-connected half of the M2
+  // preview. Reads `quoteLeafId` off the read model purely to address engine
+  // line nodes; it resolves no identity, joins nothing, and writes nothing.
+  "src/components/costs/preview/costs-m2-preview.tsx",
   // CLASSIFIED — canonical, session-scoped. The staging model addresses a
   // staged lift or direct price by `quote_leaf_id x tier_id`, which is the
   // canonical commercial attachment Phase 3 §1a requires lifts to persist
@@ -994,6 +1013,15 @@ const classifiedIdentityFiles = new Set([
   // UPDATE -- in particular it never calls `findOrCreateItemGroup`, which POSTs
   // a new Item Group master. Opening a tab must not make master data.
   "src/lib/netsuite/planned-sales-order-preview.ts",
+  // CLASSIFIED — read-only Setup checkpoint. The Review page uses each
+  // attachment's canonical quoteLeafId to place its owned charges under the
+  // right product and as a stable render key. It resolves no junction and
+  // writes no quote structure.
+  "src/app/projects/[id]/quotes/[quoteId]/setup/review/page.tsx",
+  // CLASSIFIED — Costs editing field boundary. It carries quoteLeafId into
+  // the existing line-cell editor and scopes markup writes by lineGroupId; it
+  // performs no canonical-to-legacy lookup itself.
+  "src/components/costs/preview/editable-fields.tsx",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

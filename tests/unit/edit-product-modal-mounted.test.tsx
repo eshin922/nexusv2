@@ -102,21 +102,44 @@ test("completing the SKU submits it without creating a second product", async ()
 
 // ── an established SKU is a different operation ────────────────────────────
 
-test("an established SKU is not editable here, and the surface says why", async () => {
+test("an established SKU stays locked until the controlled correction is opened", async () => {
   const m = await mount(view({ target: established }));
   const input = m.byTestId("edit-sku") as HTMLInputElement;
   assert.equal(input.disabled, true);
   assert.equal(input.value, "DPS-MISTR-1001");
   const note = m.byTestId("edit-sku-established");
   assert.ok(note);
-  assert.match(note!.textContent ?? "", /separate controlled correction/i);
+  assert.match(note!.textContent ?? "", /existing quote records are not rewritten/i);
   assert.equal(m.byTestId("edit-sku-missing"), null);
+  await m.click('[data-testid="edit-established-sku"]');
+  assert.equal((m.byTestId("edit-sku") as HTMLInputElement).disabled, false);
+  assert.ok(m.byTestId("edit-sku-correction-warning"));
+  assert.equal((m.byTestId("edit-product-save") as HTMLButtonElement).disabled, false);
   await m.unmount();
 });
 
-test("an established SKU is submitted unchanged even if the field is tampered with", async () => {
-  // Defence in depth. The server refuses a replacement regardless; this
-  // asserts the surface does not ask it to.
+test("an established SKU correction requires explicit confirmation and submits the corrected value", async () => {
+  const calls: Record<string, string>[] = [];
+  const save: UpdateProductService = async (fd) => {
+    calls.push(Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v)])));
+    return { ok: true, data: { leafId: "leaf-2", syncedToHubspot: true } };
+  };
+  const m = await mount(view({ target: established, save }));
+  await m.click('[data-testid="edit-established-sku"]');
+  await m.type('[data-testid="edit-sku"]', "");
+  await m.type('[data-testid="edit-sku"]', "DPS-MISTR-1009");
+  const saveButton = m.byTestId("edit-product-save") as HTMLButtonElement;
+  assert.equal(saveButton.disabled, true, "changed established SKU needs confirmation");
+  await m.click('[data-testid="confirm-established-sku-change"]');
+  assert.equal(saveButton.disabled, false, "confirmation unlocks the save");
+  await m.click('[data-testid="edit-product-save"]');
+  await flush();
+  assert.equal(calls[0].sku, "DPS-MISTR-1009");
+  assert.equal(calls[0].allowEstablishedSkuChange, "true");
+  await m.unmount();
+});
+
+test("an unchanged established SKU is sent without requesting a correction", async () => {
   const calls: Record<string, string>[] = [];
   const save: UpdateProductService = async (fd) => {
     calls.push(Object.fromEntries([...fd.entries()].map(([k, v]) => [k, String(v)])));
@@ -126,6 +149,7 @@ test("an established SKU is submitted unchanged even if the field is tampered wi
   await m.click('[data-testid="edit-product-save"]');
   await flush();
   assert.equal(calls[0].sku, "DPS-MISTR-1001");
+  assert.equal(calls[0].allowEstablishedSkuChange, "false");
   await m.unmount();
 });
 

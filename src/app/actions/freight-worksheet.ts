@@ -41,11 +41,29 @@ const mergeProvenance = (current: unknown, fields: string[], source: FieldSource
  * minted AFTER the write commits gives the client something to compare against,
  * so an out-of-order snapshot is detectable rather than silently applied.
  *
- * `pg_snapshot_xmax(pg_current_snapshot())` is read outside the transaction, so
- * it reflects state the write is already part of. Every mutation returns it;
- * consumers may ignore it, but no path may omit it — a single path without the
- * marker is a path with no ordering guarantee, which is exactly how this gap
- * went unnoticed on ten of eleven actions (F-3).
+ * ⚠ THE SENTENCE BELOW IS FALSE, and is kept as the record of what this
+ * marker does not do. It said: "`pg_snapshot_xmax(pg_current_snapshot())` is
+ * read outside the transaction, so it reflects state the write is already part
+ * of."
+ *
+ * Reading it OUTSIDE the transaction is the defect, not the mitigation: the
+ * value returned belongs to a DIFFERENT transaction than the write. And `xmax`
+ * advances on xid ASSIGNMENT rather than on commit, so a read taken before a
+ * commit and one taken after it can report the SAME number — measured on
+ * PostgreSQL 16.14 as `14346:14348:14346` before and `14348:14348:` after
+ * (proof P1). A marker that can be equal either side of the commit it is meant
+ * to order is a bound, not an ordering.
+ *
+ * The rest still holds, and is the reason this is not simply deleted: every
+ * mutation returns it; consumers may ignore it, but no path may omit it — a
+ * single path without the marker is a path with no ordering guarantee, which
+ * is exactly how this gap went unnoticed on ten of eleven actions (F-3).
+ *
+ * THIS IS SHIPPED, GREEN BEHAVIOUR AND IS LEFT EXACTLY AS IT IS. Freight and
+ * `awaitCommitted` depend on it; correcting it is its own change with its own
+ * proof. A sound write id comes from the write statement's own `RETURNING
+ * pg_current_xact_id_if_assigned()`, and sound ordering evidence from the full
+ * snapshot — see `src/lib/costing-witness.ts`.
  */
 async function committedRevision(): Promise<string | null> {
   const rows = await db.execute<{ revision: string | null }>(
@@ -649,18 +667,26 @@ export async function updateFreightCustomsBreak(fd: FormData): Promise<ActionRes
     const [entry] = await db.insert(freightCustomsEntries).values({
       freightSubcategoryId: subcategoryId, fieldProvenance: provenance([]),
     }).onConflictDoUpdate({ target: freightCustomsEntries.freightSubcategoryId, set: { updatedAt: new Date() } }).returning({ id: freightCustomsEntries.id });
-    const [currentBreak] = await db.select().from(freightCustomsBreaks).where(and(eq(freightCustomsBreaks.freightCustomsEntryId, entry.id), eq(freightCustomsBreaks.tierId, tierId), eq(freightCustomsBreaks.chargeType, chargeType))).limit(1);
-    const [saved] = await db.insert(freightCustomsBreaks).values({
-      freightCustomsEntryId: entry.id, tierId, chargeType, amount: numberOrNull(fd, "amount"), markupPct: markupOrNull(fd, "markupPct"),
-      detail: nullable(fd, "detail"), fieldProvenance: provenance(["amount", "markupPct", "detail"]),
-    }).onConflictDoUpdate({ target: [freightCustomsBreaks.freightCustomsEntryId, freightCustomsBreaks.chargeType, freightCustomsBreaks.tierId], set: {
-      amount: numberOrNull(fd, "amount"), markupPct: markupOrNull(fd, "markupPct"), detail: nullable(fd, "detail"), updatedAt: new Date(),
-      source: correctedSource(currentBreak?.source ?? "manual"), fieldProvenance: mergeProvenance(currentBreak?.fieldProvenance, ["amount", "markupPct", "detail"], currentBreak?.source ?? "manual"),
-    }}).returning({ id: freightCustomsBreaks.id });
-    await audit(user.id, "freight_customs_break", saved.id, "freight_customs_break_updated", { chargeType, tierId });
+    const [requestedTier] = await db.select({ id: quoteTiers.id }).from(quoteTiers)
+      .where(and(eq(quoteTiers.id, tierId), eq(quoteTiers.quoteId, quote.id))).limit(1);
+    if (!requestedTier) throw new ActionGuardError(ERR.VALIDATION, "Tier does not belong to this quote");
+    const tierIds = [requestedTier.id];
+    const existing = await db.select().from(freightCustomsBreaks).where(and(eq(freightCustomsBreaks.freightCustomsEntryId, entry.id), eq(freightCustomsBreaks.chargeType, chargeType)));
+    const saved = await Promise.all(tierIds.map(async (nextTierId) => {
+      const currentBreak = existing.find((row) => row.tierId === nextTierId);
+      const [row] = await db.insert(freightCustomsBreaks).values({
+        freightCustomsEntryId: entry.id, tierId: nextTierId, chargeType, amount: numberOrNull(fd, "amount"), markupPct: markupOrNull(fd, "markupPct"),
+        detail: nullable(fd, "detail"), fieldProvenance: provenance(["amount", "markupPct", "detail"]),
+      }).onConflictDoUpdate({ target: [freightCustomsBreaks.freightCustomsEntryId, freightCustomsBreaks.chargeType, freightCustomsBreaks.tierId], set: {
+        amount: numberOrNull(fd, "amount"), markupPct: markupOrNull(fd, "markupPct"), detail: nullable(fd, "detail"), updatedAt: new Date(),
+        source: correctedSource(currentBreak?.source ?? "manual"), fieldProvenance: mergeProvenance(currentBreak?.fieldProvenance, ["amount", "markupPct", "detail"], currentBreak?.source ?? "manual"),
+      }}).returning({ id: freightCustomsBreaks.id });
+      return row;
+    }));
+    await Promise.all(saved.map((row) => audit(user.id, "freight_customs_break", row.id, "freight_customs_break_updated", { chargeType, tierId })));
     const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
-    return { ...saved, revision };
+    return { ...saved[0], revision };
   });
 }
 

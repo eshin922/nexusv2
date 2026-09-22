@@ -540,6 +540,116 @@
   gap: 8px;
   justify-content: flex-end;
 }
+.setup-wizard-direct-charges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.setup-wizard-direct-charges > span {
+  color: var(--ink-3);
+  font-size: 10.5px;
+}
+.setup-wizard-direct-charges button {
+  padding: 4px 8px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--accent);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.setup-wizard-direct-charges button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Product-row parity: direct products use the same stacked card rhythm as
+ * grouped products.  Keep the existing drag, target, readiness, and overflow
+ * controls, but place them in the card header and give charges their own
+ * divider row so every product reads as one consistent record. */
+.setup-wizard-quote-items .a1v2-asy-row.a1v2-direct-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 11px 13px 0;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell { display: contents; }
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell > .name {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell > .meta {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
+  color: var(--ink-3);
+}
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell > .setup-wizard-product-sku {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 3px;
+}
+.setup-wizard-quote-items .a1v2-direct-row > .type-tag {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+}
+.setup-wizard-quote-items .a1v2-direct-row > .ct-cell {
+  grid-column: 1;
+  grid-row: 2 / span 2;
+  justify-self: end;
+  margin-left: 0;
+}
+.setup-wizard-quote-items .a1v2-direct-row > .direct-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  padding-top: 1px;
+}
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell > .setup-wizard-direct-charges {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  margin: 8px 0 0;
+  padding: 8px 0 10px;
+  border-top: 1px solid var(--rule);
+}
+.setup-wizard-quote-items .a1v2-direct-row .setup-wizard-direct-charges > span {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.setup-wizard-quote-items .a1v2-direct-row .setup-wizard-direct-charges button {
+  padding: 5px 10px;
+  font-size: 11.5px;
+}
+.setup-wizard-inline-action {
+  display: inline-block;
+  padding: 5px 10px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--accent);
+  font-size: 11.5px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.setup-wizard-inline-action:hover { border-color: var(--accent); background: var(--paper-2); }
+.setup-wizard-product-charges > button,
+.setup-wizard-direct-charges > button { margin-left: auto; }
+.setup-wizard-product-charges > .setup-wizard-inline-action,
+.setup-wizard-direct-charges > .setup-wizard-inline-action { margin-left: 0; }
 
 /* B-4A · Item Group row restoration — evidenced against qw_styles.css.
  *
@@ -1324,4 +1434,588 @@
 .a1v2-modal.r-edit-product-modal .a1v2-modal-body {
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Setup wizard shell adapted from the delivered 2026-09-18-b source.
+   The quote's saved records and existing edit controls remain authoritative. */
+.r7b-head.setup-wizard-hero {
+  max-width: 1120px;
+  margin-inline: auto;
+  padding-top: 38px;
+  margin-bottom: 20px;
+}
+
+.r7b-head h1.setup-wizard-title {
+  font-family: var(--display);
+  font-size: 40px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.r7b-head .setup-wizard-head-copy {
+  display: block;
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 82ch;
+  color: var(--ink-2);
+}
+
+.setup-wizard-frame {
+  max-width: 1120px;
+  margin: 18px auto 0;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper-3);
+  box-shadow: 0 20px 50px oklch(0.20 0.02 255 / 0.08);
+}
+
+.setup-wizard-topbar {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+
+.setup-wizard-topbar .brand,
+.setup-wizard-topbar .step-count,
+.setup-wizard-context > div > span {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-wizard-topbar .slash { color: var(--ink-4); }
+.setup-wizard-topbar .frame-title {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 500;
+}
+.setup-wizard-topbar .spacer { flex: 1; }
+.setup-wizard-topbar .step-count {
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-3);
+}
+
+.setup-wizard-context {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 9px 20px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+
+.setup-wizard-context > label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+.setup-wizard-context > label > span {
+  flex: none;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.setup-wizard-context > label > input {
+  display: inline-block;
+  overflow: hidden;
+  min-width: 0;
+  width: 160px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  outline: none;
+  background: transparent;
+  color: var(--ink-2);
+  font: 400 12px/1.35 var(--ui);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-wizard-progress {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  margin: 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+
+.setup-wizard-progress-step {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.setup-wizard-progress-step.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.setup-wizard-progress-step .number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 19px;
+  height: 19px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: var(--paper-3);
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+.setup-wizard-progress-step.active .number {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.setup-wizard-progress-step strong,
+.setup-wizard-progress-step small {
+  display: block;
+}
+
+.setup-wizard-progress-step strong {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.setup-wizard-progress-step.active strong { color: var(--accent-ink); }
+
+.setup-wizard-progress-step small {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.setup-wizard-body {
+  padding: 20px 20px 0;
+  background: var(--paper-3);
+}
+
+.setup-wizard-step-heading { margin-bottom: 18px; }
+.setup-wizard-step-heading h2,
+.setup-wizard-section-title {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 21px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+.setup-wizard-step-heading p {
+  max-width: 80ch;
+  margin: 5px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.setup-wizard-section-title { margin: 22px 0 9px; font-size: 18px; }
+.setup-wizard-section-copy {
+  margin: 0;
+  padding: 0 15px 10px;
+  color: var(--ink-4);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.setup-wizard-section-lede {
+  max-width: 620px;
+  margin: 4px 0 0;
+  color: var(--ink-4);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.setup-wizard-indent {
+  margin-top: 9px;
+  padding-left: 16px;
+  border-left: 2px solid var(--rule);
+}
+.setup-wizard-body .r7b-grid { margin-bottom: 0; }
+.setup-wizard-body .r7b-card { margin-bottom: 14px; }
+
+/* Freight intent controls follow the Quote Setup Wizard source grammar:
+   compact 7px controls, 10px card radius, and a single blue selected state. */
+.setup-wizard-body .setup-freight-card {
+  border-radius: 10px;
+  background: var(--paper);
+}
+.setup-wizard-body .setup-freight-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 15px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+.setup-wizard-body .setup-freight-card-head > div:first-child {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.setup-wizard-body .setup-freight-card-body {
+  padding: 12px 15px 14px;
+}
+.setup-wizard-body .setup-freight-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.setup-wizard-body .setup-freight-option {
+  appearance: none;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink-2);
+  padding: 8px 14px;
+  font: 400 12.5px/1.2 var(--ui);
+  cursor: pointer;
+}
+.setup-wizard-body .setup-freight-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.setup-wizard-body .setup-freight-option.is-selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--paper);
+}
+.setup-wizard-body .setup-freight-option:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+.setup-wizard-quote-items {
+  padding: 0;
+  margin-bottom: 0;
+}
+.setup-wizard-section-actions {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+  padding: 0;
+}
+.setup-wizard-section-actions h3 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 400;
+}
+.setup-wizard-action-cluster {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.setup-wizard-action-cluster .a1v2-btn {
+  padding: 6px 11px;
+  border: 1px dashed var(--ink-4);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--accent);
+  font-family: var(--ui);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+.setup-wizard-action-cluster .a1v2-btn:hover { background: var(--paper-2); border-color: var(--accent); }
+.setup-wizard-action-cluster .a1v2-btn:disabled { opacity: .55; cursor: not-allowed; }
+.setup-wizard-quote-items .a1v2-tree {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.setup-wizard-data-section-header { margin-top: 22px; }
+.setup-wizard-data-section-header h4 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 400;
+}
+.setup-wizard-section-lede {
+  margin: 4px 0 0;
+  color: var(--ink-4);
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-width: 620px;
+}
+.setup-wizard-indent {
+  margin-top: 9px;
+  padding-left: 16px;
+  border-left: 2px solid var(--rule);
+}
+.setup-wizard-product-card {
+  margin-bottom: 8px;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.setup-wizard-product-head { padding: 11px 13px; }
+.setup-wizard-product-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-wizard-product-chip {
+  padding: 3px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper-3);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.setup-wizard-product-chip.missing {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.setup-wizard-product-sku {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+.setup-wizard-product-charges {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 13px 12px;
+  border-top: 1px solid var(--rule);
+}
+.setup-wizard-product-charges > span { font-size: 11.5px; font-weight: 500; }
+.setup-wizard-product-charges button {
+  padding: 5px 10px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.setup-wizard-product-charges button:disabled { opacity: .55; cursor: not-allowed; }
+.setup-wizard-empty-copy {
+  padding: 13px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 9px;
+  background: var(--paper-2);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  text-align: center;
+}
+.setup-wizard-add-button {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 6px 11px;
+  border: 1px dashed var(--rule-2);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.setup-wizard-add-button:hover { border-color: var(--accent); background: var(--paper-2); }
+.setup-wizard-add-button:disabled { opacity: .55; cursor: not-allowed; }
+.setup-wizard-quote-items .a1v2-direct-row {
+  margin: 0 0 8px;
+  padding: 11px 13px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.setup-wizard-quote-items .a1v2-asy-row:not(.a1v2-direct-row) {
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--rule);
+  border-radius: 10px 10px 0 0;
+  background: var(--paper);
+}
+.setup-wizard-quote-items .a1v2-asy-row:not(.a1v2-direct-row) {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.setup-wizard-quote-items .a1v2-asy-row:not(.a1v2-direct-row) > .name-cell {
+  min-width: 0;
+}
+.setup-wizard-assembly-sku {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+.setup-wizard-quote-items .a1v2-leaves {
+  margin: 0 0 8px;
+  border: 1px solid var(--rule);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--paper-2);
+}
+.setup-wizard-quote-items .a1v2-leaf-row {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  background: var(--paper-2);
+}
+/* Product Type is shown once on the source-shaped Products cards above.
+   Suppress the legacy spec-readiness chip here so it cannot contradict that
+   HubSpot classification (for example, a present type beside "NO TYPE SET"). */
+.setup-wizard-quote-items .a1v2-leaf-row .a1v2-chip { display: none; }
+.setup-wizard-quantity-grid {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.setup-wizard-quantity-grid .r7b-tier-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 8px 6px;
+  flex: 0 1 152px;
+  min-width: 132px;
+  box-sizing: border-box;
+  padding: 9px 11px 11px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--paper-3);
+}
+.setup-wizard-quantity-grid .r7b-tier-row:hover {
+  border-color: var(--rule-2);
+  background: var(--paper-2);
+}
+.setup-wizard-quantity-grid .r7b-tier-row.recommended {
+  border-color: oklch(from var(--accent) l c h / 0.35);
+  background: oklch(from var(--accent) l c h / 0.06);
+}
+.setup-wizard-quantity-grid .r7b-tier-row .label { min-width: 0; }
+.setup-wizard-quantity-grid .r7b-tier-row .label .lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  width: 100%;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+}
+.setup-wizard-quantity-grid .r7b-tier-row .label .lab:hover,
+.setup-wizard-quantity-grid .r7b-tier-row .label .lab:focus {
+  border-color: var(--rule);
+  background: var(--paper);
+  outline: none;
+}
+.setup-wizard-quantity-grid .r7b-tier-row .qty {
+  grid-column: 1 / -1;
+  text-align: left;
+}
+.setup-wizard-quantity-grid .r7b-tier-row .qty input {
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--paper);
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 500;
+}
+.setup-wizard-quantity-grid .r7b-tier-row .qty input:focus {
+  border-color: var(--accent);
+}
+.setup-wizard-quantity-grid .r7b-tier-row .actions {
+  grid-column: 2;
+  grid-row: 1;
+}
+.setup-wizard-add-tier {
+  display: flex;
+  align-items: center;
+}
+.setup-wizard-add-tier .add-tier {
+  align-self: center;
+  padding: 8px 12px;
+  border: 1px dashed var(--ink-4);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--accent);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.setup-wizard-add-tier .add-tier:hover { border-color: var(--accent); background: var(--paper-2); }
+.setup-wizard-add-tier .add-tier:disabled { opacity: .55; cursor: wait; }
+.setup-wizard-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 60px;
+  margin: 20px -20px 0;
+  padding: 12px 20px;
+  background: var(--paper);
+  border-top: 1px solid var(--rule);
+}
+.setup-wizard-footer > span {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.setup-wizard-continue {
+  margin-left: auto;
+  padding: 9px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  color: white;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.setup-wizard-continue:hover { background: var(--accent-ink); }
+
+@media (max-width: 600px) {
+  .r7b-head.setup-wizard-hero { padding-top: 22px; }
+  .r7b-head h1.setup-wizard-title { font-size: 31px; }
+  .setup-wizard-context { flex-direction: column; gap: 6px; }
+  .setup-wizard-context > label { width: 100%; }
+  .setup-wizard-context > label > input { flex: 1 1 auto; width: auto; }
+  .setup-wizard-progress { flex-direction: column; padding: 10px; }
+  .setup-wizard-body { padding: 16px 12px 0; }
+  .setup-wizard-footer { margin-inline: -12px; padding-inline: 12px; }
+  .setup-wizard-quantity-grid .r7b-tier-row { flex: 1 1 100%; min-width: 0; }
 }

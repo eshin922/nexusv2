@@ -37,7 +37,7 @@ export type SurfaceRoute = {
 // underscore form used by R7a designer notes for stability.
 export const SURFACE_ROUTES: Record<SurfaceKey, SurfaceRoute> = {
   setup: {
-    routePattern: "/projects/:id/quotes/:qid",
+    routePattern: "/projects/:id/quotes/:qid/setup",
     forwardTo: "cost_build",
     backwardTo: null,
     displayLabel: "Setup",

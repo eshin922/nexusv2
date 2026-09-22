@@ -33,6 +33,7 @@ import {
   assemblyProductionInputs,
   belowFloorAuthorizations,
   auditLog,
+  actionIdempotency,
   firmSettings,
   hubspotDealsCache,
   freightCustomerArrangesMeta,
@@ -311,55 +312,98 @@ async function activeFreightMarkupDefault(): Promise<string> {
 export async function createQuote(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "").trim();
   if (!projectId) throw new Error("projectId required");
+  const idempotencyKey = String(formData.get("idempotencyKey") ?? "").trim();
+  if (!idempotencyKey) throw new Error("idempotencyKey required");
 
   const user = await ensureUser();
   const freightMarkupPct = await activeFreightMarkupDefault();
+  const action = "create_primary_quote";
 
-  const maxRow = await db
-    .select({ max: max(quotes.versionNumber) })
-    .from(quotes)
-    .where(
-      and(
-        eq(quotes.projectId, projectId),
-        eq(quotes.scenarioLabel, "Primary"),
-      ),
-    );
-  const versionNumber = (maxRow[0]?.max ?? 0) + 1;
+  // The blank quote and its first tier are one recoverable Setup draft. Claim
+  // the request key in the same transaction so double-clicks, browser retries,
+  // and a lost redirect response all resolve to one durable quote identity.
+  // Locking the project also serializes distinct creation requests while the
+  // next Primary version is chosen.
+  const quoteId = await db.transaction(async (tx) => {
+    const [project] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .for("update")
+      .limit(1);
+    if (!project) throw new Error("project not found");
 
-  const [quote] = await db
-    .insert(quotes)
-    .values({
-      projectId,
-      scenarioLabel: "Primary",
-      scenarioStatus: "active",
-      versionNumber,
-      status: "draft",
-      globalPriceAdjPct: "0",
-      freightMarkupPct,
-      createdByUserId: user.id,
-    })
-    .returning({ id: quotes.id });
+    const claimed = await tx
+      .insert(actionIdempotency)
+      .values({ key: idempotencyKey, action })
+      .onConflictDoNothing()
+      .returning({ key: actionIdempotency.key });
 
-  await db.insert(quoteTiers).values({
-    quoteId: quote.id,
-    label: "Tier 1",
-    qty: null,
-    sortOrder: 0,
+    if (claimed.length === 0) {
+      const [prior] = await tx
+        .select({ action: actionIdempotency.action, result: actionIdempotency.result })
+        .from(actionIdempotency)
+        .where(eq(actionIdempotency.key, idempotencyKey))
+        .limit(1);
+      if (prior?.action !== action) throw new Error("idempotency key belongs to another action");
+      const replay = prior.result as { quoteId?: string; projectId?: string } | null;
+      if (replay?.quoteId && replay.projectId === projectId) return replay.quoteId;
+      throw new Error("the earlier Setup request has no completed result; retry with a new Setup request");
+    }
+
+    const [maxRow] = await tx
+      .select({ max: max(quotes.versionNumber) })
+      .from(quotes)
+      .where(
+        and(
+          eq(quotes.projectId, projectId),
+          eq(quotes.scenarioLabel, "Primary"),
+        ),
+      );
+    const versionNumber = (maxRow?.max ?? 0) + 1;
+
+    const [quote] = await tx
+      .insert(quotes)
+      .values({
+        projectId,
+        scenarioLabel: "Primary",
+        scenarioStatus: "active",
+        versionNumber,
+        status: "draft",
+        globalPriceAdjPct: "0",
+        freightMarkupPct,
+        createdByUserId: user.id,
+      })
+      .returning({ id: quotes.id });
+
+    await tx.insert(quoteTiers).values({
+      quoteId: quote.id,
+      label: "Tier 1",
+      qty: null,
+      sortOrder: 0,
+    });
+
+    await writeAuditEntry({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quote.id,
+      action: "created",
+      diffJson: {
+        project_id: projectId,
+        scenario_label: "Primary",
+        version_number: versionNumber,
+      },
+    }, tx);
+
+    await tx
+      .update(actionIdempotency)
+      .set({ result: { quoteId: quote.id, projectId } })
+      .where(eq(actionIdempotency.key, idempotencyKey));
+
+    return quote.id;
   });
 
-  await logAudit({
-    userId: user.id,
-    entityType: "quote",
-    entityId: quote.id,
-    action: "created",
-    diffJson: {
-      project_id: projectId,
-      scenario_label: "Primary",
-      version_number: versionNumber,
-    },
-  });
-
-  redirect(`/projects/${projectId}/quotes/${quote.id}`);
+  redirect(`/projects/${projectId}/quotes/${quoteId}/setup`);
 }
 
 // canonical-scenario-create-flow — refactored from form-action
@@ -701,6 +745,39 @@ export async function updateQuoteNotes(
     revalidateQuoteTree(quote.projectId, quoteId);
 
     return { quoteId, internalNotes: internal, customerFacingNotes: customer };
+  });
+}
+
+export async function updateQuoteFreightIntent(
+  formData: FormData,
+): Promise<ActionResult<{ quoteId: string; freightIntent: "undecided" | "include" | "exclude" }>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const intent = String(formData.get("freightIntent") ?? "").trim();
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
+    if (intent !== "undecided" && intent !== "include" && intent !== "exclude") {
+      throw new ActionGuardError(ERR.VALIDATION, "Choose whether freight is included or excluded.");
+    }
+
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+    if (quote.freightIntent === intent) return { quoteId, freightIntent: quote.freightIntent };
+
+    const diff = diffOf({ freight_intent: quote.freightIntent }, { freight_intent: intent });
+    await db
+      .update(quotes)
+      .set({ freightIntent: intent, updatedAt: new Date() })
+      .where(eq(quotes.id, quoteId));
+    await logAudit({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "freight_intent_updated",
+      diffJson: diff,
+    });
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return { quoteId, freightIntent: intent };
   });
 }
 

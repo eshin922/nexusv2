@@ -6,6 +6,7 @@ import {
   updateAssemblyProductionPolicy,
   upsertAssemblyProductionInputs,
 } from "@/app/actions/assembly-production-inputs";
+import { fmtPct1 } from "@/lib/money-display";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { selectOtherServiceItems } from "@/lib/costing-store";
 import { OtherServiceItemPicker } from "@/components/costs/other-service-item-picker";
@@ -158,9 +159,7 @@ function num(v: string | null | undefined): number | null {
  * Sharing the formatter removes the second place that conversion can be got
  * wrong.
  */
-export function fmtPct1(v: number): string {
-  return (v * 100).toFixed(1) + "%";
-}
+export { fmtPct1 };
 
 function fmtCurr2(n: number): string {
   return n.toLocaleString("en-US", {

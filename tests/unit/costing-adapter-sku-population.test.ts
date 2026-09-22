@@ -356,6 +356,28 @@ function packagingInputs() {
 
 const withCosts = () => args({ assemblyLeafInputs: packagingInputs() });
 
+test("the adapter prices packaging from Setup Product Type and passes default provenance", () => {
+  const row = {
+    ...packagingInputs()[0],
+    category: "Primary Packaging",
+    markupPct: "0.2",
+    markupPctSource: "category_default" as const,
+  };
+  const built = buildQuoteCostingInputFromNewModel(args({
+    markupDefaults: { Primary: 0.4, Secondary: 0.5 },
+    quoteLeafAttachments: attachments().map((leaf) =>
+      leaf.quoteLeafId === "ql-grouped-1"
+        ? { ...leaf, hubspotProductType: "Secondary" }
+        : leaf,
+    ),
+    assemblyLeafInputs: [row],
+  }));
+
+  assert.equal(built.packaging[0].category, "Secondary");
+  assert.equal(built.packaging[0].markupPct, 0.2, "the cache remains available as source data");
+  assert.equal(built.packaging[0].markupPctSource, "category_default");
+});
+
 /** A quote whose price departs from the build-up, via a global adjustment. */
 const withDeparture = () =>
   args({

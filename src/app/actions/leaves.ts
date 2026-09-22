@@ -455,6 +455,8 @@ export async function createLeaf(
 type LeafEditValues = {
   name: string;
   sku: string | null;
+  /** Set only after the operator opens and confirms an established-SKU correction. */
+  allowEstablishedSkuChange: boolean;
   url: string | null;
   unitCost: string | null;
   hubspotProductType: string | null;
@@ -651,17 +653,20 @@ async function applyLeafEdit(opts: {
       : opts.values;
 
     const hadSku = hasUsableSku(existing.sku);
-    if (hadSku && values.sku !== existing.sku) {
+    const skuChanged = values.sku !== existing.sku;
+    if (hadSku && skuChanged && !values.allowEstablishedSkuChange) {
       throw new ActionGuardError(
         ERR.VALIDATION,
         `This product's SKU is already established as "${existing.sku}". ` +
-          "Downstream identity may depend on it -- quotes already sent, and the " +
-          "NetSuite item it resolves to -- so replacing it is a separate " +
-          "controlled correction, not an ordinary edit.",
+          "Open the established-SKU correction and confirm its downstream impact before replacing it.",
       );
     }
 
-    if (values.sku !== null) {
+    // Existing validation catalogs can contain legacy duplicate rows. Do not
+    // let those duplicates block edits to unrelated fields when this product's
+    // SKU is unchanged. Any newly assigned or corrected SKU still goes through
+    // both uniqueness checks below.
+    if (values.sku !== null && skuChanged) {
       const normalized = values.sku.toUpperCase();
       const clash = await tx
         .select({ id: leaves.id, name: leaves.name })
@@ -702,7 +707,13 @@ async function applyLeafEdit(opts: {
       }
     }
 
-    const update = mapLeafToHubspotUpdate(values);
+    const update = mapLeafToHubspotUpdate({
+      name: values.name,
+      sku: values.sku,
+      url: values.url,
+      unitCost: values.unitCost,
+      hubspotProductType: values.hubspotProductType,
+    });
     const submitted = toHubSpotProductUpdateProperties(update);
 
     // THE CLAIM ITSELF. Committed with this transaction, before anything is
@@ -1196,6 +1207,8 @@ function readLeafEditValues(formData: FormData): LeafEditValues {
   return {
     name,
     sku: skuRaw === "" ? null : skuRaw,
+    allowEstablishedSkuChange:
+      String(formData.get("allowEstablishedSkuChange") ?? "") === "true",
     url: String(formData.get("url") ?? "").trim() || null,
     unitCost,
     hubspotProductType: hsTypeRaw === "" ? null : hsTypeRaw,
@@ -1302,6 +1315,7 @@ export async function retryLeafEdit(
       values: {
         name: "",
         sku: null,
+        allowEstablishedSkuChange: false,
         url: null,
         unitCost: null,
         hubspotProductType: null,

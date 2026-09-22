@@ -44,6 +44,13 @@ import { SectionWithDrilldown } from "@/components/costs/section-with-drilldown"
 import { PackagingDrilldown } from "@/components/costs/packaging-drilldown";
 import { readComponentChargesForCosts } from "@/lib/component-charges/read";
 import { readComponentChargeReadiness } from "@/lib/component-charges/readiness";
+import {
+  isCostsM2PreviewEnabled,
+  isCostsM3PreviewEnabled,
+} from "@/lib/costs/m2-preview-switch";
+import { CostsM2Preview } from "@/components/costs/preview/costs-m2-preview";
+import type { CostsOverviewFacts } from "@/lib/costs/costs-overview-model";
+import { packagingMarkupCategory } from "@/lib/costs/packaging-markup-authority";
 import { ProductionDrilldown } from "@/components/costs/production-drilldown";
 import { FreightDrilldown } from "@/components/costs/freight-drilldown";
 import { ModuleCompletionProvider } from "@/components/costs/module-completion";
@@ -101,7 +108,7 @@ export default async function CostBuildPage({
   searchParams,
 }: {
   params: Promise<{ id: string; quoteId: string }>;
-  searchParams: Promise<{ section?: string }>;
+  searchParams: Promise<{ section?: string; preview?: string | string[] }>;
 }) {
   // 2026-06-17 prod-hang Vercel-side instrumentation (per Edward's
   // CC handoff comm). Empirically confirmed via Client/ClientRead
@@ -133,7 +140,12 @@ export default async function CostBuildPage({
     Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
   const elapsed = () => `${Date.now() - t0}ms`;
   const { id: projectId, quoteId } = await params;
-  const { section: expandedSection } = await searchParams;
+  const { section: expandedSection, preview: previewParam } = await searchParams;
+  // M2. Absent parameter means the original workspace, so every existing link
+  // keeps its current behaviour and turning the preview off leaves nothing
+  // behind — see `m2-preview-switch.ts` for why the switch is a URL parameter.
+  const m2Preview = isCostsM2PreviewEnabled(previewParam);
+  const m3Preview = isCostsM3PreviewEnabled(previewParam);
   const tag = quoteId.slice(0, 8);
   console.log(`[costs:${tag}] start memory=${heapMb()}MB`);
 
@@ -385,6 +397,7 @@ export default async function CostBuildPage({
       supplier: string | null;
       qtyPerSellableUnit: string | null;
       category: string | null;
+      categoryDerived: boolean;
       markupPct: string | null;
       markupPctSource: "category_default" | "manual_override" | null;
       inventoryEligible: boolean;
@@ -420,6 +433,13 @@ export default async function CostBuildPage({
     leaf: r.leaves,
     al: r.assembly_leaves,
   }));
+  const productTypeByQuoteLeaf = new Map<string, string | null>([
+    ...newAssemblyLeafRows.map(({ al, leaf }) => [al.quoteLeafId, leaf.hubspotProductType] as const),
+    ...newDirectProductRows.map(({ quote_leaves: ql, leaves: leaf }) => [ql.id, leaf.hubspotProductType] as const),
+  ]);
+  const markupDefaultByCategory = new Map(
+    categories.map((row) => [row.category, row.defaultMarkupPct] as const),
+  );
 
   const skus: SyntheticQuoteSku[] = [];
   for (const a of newAssemblyRows) {
@@ -531,8 +551,23 @@ export default async function CostBuildPage({
         r.assembly_leaf_inputs.pricingVendorNameSnapshot,
       supplier: r.assembly_leaf_inputs.supplier,
       qtyPerSellableUnit: r.assembly_leaf_inputs.qtyPerSellableUnit,
-      category: r.assembly_leaf_inputs.category,
-      markupPct: r.assembly_leaf_inputs.markupPct,
+      category: packagingMarkupCategory(
+        productTypeByQuoteLeaf.get(r.assembly_leaf_inputs.quoteLeafId),
+        r.assembly_leaf_inputs.category,
+      ),
+      categoryDerived: Boolean(productTypeByQuoteLeaf.get(r.assembly_leaf_inputs.quoteLeafId)?.trim()),
+      // Category-default values in the table are cached at write time. Present
+      // the current Settings rate for the Setup-derived category instead, so
+      // the editor and the pricing engine cannot show different defaults.
+      markupPct:
+        r.assembly_leaf_inputs.markupPctSource === "category_default"
+          ? markupDefaultByCategory.get(
+              packagingMarkupCategory(
+                productTypeByQuoteLeaf.get(r.assembly_leaf_inputs.quoteLeafId),
+                r.assembly_leaf_inputs.category,
+              ) ?? "",
+            ) ?? null
+          : r.assembly_leaf_inputs.markupPct,
       markupPctSource: r.assembly_leaf_inputs.markupPctSource,
       inventoryEligible: r.assembly_leaf_inputs.inventoryEligible,
       notes: r.assembly_leaf_inputs.notes,
@@ -572,6 +607,9 @@ export default async function CostBuildPage({
       quoteLeafId: quoteLeaves.id,
       name: leaves.name,
       serviceIdentity: leaves.serviceIdentity,
+      // Already the ORDER BY below; selected so a consumer that re-sorts (the
+      // M2 read model does) sorts on the same key rather than on arrival order.
+      position: quoteLeaves.position,
     })
     .from(quoteLeaves)
     .innerJoin(leaves, eq(leaves.id, quoteLeaves.leafId))
@@ -609,6 +647,7 @@ export default async function CostBuildPage({
       quoteLeafId: r.quoteLeafId,
       name: r.name,
       serviceIdentity: r.serviceIdentity!,
+      position: r.position,
       amountsByTier: Object.fromEntries(serviceAmounts.get(r.quoteLeafId) ?? []),
     }));
 
@@ -649,6 +688,102 @@ export default async function CostBuildPage({
     .select()
     .from(costSectionDeposits)
     .where(eq(costSectionDeposits.quoteId, quote.id));
+
+  // ── M2 read-only preview facts ──────────────────────────────────────────
+  //
+  // Projected from rows this page HAS ALREADY LOADED. No second query, and no
+  // second set of predicates: a preview that asked the database its own version
+  // of "what is on this quote?" could disagree with the workspace it previews,
+  // which is the one thing a parity preview must not do.
+  //
+  // Membership comes from the STRUCTURE queries above, never from the costing
+  // output. An uncosted charge produces no economics at all, so a view built
+  // from economics would omit it and say nothing — see the read model's header.
+  //
+  // Built unconditionally. It is a projection of rows already in memory, and
+  // branching on the switch here would put the preview's correctness on a code
+  // path only the preview exercises.
+  const m2Facts: CostsOverviewFacts = {
+    tiers: tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty })),
+    assemblies: newAssemblyRows.map((a) => ({
+      id: a.id,
+      sku: a.sku,
+      name: a.name,
+      position: a.position,
+    })),
+    members: newAssemblyLeafRows.map(({ al, leaf }) => ({
+      assemblyLeafId: al.id,
+      assemblyId: al.assemblyId,
+      // The GOVERNED cost-input identity, which is what every cost row carries.
+      quoteLeafId: al.quoteLeafId,
+      name: leaf.name,
+      sku: leaf.sku ?? "",
+      quantity: al.quantity,
+      position: al.position,
+      // Source data, as recorded. The raw HubSpot internal value — this page
+      // does not hold the option vocabulary needed to render its display label,
+      // and substituting a guessed label would be worse than showing the value.
+      productType: leaf.hubspotProductType,
+    })),
+    directProducts: newDirectProductRows
+      // The same classification gate the synthetic SKU list applies. A service
+      // is not a product, and it appears under its own owner kind below.
+      .filter(({ leaves: leaf }) => leaf.commercialKind !== "service")
+      .map(({ quote_leaves: ql, leaves: leaf }) => ({
+        quoteLeafId: ql.id,
+        name: leaf.name,
+        sku: leaf.sku ?? "",
+        quantity: ql.quantity,
+        position: ql.position,
+        productType: leaf.hubspotProductType,
+      })),
+    directServices,
+    packagingRows: newPkgInputRows.map((r) => ({
+      id: r.assembly_leaf_inputs.id,
+      quoteLeafId: r.assembly_leaf_inputs.quoteLeafId,
+      tierId: r.assembly_leaf_inputs.tierId,
+      lineGroupId: r.assembly_leaf_inputs.lineGroupId,
+      sortOrder: r.assembly_leaf_inputs.sortOrder,
+      pricingVendorNameSnapshot: r.assembly_leaf_inputs.pricingVendorNameSnapshot,
+      supplier: r.assembly_leaf_inputs.supplier,
+      qtyPerSellableUnit: r.assembly_leaf_inputs.qtyPerSellableUnit,
+      category: packagingMarkupCategory(
+        productTypeByQuoteLeaf.get(r.assembly_leaf_inputs.quoteLeafId),
+        r.assembly_leaf_inputs.category,
+      ),
+      markupPct: r.assembly_leaf_inputs.markupPct,
+      markupPctSource: r.assembly_leaf_inputs.markupPctSource,
+      inventoryEligible: r.assembly_leaf_inputs.inventoryEligible,
+      notes: r.assembly_leaf_inputs.notes,
+      unitCost: r.assembly_leaf_inputs.unitCost,
+    })),
+    groupProductionRows: newProdInputRows
+      // Item-Group-owned only, matching `prodRows` above. A service-owned row
+      // has no assembly and is carried by its own owner, not by a group.
+      .filter((r) => r.assembly_production_inputs.assemblyId !== null)
+      .map((r) => {
+        const api = r.assembly_production_inputs;
+        return {
+          id: api.id,
+          assemblyId: api.assemblyId as string,
+          tierId: api.tierId,
+          allocateServiceFeesToCost: api.allocateServiceFeesToCost,
+          fillingBlendingCost: api.fillingBlendingCost,
+          cmAssemblyTotal: api.cmAssemblyTotal,
+          bulkRawCost: api.bulkRawCost,
+          setupFeeTotal: api.setupFeeTotal,
+          toolingArtworkTotal: api.toolingArtworkTotal,
+          toolingTotal: api.toolingTotal,
+          artworkTotal: api.artworkTotal,
+          rdTotal: api.rdTotal,
+          testingMicrosTotal: api.testingMicrosTotal,
+          otherServiceTotal: api.otherServiceTotal,
+          actualUnitsProduced: api.actualUnitsProduced,
+        };
+      }),
+    componentCharges,
+    chargeReadiness,
+  };
 
   if (!bundle.ok) {
     console.log(
@@ -692,6 +827,44 @@ export default async function CostBuildPage({
       : "packaging";
 
   console.log(`[costs:${tag}] pre-render ${elapsed()} memory=${heapMb()}MB`);
+  const freightEditor = (
+    <FreightDrilldown
+              quoteId={quote.id}
+              tiers={tiers}
+              editable={editable}
+              workbook={freightWorkbook}
+              // A card per Finished Product, plus ONE card for Direct
+              // Products when the quote has any. Their shipments are keyed
+              // `assemblyId = null` — a quote-level fact, not a per-product
+              // one — so they share a card rather than each showing the same
+              // shipments back. `assemblyId` is what the surface groups BY;
+              // `id` is only the React key and open-modal token.
+              products={[
+                ...newAssemblyRows.map((row) => ({
+                  id: row.id,
+                  label: row.name || row.sku,
+                  assemblyId: row.id,
+                })),
+                ...(newDirectProductRows.length
+                  ? [{
+                      id: DIRECT_PRODUCT_CARD_ID,
+                      label: "Direct Products",
+                      assemblyId: null,
+                    }]
+                  : []),
+              ]}
+              // ONE canonical model, consumed by Create Shipment and Edit
+              // Contents alike. This call site produced `assembly_leaves.id`
+              // from OD-017 until 2026-08-31 and refused every operator
+              // shipment; the builder exists so the identity is named and
+              // tested rather than re-derived per surface.
+              components={freightSelectableComponents(
+                newAssemblyLeafJoinRows,
+                newDirectProductRows,
+              )}
+            />
+  );
+
   return (
     <NavShell
       surfaceKey="cost_build"
@@ -806,6 +979,34 @@ export default async function CostBuildPage({
           tiers={tiers.map((t) => ({ id: t.id, label: t.label }))}
         />
 
+        {/* M2 · the read-only preview REPLACES the module accordion and nothing
+            above it. The header, the Cost Stack and the Client Target strip are
+            the same components reading the same store, so the figures an
+            operator uses to judge the preview are the governed ones, unchanged.
+
+            Below this point the two branches are exclusive. The accordion is
+            where every editing capability lives, so mounting both would present
+            two authoring surfaces for one quote — and the preview's entry points
+            deliberately LEAVE the preview to reach the real modules. */}
+        {m2Preview || m3Preview ? (
+          // Suspense for the same reason `ActiveTierUrlSync` has one: the
+          // preview reads `useSearchParams` to build its exit link.
+          <Suspense fallback={null}>
+            <CostsM2Preview facts={m2Facts} quoteEditable={editable}
+              editMode={m3Preview && editable} quoteId={quote.id}
+              freightExcluded={quote.freightIntent === "exclude"}
+              freight={{ workbook: freightWorkbook, handoff: freightHandoff, statusAvailable: freightHandoffResult.ok }}
+              freightEditor={<ModuleCompletionProvider
+                quoteId={quote.id} editable={editable} viewerUserId={viewer.id}
+                viewerIsAdmin={viewer.role === "admin"} handoff={freightHandoff}
+                production={productionCompletion}
+                services={{ markReadyForFreight, markPackagingIncomplete, completeFreightHandoff,
+                  markFreightIncomplete, markProductionComplete, reopenProduction,
+                  readHandoff: getLatestFreightHandoff, readProduction: getProductionCompletion }}
+              >{freightEditor}</ModuleCompletionProvider>} />
+          </Suspense>
+        ) : (
+        <>
         {/* Sections — accordion-style summary-with-drill-down. Open
             state is client-managed via <CostBuildAccordion> context
             (RI.4 perf fix per Edward smoke item (a)). All drawer
@@ -849,7 +1050,7 @@ export default async function CostBuildPage({
           projectId={project.id}
           quoteId={quote.id}
         >
-          <SectionWithDrilldown
+          {quote.freightIntent !== "exclude" && <SectionWithDrilldown
             id="packaging"
             name="Packaging"
             sublabel={packagingSublabel(pkgRows)}
@@ -871,7 +1072,7 @@ export default async function CostBuildPage({
               componentCharges={componentCharges}
               chargeReadiness={chargeReadiness}
             />
-          </SectionWithDrilldown>
+          </SectionWithDrilldown>}
 
           <SectionWithDrilldown
             id="production"
@@ -909,44 +1110,12 @@ export default async function CostBuildPage({
             sectionKind="freight"
             lineCount={freightWorkbook.subcategories.length}
           >
-            <FreightDrilldown
-              quoteId={quote.id}
-              tiers={tiers}
-              editable={editable}
-              workbook={freightWorkbook}
-              // A card per Finished Product, plus ONE card for Direct
-              // Products when the quote has any. Their shipments are keyed
-              // `assemblyId = null` — a quote-level fact, not a per-product
-              // one — so they share a card rather than each showing the same
-              // shipments back. `assemblyId` is what the surface groups BY;
-              // `id` is only the React key and open-modal token.
-              products={[
-                ...newAssemblyRows.map((row) => ({
-                  id: row.id,
-                  label: row.name || row.sku,
-                  assemblyId: row.id,
-                })),
-                ...(newDirectProductRows.length
-                  ? [{
-                      id: DIRECT_PRODUCT_CARD_ID,
-                      label: "Direct Products",
-                      assemblyId: null,
-                    }]
-                  : []),
-              ]}
-              // ONE canonical model, consumed by Create Shipment and Edit
-              // Contents alike. This call site produced `assembly_leaves.id`
-              // from OD-017 until 2026-08-31 and refused every operator
-              // shipment; the builder exists so the identity is named and
-              // tested rather than re-derived per surface.
-              components={freightSelectableComponents(
-                newAssemblyLeafJoinRows,
-                newDirectProductRows,
-              )}
-            />
+            {freightEditor}
           </SectionWithDrilldown>
         </CostBuildAccordion>
         </ModuleCompletionProvider>
+        </>
+        )}
       </main>
     </CostingStoreProvider>
     </NavShell>

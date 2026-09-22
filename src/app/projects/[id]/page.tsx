@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { randomUUID } from "node:crypto";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -39,7 +40,7 @@ function defaultQuoteSurface(
   v: { id: string; hasSetupComplete: boolean; hasCostInputs: boolean },
 ): string {
   const base = `/projects/${projectId}/quotes/${v.id}`;
-  if (!v.hasSetupComplete) return base; // Setup (bare quote index)
+  if (!v.hasSetupComplete) return `${base}/setup`;
   if (!v.hasCostInputs) return `${base}/costs`;
   return `${base}/pricing`;
 }
@@ -325,6 +326,11 @@ export default async function ProjectDetailPage({
             >
               <form action={createQuote}>
                 <input type="hidden" name="projectId" value={project.id} />
+                <input
+                  type="hidden"
+                  name="idempotencyKey"
+                  value={randomUUID()}
+                />
                 <button
                   type="submit"
                   className="rounded border border-accent bg-accent px-3 py-1.5 text-xs font-medium text-paper hover:bg-accent-ink"

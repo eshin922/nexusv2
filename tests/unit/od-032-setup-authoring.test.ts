@@ -34,6 +34,10 @@ const ACTION = "src/lib/component-charges/create.ts";
 const WRAPPER = "src/app/actions/component-charges.ts";
 const MENU = "src/components/assembly-tree/leaf-context-menu.tsx";
 const CSS = "src/styles/od032-charge-sheet.css";
+const CHARGE_DEFAULTS = "src/lib/product-type-charge-defaults.ts";
+const CHARGE_DEFAULTS_PAGE = "src/app/admin/product-type-charge-defaults/page.tsx";
+const CHARGE_DEFAULTS_ACTION = "src/app/actions/product-type-charge-defaults.ts";
+const TREE_BODY = "src/components/assembly-tree/assembly-tree-body.tsx";
 const PROTOTYPE =
   "docs/design-prototypes/od-032/design/Nexus OD-032 Round Trip.dc.html";
 
@@ -67,6 +71,23 @@ test("no type is ever pre-selected", () => {
   );
   // And the surface says so, in the Design Authority's own words.
   assert.match(read(SHEET), /suggested · never pre-checked/);
+});
+
+test("suggestions come from raw HubSpot Product Type rules, not hardcoded labels", () => {
+  const sheet = codeOnly(read(SHEET));
+  const body = codeOnly(read(TREE_BODY));
+  const reader = codeOnly(read(CHARGE_DEFAULTS));
+  const settings = codeOnly(read(CHARGE_DEFAULTS_PAGE));
+  const action = codeOnly(read(CHARGE_DEFAULTS_ACTION));
+  assert.match(sheet, /suggestedKeys/);
+  assert.ok(!sheet.includes("SUGGESTED_BY_TYPE"));
+  assert.match(body, /suggestedChargesByProductType\[chargeSheetLeaf\.productType\.value\]/);
+  assert.match(reader, /productTypeChargeDefaults/);
+  assert.match(settings, /requireAdminPage\(\)/);
+  assert.match(settings, /loadHubspotProductTypeOptions\(\{ refresh: true \}\)/);
+  assert.match(action, /requireAdminAction\(\)/);
+  assert.match(action, /candidate\.value === value/);
+  assert.match(action, /writeAuditEntry\([\s\S]{0,600}tx\)/);
 });
 
 test("submitting sends only what was selected", () => {

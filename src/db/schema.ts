@@ -130,6 +130,14 @@ export const quoteStatus = pgEnum("quote_status", [
 ]);
 export type QuoteStatus = (typeof quoteStatus.enumValues)[number];
 
+export const quoteFreightIntent = pgEnum("quote_freight_intent", [
+  "undecided",
+  "include",
+  "exclude",
+]);
+export type QuoteFreightIntent = (typeof quoteFreightIntent.enumValues)[number];
+
+
 // Slice 12 Step 3 — Client Review feed event types (v3 brief §5.1
 // Round 3 amendment 1). pgEnum, not text, so bad values fail at the
 // DB. Extensible via `ALTER TYPE ADD VALUE`.
@@ -558,6 +566,11 @@ export const quotes = pgTable(
     scenarioStatus: scenarioStatus("scenario_status").notNull().default("active"),
     versionNumber: integer("version_number").notNull(),
     status: quoteStatus("status").notNull().default("draft"),
+    // Setup records quote-level freight scope only. Route, carrier, rate and
+    // shipment facts are recorded separately in Freight.
+    freightIntent: quoteFreightIntent("freight_intent")
+      .notNull()
+      .default("undecided"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     acceptedByUserId: uuid("accepted_by_user_id").references(() => users.id, {
@@ -1512,6 +1525,44 @@ export const markupDefaults = pgTable("markup_defaults", {
   }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Admin-maintained suggestions for component-owned one-time charges.
+ * Product Type values remain HubSpot-owned raw option values; suggestions are
+ * advisory and are never added to an existing quote when a rule changes.
+ */
+export const productTypeChargeDefaults = pgTable(
+  "product_type_charge_defaults",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productTypeValue: text("product_type_value").notNull(),
+    chargeKey: text("charge_key").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    uniqueIndex("product_type_charge_defaults_pair_idx").on(
+      t.productTypeValue,
+      t.chargeKey,
+    ),
+    index("product_type_charge_defaults_type_idx").on(t.productTypeValue),
+    check(
+      "product_type_charge_defaults_charge_key_values",
+      sql`${t.chargeKey} IN ('print_plates', 'tooling', 'artwork_plate', 'samples', 'other_service')`,
+    ),
+    check(
+      "product_type_charge_defaults_type_not_blank",
+      sql`length(btrim(${t.productTypeValue})) > 0`,
+    ),
+  ],
+);
 
 // Slice 8 — firm-level policy. Versioned via effective_from/until so we
 // can answer "what was our floor margin in Q3" without schema migration.

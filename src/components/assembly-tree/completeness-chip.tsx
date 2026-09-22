@@ -10,7 +10,7 @@ import type { SpecCompleteness } from "@/lib/assembly-tree";
 //   - complete:    ✓ Complete (dot prefix)
 //   - partial:     ⚠ N fields pending  (or "⚠ Fields pending" for placeholders)
 //   - empty:       — No specs entered
-//   - no_type:     ⚠ No type set
+//   - no_type:     ⚠ No specifications set
 //   - placeholder: ⚠ Fields pending
 
 export function CompletenessChip({
@@ -51,6 +51,6 @@ export function CompletenessChip({
     // warning again because it is once more actionable: classify the product
     // in HubSpot.
     case "no_type":
-      return <span className="a1v2-chip no_type">⚠ No type set</span>;
+      return <span className="a1v2-chip no_type">⚠ No specifications set</span>;
   }
 }
