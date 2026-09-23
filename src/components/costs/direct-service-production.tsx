@@ -68,6 +68,7 @@ export type DirectServiceProductionRow = {
   quoteLeafId: string;
   name: string;
   serviceIdentity: DirectServiceIdentity;
+  associatedProduct?: { name: string; sku: string } | null;
   /** tierId → current amount for THIS service's one governed column. */
   amountsByTier: Record<string, string | null>;
 };
@@ -248,10 +249,11 @@ export function DirectServiceProduction({
                 fontSize: "13px",
               }}
             >
-              <span className="r6-badge">Direct service</span>
+              <span className="r6-badge">{svc.associatedProduct ? "Associated service" : "Direct service"}</span>
               <span style={{ color: "var(--ink)", fontWeight: 500 }}>
                 {svc.name}
               </span>
+              {svc.associatedProduct ? <span style={{ color: "var(--ink-3)" }}>for {svc.associatedProduct.name} ({svc.associatedProduct.sku})</span> : null}
               <span
                 style={{
                   marginLeft: "auto",

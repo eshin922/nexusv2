@@ -87,6 +87,19 @@ export const COMPONENT_CHARGE_DESTINATION: Partial<
   artwork_plate: "otc_artwork",
   samples: "otc_samples",
   other_service: "otc_other_service",
+  // OWNED PRODUCTION FEES. The SAME destinations the production columns resolve
+  // -- `setup_fee_total` posts to `otc_setup` and `rd_total` to
+  // `otc_formulation` -- so a fee lands on the same accounting line whichever
+  // owner carried it. A different destination by owner would be the OD-028
+  // defect at the accounting layer.
+  //
+  // Both are firm-wide destinations with a resolved mapping, which is what
+  // makes them addable here and `testing_micros` not: `otc_testing` is
+  // per-line, and a component charge freezes `selectedNetsuiteItem: null`
+  // unconditionally, so it would have nowhere to record the selection its
+  // destination requires.
+  project_setup: "otc_setup",
+  rd_formulation: "otc_formulation",
 };
 
 export type ComponentDestinationResolution =

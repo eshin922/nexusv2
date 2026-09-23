@@ -34,6 +34,7 @@ import { detachQuoteProduct } from "@/app/actions/quote-products";
 import { useRouter } from "next/navigation";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
 import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import type { ProductAssociableServiceIdentity } from "@/lib/product-structure/service-association";
 
 // Phase A.1 v2 impl-2 Step 9 — Drag-to-reorder ASY rows.
 //
@@ -73,6 +74,8 @@ export function AssemblyTreeBody({
   tiers,
   existingComponentCharges,
   suggestedChargesByProductType,
+  suggestedServicesByProductType,
+  associatedServiceLeaves,
   targetsByUnit,
 }: {
   tree: AssemblyTree;
@@ -101,6 +104,8 @@ export function AssemblyTreeBody({
   }>;
   /** Advisory rules keyed by the raw HubSpot Product Type value. */
   suggestedChargesByProductType: Record<string, ComponentChargeKey[]>;
+  suggestedServicesByProductType: Record<string, ProductAssociableServiceIdentity[]>;
+  associatedServiceLeaves: ReadonlyArray<{ id: string; serviceIdentity: string }>;
   /** Resolved-ready targets, indexed by sellable-unit id at the tree root. */
   targetsByUnit: ReadonlyMap<string, UnitTargets>;
 }) {
@@ -255,7 +260,7 @@ export function AssemblyTreeBody({
     return applyOptimisticMove(base, optimistic, {
       // Copy across; never compute. The two node types differ only by the
       // legacy junction id, and a moved product has no true junction id yet.
-      toDirect: ({ junctionId: _drop, ...rest }) => rest,
+      toDirect: ({ junctionId: _drop, ...rest }) => ({ ...rest, associatedProductQuoteLeafId: null }),
       toMember: (d) => ({ ...d, junctionId: `optimistic:${d.quoteLeafId}` }),
     });
   }, [tree.directProducts, orderedAssemblies, optimistic]);
@@ -646,13 +651,14 @@ export function AssemblyTreeBody({
                   ? () => setChargeSheetLeaf(product)
                   : undefined
               }
-              chargeCount={
+            chargeCount={
                 product.commercialKind === "product"
                   ? existingComponentCharges?.filter(
                       (charge) => charge.quoteLeafId === product.quoteLeafId,
                     ).length ?? 0
                 : undefined
-              }
+            }
+              associatedServiceCount={tree.directProducts.filter((service) => service.associatedProductQuoteLeafId === product.quoteLeafId).length}
               onRemove={
                 product.commercialKind === "product"
                   ? () => removeDirectProduct(product.quoteLeafId)
@@ -681,15 +687,15 @@ export function AssemblyTreeBody({
                   </div>
                 </div>
                 <div className="setup-wizard-product-charges">
-                  <span>One-time charges · {selectedCount ? `${selectedCount} added` : "none selected"}</span>
+                  <span>Associated costs · {selectedCount ? `${selectedCount} added` : "none selected"}</span>
                   <button
                     type="button"
                     onClick={() => setChargeSheetLeaf(product)}
                     disabled={!editable}
-                    aria-label="Add one-time charges"
+                    aria-label="Add associated costs"
                     title={!editable ? "This quote is no longer a draft; charges are frozen." : undefined}
                   >
-                    {selectedCount ? "+ Add or change charges" : "+ Add one-time charge"}
+                    {selectedCount ? "+ Add or change associated costs" : "+ Add associated costs"}
                   </button>
                   <a
                     className="setup-wizard-inline-action"
@@ -794,6 +800,9 @@ export function AssemblyTreeBody({
               ) : null}
               <DirectProductRow
                 product={product}
+                associatedProductName={product.associatedProductQuoteLeafId
+                  ? tree.directProducts.find((candidate) => candidate.quoteLeafId === product.associatedProductQuoteLeafId)?.name ?? "Unknown product"
+                  : null}
                 editable={editable}
                 isMoving={movingLeafId === product.quoteLeafId}
                 pending={optimistic?.quoteLeafId === product.quoteLeafId}
@@ -866,6 +875,17 @@ export function AssemblyTreeBody({
               ? suggestedChargesByProductType[chargeSheetLeaf.productType.value] ?? []
               : []
           }
+          associatedServices={tree.directProducts.some((product) => product.quoteLeafId === chargeSheetLeaf.quoteLeafId && product.commercialKind === "product")
+            ? associatedServiceLeaves
+            : []}
+          enableAssociatedServices={tree.directProducts.some((product) => product.quoteLeafId === chargeSheetLeaf.quoteLeafId && product.commercialKind === "product")}
+          suggestedServiceIdentities={chargeSheetLeaf.productType
+            ? suggestedServicesByProductType[chargeSheetLeaf.productType.value] ?? []
+            : []}
+          existingServiceIdentities={tree.directProducts
+            .filter((service) => service.associatedProductQuoteLeafId === chargeSheetLeaf.quoteLeafId)
+            .map((service) => service.serviceIdentity)
+            .filter((identity): identity is ProductAssociableServiceIdentity => identity === "filling_blending" || identity === "packout_assembly" || identity === "testing_micros")}
           existingKeys={
             existingComponentCharges?.filter(
               (c) => c.quoteLeafId === chargeSheetLeaf.quoteLeafId,

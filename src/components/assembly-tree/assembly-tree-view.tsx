@@ -33,6 +33,7 @@ import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AssemblyTreeBody } from "./assembly-tree-body";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
 import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
+import type { ProductAssociableServiceIdentity } from "@/lib/product-structure/service-association";
 
 export function AssemblyTreeView({
   tree,
@@ -44,6 +45,8 @@ export function AssemblyTreeView({
   permissions,
   existingComponentCharges,
   suggestedChargesByProductType,
+  suggestedServicesByProductType,
+  associatedServiceLeaves,
   tiers,
   clientTargets,
 }: {
@@ -74,6 +77,8 @@ export function AssemblyTreeView({
   }>;
   /** Advisory rules keyed by HubSpot's raw hs_product_type value. */
   suggestedChargesByProductType: Record<string, ComponentChargeKey[]>;
+  suggestedServicesByProductType: Record<string, ProductAssociableServiceIdentity[]>;
+  associatedServiceLeaves: ReadonlyArray<{ id: string; serviceIdentity: string }>;
   /** Tier list for the Client Target drawer, in display order. */
   tiers: ReadonlyArray<TargetTier>;
   /** Raw Client Target rows for the quote. Indexed here, resolved per row. */
@@ -105,6 +110,8 @@ export function AssemblyTreeView({
         permissions={permissions}
         existingComponentCharges={existingComponentCharges}
         suggestedChargesByProductType={suggestedChargesByProductType}
+        suggestedServicesByProductType={suggestedServicesByProductType}
+        associatedServiceLeaves={associatedServiceLeaves}
       />
     </div>
   );

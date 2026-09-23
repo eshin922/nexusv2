@@ -26,12 +26,13 @@ Every production / service input resolves to one of two classes.
 
 ### 1.a Finished-good component / item
 
-These belong to the **finished-good / component economics**. They do not become
-separate OTC or service lines.
+These belong to the **finished-good / component economics**. For an Item Group,
+they do not become separate OTC or service lines. The 2026-09-23 amendment
+below governs separately priced services associated with a standalone product.
 
 | Input | Destination | Item type |
 |---|---|---|
-| Filling / Blending | `OTC - Filling` | Inventory Item |
+| Filling / Blending | `OTC - Filling` | **Non-inventory Item** (amended 2026-09-23) |
 | CM Assembly / Pack-out | `OTC - Packout` | **Non-inventory Item** (amended 2026-08-20) |
 | Bulk Raw | `OTC - Raws` | Inventory Item |
 
@@ -59,7 +60,9 @@ separate OTC or service lines.
 defined in the amendment at the foot of this document: recurring Item
 Group-owned economics, not a one-time charge.
 
-**16 destinations** as originally recorded. 5 Inventory Item, 11 Non-inventory Item. *(Amended 2026-08-20: `OTC - Packout` moved Inventory → Non-inventory; was 6/10.)*
+**16 destinations** as originally recorded. The current classification after
+the packout and filling amendments is 4 Inventory Item and 12 Non-inventory
+Item (originally 6/10).
 
 ---
 
@@ -282,3 +285,17 @@ span, the emitted production line, and the item mapping are built under their
 own dispositions, and §3's boundary is unchanged.
 
 **Recorded 2026-08-31 (Edward, Accounting / Design Authority disposition).**
+
+## Amendment — 2026-09-23 · Product-associated services on Sales Orders
+
+Edward directed that a production service selected for a product always posts
+as its own priced NetSuite Sales Order line. If the customer quote presents
+that service price inside the product line, the product's NetSuite line excludes
+the service amount. Separate services using the same NetSuite item remain
+separate lines and identify their owning product by SKU and name in the line
+description. Nexus retains the exact product-to-service association.
+
+`otc_filling` is governed as a **Non-inventory Item** for this path, matching
+the actual `BLD-FILL` (`NonInvtPart` / `Resale`) item already recorded above.
+The earlier Inventory classification in §1.a is superseded for filling. This
+does not settle the independent `otc_tooling` item-type conflict.

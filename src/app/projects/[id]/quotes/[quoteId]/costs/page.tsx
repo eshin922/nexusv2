@@ -627,6 +627,7 @@ export default async function CostBuildPage({
       quoteLeafId: quoteLeaves.id,
       name: leaves.name,
       serviceIdentity: leaves.serviceIdentity,
+      associatedProductQuoteLeafId: quoteLeaves.associatedProductQuoteLeafId,
       // Already the ORDER BY below; selected so a consumer that re-sorts (the
       // M2 read model does) sorts on the same key rather than on arrival order.
       position: quoteLeaves.position,
@@ -667,6 +668,13 @@ export default async function CostBuildPage({
       quoteLeafId: r.quoteLeafId,
       name: r.name,
       serviceIdentity: r.serviceIdentity!,
+      associatedProduct: r.associatedProductQuoteLeafId
+        ? (() => {
+            const owner = newDirectProductRows.find((row) => row.quote_leaves.id === r.associatedProductQuoteLeafId);
+            if (!owner) throw new Error(`Associated service ${r.quoteLeafId} has no direct product ${r.associatedProductQuoteLeafId}`);
+            return { name: owner.leaves.name, sku: owner.leaves.sku ?? "" };
+          })()
+        : null,
       position: r.position,
       amountsByTier: Object.fromEntries(serviceAmounts.get(r.quoteLeafId) ?? []),
     }));

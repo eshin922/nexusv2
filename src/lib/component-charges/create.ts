@@ -46,6 +46,7 @@ import {
   quoteChargeInstanceTiers,
   quoteChargeInstances,
   quoteLeaves,
+  leaves,
 } from "@/db/schema";
 import {
   ActionGuardError,
@@ -60,10 +61,16 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 import { ensureChargeInstance } from "@/lib/commercial-recovery/charge-instance";
 import {
   COMPONENT_CHARGE_LABELS,
+  OTC_COLUMN_TO_CHARGE,
   isComponentChargeKey,
   labelRequiredFor,
   type ComponentChargeKey,
 } from "@/lib/commercial-recovery/registry";
+import {
+  DIRECT_SERVICE_PRODUCTION_INPUT,
+  DIRECT_SERVICE_LABELS,
+  type DirectServiceIdentity,
+} from "@/lib/product-structure/direct-service";
 
 export type ComponentChargeDraft = {
   chargeKey: string;
@@ -120,9 +127,18 @@ export async function createComponentChargesAs(
     // Not merely present somewhere. A leaf id from another quote would satisfy
     // the foreign key and attribute this quote's charge to a component it does
     // not contain.
+    // The service identity lives on the LIBRARY leaf, not the quote leaf --
+    // `quote_leaves` denormalises only `commercial_kind`. Joined rather than
+    // inferred from the kind: 'service' says a governed input exists, and only
+    // the identity says WHICH, which is the half the guard below turns on.
     const [leaf] = await db
-      .select({ id: quoteLeaves.id })
+      .select({
+        id: quoteLeaves.id,
+        commercialKind: quoteLeaves.commercialKind,
+        serviceIdentity: leaves.serviceIdentity,
+      })
       .from(quoteLeaves)
+      .innerJoin(leaves, eq(leaves.id, quoteLeaves.leafId))
       .where(and(eq(quoteLeaves.id, quoteLeafId), eq(quoteLeaves.quoteId, quoteId)))
       .limit(1);
     if (!leaf) {
@@ -131,6 +147,37 @@ export async function createComponentChargesAs(
         "That component is not on this quote.",
       );
     }
+
+    /**
+     * ── ONE GOVERNED FEE, ONE REPRESENTATION ────────────────────────────
+     *
+     * A Direct Service leaf has exactly ONE governed production input, named
+     * by its identity. If that input maps to the charge key being added, the
+     * charge and the column are two representations of THAT service's governed
+     * fee -- not a claim that two costs are economically identical, and not a
+     * comparison of amounts. A $900 column beside a $500 charge is the same
+     * duplication, mis-stated.
+     *
+     * The composition is exact and needs no judgement:
+     *
+     *   identity -> DIRECT_SERVICE_PRODUCTION_INPUT -> column
+     *   column   -> OTC_COLUMN_TO_CHARGE            -> charge key
+     *
+     * It is deliberately NARROW. It refuses only where the owner's own input
+     * already occupies the key. It says nothing about two charges of one type
+     * on one component, or about a component's fee beside an Item Group's --
+     * those are separately incurred obligations, and refusing them would push
+     * operators back to the single column this work exists to stop depending
+     * on. Differing labels do not prove they are distinct; they only make the
+     * distinction RECORDED, which is the most the schema can know.
+     *
+     * The refusal names where the fee goes instead, because an operator who is
+     * told only "no" has been given a dead end rather than an instruction.
+     */
+    const serviceIdentity = leaf.serviceIdentity as DirectServiceIdentity | null;
+    const governedKeyForOwner: string | null = serviceIdentity
+      ? (OTC_COLUMN_TO_CHARGE[DIRECT_SERVICE_PRODUCTION_INPUT[serviceIdentity]] ?? null)
+      : null;
 
     // ── WHAT THIS COMPONENT ALREADY OWNS ──────────────────────────────────
     //
@@ -162,6 +209,16 @@ export async function createComponentChargesAs(
         );
       }
       const key = c.chargeKey as ComponentChargeKey;
+      if (governedKeyForOwner !== null && key === governedKeyForOwner) {
+        const svc = DIRECT_SERVICE_LABELS[serviceIdentity as DirectServiceIdentity];
+        throw new ActionGuardError(
+          ERR.VALIDATION,
+          `${COMPONENT_CHARGE_LABELS[key]} is already this ${svc} line's governed fee, ` +
+            `so adding it here would record the same fee twice. Enter the amount on ` +
+            `the ${svc} line's Production input instead. A DIFFERENT fee this line ` +
+            `separately incurred can still be added under another charge type.`,
+        );
+      }
       const label = c.label?.trim() || null;
       if (labelRequiredFor(key) && !label) {
         throw new ActionGuardError(

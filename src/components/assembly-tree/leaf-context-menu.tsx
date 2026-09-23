@@ -194,7 +194,7 @@ export function LeafContextMenu({
                 onAddCharges();
               }}
             >
-              Add one-time charges
+              Add associated costs
             </button>
           )}
           {/* B-4B removed four disabled items, correctly: none was a

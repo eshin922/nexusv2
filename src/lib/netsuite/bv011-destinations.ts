@@ -80,7 +80,10 @@ export const BV011_DESTINATIONS: ReadonlyArray<{
   itemType: Bv011ItemType;
   section: "1.a" | "1.b";
 }> = [
-  { key: "otc_filling", label: "OTC - Filling", itemType: "inventory", section: "1.a" },
+  // The mapped BLD-FILL service item is NonInvtPart / Resale. Filling is
+  // separately priced on the Sales Order even when its price is presented
+  // inside a product line on the customer quote.
+  { key: "otc_filling", label: "OTC - Filling", itemType: "non_inventory", section: "1.a" },
   // AMENDED 2026-08-20 — Accounting disposition. Pack-out / Assembly is billed
   // as a SERVICE, so its NetSuite item is governed Non-inventory. Corrected
   // from "inventory", which was recorded before any item existed to check it

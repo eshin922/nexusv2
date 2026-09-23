@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Add one-time charges — the Setup sheet.
+ * Associated costs — the Setup sheet for component charges and product services.
  *
  * Pattern 30: the geometry, copy and register are the Design Authority's, taken
  * from `Nexus OD-032 Round Trip` §03 rather than interpreted from a screenshot.
@@ -51,6 +51,13 @@ import {
 } from "@/lib/commercial-recovery/registry";
 import { createComponentCharges } from "@/app/actions/component-charges";
 import { runGoverned, failureMessage } from "@/lib/governed-action";
+import { attachQuoteProduct } from "@/app/actions/quote-products";
+import { useRouter } from "next/navigation";
+import { DIRECT_SERVICE_LABELS } from "@/lib/product-structure/direct-service";
+import {
+  PRODUCT_ASSOCIABLE_SERVICE_IDENTITIES,
+  type ProductAssociableServiceIdentity,
+} from "@/lib/product-structure/service-association";
 
 /**
  * The hint under each type, from the Design Authority's picker.
@@ -63,6 +70,8 @@ const HINT: Record<ComponentChargeKey, string> = {
   tooling: "cutting die, mould or collar for this component",
   artwork_plate: "design, adaptation and proofing labour",
   samples: "pre-production samples of this component",
+  project_setup: "one-off set-up or changeover for this product's run",
+  rd_formulation: "development or formulation work quoted separately",
   other_service: "label required · e.g. “foil stamping die spec”",
 };
 
@@ -73,6 +82,10 @@ export function AddComponentChargesSheet({
   componentName,
   productTypeLabel,
   suggestedKeys,
+  associatedServices = [],
+  enableAssociatedServices = false,
+  suggestedServiceIdentities = [],
+  existingServiceIdentities = [],
   existingKeys,
   onClose,
 }: {
@@ -83,6 +96,10 @@ export function AddComponentChargesSheet({
   productTypeLabel: string | null;
   /** Configured by admins against the raw HubSpot Product Type value. */
   suggestedKeys: readonly ComponentChargeKey[];
+  associatedServices?: ReadonlyArray<{ id: string; serviceIdentity: string }>;
+  enableAssociatedServices?: boolean;
+  suggestedServiceIdentities?: readonly ProductAssociableServiceIdentity[];
+  existingServiceIdentities?: readonly ProductAssociableServiceIdentity[];
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -97,6 +114,8 @@ export function AddComponentChargesSheet({
   onClose: () => void;
 }) {
   const [picked, setPicked] = useState<Set<ComponentChargeKey>>(new Set());
+  const [pickedServices, setPickedServices] = useState<Set<ProductAssociableServiceIdentity>>(new Set());
+  const router = useRouter();
   /** Per type, as typed. Only read for the types that need one. */
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -170,8 +189,8 @@ export function AddComponentChargesSheet({
   function submit() {
     setError(null);
     startSaving(async () => {
-      const outcome = await runGoverned(() =>
-        createComponentCharges({
+      if (picked.size > 0) {
+        const outcome = await runGoverned(() => createComponentCharges({
           quoteId,
           quoteLeafId,
           // TYPE, OWNER, LABEL. No amounts: this surface does not know what
@@ -180,14 +199,32 @@ export function AddComponentChargesSheet({
             chargeKey: key,
             label: labels[key]?.trim() || null,
           })),
-        }),
-      );
-      const failed = failureMessage(outcome);
-      if (failed) {
-        setError(failed);
-        return;
+        }));
+        const failed = failureMessage(outcome);
+        if (failed) {
+          setError(failed);
+          return;
+        }
+      }
+      for (const identity of pickedServices) {
+        const leaf = associatedServices.find((service) => service.serviceIdentity === identity);
+        if (!leaf) {
+          setError(`${DIRECT_SERVICE_LABELS[identity]} is not available in the service library.`);
+          return;
+        }
+        const formData = new FormData();
+        formData.set("quoteId", quoteId);
+        formData.set("leafId", leaf.id);
+        formData.set("associatedProductQuoteLeafId", quoteLeafId);
+        const result = await attachQuoteProduct(formData);
+        if (!result.ok) {
+          setError(result.error.message);
+          router.refresh();
+          return;
+        }
       }
       onClose();
+      router.refresh();
     });
   }
 
@@ -202,13 +239,13 @@ export function AddComponentChargesSheet({
         className="od032-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Add one-time charges"
+        aria-label="Add associated costs"
         data-testid="add-component-charges-sheet"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="od032-sheet-head">
           <div className="od032-sheet-head-row">
-            <h2>Add one-time charges</h2>
+            <h2>Add associated costs</h2>
             <span className="od032-step">SELECT TYPES</span>
           </div>
           <p className="od032-owner">
@@ -243,15 +280,6 @@ export function AddComponentChargesSheet({
               </span>
             </div>
           )}
-
-          <div className="od032-suggest od032-associated-note" data-testid="associated-costs-routing-note">
-            <span className="od032-suggest-label">Production-associated costs</span>
-            <span className="od032-suggest-note">
-              Filling / blending, CM assembly / packout, setup / tooling, R&amp;D / formulation,
-              and stability / potency / micros testing are entered on <span className="mono">Costs</span>.
-              They are not component charge types and cannot be added from this picker.
-            </span>
-          </div>
 
           <ul className="od032-picker">
             {suggestedRows.length > 0 && (
@@ -341,6 +369,46 @@ export function AddComponentChargesSheet({
             })}
           </ul>
 
+          {enableAssociatedServices && (
+            <ul className="od032-picker" aria-label="Production services for this product">
+              <li className="od032-picker-section" aria-hidden="true">
+                <span>Production services · separate NetSuite lines</span>
+              </li>
+              {PRODUCT_ASSOCIABLE_SERVICE_IDENTITIES.map((identity) => {
+                const available = associatedServices.some((service) => service.serviceIdentity === identity);
+                const existing = existingServiceIdentities.includes(identity);
+                const selected = pickedServices.has(identity);
+                return (
+                  <li key={identity}>
+                    <button
+                      type="button"
+                      className="od032-pick"
+                      role="checkbox"
+                      aria-checked={selected || existing}
+                      disabled={!available || existing}
+                      onClick={() => setPickedServices((current) => {
+                        const next = new Set(current);
+                        if (next.has(identity)) next.delete(identity);
+                        else next.add(identity);
+                        return next;
+                      })}
+                    >
+                      <span className="od032-box" data-on={selected || existing ? "yes" : undefined}>
+                        {selected || existing ? "✓" : ""}
+                      </span>
+                      <span className="od032-pick-text">
+                        <span className="od032-pick-name">{DIRECT_SERVICE_LABELS[identity]}</span>
+                        {suggestedServiceIdentities.includes(identity) && <span className="od032-pick-suggested">common on this type</span>}
+                        <span className="od032-pick-hint">{existing ? "Already attached to this product" : available ? "Cost and sell price are entered on Costs, per tier" : "Unavailable in the service library"}</span>
+                      </span>
+                      <span className="od032-basis">service line</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
           {/* WHERE THE REST OF THE ANSWER IS GIVEN. The operator has just said
               what this component requires and is entitled to know what happens
               to it next — otherwise a charge created with no cost reads as an
@@ -368,7 +436,7 @@ export function AddComponentChargesSheet({
 
           <footer className="od032-sheet-foot">
             <span className="od032-count">
-              {picked.size} selected · cost is entered on Costs
+              {picked.size + pickedServices.size} selected · cost is entered on Costs
             </span>
             <span className="od032-spacer" />
             <button type="button" className="od032-btn" onClick={onClose}>
@@ -378,13 +446,13 @@ export function AddComponentChargesSheet({
               type="button"
               className="od032-btn primary"
               // Pattern 47(f): action-scoped, and it says why it is disabled.
-              disabled={picked.size === 0 || saving || blocked() !== null}
+              disabled={picked.size + pickedServices.size === 0 || saving || blocked() !== null}
               aria-busy={saving || undefined}
               title={
                 saving
                   ? "Adding these charges…"
-                  : picked.size === 0
-                    ? "Select at least one type of charge."
+                  : picked.size + pickedServices.size === 0
+                    ? "Select at least one associated cost."
                     : (blocked() ?? undefined)
               }
               data-testid="submit-charges"
@@ -392,7 +460,7 @@ export function AddComponentChargesSheet({
             >
               {saving
                 ? "Adding…"
-                : `Add ${picked.size} charge${picked.size === 1 ? "" : "s"}`}
+                : `Add ${picked.size + pickedServices.size} associated cost${picked.size + pickedServices.size === 1 ? "" : "s"}`}
             </button>
           </footer>
         </div>

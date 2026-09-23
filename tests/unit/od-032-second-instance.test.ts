@@ -106,7 +106,7 @@ test("the warning names the labels already in use", () => {
 test("SUBMIT is gated, and says why on the surface", () => {
   const sheet = codeOnly(read(SHEET));
   // Gated on the reason, not merely on emptiness.
-  assert.match(sheet, /disabled=\{picked\.size === 0 \|\| saving \|\| blocked\(\) !== null\}/);
+  assert.match(sheet, /disabled=\{picked\.size \+ pickedServices\.size === 0 \|\| saving \|\| blocked\(\) !== null\}/);
   // Pattern 47(f): a disabled control communicates why — and in VISIBLE TEXT,
   // because hover-to-discover is a navigation pattern, not a presentation one.
   assert.match(sheet, /data-testid="sheet-blocked"/);

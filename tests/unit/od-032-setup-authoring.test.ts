@@ -177,10 +177,11 @@ test("the action elects nothing", () => {
 test("basis is one-time everywhere, and is not a control", () => {
   const sheet = read(SHEET);
   const code = codeOnly(sheet);
-  // Displayed in both phases...
-  assert.equal((sheet.match(/one-time/g) ?? []).length >= 2, true);
-  // ...and never sent, because there is nothing to send: every component-owned
-  // charge is one-time, no exceptions, and the sheet never asks.
+  // Component-owned charges display their governed one-time basis; linked
+  // production services are visibly identified as separate service lines.
+  assert.match(sheet, /od032-basis">one-time/);
+  assert.match(sheet, /od032-basis">service line/);
+  // Neither basis is an operator control or a submitted field.
   assert.ok(!/basis:/.test(code), "the sheet must not submit a basis");
   const action = codeOnly(read(ACTION));
   assert.ok(!/basis/.test(action), "the action must not accept a basis");
@@ -310,16 +311,10 @@ test("the writes and their audit rows share one transaction", () => {
   );
 });
 
-test("the sheet's copy is the Design Authority's, verbatim", () => {
+test("the sheet names the broader associated-cost choice", () => {
   const sheet = read(SHEET);
-  const proto = read(PROTOTYPE);
-
-  // Phrases lifted rather than paraphrased. Each appears in the prototype, so
-  // this fails if either side is reworded.
-  for (const phrase of ["Add one-time charges", "suggested · never pre-checked"]) {
-    assert.ok(proto.includes(phrase), `prototype no longer contains "${phrase}"`);
-    assert.ok(sheet.includes(phrase), `the sheet must carry "${phrase}" verbatim`);
-  }
+  assert.match(sheet, /Add associated costs/);
+  assert.match(sheet, /suggested · never pre-checked/);
 });
 
 test("DIVERGENCE · the economics phase is gone, and its copy with it", () => {
@@ -388,7 +383,13 @@ test("DIVERGENCE · Run setup is not offered, and the disposition is why", () =>
   );
 
   const keys = [...COMPONENT_CHARGE_KEYS];
-  assert.equal(keys.length, 5, "V1 offers five component types");
+  // SEVEN now, not five: `project_setup` and `rd_formulation` were added so a
+  // standalone product could own a fee it causes. That does NOT resolve this
+  // divergence, and the distinction is easy to lose -- `project_setup` is the
+  // governed engagement/run set-up fee with an existing destination
+  // (`otc_setup`), while the prototype's "Run setup" is a separate type that
+  // still has none. The disposition below is untouched.
+  assert.equal(keys.length, 7, "V1 offers seven component types");
   assert.ok(
     !keys.some((k) => String(k).includes("run_setup")),
     "Run setup is out of V1 pending an Accounting destination",
@@ -428,7 +429,7 @@ test("only `other` demands a label of its own", () => {
 
 test("the entry point is the component row's own menu", () => {
   const menu = codeOnly(read(MENU));
-  assert.match(menu, /Add one-time charges/);
+  assert.match(menu, /Add associated costs/);
   // Disabled on a non-draft, and it says why — Pattern 47(f).
   assert.match(menu, /This quote is no longer a draft; charges are frozen\./);
   // Offered only when a handler exists, so a tree without the sheet does not

@@ -63,6 +63,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 /** The include-* flags, and nothing that is not one. */
 const INCLUDE_FIELDS = [
   "includeFeeLines",
+  "includeAssociatedServicesInProduct",
   "includeTerms",
   "includeAddendum",
   "includeNote",

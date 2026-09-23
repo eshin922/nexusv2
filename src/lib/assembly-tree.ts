@@ -173,7 +173,10 @@ export type AssemblyCompletenessRollup =
 // Direct Product has no `assembly_leaves` row at all. The omission is the point:
 // the legacy junction is what makes something a group member, so a type that
 // cannot carry one cannot accidentally be treated as grouped.
-export type DirectProductNode = Omit<AssemblyLeafNode, "junctionId">;
+export type DirectProductNode = Omit<AssemblyLeafNode, "junctionId"> & {
+  /** Null for a standalone line; otherwise the direct product this service belongs to. */
+  associatedProductQuoteLeafId?: string | null;
+};
 
 export type AssemblyTree = {
   assemblies: AssemblyNode[];
@@ -388,7 +391,7 @@ function assembleTree(
   // the node lands in — never by differing field semantics.
   const describeLeaf = (
     leaf: typeof leaves.$inferSelect,
-  ): Omit<DirectProductNode, "quoteLeafId" | "position" | "quantity"> => {
+  ): Omit<DirectProductNode, "quoteLeafId" | "position" | "quantity" | "associatedProductQuoteLeafId"> => {
     // Step 4.5 · TWO authorities, deliberately not one.
     //
     // The displayed Product Type is HubSpot's, read LIVE, so the Library and
@@ -509,6 +512,7 @@ function assembleTree(
       quoteLeafId: row.id,
       position: row.position,
       quantity: row.quantity,
+      associatedProductQuoteLeafId: row.associatedProductQuoteLeafId,
       ...describeLeaf(leaf),
     } satisfies DirectProductNode;
   });

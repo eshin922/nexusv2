@@ -124,6 +124,7 @@ export type CpdfSku = {
   id: string;
   code: string;
   name: string;
+  included_services?: ReadonlyArray<string>;
   pack: string | null;
   /**
    * Components consumed per finished unit, when greater than one. NULL when

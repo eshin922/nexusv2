@@ -53,7 +53,7 @@ test("both menus offer the same act under the same label", () => {
   // Not a near-synonym. Two labels for one act would read as two capabilities,
   // and an operator would reasonably wonder which one they wanted.
   for (const file of [DIRECT, MEMBER]) {
-    assert.match(read(file), /Add one-time charges/, `${file} must offer the act`);
+    assert.match(read(file), /Add associated costs/, `${file} must offer the act`);
   }
 });
 

@@ -134,6 +134,7 @@ export type AdapterQuoteLeafAttachmentRow = {
   leafSku: string;
   /** From the joined library leaf. NULL for a product. */
   serviceIdentity?: string | null;
+  associatedProductQuoteLeafId?: string | null;
   /** HubSpot's current raw `hs_product_type`; it governs packaging markup category. */
   hubspotProductType?: string | null;
 };
@@ -355,6 +356,7 @@ export function buildQuoteCostingInputFromNewModel(
       productName: al.leafName,
       sortOrder: al.position,
       serviceIdentity: al.serviceIdentity ?? null,
+      associatedProductQuoteLeafId: al.associatedProductQuoteLeafId ?? null,
       retailBenchmark: null,
     });
   }

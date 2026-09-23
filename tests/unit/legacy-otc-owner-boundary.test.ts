@@ -74,6 +74,13 @@ const OVERLAP = [
   // (BV-013). It is still in the overlap — the legacy loop could still reach
   // it by key — but it can never produce a component line to double.
   { key: "other_service", column: "otherServiceTotal", priceable: false },
+  // Joined the overlap when the component vocabulary widened so a STANDALONE
+  // product could carry a fee it causes. Both price through
+  // PRODUCTION_MARKUP_CATEGORY -- the same authority their columns already
+  // resolve -- so the falsifications below are what establish that a component
+  // charge and its legacy column still cannot both emit for one fee.
+  { key: "project_setup", column: "setupFeeTotal", priceable: true },
+  { key: "rd_formulation", column: "rdTotal", priceable: true },
 ] as const;
 
 /** The two that do not. Controls: they must be unaffected by the repair. */
@@ -273,7 +280,7 @@ test("nothing de-duplicates OTC lines after projection", () => {
   }
 });
 
-test("the overlap set is exactly these three keys", () => {
+test("the overlap set is exactly these five keys", () => {
   // DERIVED from the two registries by importing them, not by parsing their
   // source. The first version of this read the file with a regex and reported
   // a set that was wrong in both directions — a measurement that cannot see
@@ -284,7 +291,13 @@ test("the overlap set is exactly these three keys", () => {
   // falsification above.
   const columnKeys = new Set(Object.values(OTC_COLUMN_TO_CHARGE));
   const overlap = COMPONENT_CHARGE_KEYS.filter((k) => columnKeys.has(k)).slice().sort();
-  assert.deepEqual(overlap, ["artwork_plate", "other_service", "tooling"]);
+  assert.deepEqual(overlap, [
+    "artwork_plate",
+    "other_service",
+    "project_setup",
+    "rd_formulation",
+    "tooling",
+  ]);
   assert.deepEqual(
     OVERLAP.map((o) => o.key).slice().sort(),
     overlap,
