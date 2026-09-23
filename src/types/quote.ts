@@ -120,6 +120,10 @@ export type CustomerViewQuote = {
 };
 
 export type CustomerViewSku = {
+  /** Quote-local line identity. Distinguishes the same service SKU on two products. */
+  id?: string;
+  /** Associated production work included in the displayed product price. */
+  includedServices?: readonly string[];
   /** Customer-visible friendly label (e.g. "GLW-30"). */
   label: string;
   /** Product family name (e.g. "Hydra-Glow Serum"). */
@@ -387,6 +391,8 @@ export type CustomerView = {
    * the fee total is still disclosed on the document.
    */
   includeFeeLines: boolean;
+  /** Visual grouping only; the accepted accounting lines remain separate. */
+  includeAssociatedServicesInProduct?: boolean;
   /** Whether the commercial terms block prints. */
   includeTerms: boolean;
   /** Whether the customer note prints. Its TEXT is `quote.customerFacingNotes`. */

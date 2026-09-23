@@ -256,6 +256,7 @@ export function CustomerViewRail({
         ? "Itemized on the document"
         : "Collapsed - total still stated",
     ],
+    ["Associated services", presentation.includeAssociatedServicesInProduct ? "Included in product rows" : "Shown as separate rows"],
     ["Terms", presentation.includeTerms ? "Printed" : "Not printed"],
     ["Addendum", presentation.includeAddendum ? "Included" : "Not included"],
     [

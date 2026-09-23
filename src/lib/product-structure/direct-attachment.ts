@@ -40,6 +40,8 @@ export type DirectAttachmentEvidence = {
   leafId: string;
   quantity: string;
   position: number;
+  /** Migration 0136. The Direct Product a Direct Service is for; else null. */
+  associatedProductQuoteLeafId: string | null;
 };
 
 export async function attachDirectProduct(
@@ -60,13 +62,29 @@ export async function attachDirectProduct(
      * place the operator had been working.
      */
     specTemplateFromQuoteId?: string;
+    /**
+     * Migration 0136. Attach a Direct Service as THIS product's instance of it.
+     * The caller has already validated the pair with
+     * `evaluateServiceAssociation`; the database re-enforces same-quote,
+     * product-kind and top-level independently.
+     */
+    associatedProductQuoteLeafId?: string | null;
   },
 ): Promise<DirectAttachmentEvidence> {
+  const associatedProductQuoteLeafId = args.associatedProductQuoteLeafId ?? null;
+
   // Duplicate check is scoped to DIRECT attachments only. The same library
   // product may legitimately be attached directly AND be a member of an Item
   // Group on the same quote — those are different commercial lines, and
   // treating one as a duplicate of the other would silently forbid a valid
   // structure.
+  //
+  // 0136 · and scoped by association. A standalone attachment is one per quote
+  // (unchanged, and now also a partial unique index); a product-associated
+  // service is one per (product, service). Two products each carrying their
+  // own Filling / Blending are two different obligations, not a duplicate.
+  // A Direct Product never carries an association, so its check is exactly
+  // what it was.
   const existing = await tx
     .select({ id: quoteLeaves.id })
     .from(quoteLeaves)
@@ -75,12 +93,17 @@ export async function attachDirectProduct(
         eq(quoteLeaves.quoteId, args.quoteId),
         eq(quoteLeaves.leafId, args.leafId),
         isNull(quoteLeaves.assemblyId),
+        associatedProductQuoteLeafId
+          ? eq(quoteLeaves.associatedProductQuoteLeafId, associatedProductQuoteLeafId)
+          : isNull(quoteLeaves.associatedProductQuoteLeafId),
       ),
     )
     .limit(1);
   if (existing.length > 0) {
     throw new DirectAttachmentConflictError(
-      "This product is already attached to this quote.",
+      associatedProductQuoteLeafId
+        ? "This service is already attached for that product."
+        : "This product is already attached to this quote.",
     );
   }
 
@@ -103,6 +126,7 @@ export async function attachDirectProduct(
       pinnedAt: new Date(),
       quantity: args.quantity,
       position: args.position,
+      associatedProductQuoteLeafId,
     })
     .returning();
 
@@ -112,6 +136,7 @@ export async function attachDirectProduct(
     leafId: row.leafId,
     quantity: row.quantity,
     position: row.position,
+    associatedProductQuoteLeafId: row.associatedProductQuoteLeafId,
   };
 }
 
@@ -147,6 +172,23 @@ export async function detachDirectProduct(
     );
   }
 
+  // 0136 · a product that still has services attached for it is not removed
+  // out from under them. Cascading would silently destroy priced services and
+  // their Production economics; nulling the association would silently turn
+  // them into standalone services (and could collide with the quote's existing
+  // standalone one). Refused, naming what to remove first. The foreign key
+  // (NO ACTION) refuses the same delete if this check is ever bypassed.
+  const servedBy = await tx
+    .select({ id: quoteLeaves.id })
+    .from(quoteLeaves)
+    .where(eq(quoteLeaves.associatedProductQuoteLeafId, row.id));
+  if (servedBy.length > 0) {
+    throw new DirectAttachmentConflictError(
+      `This product has ${servedBy.length} service${servedBy.length === 1 ? "" : "s"} attached for it. ` +
+        `Remove ${servedBy.length === 1 ? "that service" : "those services"} first.`,
+    );
+  }
+
   // Cost, override, target, freight and lift rows all cascade from
   // `quote_leaves` (verified against the live catalogue, not inferred from the
   // grouped path, which disposes of them via its junction instead).
@@ -165,5 +207,6 @@ export async function detachDirectProduct(
     leafId: row.leafId,
     quantity: row.quantity,
     position: row.position,
+    associatedProductQuoteLeafId: row.associatedProductQuoteLeafId,
   };
 }

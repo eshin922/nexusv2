@@ -129,6 +129,7 @@ export function PricingTable({
                 <Text style={styles.prodMeta}>
                   <Text style={styles.prodMetaCode}>{sku.code}</Text>
                   {sku.pack != null && sku.pack.length > 0 ? ` · ${sku.pack}` : ""}
+                  {sku.included_services?.length ? ` · Includes ${sku.included_services.join(", ")}` : ""}
                   {/* Why the member quantity exceeds the finished-good
                       quantity. Shown ONLY above 1 — "×1 per unit" is noise on
                       every ordinary line, and the absence of a qualifier is

@@ -5,10 +5,10 @@
 **Approved governing business rule. Recorded 2026-08-17 (Edward, confirmed with
 Accounting).**
 
-This document **authorizes no implementation.** It changes no costing, PDF,
-Quote, or NetSuite behaviour, and no code, schema, or migration may cite it as
-authority to do so. It governs **where Production economics belong in Nexus** —
-the unit of account — and nothing else.
+The original 2026-08-17 rule below was amended by Edward on 2026-09-23. The
+amendment authorizes product-associated production services and their optional
+customer-facing presentation described in §1.b. Existing statements below are
+read subject to that amendment.
 
 ### Why this is its own BV
 
@@ -50,7 +50,32 @@ Worked example — a skin serum Item Group:
 A 50ml bottle does not incur the filling cost merely because it is one
 component of a filled serum. The finished-good Item Group incurs it.
 
-### 1.b The inverse, equally governing
+### 1.b Amendment — a Direct Product may own product-specific services
+
+**Disposition, Edward, 2026-09-23:** production services that are performed for
+a particular standalone product may be attached to that Direct Product. The
+approved services are Filling / Blending, Pack-out / Assembly, and Testing /
+Micros. They remain their own priced service lines, with their own quantities,
+rates, costs, and durable Nexus association to the product they serve.
+
+NetSuite receives a separate priced service line for each product–service pair.
+Its description identifies the owning product by name and SKU. The Direct
+Product's NetSuite line excludes the service amount; the service line carries
+that amount. If multiple products use the same NetSuite service item, each pair
+is still a distinct Sales Order line and Nexus retains the exact owner link.
+
+On the customer Quote, the operator may choose to show the associated service
+price inside its product row or as a separate row. Grouping is presentational:
+the customer total is conserved and the NetSuite service lines remain separate.
+If a service or product price is incomplete at any tier, the service remains
+visible as its own row until the combined amount can be stated accurately.
+
+This amendment does not make a general Direct Product a finished-good envelope
+for arbitrary production economics. One-time R&D / formulation and product
+setup charges keep their governed component-charge paths. The product-specific
+service list remains a closed, reviewed set.
+
+### 1.c The inverse, equally governing
 
 > **No Item Group → no Production economics.**
 
@@ -59,7 +84,7 @@ A Direct Product — a folding carton, bottle, pump — passes through with its
 Pack-out, Bulk Raw, R&D or other turnkey Production economics, and the presence
 of a component-level place to enter them is not a reason to.
 
-### 1.c No ownership locations invented in the Product Library
+### 1.d No ownership locations invented in the Product Library
 
 Ordinary Nexus Product Library products such as "Filling" or "Pack-out" must
 **not** be created merely to manufacture somewhere for these costs to live.

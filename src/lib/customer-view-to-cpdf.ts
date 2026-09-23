@@ -172,9 +172,10 @@ export function customerViewToCpdf(
   }));
 
   const skus: CpdfSku[] = view.skus.map((s) => ({
-    id: s.label,
+    id: s.id ?? s.label,
     code: s.label,
     name: s.name,
+    included_services: s.includedServices,
     pack: s.pack,
     multiplicity_per_unit: s.multiplicityPerUnit,
     tier_prices: s.tierPrices,

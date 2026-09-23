@@ -173,6 +173,24 @@ export async function moveStructuralMembership(
       );
   }
 
+  // 0136 · a Direct Product with services attached for it does not move into
+  // an Item Group. Those services were attached for a top-level product; inside
+  // a group its production belongs on the group, and silently re-homing or
+  // detaching the services would decide that for the operator. The foreign key
+  // (`quote_leaves_associated_product_fk`, which requires the product to be
+  // top-level) refuses the same move if this check is ever bypassed.
+  if (args.target.kind === "group" && canonical.assemblyId === null) {
+    const servedBy = await tx
+      .select({ id: quoteLeaves.id })
+      .from(quoteLeaves)
+      .where(eq(quoteLeaves.associatedProductQuoteLeafId, canonical.id));
+    if (servedBy.length > 0)
+      throw new StructuralMoveError(
+        `This product has ${servedBy.length} service${servedBy.length === 1 ? "" : "s"} attached for it. ` +
+          `Remove ${servedBy.length === 1 ? "that service" : "those services"} before moving it into an Item Group.`,
+      );
+  }
+
   let toAssemblyLeafId: string | null = null;
   let dependentsRepointed = 0;
 

@@ -912,7 +912,7 @@ test("B-10 · a Direct Product renders in the PRODUCT register", async () => {
 test("B-10 · row-level secondary actions converge on the overflow grammar", async () => {
   const src = await code("src/components/assembly-tree/direct-product-row.tsx");
   assert.match(src, /href=\{editSpecsHref\}/);
-  assert.match(src, /Add one-time charges/);
+  assert.match(src, /Add associated costs/);
   assert.doesNotMatch(src, /context-trigger/);
 });
 

@@ -68,6 +68,7 @@ const classifiedIdentityFiles = new Set([
   "src/components/spec-entry/spec-entry-surface.tsx", "src/components/spec-entry/spec-panel.tsx",
   "src/db/schema.ts", "src/lib/addendum-loader.ts",
   "src/lib/assembly-tree.ts",
+  "src/lib/associated-service-presentation.ts",
   // Client Target resolution. Pure, and identity-aware without being
   // identity-resolving: it groups rows by whichever of the two sellable-unit
   // columns is set and never translates between them.

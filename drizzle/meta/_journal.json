@@ -939,6 +939,20 @@
       "when": 1790066520000,
       "tag": "0135_formulated_product_owned_fees",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1790152920000,
+      "tag": "0136_product_associated_direct_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1790239320000,
+      "tag": "0137_associated_service_quote_presentation",
+      "breakpoints": true
     }
   ]
 }

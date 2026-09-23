@@ -1067,6 +1067,7 @@ export async function loadQuoteCostingInput(
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
           serviceIdentity: lib?.serviceIdentity ?? null,
+          associatedProductQuoteLeafId: al.associatedProductQuoteLeafId,
           hubspotProductType: lib?.hubspotProductType ?? null,
         };
       }),
@@ -1670,6 +1671,7 @@ export async function applyClientTargetSolveTierAdj(
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
           serviceIdentity: lib?.serviceIdentity ?? null,
+          associatedProductQuoteLeafId: al.associatedProductQuoteLeafId,
           hubspotProductType: lib?.hubspotProductType ?? null,
         };
       }),
@@ -2041,6 +2043,7 @@ export async function getCostingBundle(
           leafName: lib?.name ?? "",
           leafSku: lib?.sku ?? "",
           serviceIdentity: lib?.serviceIdentity ?? null,
+          associatedProductQuoteLeafId: al.associatedProductQuoteLeafId,
           hubspotProductType: lib?.hubspotProductType ?? null,
         };
       }),

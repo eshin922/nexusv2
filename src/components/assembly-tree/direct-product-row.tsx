@@ -19,6 +19,8 @@ export function DirectProductRow({
   onRemove,
   removePending = false,
   chargeCount = 0,
+  associatedServiceCount = 0,
+  associatedProductName,
 }: {
   product: DirectProductNode;
   editable: boolean;
@@ -32,6 +34,8 @@ export function DirectProductRow({
   onRemove?: () => void;
   removePending?: boolean;
   chargeCount?: number;
+  associatedServiceCount?: number;
+  associatedProductName?: string | null;
 }) {
   // Keep the shared cost register available to non-visual consumers without
   // reintroducing the legacy quantity/cost line into the setup card.
@@ -60,19 +64,20 @@ export function DirectProductRow({
           <CompletenessChip completeness={product.specCompleteness} />
         </div>
         <div className="setup-wizard-product-sku">{product.sku ?? "SKU not recorded"}</div>
+        {associatedProductName ? <div className="setup-wizard-associated-owner">For {associatedProductName}</div> : null}
         <span className="sr-only" aria-label="unit cost">{costDisplay}</span>
         <div className="setup-wizard-direct-charges">
           {onAddCharges ? (
             <>
-              <span>One-time charges · {chargeCount ? `${chargeCount} added` : "none selected"}</span>
+              <span>Associated costs · {chargeCount + associatedServiceCount ? `${chargeCount + associatedServiceCount} added` : "none selected"}</span>
               <button
                 type="button"
                 onClick={onAddCharges}
                 disabled={!editable}
-                aria-label="Add one-time charges"
+                aria-label="Add associated costs"
                 title={!editable ? "This quote is no longer a draft; charges are frozen." : undefined}
               >
-                {chargeCount ? "+ Add or change charges" : "+ Add one-time charge"}
+                {chargeCount + associatedServiceCount ? "+ Add or change associated costs" : "+ Add associated costs"}
               </button>
             </>
           ) : null}

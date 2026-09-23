@@ -114,6 +114,8 @@ export type CommercialLine = {
   /** The Item Group this line belongs to. NULL for top-level lines. */
   owningAssemblyId: string | null;
   quoteLeafId: string | null;
+  /** Direct Product owner when this is a product-associated service. */
+  associatedProductQuoteLeafId?: string | null;
   /**
    * The charge this line bills, when it is a component-owned one — OD-032.
    *
@@ -332,6 +334,11 @@ export function projectCommercial(
   }).value;
 
   const skuById = new Map(bundle.skus.map((s) => [s.id, s] as const));
+  const productByQuoteLeafId = new Map(
+    bundle.skus
+      .filter((sku) => sku.skuRole === "leaf" && !sku.serviceIdentity && sku.canonicalQuoteLeafId)
+      .map((sku) => [sku.canonicalQuoteLeafId!, sku] as const),
+  );
 
   // Per-line Other Service selections, carried on the bundle. Absent on a
   // bundle that predates them, which reads as "not chosen" — the same state as
@@ -392,7 +399,17 @@ export function projectCommercial(
       kind,
       owningAssemblyId,
       quoteLeafId: rollup.canonicalQuoteLeafId ?? null,
-      displayName: rollup.productName,
+      associatedProductQuoteLeafId: sku?.associatedProductQuoteLeafId ?? null,
+      // The same separately priced service SKU may occur for several products.
+      // Name the owner in the frozen line so each NetSuite Sales Order line is
+      // identifiable without deriving ownership from position or amount.
+      displayName: (() => {
+        const ownerId = sku?.associatedProductQuoteLeafId;
+        if (kind !== "direct_service" || !ownerId) return rollup.productName;
+        const owner = productByQuoteLeafId.get(ownerId);
+        if (!owner) throw new Error(`Associated service ${rollup.skuId} has no product ${ownerId}`);
+        return `${rollup.productName} — for ${owner.productName} (${owner.skuLabel})`;
+      })(),
       displaySku: rollup.skuLabel || null,
       displaySub: null,
       displayQtyLabel: null,

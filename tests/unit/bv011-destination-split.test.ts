@@ -97,13 +97,15 @@ test("BV-011 catalogue is complete and matches the document's own count", () => 
   //                            an unresolved Inventory-vs-NonInvtPart conflict
   //                            with its own sandbox item, and a new governed
   //                            path must not be built on a contested one.
+  //   5/13 → 4/14  2026-09-23  Filling aligned with the existing BLD-FILL
+  //                            NonInvtPart service item.
   //
   // The seventeenth is Item Group-owned economics, outside the `otc_*`
   // namespace because it is recurring rather than a one-time charge. It exists
   // because a NetSuite Group header carries a quantity and no sell value, so an
   // Item Group's own economics need a line of their own.
-  assert.equal(inventory.length, 5, "five Inventory destinations");
-  assert.equal(BV011_DESTINATIONS.length - inventory.length, 13);
+  assert.equal(inventory.length, 4, "four Inventory destinations");
+  assert.equal(BV011_DESTINATIONS.length - inventory.length, 14);
   assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 18, "keys unique");
 });
 
@@ -511,6 +513,7 @@ test("it is governed Non-inventory, by census rather than assumption", () => {
   // to it is a catchable accounting error, which is the reason the itemType
   // field exists at all.
   assert.equal(bv011ItemType("item_group_production"), "non_inventory");
+  assert.equal(bv011ItemType("otc_filling"), "non_inventory");
 });
 
 test("it does not collide with, or duplicate, any charge destination", () => {

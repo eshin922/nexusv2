@@ -345,13 +345,14 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 {!turnkey && (
                   <div className="pp-tbody" role="rowgroup">
                     {skus.map((s) => (
-                      <div key={s.label} className="pp-tr" role="row">
+                      <div key={s.id ?? `${s.label}:${s.name}`} className="pp-tr" role="row">
                         <div className="pp-c-prod" role="rowheader">
                           <div className="pp-prod-name">{s.name}</div>
                           <div className="pp-prod-meta">
                             <span className="code">{s.label}</span>
                             {/* Suppressed entirely when null — never a placeholder. */}
                             {s.pack ? ` · ${s.pack}` : ""}
+                            {s.includedServices?.length ? ` · Includes ${s.includedServices.join(", ")}` : ""}
                             {/* Why this line's quantity exceeds the finished-good
                                 quantity. The PDF table renders the same qualifier
                                 from the same field; both are customer-facing views

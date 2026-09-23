@@ -3417,12 +3417,78 @@ export const quoteLeaves = pgTable(
     commercialKind: leafCommercialKind("commercial_kind")
       .notNull()
       .default("product"),
+    // Migration 0136. GENERATED and never written: `assembly_id IS NULL`.
+    // Exists only so the product-association FK below can require that the
+    // product a service names is top-level.
+    isDirect: boolean("is_direct").generatedAlwaysAs(sql`"assembly_id" IS NULL`),
+    /**
+     * Migration 0136. The Direct Product this Direct Service is performed for.
+     *
+     * NULL = a standalone Direct Service, one per quote per service leaf
+     * (`quote_leaves_standalone_service_unique_idx`). Set = this product's own
+     * instance of the service; one per (product, service leaf)
+     * (`quote_leaves_product_service_unique_idx`). The five service library
+     * leaves stay unique, so this column is what lets two products on one
+     * quote each carry their own Filling / Blending.
+     *
+     * Database-enforced: only a top-level service row may set it
+     * (`quote_leaves_association_owner_is_direct_service`), and it must name a
+     * top-level PRODUCT on the SAME quote (`quote_leaves_associated_product_fk`,
+     * composite over the two generated columns below).
+     *
+     * Attribution only. The service keeps its own Production row and its own
+     * NetSuite line; nothing here moves an amount onto the product.
+     * Written only through `attachDirectProduct`.
+     */
+    associatedProductQuoteLeafId: uuid("associated_product_quote_leaf_id"),
+    // GENERATED constants ('product' / true when an association exists, NULL
+    // otherwise) — the referencing half of the composite FK. Unwritable, so a
+    // wrong value is unrepresentable rather than refused.
+    associatedProductKind: leafCommercialKind(
+      "associated_product_kind",
+    ).generatedAlwaysAs(
+      sql`CASE WHEN "associated_product_quote_leaf_id" IS NULL THEN NULL ELSE 'product'::"leaf_commercial_kind" END`,
+    ),
+    associatedProductIsDirect: boolean(
+      "associated_product_is_direct",
+    ).generatedAlwaysAs(
+      sql`CASE WHEN "associated_product_quote_leaf_id" IS NULL THEN NULL ELSE true END`,
+    ),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (t) => [
+    // Migration 0136 — see `associatedProductQuoteLeafId`.
+    unique("quote_leaves_association_target_key").on(
+      t.id,
+      t.quoteId,
+      t.commercialKind,
+      t.isDirect,
+    ),
+    check(
+      "quote_leaves_association_owner_is_direct_service",
+      sql`"associated_product_quote_leaf_id" IS NULL OR ("commercial_kind" = 'service' AND "assembly_id" IS NULL)`,
+    ),
+    foreignKey({
+      columns: [
+        t.associatedProductQuoteLeafId,
+        t.quoteId,
+        t.associatedProductKind,
+        t.associatedProductIsDirect,
+      ],
+      foreignColumns: [t.id, t.quoteId, t.commercialKind, t.isDirect],
+      name: "quote_leaves_associated_product_fk",
+    }),
+    uniqueIndex("quote_leaves_product_service_unique_idx")
+      .on(t.associatedProductQuoteLeafId, t.leafId)
+      .where(sql`"associated_product_quote_leaf_id" IS NOT NULL`),
+    uniqueIndex("quote_leaves_standalone_service_unique_idx")
+      .on(t.quoteId, t.leafId)
+      .where(
+        sql`"assembly_id" IS NULL AND "commercial_kind" = 'service' AND "associated_product_quote_leaf_id" IS NULL`,
+      ),
     // Per-quote queries (PDF render, soft-gate check, etc.).
     index("quote_leaves_quote_idx").on(t.quoteId),
     // "Where is this spec version pinned?" queries (replenishment
@@ -5244,6 +5310,7 @@ export const presentationProfile = pgTable(
     // and the second is a customer-facing misstatement, so the distinction is
     // asserted by falsification in the tests rather than trusted here.
     includeFeeLines: boolean("include_fee_lines").notNull().default(true),
+    includeAssociatedServicesInProduct: boolean("include_associated_services_in_product").notNull().default(false),
     includeTerms: boolean("include_terms").notNull().default(true),
     includeAddendum: boolean("include_addendum").notNull().default(false),
     // Whether the note PRINTS. What it SAYS is quotes.customer_facing_notes.

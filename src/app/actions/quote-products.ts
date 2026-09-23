@@ -25,6 +25,7 @@ import {
   DirectAttachmentConflictError,
 } from "@/lib/product-structure/direct-attachment";
 import { quoteByIdDraft } from "@/lib/quote-guards";
+import { evaluateServiceAssociation } from "@/lib/product-structure/service-association";
 
 /**
  * Quote → Add Product. Attaches a library product DIRECTLY to the quote, with
@@ -36,6 +37,13 @@ import { quoteByIdDraft } from "@/lib/quote-guards";
  * change what the customer's Sales Order says (SO2704 shows a one-product Item
  * Group printing as a named container with a nested line), so the operator's
  * choice is preserved literally.
+ *
+ * 0136 · optional `associatedProductQuoteLeafId` attaches a Direct Service AS
+ * THAT PRODUCT'S OWN instance of it (Filling / Blending, Pack-out / Assembly,
+ * Testing / Micros). The service is still its own top-level quote leaf with its
+ * own Production row and its own NetSuite line; the product's line carries none
+ * of the service amount. Absent, behaviour is exactly the standalone path:
+ * one attachment per quote per service.
  */
 export async function attachQuoteProduct(
   formData: FormData,
@@ -44,6 +52,8 @@ export async function attachQuoteProduct(
     const quoteId = String(formData.get("quoteId") ?? "").trim();
     const leafId = String(formData.get("leafId") ?? "").trim();
     const quantityRaw = String(formData.get("quantity") ?? "1").trim();
+    const associatedProductQuoteLeafId =
+      String(formData.get("associatedProductQuoteLeafId") ?? "").trim() || null;
 
     if (!quoteId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
@@ -72,6 +82,30 @@ export async function attachQuoteProduct(
       throw new ActionGuardError(ERR.VALIDATION, eligibility.message);
     }
 
+    // 0136 · the service-for-product pair, refused with the actual cause before
+    // anything is written. The database re-enforces same-quote, product-kind
+    // and top-level on its own (quote_leaves_associated_product_fk); this is
+    // the sentence, plus the identity restriction the database cannot see.
+    if (associatedProductQuoteLeafId) {
+      const [product] = await db
+        .select({
+          quoteId: quoteLeaves.quoteId,
+          assemblyId: quoteLeaves.assemblyId,
+          commercialKind: quoteLeaves.commercialKind,
+        })
+        .from(quoteLeaves)
+        .where(eq(quoteLeaves.id, associatedProductQuoteLeafId))
+        .limit(1);
+      const association = evaluateServiceAssociation({
+        quoteId,
+        service: leafRows[0],
+        product: product ?? null,
+      });
+      if (!association.associable) {
+        throw new ActionGuardError(ERR.VALIDATION, association.message);
+      }
+    }
+
     // Auto-position = max + 1 among this quote's Direct Products.
     const posRow = await db
       .select({
@@ -92,6 +126,7 @@ export async function attachQuoteProduct(
           leafId,
           quantity: quantityRaw === "" ? "1" : quantityRaw,
           position: nextPosition,
+          associatedProductQuoteLeafId,
         });
         await writeAuditEntry(
           {
@@ -108,7 +143,10 @@ export async function attachQuoteProduct(
               // Recorded explicitly rather than implied by the absence of an
               // assembly_id, so a reader of the log sees the operator's choice
               // rather than having to infer it from a missing field.
-              structure: "direct",
+              structure: row.associatedProductQuoteLeafId
+                ? "direct_service_for_product"
+                : "direct",
+              associated_product_quote_leaf_id: row.associatedProductQuoteLeafId,
             },
           },
           tx,
@@ -203,7 +241,10 @@ export async function detachQuoteProduct(
               quote_leaf_id: row.quoteLeafId,
               quantity: row.quantity,
               position: row.position,
-              structure: "direct",
+              structure: row.associatedProductQuoteLeafId
+                ? "direct_service_for_product"
+                : "direct",
+              associated_product_quote_leaf_id: row.associatedProductQuoteLeafId,
             },
           },
           tx,

@@ -2720,6 +2720,7 @@ export async function reviseQuote(
             detailLevel: priorProfile.detailLevel,
             presentedTierId: priorProfile.presentedTierId,
             includeFeeLines: priorProfile.includeFeeLines,
+            includeAssociatedServicesInProduct: priorProfile.includeAssociatedServicesInProduct,
             includeTerms: priorProfile.includeTerms,
             includeAddendum: priorProfile.includeAddendum,
             includeNote: priorProfile.includeNote,
@@ -4064,7 +4065,29 @@ export async function cloneQuoteGraph(
       ),
     )
     .orderBy(asc(quoteLeaves.position));
-  for (const direct of sourceDirectLeaves) {
+  // 0136 · a Direct Service attached FOR a product names that product's
+  // quote leaf, and the association is a same-quote foreign key. So the copy
+  // attaches every unassociated row first — every product any service can
+  // name is among them — and only then the associated services, remapped
+  // through `quoteLeafIdMap`. Positions are carried verbatim, so insertion
+  // order changes nothing the operator sees.
+  //
+  // An unmapped product fails loudly rather than degrading the service to a
+  // standalone one: that would change which product owns the service AND
+  // could collide with the quote's own standalone service.
+  const directInCloneOrder = [
+    ...sourceDirectLeaves.filter((d) => d.associatedProductQuoteLeafId === null),
+    ...sourceDirectLeaves.filter((d) => d.associatedProductQuoteLeafId !== null),
+  ];
+  for (const direct of directInCloneOrder) {
+    const associatedProductQuoteLeafId = direct.associatedProductQuoteLeafId
+      ? quoteLeafIdMap.get(direct.associatedProductQuoteLeafId)
+      : null;
+    if (direct.associatedProductQuoteLeafId && !associatedProductQuoteLeafId) {
+      throw new Error(
+        `clone: direct service ${direct.id} is associated with unmapped product ${direct.associatedProductQuoteLeafId}`,
+      );
+    }
     const attached = await attachDirectProduct(tx, {
       quoteId: newQuoteId,
       leafId: direct.leafId,
@@ -4072,6 +4095,7 @@ export async function cloneQuoteGraph(
       position: direct.position,
       createdBy: args.createdByUserId,
       specTemplateFromQuoteId: args.sourceQuoteId,
+      associatedProductQuoteLeafId: associatedProductQuoteLeafId ?? null,
     });
     quoteLeafIdMap.set(direct.id, attached.quoteLeafId);
   }
@@ -4137,6 +4161,10 @@ export async function cloneQuoteGraph(
           setupFeeTotal: r.setupFeeTotal,
           toolingArtworkTotal: r.toolingArtworkTotal,
           rdTotal: r.rdTotal,
+          // The Testing / Micros service's ONE governed input
+          // (DIRECT_SERVICE_PRODUCTION_INPUT). Omitted before 0136, so a copied
+          // Testing service arrived with its amount missing and nothing failed.
+          testingMicrosTotal: r.testingMicrosTotal,
           otherServiceTotal: r.otherServiceTotal,
           bulkRawCost: r.bulkRawCost,
           actualUnitsProduced: r.actualUnitsProduced,

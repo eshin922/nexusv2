@@ -21,6 +21,7 @@ export type PresentationState = {
   detailLevel: CustomerViewDetailLevel;
   presentedTierId: string | null;
   includeFeeLines: boolean;
+  includeAssociatedServicesInProduct: boolean;
   includeTerms: boolean;
   includeAddendum: boolean;
   includeNote: boolean;
@@ -135,6 +136,11 @@ export function CardCustomerPresentation({
       // Says what OFF does, because the difference between collapsing the
       // itemization and omitting the charge is the whole point.
       meta: "Off collapses the list; the total is still stated.",
+    },
+    {
+      field: "includeAssociatedServicesInProduct",
+      label: "Include associated services in product price",
+      meta: "Customer sees one product price; NetSuite still receives separately priced service lines.",
     },
     { field: "includeTerms", label: "Commercial terms block", meta: "Valid until, payment, lead time, Incoterms." },
     { field: "includeAddendum", label: "Specification addendum", meta: "Adds a second page when there is spec data." },

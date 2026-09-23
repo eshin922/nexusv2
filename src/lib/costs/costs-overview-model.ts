@@ -106,6 +106,7 @@ export type OverviewDirectServiceFact = {
   quoteLeafId: string;
   name: string;
   serviceIdentity: DirectServiceIdentity;
+  associatedProduct?: { name: string; sku: string } | null;
   position: number;
   /** tierId → the amount stored in this service's ONE governed column. */
   amountsByTier: Record<string, string | null>;
@@ -615,8 +616,8 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
       kind: "direct_service",
       quoteLeafId: s.quoteLeafId,
       assemblyId: null,
-      name: s.name,
-      sku: "",
+      name: s.associatedProduct ? `${s.name} · for ${s.associatedProduct.name}` : s.name,
+      sku: s.associatedProduct?.sku ?? "",
       productType: null,
       quantity: null,
       serviceIdentity: s.serviceIdentity,

@@ -68,6 +68,7 @@ import type {
   CustomerViewVendor,
 } from "@/types/quote";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
+import { includeAssociatedServicesInProductRows } from "@/lib/associated-service-presentation";
 
 export type CustomerViewSearchParams = {
   layout?: string;
@@ -201,6 +202,7 @@ export type ResolveCustomerViewResult =
         detailLevel: "itemized" | "turnkey_only";
         presentedTierId: string | null;
         includeFeeLines: boolean;
+        includeAssociatedServicesInProduct: boolean;
         includeTerms: boolean;
         includeAddendum: boolean;
         includeNote: boolean;
@@ -526,7 +528,7 @@ export async function resolveCustomerView(args: {
   const projection = projectCommercial(bundle.data);
   const unitLines = projection.lines.filter((l) => l.kind !== "otc");
 
-  const skus: CustomerViewSku[] = unitLines.map((line) => {
+  let skus: CustomerViewSku[] = unitLines.map((line) => {
     const tierPrices = line.cells.map((c) =>
       c.state === "priced" ? c.unitRate : null,
     );
@@ -538,6 +540,7 @@ export async function resolveCustomerView(args: {
         ? "flat"
         : "step↓";
     return {
+      id: line.quoteLeafId ?? line.key,
       label: line.displaySku ?? "",
       name: line.displayName,
       pack: null,
@@ -570,6 +573,15 @@ export async function resolveCustomerView(args: {
       shape,
     };
   });
+
+  // Customer document only: the saved choice can display the service amount
+  // inside its product row. The commercial projection and frozen accounting
+  // lines stay separate, with each service retaining its own item/rate/amount.
+  // If either line is unpriced for a tier, keep the service visible rather
+  // than present a product price that silently omits part of its work.
+  if (profile?.includeAssociatedServicesInProduct) {
+    skus = includeAssociatedServicesInProductRows(unitLines, skus);
+  }
 
 
 
@@ -850,6 +862,7 @@ export async function resolveCustomerView(args: {
     // A sent quote keeps rendering them at the default it was sent under, which
     // is what it was sent under.
     includeFeeLines: profile?.includeFeeLines ?? true,
+    includeAssociatedServicesInProduct: profile?.includeAssociatedServicesInProduct ?? false,
     includeTerms: profile?.includeTerms ?? true,
     includeNote: profile?.includeNote ?? true,
   };
@@ -962,6 +975,7 @@ export async function resolveCustomerView(args: {
       detailLevel: profile?.detailLevel ?? "itemized",
       presentedTierId: profile?.presentedTierId ?? null,
       includeFeeLines: profile?.includeFeeLines ?? true,
+      includeAssociatedServicesInProduct: profile?.includeAssociatedServicesInProduct ?? false,
       includeTerms: profile?.includeTerms ?? true,
       includeAddendum: profile?.includeAddendum ?? false,
       includeNote: profile?.includeNote ?? true,

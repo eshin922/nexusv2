@@ -187,7 +187,7 @@ test("displayQtyLabel was not widened to carry this", () => {
   // sets it null. Two meanings on one field is the thing being avoided.
   assert.match(src, /Customer-facing quantity copy, e\.g\. "1 \(setup\)"\. Null on unit lines\./);
   const memberBlock = src.slice(src.indexOf("key: `unit:${rollup.skuId}`"));
-  assert.match(memberBlock.slice(0, 700), /displayQtyLabel: null/);
+  assert.match(memberBlock.slice(0, 1300), /displayQtyLabel: null/);
 });
 
 test("BOTH customer-facing renderers show the qualifier, from the same field", () => {

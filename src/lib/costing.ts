@@ -174,6 +174,8 @@ export type CostingSku = {
    * per its load-bearing commitment.
    */
   serviceIdentity?: string | null;
+  /** Direct Product owner of an associated Direct Service, if any. Metadata only. */
+  associatedProductQuoteLeafId?: string | null;
   parentSkuId: string | null;
   qtyPerParent: number | null;
   skuRole: SkuRoleValue;

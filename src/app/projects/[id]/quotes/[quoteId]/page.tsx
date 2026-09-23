@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq, getTableColumns } from "drizzle-orm";
+import { asc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   projects,
   quoteClientTargets,
   quotes,
   quoteTiers,
+  leaves,
 } from "@/db/schema";
 // canonical-scenario-create-flow Step 3 — legacy SKU table imports
 // removed: quoteSkus, packagingInputs, productionInputs (data
@@ -20,6 +21,7 @@ import {
   indexProductTypeChargeDefaults,
   listProductTypeChargeDefaults,
 } from "@/lib/product-type-charge-defaults";
+import { indexProductTypeServiceRules } from "@/lib/product-type-charge-defaults-contract";
 import { AssemblyTreeView } from "@/components/assembly-tree/assembly-tree-view";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -113,6 +115,13 @@ export default async function QuoteBuilderPage({
   // restores the write path before pre-launch review.
   const assemblyTree = await loadAssemblyTree(quoteId);
   const productTypeChargeDefaults = await listProductTypeChargeDefaults();
+  const associatedServiceLeaves = await db.select({
+    id: leaves.id,
+    serviceIdentity: leaves.serviceIdentity,
+    archived: leaves.archived,
+  }).from(leaves).where(inArray(leaves.serviceIdentity, [
+    "filling_blending", "packout_assembly", "testing_micros",
+  ]));
 
   // Phase A.1 v2 impl-4 — product-type options for the Add Product
   // modal's ASY/LEAF type selectors. Loaded unconditionally (cheap
@@ -275,6 +284,11 @@ export default async function QuoteBuilderPage({
           suggestedChargesByProductType={indexProductTypeChargeDefaults(
             productTypeChargeDefaults,
           )}
+          suggestedServicesByProductType={indexProductTypeServiceRules(productTypeChargeDefaults)}
+          associatedServiceLeaves={associatedServiceLeaves.filter((row) => !row.archived).map((row) => ({
+            id: row.id,
+            serviceIdentity: row.serviceIdentity!,
+          }))}
         />
       ) : null}
       </div>
