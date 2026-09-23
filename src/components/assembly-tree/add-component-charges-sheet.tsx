@@ -238,7 +238,7 @@ export function AddComponentChargesSheet({
                   ? `No charge suggestions are configured for ${productTypeLabel}.`
                   : "This product has no HubSpot Product Type."}
               </span>
-              <span className="od032-suggest-note">
+            <span className="od032-associated-copy">
                 needs review · existing quote charges are unchanged
               </span>
             </div>
