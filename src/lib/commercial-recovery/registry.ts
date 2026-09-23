@@ -234,10 +234,9 @@ const CHARGE_SPECS: readonly ChargePolicySpec[] = [
  * plate-making half has somewhere else to go. Existing rows keep the span they
  * were written with.
  *
- * `project_setup` is ABSENT, and its absence is the rule: engagement-level
- * setup is a different commercial fact and stays quote-owned. `run_setup` is
- * absent too — deferred until Accounting supplies a governed destination, and
- * reachable through `other_service` in the meantime.
+ * Component-owned `project_setup` is for a product's one-off run setup;
+ * engagement-level setup remains quote-owned. `run_setup` is absent — deferred
+ * until Accounting supplies a governed destination.
  */
 export const COMPONENT_CHARGE_KEYS = [
   "print_plates",

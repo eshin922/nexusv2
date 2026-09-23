@@ -91,7 +91,9 @@ export function ProductTypeChargeDefaultsEditor({
             </div>
             {notes.length > 0 && <p className="ptcd-note">{notes.join(" ")}</p>}
             <div className="ptcd-choices" aria-label={`Suggested associated costs for ${option.label}`}>
-              {COMPONENT_CHARGE_KEYS.map((chargeKey) => (
+              {COMPONENT_CHARGE_KEYS.filter(
+                (chargeKey) => !(ASSOCIATED_COST_KEYS as readonly string[]).includes(chargeKey),
+              ).map((chargeKey) => (
                 <label key={chargeKey} className="ptcd-choice">
                   <input
                     type="checkbox"
