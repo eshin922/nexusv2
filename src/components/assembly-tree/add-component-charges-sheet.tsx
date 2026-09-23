@@ -244,6 +244,15 @@ export function AddComponentChargesSheet({
             </div>
           )}
 
+          <div className="od032-suggest od032-associated-note" data-testid="associated-costs-routing-note">
+            <span className="od032-suggest-label">Production-associated costs</span>
+            <span className="od032-suggest-note">
+              Filling / blending, CM assembly / packout, setup / tooling, R&amp;D / formulation,
+              and stability / potency / micros testing are entered on <span className="mono">Costs</span>.
+              They are not component charge types and cannot be added from this picker.
+            </span>
+          </div>
+
           <ul className="od032-picker">
             {suggestedRows.length > 0 && (
               <li className="od032-picker-section" aria-hidden="true">
