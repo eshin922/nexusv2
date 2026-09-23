@@ -12,7 +12,7 @@ export type ProductTypeChargeKey = ComponentChargeKey | AssociatedCostKey;
 export const ASSOCIATED_COST_LABELS: Record<AssociatedCostKey, string> = {
   filling_blending: "Filling / blending",
   cm_assembly_packout: "CM assembly / packout",
-  project_setup: "Setup / tooling",
+  project_setup: "Product setup / changeover",
   rd_formulation: "R&D / formulation",
   testing_micros: "Stability / potency / micros testing",
 };
