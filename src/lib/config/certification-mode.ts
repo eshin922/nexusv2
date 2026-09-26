@@ -33,9 +33,20 @@
  * be asked for explicitly, so a lost or misspelled variable degrades toward
  * production-correct behaviour, never silently toward a disabled integration.
  *
- * RELEASE BLOCKER. This must be OFF at production go-live. See
- * `docs/validation/production-go-live-checklist.md`. `assertHubspotAcceptSyncEnabledForGoLive`
- * is the programmatic form of that gate.
+ * BETA POSTURE (business disposition, 2026-08-25). This stays SET through
+ * beta, on Production, Preview and Development. The beta requirement is that
+ * Nexus Acceptance must not change the production deal stage or trigger the
+ * downstream workflow, so suppression is the intended steady state — not a
+ * temporary certification artifact to be cleared before launch.
+ *
+ * PRODUCTION-HANDOFF GATE, not a beta launch blocker. Removing this is a later
+ * production-integration decision, taken when Edward explicitly authorizes
+ * Nexus Acceptance to control HubSpot stage progression. At that point stage
+ * and amount are enabled TOGETHER — they share one PATCH in updateDealStage
+ * and, by disposition, no independent control or second flag is to be built.
+ * See `docs/validation/production-go-live-checklist.md`;
+ * `assertHubspotAcceptSyncEnabledForGoLive` is the programmatic form of that
+ * gate and has no production caller, so a beta deploy cannot trip on it.
  *
  * Dependency-free on purpose, matching `runtime-config.ts`: app code, scripts,
  * and unit tests all evaluate the identical rule.
@@ -93,8 +104,9 @@ export function hubspotAcceptSyncState(
 }
 
 /**
- * Go-live gate. Throws if certification suppression is still active, so the
- * release blocker cannot be satisfied by intent alone. Call from a release
+ * PRODUCTION-HANDOFF gate. Throws if suppression is still active, so the
+ * hand-off cannot be satisfied by intent alone. NOT a beta gate — through beta
+ * suppression is set deliberately and this SHOULD throw. Call from a release
  * verification script — never from a request path (it must not be possible to
  * take the app down by leaving the flag set).
  */

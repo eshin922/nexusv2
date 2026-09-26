@@ -67,11 +67,19 @@ would not have avoided it.
 Authorized 2026-08-13: set `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC=1` for the Vercel
 **Preview environment only**.
 
-**Production must NOT carry this flag.** `assertHubspotAcceptSyncEnabledForGoLive`
-is the programmatic form of that gate, and
-`docs/validation/production-go-live-checklist.md` names it a release blocker.
-The two scopes are deliberately not symmetric: Preview suppressed, Production
-enabled.
+> **SUPERSEDED 2026-08-25 — the asymmetry below no longer holds.** Business
+> disposition: `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC=1` is set on **Production,
+> Preview and Development**, and **remains enabled throughout beta**. During
+> beta, Nexus Acceptance must not change the production HubSpot deal stage or
+> trigger the downstream workflow. Removing the flag is **not** a beta launch
+> requirement; it is a later production-integration decision, taken when Edward
+> explicitly authorizes Nexus Acceptance to control HubSpot stage progression.
+> Development carries it so `vercel env pull` cannot silently re-arm local
+> Acceptance against the production deal.
+
+The original disposition read: *"Production must NOT carry this flag… The two
+scopes are deliberately not symmetric: Preview suppressed, Production enabled."*
+It is retained as the record of what was decided on 2026-08-13.
 
 Configuring Preview closes the immediate block. **It does not close this
 finding.** CERT-ENV-1 stays open as a release/certification-environment record
