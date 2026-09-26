@@ -43,6 +43,9 @@ export type LiveStructureMember = {
   assemblyName: string | null;
   /** How many of this leaf ONE Item Group contains. */
   qtyPerParent: number;
+  /** Resolved live units used only to detect a post-acceptance quantity change. */
+  orderQuantity?: number | null;
+  independentMemberQuantity?: boolean;
   /** Live cost basis. Reporting only — never a commercial figure. */
   unitCost: number | null;
 };
@@ -123,13 +126,13 @@ export function checkStructureAgreement(input: {
     // The frozen quantity is the LINE's own — tier order size × qty-per-parent.
     // If the structure now says a different multiplier, the frozen amount and
     // the expansion NetSuite performs cannot both be right.
-    const expected = input.tierQty * live.qtyPerParent;
+    const expected = live.orderQuantity ?? input.tierQty * live.qtyPerParent;
     if (frozen.quantity !== expected) {
       out.push({
         kind: "quantity_disagrees_with_structure",
         quoteLeafId: frozen.quoteLeafId,
         description: frozen.description,
-        detail: `"${frozen.description}" was frozen at ${frozen.quantity} units, but the current structure gives ${input.tierQty} × ${live.qtyPerParent} = ${expected}. The composition changed after acceptance; NetSuite would expand to a quantity the frozen amount was never priced for.`,
+        detail: `"${frozen.description}" was frozen at ${frozen.quantity} units, but ${live.orderQuantity === undefined ? `${input.tierQty} × ${live.qtyPerParent} = ${expected}` : `its current product quantity and composition give ${expected}`}. Quantity or composition changed after acceptance; revise and re-send before posting.`,
       });
     }
   }

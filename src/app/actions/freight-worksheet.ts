@@ -13,6 +13,7 @@ import {
   freightSubcategories,
   freightSubcategoryItems,
   quoteLeaves,
+  quoteProductTierQuantities,
   quoteTiers,
   quotes,
 } from "@/db/schema";
@@ -20,7 +21,8 @@ import { ActionGuardError, ERR, runAction, type ActionResult } from "@/lib/actio
 import { writeAuditEntry } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { resolveBreakFieldSources } from "@/lib/freight-break-write";
-import { quoteByIdDraft, quoteForAssembly } from "@/lib/quote-guards";
+import { quoteByIdDraft, quoteForAssembly, requireDraft } from "@/lib/quote-guards";
+import { splitShipmentQuantities } from "@/lib/freight-percentage-split";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { FREIGHT_LEG_MODES, enumLabel, isFreightLegMode } from "@/lib/enum-labels";
 
@@ -160,7 +162,7 @@ export async function createFreightSubcategory(fd: FormData): Promise<ActionResu
     // junction row, so the previous rule made it permanently unshippable. The
     // `assemblyLeafId` form field name is unchanged for wire stability; what it
     // carries is now a `quote_leaf_id`.
-    const members = await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(eq(quoteLeaves.quoteId, quote.id));
+    const members = await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(and(eq(quoteLeaves.quoteId, quote.id), eq(quoteLeaves.commercialKind, "product")));
     const eligible = new Set(members.map((member) => member.id));
     if (eligible.size === 0) throw new ActionGuardError(ERR.VALIDATION, "Add components in Setup before recording freight");
     const requested = [...new Set(fd.getAll("assemblyLeafId").map(String).filter(Boolean))];
@@ -211,6 +213,48 @@ async function draftSubcategory(id: string) {
   return row;
 }
 
+export async function splitFreightShipment(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
+  return runAction(async () => {
+    const user = await ensureUser();
+    const shipmentId = str(fd, "freightSubcategoryId");
+    const percentage = Number(str(fd, "percentage"));
+    const { quote } = await draftSubcategory(shipmentId);
+    const id = await db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(quotes).where(eq(quotes.id, quote.id)).for("update");
+      if (!locked) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found.");
+      requireDraft(locked);
+      const [source] = await tx.select().from(freightSubcategories).where(eq(freightSubcategories.id, shipmentId)).for("update");
+      if (!source || source.quoteId !== quote.id) throw new ActionGuardError(ERR.NOT_FOUND, "Shipment not found.");
+      if (source.splitPlan) throw new ActionGuardError(ERR.VALIDATION, "This shipment is already split.");
+      const tiers = await tx.select().from(quoteTiers).where(eq(quoteTiers.quoteId, quote.id)).orderBy(asc(quoteTiers.sortOrder));
+      const overrides = source.assemblyId ? await tx.select().from(quoteProductTierQuantities).where(eq(quoteProductTierQuantities.assemblyId, source.assemblyId)) : [];
+      let plans: ReturnType<typeof splitShipmentQuantities>;
+      try { plans = splitShipmentQuantities(tiers.map((tier) => ({ id: tier.id, qty: overrides.find((row) => row.tierId === tier.id)?.quantity ?? tier.qty })), percentage); }
+      catch (error) { throw new ActionGuardError(ERR.VALIDATION, (error as Error).message); }
+      const [order] = await tx.select({ value: max(freightSubcategories.displayOrder) }).from(freightSubcategories).where(eq(freightSubcategories.quoteId, quote.id));
+      const [created] = await tx.insert(freightSubcategories).values({ quoteId: quote.id, assemblyId: source.assemblyId,
+        label: `${source.label} · split 2`, origin: source.origin, carrierForwarder: source.carrierForwarder,
+        incoterm: source.incoterm, cargoReadyDate: source.cargoReadyDate, journeyLabel: source.journeyLabel,
+        treatment: source.treatment, crossesInternationalBorder: source.crossesInternationalBorder,
+        displayOrder: (order?.value ?? -1) + 1, splitPlan: plans[1], fieldProvenance: provenance(["splitPlan"]) }).returning({ id: freightSubcategories.id });
+      await tx.update(freightSubcategories).set({ splitPlan: plans[0], updatedAt: new Date() }).where(eq(freightSubcategories.id, source.id));
+      const members = await tx.select().from(freightSubcategoryItems).where(eq(freightSubcategoryItems.freightSubcategoryId, source.id));
+      if (members.length) await tx.insert(freightSubcategoryItems).values(members.map((row) => ({ freightSubcategoryId: created.id, quoteLeafId: row.quoteLeafId, assemblyLeafId: row.assemblyLeafId })));
+      const destinations = await tx.select().from(freightDestinations).where(eq(freightDestinations.freightSubcategoryId, source.id));
+      for (const destination of destinations) {
+        const [next] = await tx.insert(freightDestinations).values({ freightSubcategoryId: created.id, destination: destination.destination, transitDays: destination.transitDays }).returning({ id: freightDestinations.id });
+        await tx.insert(freightDestinationBreaks).values(tiers.map((tier) => ({ freightDestinationId: next.id, tierId: tier.id })));
+        if (source.selectedDestinationId === destination.id) await tx.update(freightSubcategories).set({ selectedDestinationId: next.id }).where(eq(freightSubcategories.id, created.id));
+      }
+      await writeAuditEntry({ userId: user.id, entityType: "freight_subcategory", entityId: source.id, action: "freight_shipment_split", diffJson: { newShipmentId: created.id, plans } }, tx);
+      return created.id;
+    });
+    const revision = await committedRevision();
+    revalidateQuoteTree(quote.projectId, quote.id);
+    return { id, revision };
+  });
+}
+
 export async function updateFreightSubcategory(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
   return runAction(async () => {
     const id = str(fd, "freightSubcategoryId");
@@ -222,7 +266,7 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
     // OD-017 · quote-scoped eligibility (see createFreightSubcategory). The
     // membership rule is "belongs to this Quote", not "belongs to this
     // assembly" — the latter cannot express a Direct Component at all.
-    const allowedRows = await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(eq(quoteLeaves.quoteId, quote.id));
+    const allowedRows = await db.select({ id: quoteLeaves.id }).from(quoteLeaves).where(and(eq(quoteLeaves.quoteId, quote.id), eq(quoteLeaves.commercialKind, "product")));
     const allowed = new Set(allowedRows.map((row) => row.id));
     if (memberIds.some((memberId) => !allowed.has(memberId))) throw new ActionGuardError(ERR.VALIDATION, "Shipment membership must belong to its Quote");
     const beforeMembers = await db.select({ id: freightSubcategoryItems.quoteLeafId }).from(freightSubcategoryItems).where(eq(freightSubcategoryItems.freightSubcategoryId, id));

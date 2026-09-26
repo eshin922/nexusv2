@@ -70,6 +70,9 @@ export function costBaseFingerprint(input: QuoteCostingInput): string {
   // Population and shape. A leaf appearing or leaving changes what is blended.
   for (const s of [...input.skus].sort((a, b) => a.id.localeCompare(b.id))) {
     parts.push(`sku:${s.id}:${s.skuRole}:${s.parentSkuId ?? ""}:${q(s.qtyPerParent)}:${s.canonicalQuoteLeafId ?? ""}`);
+    for (const [tierId, quantity] of Object.entries(s.orderQuantities ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+      parts.push(`product-quantity:${s.id}:${tierId}:${q(quantity)}`);
+    }
   }
 
   for (const p of [...input.packaging].sort((a, b) =>

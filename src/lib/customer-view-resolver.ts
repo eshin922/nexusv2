@@ -570,6 +570,7 @@ export async function resolveCustomerView(args: {
       tierLineTotals: line.cells.map((c) =>
         c.state === "priced" ? c.lineAmount : null,
       ),
+      tierQuantities: line.cells.map((c) => c.state === "priced" ? c.quantity : null),
       shape,
     };
   });

@@ -226,8 +226,9 @@ export function matchGroupMembership(
     }
   }
 
-  if (observed.headerQuantity !== null && observed.headerQuantity !== tierQty) {
-    push(`group header quantity ${observed.headerQuantity} ≠ tier quantity ${tierQty}`);
+  const expectedGroupQuantity = planned.groupQuantity ?? tierQty;
+  if (observed.headerQuantity !== null && observed.headerQuantity !== expectedGroupQuantity) {
+    push(`group header quantity ${observed.headerQuantity} ≠ ${planned.groupQuantity === undefined ? "tier quantity" : "planned group quantity"} ${expectedGroupQuantity}`);
   }
 
   return problems;

@@ -55,6 +55,8 @@ export type LiveStructureEntry = {
   assemblySku: string | null;
   assemblyName: string | null;
   qtyPerParent: number;
+  orderQuantity?: number | null;
+  independentMemberQuantity?: boolean;
   unitCost: number | null;
 };
 
@@ -195,6 +197,8 @@ export function buildPlannedSalesOrder(input: {
       netsuiteItemId: frozenLine.netsuiteItemId,
       quantity: frozenLine.quantity,
       qtyPerParent: live.qtyPerParent,
+      ...(live.orderQuantity == null ? {} : { groupQuantity: live.orderQuantity / live.qtyPerParent }),
+      ...(live.independentMemberQuantity ? { independentMemberQuantity: true } : {}),
       rate: lineRate,
       unitCost: live.unitCost,
     });
@@ -227,7 +231,7 @@ export function buildPlannedSalesOrder(input: {
         name: g.assemblyName,
         externalId: g.externalId,
         compositionHash: g.compositionHash,
-        quantity: plan.tierQty ?? 0,
+        quantity: g.groupQuantity ?? plan.tierQty ?? 0,
         ...(g.notDerivableReason ? { notDerivableReason: g.notDerivableReason } : {}),
       });
       for (const m of g.members) {
@@ -238,7 +242,7 @@ export function buildPlannedSalesOrder(input: {
           qtyPerParent: m.qtyPerParent,
           // ABSOLUTE. NetSuite computes this from the Group definition; the
           // preview states it because it is the fact the operator approves.
-          quantity: (plan.tierQty ?? 0) * m.qtyPerParent,
+          quantity: g.groupQuantity === undefined ? (plan.tierQty ?? 0) * m.qtyPerParent : m.quantity,
           rate: m.rate,
           amount: m.amount,
         });

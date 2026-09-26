@@ -511,6 +511,8 @@ function buildClassifierInputs({
       const cells: Record<number, {
         margin_pct: number | null;
         sell_unit: number | null;
+        commercial_line_amount: number | null;
+        order_quantity: number | null;
         sell_node_key: string | null;
         client_target_unit: number | null;
         cost_unit: number | null;
@@ -556,6 +558,8 @@ function buildClassifierInputs({
                 ? "unpriced"
                 : null,
           sell_unit: isMissing ? null : pt.requiredSellPerUnit,
+          commercial_line_amount: isMissing ? null : pt.commercialLineAmount ?? null,
+          order_quantity: pt.orderQuantity ?? tierQtyById.get(pt.tierId) ?? null,
           // The engine's own answer for which node this price came from. A
           // missing cell has no price, so it has no node either.
           sell_node_key: isMissing ? null : pt.sellNodeKey,
@@ -571,9 +575,9 @@ function buildClassifierInputs({
           // here, which is the pre-repair solve. An overridden cell blocks
           // lifts anyway.
           recovery_unit:
-            isMissing || pt.embeddedRecoveryTotal == null || !(tierQtyById.get(pt.tierId)! > 0)
+            isMissing || pt.embeddedRecoveryTotal == null || !((pt.orderQuantity ?? tierQtyById.get(pt.tierId)!) > 0)
               ? null
-              : pt.embeddedRecoveryTotal / tierQtyById.get(pt.tierId)!,
+              : pt.embeddedRecoveryTotal / (pt.orderQuantity ?? tierQtyById.get(pt.tierId)!),
           override_applied: pt.sellSource === "cell_override",
           // The APPLIED lift, read from the graph.
           //

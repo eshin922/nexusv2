@@ -732,6 +732,8 @@ export default async function CostBuildPage({
   // branching on the switch here would put the preview's correctness on a code
   // path only the preview exercises.
   const m2Facts: CostsOverviewFacts = {
+    orderQuantitiesByOwner: bundle.ok ? Object.fromEntries(bundle.data.costing.skuRollups.map((rollup) =>
+      [rollup.skuId, Object.fromEntries(rollup.perTier.map((tier) => [tier.tierId, tier.orderQuantity ?? null]))])) : {},
     tiers: tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty })),
     assemblies: newAssemblyRows.map((a) => ({
       id: a.id,
@@ -873,7 +875,7 @@ export default async function CostBuildPage({
                   label: row.name || row.sku,
                   assemblyId: row.id,
                 })),
-                ...(newDirectProductRows.length
+                ...(newDirectProductRows.some((row) => row.quote_leaves.commercialKind === "product" && row.leaves.commercialKind === "product")
                   ? [{
                       id: DIRECT_PRODUCT_CARD_ID,
                       label: "Direct Products",
@@ -888,7 +890,7 @@ export default async function CostBuildPage({
               // tested rather than re-derived per surface.
               components={freightSelectableComponents(
                 newAssemblyLeafJoinRows,
-                newDirectProductRows,
+                newDirectProductRows.filter((row) => row.quote_leaves.commercialKind === "product" && row.leaves.commercialKind === "product"),
               )}
             />
   );
@@ -984,7 +986,6 @@ export default async function CostBuildPage({
               : null;
           })()}
           tierCount={tiers.length}
-          unitsTotal={tiers.reduce((sum, t) => sum + (t.qty ?? 0), 0)}
         />
 
         {/* Cost stack header — multi-tier side-by-side */}

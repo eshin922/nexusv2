@@ -34,6 +34,7 @@ import { AssemblyTreeBody } from "./assembly-tree-body";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
 import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
 import type { ProductAssociableServiceIdentity } from "@/lib/product-structure/service-association";
+import type { QuantityRow } from "./product-quantity-table";
 
 export function AssemblyTreeView({
   tree,
@@ -49,6 +50,7 @@ export function AssemblyTreeView({
   associatedServiceLeaves,
   tiers,
   clientTargets,
+  productQuantities = [],
 }: {
   tree: AssemblyTree;
   editable: boolean;
@@ -83,6 +85,7 @@ export function AssemblyTreeView({
   tiers: ReadonlyArray<TargetTier>;
   /** Raw Client Target rows for the quote. Indexed here, resolved per row. */
   clientTargets: ReadonlyArray<ClientTargetRow>;
+  productQuantities?: readonly QuantityRow[];
 }) {
   // Indexed ONCE for the whole tree. Every row then resolves from the same
   // governed structure rather than filtering a flat list per row.
@@ -105,6 +108,7 @@ export function AssemblyTreeView({
         assemblies={assemblyTargets}
         itemGroupCategories={itemGroupCategories}
         tiers={tiers}
+        productQuantities={productQuantities}
         targetsByUnit={targetsByUnit}
         fullLeafTypes={leafTypes}
         permissions={permissions}

@@ -190,6 +190,8 @@ export async function loadSalesOrderPreview(
         assemblySku: treeLeaf.assembly?.sku ?? null,
         assemblyName: treeLeaf.assembly?.name ?? null,
         qtyPerParent: Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1)),
+        orderQuantity: perTier.orderQuantity,
+        independentMemberQuantity: perTier.independentMemberQuantity,
         unitCost:
           perTier.contributionCostPerUnit != null
             ? Number(perTier.contributionCostPerUnit)

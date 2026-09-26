@@ -16,6 +16,7 @@ import {
 } from "@/lib/costs/packaging-line-graph-read";
 import { fmtPct1 } from "@/lib/money-display";
 import { M3Editor } from "./m3-editor-boundary";
+import { OrderQuantity } from "./order-quantity";
 
 /**
  * SPREADSHEET — prototype `sheetBlock()`.
@@ -159,9 +160,7 @@ function OwnerRows({
           <div className="cm2-label cm2-strong">{owner.name}</div>
           <div className="cm2-meta">{ownerMeta(owner)}</div>
         </div>
-        {tiers.map((t) => (
-          <BlankCell key={t.id} />
-        ))}
+        {tiers.map((t) => <OrderQuantity key={t.id} owner={owner} tierId={t.id} />)}
         <BlankCell />
         <div className="cm2-tail">
           <span className="cm2-flags" style={{ justifyContent: "flex-end" }}>

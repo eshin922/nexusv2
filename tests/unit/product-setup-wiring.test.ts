@@ -563,15 +563,16 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   ];
   assert.ok(bodyOrder.every((index) => index >= 0));
   assert.deepEqual(bodyOrder, [...bodyOrder].sort((a, b) => a - b));
-  const quantityHeading = setup.indexOf(">Quantities</h3>");
+  const quantityHeading = setup.indexOf(">Order options</h3>");
   const freightHeading = setup.indexOf(">Freight</h2>");
   assert.ok(setup.indexOf("<AssemblyTreeView") < quantityHeading);
   assert.ok(quantityHeading < freightHeading);
   assert.match(body, /product\.productType\.label/);
   assert.match(body, /CompletenessChip/);
-  assert.match(body, /Optional\. Combine products that are quoted together/);
+  assert.match(body, /Optional\. Group products sold together as one finished item/);
+  assert.match(body, /Different quantities do not require a group/);
   assert.match(body, /Tick the work DPS is quoting/);
-  assert.match(setup, /Alternative quantities for the whole quote/);
+  assert.match(setup, /Each option is priced separately/);
   const freight = await code("src/app/projects/[id]/quotes/[quoteId]/freight-intent-control.tsx");
   assert.match(freight, /One intention for the whole quote/);
 

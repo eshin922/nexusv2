@@ -159,6 +159,8 @@ export type OverviewGroupProductionFact = {
 };
 
 export type CostsOverviewFacts = {
+  /** Resolved quantities forwarded from the costing engine, never calculated here. */
+  orderQuantitiesByOwner?: Readonly<Record<string, Readonly<Record<string, number | null>>>>;
   tiers: readonly OverviewTierFact[];
   assemblies: readonly OverviewAssemblyFact[];
   members: readonly OverviewMemberFact[];
@@ -275,6 +277,7 @@ export type OverviewCharge = {
 };
 
 export type OverviewOwner = {
+  orderQuantities?: Readonly<Record<string, number | null>>;
   /** Stable React key. Never an index. */
   key: string;
   kind: OverviewOwnerKind;
@@ -672,7 +675,12 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
     });
   }
 
-  return { tiers: facts.tiers, owners, unplacedCharges, gaps };
+  const withQuantities = (owner: OverviewOwner): OverviewOwner => {
+    const id = owner.kind === "item_group" ? owner.assemblyId : owner.quoteLeafId;
+    const quantities = id ? facts.orderQuantitiesByOwner?.[id] : undefined;
+    return { ...owner, ...(quantities ? { orderQuantities: quantities } : {}), members: owner.members.map(withQuantities) };
+  };
+  return { tiers: facts.tiers, owners: owners.map(withQuantities), unplacedCharges, gaps };
 }
 
 // ───────────────────────────── FLAT PROJECTION ─────────────────────────────

@@ -270,6 +270,7 @@ export type BuildQuoteCostingInputFromNewModelArgs = {
   };
   markupDefaults: Record<string, number>;
   tiers: CostingTier[];
+  productQuantities?: ReadonlyArray<{ assemblyId: string | null; quoteLeafId: string | null; tierId: string; quantity: number }>;
   assemblies: AdapterAssemblyRow[];
   /**
    * The governed SKU population (OD-014): canonical `quote_leaves` attachments,
@@ -359,6 +360,16 @@ export function buildQuoteCostingInputFromNewModel(
       associatedProductQuoteLeafId: al.associatedProductQuoteLeafId ?? null,
       retailBenchmark: null,
     });
+  }
+
+  for (const row of args.productQuantities ?? []) {
+    const ownerId = row.assemblyId ?? row.quoteLeafId;
+    const sku = skus.find((s) => s.id === ownerId);
+    if (!sku || sku.associatedProductQuoteLeafId || sku.serviceIdentity) {
+      throw new Error(`Invalid product quantity owner ${ownerId}.`);
+    }
+    if (sku.orderQuantities?.[row.tierId] !== undefined) throw new Error(`Duplicate product quantity for ${ownerId}:${row.tierId}.`);
+    sku.orderQuantities = { ...sku.orderQuantities, [row.tierId]: row.quantity };
   }
 
   // ---- packaging[] : assembly_leaf_inputs direct passthrough ----

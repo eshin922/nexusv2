@@ -102,7 +102,9 @@ test("7 · Customer View / quoted economics use tier quantity, not tier x qty", 
   // quantity only. Asserted structurally: had a second axis been introduced,
   // test 6 would already have caught it, and this pins the reason why.
   const src = readFileSync("src/lib/costing.ts", "utf8");
-  assert.match(src, /const tQty = num\(tier\.qty\);/);
+  // Ordered units can now override the tier. Composition still must not be
+  // multiplied a second time at the quote rollup.
+  assert.match(src, /const tQty = orderQuantity;/);
   assert.match(src, /breakdown\.packaging \+= pt\.packagingCostPerUnit \* tQty;/);
   assert.doesNotMatch(
     src,

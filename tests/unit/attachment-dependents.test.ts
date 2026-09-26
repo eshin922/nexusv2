@@ -110,6 +110,7 @@ test("every uncounted cascade carries a stated reason", () => {
     "assembly_leaf_overrides",
     "assembly_leaf_targets",
     "quote_client_targets",
+    "quote_product_tier_quantities",
     "quote_leaf_lifts",
     "freight_subcategory_items",
     "freight_leg_component_tier_costs",

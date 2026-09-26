@@ -138,3 +138,14 @@ test("no recommended tier means no figure — the aggregate is not a fallback", 
   const state = classify(quote({ recommended_tier_id: null }), POLICY);
   assert.equal(state.summary_card?.blended_margin_pct, null);
 });
+
+test("recommended value reads each product's extended price rather than the global tier quantity", () => {
+  const state = classify(quote({
+    recommended_tier_id: 1,
+    skus: [
+      { id: "a", name: "5k gummy run", cells: { 1: { margin_pct: 0.4, sell_unit: 2, cost_unit: 1.2, commercial_line_amount: 10000 } } },
+      { id: "b", name: "20k gummy run", cells: { 1: { margin_pct: 0.4, sell_unit: 3, cost_unit: 1.8, commercial_line_amount: 60000 } } },
+    ],
+  }), POLICY);
+  assert.equal(state.summary_card?.recommended_tier_value, 70000);
+});

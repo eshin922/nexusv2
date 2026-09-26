@@ -180,6 +180,7 @@ export function customerViewToCpdf(
     multiplicity_per_unit: s.multiplicityPerUnit,
     tier_prices: s.tierPrices,
     tier_line_totals: s.tierLineTotals,
+    tier_quantities: s.tierQuantities,
     shape: s.shape,
   }));
 

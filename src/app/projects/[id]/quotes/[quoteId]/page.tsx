@@ -5,6 +5,7 @@ import { db } from "@/db";
 import {
   projects,
   quoteClientTargets,
+  quoteProductTierQuantities,
   quotes,
   quoteTiers,
   leaves,
@@ -150,6 +151,7 @@ export default async function QuoteBuilderPage({
     .from(quoteTiers)
     .where(eq(quoteTiers.quoteId, quote.id))
     .orderBy(asc(quoteTiers.sortOrder), asc(quoteTiers.createdAt));
+  const productQuantities = await db.select().from(quoteProductTierQuantities).where(eq(quoteProductTierQuantities.quoteId, quoteId));
 
   // Client Target rows for the whole quote — raw, and resolved where they are
   // read. One query rather than one per sellable unit; the table carries
@@ -258,6 +260,7 @@ export default async function QuoteBuilderPage({
         <AssemblyTreeView
           tree={assemblyTree}
           editable={editable}
+          productQuantities={productQuantities}
           tiers={tiers.map((t) => ({ id: t.id, label: t.label, qty: t.qty }))}
           clientTargets={clientTargetRows.map((r) => ({
             assemblyId: r.assemblyId,
@@ -294,8 +297,8 @@ export default async function QuoteBuilderPage({
       </div>
 
       <section id="setup-tiers" aria-labelledby="setup-quantities-title">
-        <h3 className="setup-wizard-section-title" id="setup-quantities-title">Quantities</h3>
-        <p className="setup-wizard-section-lede">Alternative quantities for the whole quote. They are priced separately and never added together. A quantity is in units; what a unit means for each product is not settled here.</p>
+        <h3 className="setup-wizard-section-title" id="setup-quantities-title">Order options</h3>
+        <p className="setup-wizard-section-lede">Set the overall quantity for each option you want to quote. For example: 25,000 finished jars. Each option is priced separately.</p>
 
         {tiers.length === 0 ? (
           // §6.b Step 6 — R7b §3.5 preset picker (empty state).

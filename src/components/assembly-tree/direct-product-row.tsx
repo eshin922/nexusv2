@@ -21,6 +21,7 @@ export function DirectProductRow({
   chargeCount = 0,
   associatedServiceCount = 0,
   associatedProductName,
+  quantityControl,
 }: {
   product: DirectProductNode;
   editable: boolean;
@@ -36,11 +37,13 @@ export function DirectProductRow({
   chargeCount?: number;
   associatedServiceCount?: number;
   associatedProductName?: string | null;
+  quantityControl?: React.ReactNode;
 }) {
   // Keep the shared cost register available to non-visual consumers without
   // reintroducing the legacy quantity/cost line into the setup card.
   const costDisplay = leafCostDisplay(product.unitCost);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [quantityOpen, setQuantityOpen] = useState(false);
   const handleRemove = () => {
     if (!onRemove || !editable || removePending) return;
     if (!confirmingRemove) {
@@ -81,6 +84,7 @@ export function DirectProductRow({
               </button>
             </>
           ) : null}
+          {quantityControl ? <button type="button" className="setup-wizard-inline-action" disabled={!editable} aria-expanded={quantityOpen} onClick={() => setQuantityOpen((open) => !open)}>Add sub-quantity</button> : null}
           <a className="setup-wizard-inline-action" href={editSpecsHref}>
             Edit library specs
           </a>
@@ -101,6 +105,7 @@ export function DirectProductRow({
             </button>
           ) : null}
         </div>
+        {quantityOpen ? quantityControl : null}
       </div>
     </div>
   );

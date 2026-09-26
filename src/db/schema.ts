@@ -3611,6 +3611,7 @@ export const freightSubcategories = pgTable(
     journeyLabel: text("journey_label"),
     treatment: freightTreatment("treatment").notNull().default("bundled"),
     crossesInternationalBorder: boolean("crosses_international_border").notNull().default(false),
+    splitPlan: jsonb("split_plan").$type<import("@/lib/freight-percentage-split").ShipmentSplit>(),
     selectedDestinationId: uuid("selected_destination_id"),
     selectionReason: text("selection_reason"),
     displayOrder: integer("display_order").notNull().default(0),
@@ -4188,6 +4189,29 @@ export const assemblyLeafTargets = pgTable(
 // Quoted Sell. It is internal — never reaching the customer view, the PDF or
 // NetSuite — and the customer-view boundary verifier names it explicitly so
 // that absence is enforced rather than merely current.
+// Ordered units for a top-level product occurrence in one alternative tier.
+// Absence preserves tier inheritance; component usage stays on quote_leaves.
+export const quoteProductTierQuantities = pgTable(
+  "quote_product_tier_quantities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id").notNull().references(() => quoteTiers.id, { onDelete: "cascade" }),
+    assemblyId: uuid("assembly_id").references(() => assemblies.id, { onDelete: "cascade" }),
+    quoteLeafId: uuid("quote_leaf_id").references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
+    quantity: integer("quantity").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("quote_product_tier_quantities_quote_idx").on(t.quoteId),
+    uniqueIndex("quote_product_tier_quantities_assembly_uq").on(t.assemblyId, t.tierId).where(sql`assembly_id IS NOT NULL`),
+    uniqueIndex("quote_product_tier_quantities_leaf_uq").on(t.quoteLeafId, t.tierId).where(sql`quote_leaf_id IS NOT NULL`),
+    check("quote_product_tier_quantities_owner_xor", sql`(assembly_id IS NOT NULL) <> (quote_leaf_id IS NOT NULL)`),
+    check("quote_product_tier_quantities_positive", sql`quantity > 0`),
+  ],
+);
+
 export const quoteClientTargets = pgTable(
   "quote_client_targets",
   {

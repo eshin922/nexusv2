@@ -610,6 +610,7 @@
 }
 .fr-product-components { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .fr-product-head > .fr-addbtn { margin-left: auto; }
+.fr-product-head > .fr-shipment-actions { margin-left: auto; display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .fr-inherited {
   display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
   padding: 8px; background: var(--paper-2); border: 1px solid var(--rule); border-radius: 5px;
@@ -625,7 +626,47 @@
 .fr-srcpick .fr-src { display: inline-flex; align-items: center; gap: 5px; }
 .fr-edit-disclosure { font-family: var(--mono); font-size: 9px; color: var(--ink-3); }
 .fr-edit-disclosure summary { cursor: pointer; }
+.fr-destination-edit { padding: 8px 16px 12px; }
+.fr-sc:not(.solo) .fr-destination-edit { padding-left: 22px; }
+.fr-destination-edit > summary { width: fit-content; }
 .fr-edit-disclosure form { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
 .fr-edit-disclosure input, .fr-edit-disclosure select { border: 1px solid var(--rule); border-radius: 3px; padding: 4px; min-width: 90px; }
 .fr-edit-disclosure .fr-shipment-contents { flex: 1 0 100%; }
 .fr-edit-disclosure .fr-shipment-contents label { display: inline-flex; align-items: center; gap: 3px; }
+
+.fr-shipment-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fr-shipment-actions .fr-addbtn:disabled { opacity: .45; cursor: default; }
+.fr-split-preview { border: 1px solid var(--rule); border-radius: 6px; }
+.fr-split-preview > div { display: flex; justify-content: space-between; padding: 8px 10px; font-size: 13px; }
+.fr-split-preview > div + div { border-top: 1px solid var(--rule); }
+.fr-split-summary { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0; font: 11px var(--mono); color: var(--accent-ink); }
+
+/* Compact shipment headers; expanded forms retain the full section width. */
+.fr-schead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 16px; padding: 10px 16px; }
+.fr-schead > .fr-eyebrow { grid-column: 1; grid-row: 1; }
+.fr-schead > .fr-scname { grid-column: 1; grid-row: 2; }
+.fr-shipment-meta { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px; }
+.fr-shipment-meta .fr-fields { gap: 3px 14px; }
+.fr-shipment-header-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 14px; }
+.fr-shipment-header-actions .fr-shipdel { margin: 0; padding: 0; }
+.fr-shipment-header-actions .fr-del { font-size: 10px; padding: 2px 0; }
+.fr-shipment-header-actions .fr-edit-disclosure { font-size: 10px; }
+.fr-shipment-header-actions:has(details[open]), .fr-shipment-header-actions:has(.confirming) { grid-column: 1 / -1; grid-row: auto; align-items: flex-start; }
+.fr-shipment-header-actions details[open] { flex: 1; }
+.fr-schead > .fr-split-summary { grid-column: 1 / -1; margin: 1px 0; }
+.fr-schead > .fr-decision { grid-column: 1 / -1; }
+@media (max-width: 650px) { .fr-schead { grid-template-columns: minmax(0, 1fr); } .fr-shipment-header-actions { grid-column: 1; grid-row: auto; } }
+
+/* Keep header actions anchored while the edit form expands below them. */
+.fr-schead .fr-shipment-header-actions,
+.fr-schead .fr-shipment-header-actions:has(details[open]),
+.fr-schead .fr-shipment-header-actions:has(.confirming),
+.fr-schead .fr-shipment-header-actions .fr-edit-disclosure { display: contents; }
+.fr-schead .fr-shipment-header-actions summary { grid-column: 2; grid-row: 1; align-self: center; justify-self: end; font: 10px var(--mono); color: var(--ink-3); }
+.fr-schead .fr-shipment-header-actions .fr-shipdel { grid-column: 2; grid-row: 2; align-self: center; justify-self: end; }
+.fr-schead .fr-shipment-header-actions .fr-editform { grid-column: 1 / -1; grid-row: auto; }
+.fr-schead .fr-shipment-header-actions .fr-shipdel.confirming { grid-column: 1 / -1; grid-row: auto; justify-self: stretch; }
+@media (max-width: 650px) {
+  .fr-schead .fr-shipment-header-actions summary,
+  .fr-schead .fr-shipment-header-actions .fr-shipdel { grid-column: 1; grid-row: auto; justify-self: start; }
+}

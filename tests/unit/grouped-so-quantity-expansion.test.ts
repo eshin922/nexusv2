@@ -89,6 +89,31 @@ const planFor = (tierQty = TIER, lines = certLines(tierQty)) =>
     lines,
   });
 
+test("different product runs share reusable recipes but carry separate order quantities", () => {
+  const lines = certLines(5000).map((line) => ({
+    ...line, groupQuantity: line.assemblyId === "A" ? 5000 : 20000,
+    quantity: (line.assemblyId === "A" ? 5000 : 20000) * line.qtyPerParent,
+  }));
+  const plan = planFor(25000, lines);
+  assert.deepEqual(plan.groups.map((group) => group.groupQuantity), [5000, 20000]);
+  assert.deepEqual(plan.groups.map((group) => group.turnkeyUnitPrice), [10, 2]);
+  const legacy = planFor(1000);
+  assert.deepEqual(plan.groups.map((group) => group.compositionHash), legacy.groups.map((group) => group.compositionHash));
+});
+
+test("independent member quantities remain separate NetSuite SKU lines with group attribution", () => {
+  const lines = certLines(500);
+  lines[0] = { ...lines[0], quantity: 200, independentMemberQuantity: true };
+  const plan = planFor(500, lines);
+  assert.equal(plan.groupingRequired, false);
+  assert.equal(plan.groupingException, "independent_product_quantities");
+  assert.equal(plan.derivable, true);
+  assert.deepEqual(plan.groups, []);
+  assert.equal(plan.lineAttribution[0].assemblyId, "A");
+  assert.equal(lines[0].quantity, 200);
+  assert.equal(lines[1].quantity, 500);
+});
+
 // ── 1-3 · the contract itself ──────────────────────────────────────────────
 
 test("1 · the Item Group DEFINITION carries the per-group multiplier, not the tier-expanded quantity", () => {
@@ -112,15 +137,15 @@ test("1 · the Item Group DEFINITION carries the per-group multiplier, not the t
   );
 });
 
-test("2 · the Sales Order group LINE carries the tier quantity", () => {
+test("2 · the Sales Order group LINE carries its planned order quantity, defaulting to the tier", () => {
   const markComplete = readFileSync("src/lib/netsuite/mark-complete.ts", "utf8");
   const emission = markComplete.slice(
     markComplete.indexOf("emittedGroupLines.push("),
   );
   assert.match(
     emission.slice(0, 200),
-    /quantity: groupingPlan\.tierQty/,
-    "the group line quantity is the tier quantity, sourced from the frozen plan",
+    /quantity: planned\.groupQuantity \?\? groupingPlan\.tierQty/,
+    "the group line quantity uses its frozen product run, retaining tier inheritance",
   );
 });
 

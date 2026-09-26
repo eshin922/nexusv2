@@ -19,7 +19,7 @@ test("draft worksheet exposes business-language correction surfaces", () => {
 });
 
 test("commercial corrections follow editability while selected tracking remains operational", () => {
-  assert.match(source, /editable && <ShipmentEdit/);
+  assert.match(source, /editable && <div className="fr-shipment-header-actions"><ShipmentEdit/);
   assert.match(source, /TrackingStrip selected=\{selected\}/);
   assert.match(source, /these dates were entered for a different endpoint/);
 });

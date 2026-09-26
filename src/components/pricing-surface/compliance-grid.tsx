@@ -386,6 +386,7 @@ export function ComplianceGrid({
                     style={{ fontSize: 10.5, color: "var(--ink-4)" }}
                   >
                     {fmtUsd(cell.sell_unit)}
+                    {cell.order_quantity != null && <span className="block">{cell.order_quantity.toLocaleString()} units</span>}
                   </span>
                 )}
                 {display.note && (

@@ -56,6 +56,10 @@ export interface PlanLineInput {
   netsuiteItemId: string;
   /** TRANSACTION quantity for the accepted tier — `tierQty × qtyPerParent`. */
   quantity: number;
+  /** Explicit run quantity supplied by the shared quantity model, when present. */
+  groupQuantity?: number;
+  /** A recorded member order quantity is independent of its reusable recipe. */
+  independentMemberQuantity?: boolean;
   /**
    * How many of this member ONE group contains. The Item Group definition's
    * quantity, and the only quantity the composition hash may see.
@@ -106,6 +110,8 @@ export interface PlannedMember {
 
 export interface PlannedGroup {
   assemblyId: string;
+  /** Ordered finished units for THIS group, independent of the scenario size. */
+  groupQuantity?: number | null;
   assemblySku: string;
   assemblyName: string;
   /**
@@ -159,6 +165,7 @@ export interface GroupingPlan {
    *  matching the customer-PDF adapter's documented default. */
   applicability: GroupingApplicability;
   groupingRequired: boolean;
+  groupingException?: "independent_product_quantities";
   tierQty: number | null;
   /** Empty when `itemized` — an itemized quote acquires no grouping
    *  requirement (constraint 2). */
@@ -187,7 +194,8 @@ export function buildGroupingPlan(input: {
   lines: PlanLineInput[];
 }): GroupingPlan {
   const applicability: GroupingApplicability = input.detailLevel ?? "itemized";
-  const groupingRequired = applicability === "turnkey_only";
+  const independentQuantities = input.lines.some((line) => line.assemblyId !== null && line.independentMemberQuantity === true);
+  const groupingRequired = applicability === "turnkey_only" && !independentQuantities;
 
   const lineAttribution = input.lines.map((l) => ({
     sku: l.sku,
@@ -198,7 +206,7 @@ export function buildGroupingPlan(input: {
   }));
 
   if (!groupingRequired) {
-    return { derivable: true, applicability, groupingRequired, tierQty: input.tierQty, groups: [], lineAttribution };
+    return { derivable: true, applicability, groupingRequired, ...(independentQuantities ? { groupingException: "independent_product_quantities" as const } : {}), tierQty: input.tierQty, groups: [], lineAttribution };
   }
 
   // Group by assembly, preserving first-seen order so the plan reads in the
@@ -278,11 +286,23 @@ export function buildGroupingPlan(input: {
     }
 
     const expectedAmount = round4(members.reduce((sum, m) => sum + m.amount, 0));
+    // Accepted member quantities and the per-unit composition must all describe
+    // the same run. Use the resolved product run supplied with those frozen
+    // obligations; legacy plans continue to inherit the scenario tier.
+    const usesExplicitQuantities = lines.some((line) => line.groupQuantity !== undefined);
+    const groupQuantities = new Set(lines.map((line) => line.groupQuantity ?? input.tierQty));
+    const candidateQuantity = groupQuantities.size === 1 ? [...groupQuantities][0] : null;
+    const groupQuantity = candidateQuantity !== null && Number.isSafeInteger(candidateQuantity) && candidateQuantity > 0 ? candidateQuantity : null;
+    if (usesExplicitQuantities && (groupQuantity === null || members.some((m) => m.quantity !== groupQuantity * m.qtyPerParent))) {
+      notDerivableReason = "Accepted member quantities do not describe one positive whole group quantity.";
+      compositionHash = null;
+    }
     const turnkeyUnitPrice =
-      input.tierQty && input.tierQty > 0 ? round4(expectedAmount / input.tierQty) : null;
+      groupQuantity !== null ? round4(expectedAmount / groupQuantity) : null;
 
     groups.push({
       assemblyId,
+      ...(usesExplicitQuantities ? { groupQuantity } : {}),
       assemblySku: head.assemblySku,
       assemblyName: head.assemblyName,
       compositionHash,
