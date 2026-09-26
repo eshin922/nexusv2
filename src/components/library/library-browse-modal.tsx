@@ -1258,7 +1258,7 @@ export function LibraryBrowseModal({
                   const readiness: "ready" | "attached" | "archived" =
                     row.archived
                       ? "archived"
-                      : targetAssemblyId
+                      : !isTopLevel && targetAssemblyId
                         ? row.attachedAssemblyIdsInTargetQuote.includes(
                             targetAssemblyId,
                           )

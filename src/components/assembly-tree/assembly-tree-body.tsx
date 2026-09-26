@@ -9,6 +9,7 @@ import { AsyRow } from "./asy-row";
 import type { AssemblyLeafNode } from "@/lib/assembly-tree";
 import { AddComponentChargesSheet } from "./add-component-charges-sheet";
 import { DirectProductRow } from "./direct-product-row";
+import { ProductQuantityFields, type QuantityRow } from "./product-quantity-table";
 import { CompletenessChip } from "./completeness-chip";
 import { LibraryBrowseTrigger } from "@/components/library/library-browse-trigger";
 import { CreateItemGroupTrigger } from "./create-item-group-trigger";
@@ -77,6 +78,7 @@ export function AssemblyTreeBody({
   suggestedServicesByProductType,
   associatedServiceLeaves,
   targetsByUnit,
+  productQuantities = [],
 }: {
   tree: AssemblyTree;
   editable: boolean;
@@ -108,6 +110,7 @@ export function AssemblyTreeBody({
   associatedServiceLeaves: ReadonlyArray<{ id: string; serviceIdentity: string }>;
   /** Resolved-ready targets, indexed by sellable-unit id at the tree root. */
   targetsByUnit: ReadonlyMap<string, UnitTargets>;
+  productQuantities?: readonly QuantityRow[];
 }) {
   const serverOrder = useMemo(
     () => tree.assemblies.map((a) => a.id),
@@ -115,6 +118,7 @@ export function AssemblyTreeBody({
   );
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [quantityProductId, setQuantityProductId] = useState<string | null>(null);
   const router = useRouter();
   const [, startReorderTransition] = useTransition();
   const [removingQuoteLeafId, setRemovingQuoteLeafId] = useState<string | null>(null);
@@ -626,6 +630,7 @@ export function AssemblyTreeBody({
               ) : null}
             <DirectProductRow
               key={product.quoteLeafId}
+              quantityControl={product.commercialKind === "product" ? <ProductQuantityFields product={{id: product.quoteLeafId, kind: "leaf", name: product.name, sku: product.sku}} tiers={tiers} quantities={productQuantities} disabled={!editable}/> : undefined}
               product={product}
               editable={editable}
               isMoving={movingLeafId === product.quoteLeafId}
@@ -697,6 +702,7 @@ export function AssemblyTreeBody({
                   >
                     {selectedCount ? "+ Add or change associated costs" : "+ Add associated costs"}
                   </button>
+                  <button type="button" className="setup-wizard-inline-action" disabled={!editable} aria-expanded={quantityProductId === product.quoteLeafId} onClick={() => setQuantityProductId((id) => id === product.quoteLeafId ? null : product.quoteLeafId)}>Add sub-quantity</button>
                   <a
                     className="setup-wizard-inline-action"
                     href={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
@@ -704,6 +710,7 @@ export function AssemblyTreeBody({
                     Edit library specs
                   </a>
                 </div>
+                {quantityProductId === product.quoteLeafId ? <ProductQuantityFields product={{id: product.quoteLeafId, kind: "leaf", name: product.name, sku: product.sku}} tiers={tiers} quantities={productQuantities} disabled={!editable}/> : null}
               </div>
             );
           })}
@@ -729,11 +736,12 @@ export function AssemblyTreeBody({
         onAcquire={acquireLane}
         onDrop={commitDrop}
       />
-      <p className="setup-wizard-section-lede">Optional. Combine products that are quoted together as one thing. A product becomes a component by being put in a group — nothing is grouped automatically.</p>
+      <p className="setup-wizard-section-lede">Optional. Group products sold together as one finished item—for example, gummies, a jar, a cap, and a carton. Keep separately sold products on their own lines. Different quantities do not require a group; use Add sub-quantity on each product.</p>
       <div className="setup-wizard-indent">
           {orderedAssemblies.map((asy) => (
             <AsyRow
               key={asy.id}
+              quantityControl={<ProductQuantityFields product={{id: asy.id, kind: "assembly", name: asy.name, sku: asy.sku}} tiers={tiers} quantities={productQuantities} disabled={!editable}/>}
               asy={{ ...asy, children: childrenOf(asy.id) }}
               editable={editable}
               projectId={projectId}
@@ -778,7 +786,7 @@ export function AssemblyTreeBody({
           <CreateItemGroupTrigger
             quoteId={quoteId}
             editable={editable}
-            label="+ Combine products into an item group"
+            label="+ Group products sold together"
             className="setup-wizard-add-button"
           />
       </div>

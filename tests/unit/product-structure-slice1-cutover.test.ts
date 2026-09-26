@@ -7,6 +7,10 @@ const root = path.resolve(import.meta.dirname, "../..");
 const read = (file: string) => readFile(path.join(root, file), "utf8");
 
 const classifiedIdentityFiles = new Set([
+  // Product quantity authoring addresses canonical quote occurrences. It
+  // never resolves a library SKU or uses a grouped-membership fallback.
+  "src/app/actions/product-quantities.ts",
+  "src/components/assembly-tree/product-quantity-table.tsx",
   // SKU allocation. Handles the LIBRARY leaf id (`leaves.id`) and no
   // attachment identity at all: a reservation binds to the product in the
   // catalog, which exists independently of any quote, so neither

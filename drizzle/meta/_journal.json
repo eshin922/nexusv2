@@ -953,6 +953,27 @@
       "when": 1790239320000,
       "tag": "0137_associated_service_quote_presentation",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1790325720000,
+      "tag": "0138_product_tier_quantities",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1790325720002,
+      "tag": "0140_independent_member_quantities",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1790325720003,
+      "tag": "0141_freight_percentage_split",
+      "breakpoints": true
     }
   ]
 }

@@ -38,9 +38,9 @@ import {
 } from "../../src/lib/costs/packaging-line-graph-read.ts";
 
 const T1 = "tier-1";
-test("tier ordinals and partial numeric matches do not suppress quantity", () => {
-  assert.equal(tierHead({ label: "Tier 1", qty: 1 }).qty, "1 units");
-  assert.equal(tierHead({ label: "MOQ 10,000 units", qty: 1_000 }).qty, "1,000 units");
+test("Costs headings show the actual order quantity instead of custom option names", () => {
+  assert.equal(tierHead({ label: "Validation 100", qty: 100 }).label, "100 units");
+  assert.equal(tierHead({ label: "MOQ 10,000 units", qty: 1_000 }).label, "1,000 units");
   assert.equal(tierHead({ label: "MOQ 1000 units", qty: 1_000 }).qty, null);
 });
 const T2 = "tier-2";
@@ -284,8 +284,8 @@ test("Spreadsheet shows every tier plus the markup track, and unpriced is not ze
   const m = await mount(body());
   const head = m.findAll(".cm2-group:not(.cm2-quote-freight) .cm2-fieldhead .cm2-tierhead");
   assert.equal(head.length, 4, "three alternatives and the MARKUP % track");
-  assert.equal(head[0].querySelector(".cm2-tierhead-label")?.textContent, "TIER 1");
-  assert.equal(head[0].querySelector(".cm2-tierhead-qty")?.textContent, "10,000 units");
+  assert.equal(head[0].querySelector(".cm2-tierhead-label")?.textContent, "10,000 units");
+  assert.equal(head[0].querySelector(".cm2-tierhead-qty"), null);
   assert.equal(head[3].textContent, "MARKUP %");
 
   const lineRow = m
@@ -575,7 +575,7 @@ test("the active tier comes from the quote, not from a view's own default", asyn
     m
       .findAll('.cm2-group:not(.cm2-quote-freight) .cm2-tierpick[aria-pressed="true"] .cm2-tierhead-label')
       .map((n) => n.textContent);
-  assert.deepEqual(headPressed(), ["TIER 3"], "Spreadsheet highlights the quote's tier");
+  assert.deepEqual(headPressed(), ["50,000 units"], "Spreadsheet highlights the quote's tier");
 
   await switchTo(m, "By product");
   const scope = m.byTestId("cm2-tier-scope")!;
@@ -591,7 +591,7 @@ test("the active tier comes from the quote, not from a view's own default", asyn
   // must agree — a section that disagreed would be the defect this asserts away.
   const byModule = headPressed();
   assert.ok(byModule.length > 0, "By module renders no tier heads");
-  assert.deepEqual([...new Set(byModule)], ["TIER 3"], "every section agrees");
+  assert.deepEqual([...new Set(byModule)], ["50,000 units"], "every section agrees");
   await m.unmount();
 });
 
@@ -669,7 +669,7 @@ test("a tier label that already states its quantity is not given it twice", asyn
     />,
   );
   const head = m.find(".cm2-group:not(.cm2-quote-freight) .cm2-fieldhead .cm2-tierhead")!;
-  assert.equal(head.querySelector(".cm2-tierhead-label")?.textContent, "MOQ · 1,000 UNITS");
+  assert.equal(head.querySelector(".cm2-tierhead-label")?.textContent, "1,000 units");
   assert.equal(
     head.querySelector(".cm2-tierhead-qty"),
     null,

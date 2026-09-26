@@ -2021,3 +2021,13 @@
   .setup-wizard-footer { margin-inline: -12px; padding-inline: 12px; }
   .setup-wizard-quantity-grid .r7b-tier-row { flex: 1 1 100%; min-width: 0; }
 }
+
+/* Product sub-quantity entry follows the compact Setup action-row sizing. */
+.setup-subquantities { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 8px 13px; border-top: 1px solid var(--rule); }
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell > .setup-subquantities { grid-row: 4; padding: 8px 0; }
+.setup-subquantity-cell, .setup-subquantity-value { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.setup-subquantity-cell > span { color: var(--ink-3); font-size: 11.5px; }
+.setup-subquantity-input { box-sizing: border-box; width: 80px; height: 28px; border: 1px solid var(--rule); border-radius: 5px; padding: 4px 8px; background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 12px; text-align: right; }
+.setup-subquantity-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.setup-subquantity-reset { border: 0; background: transparent; padding: 2px; color: var(--ink-3); font-size: 11px; text-decoration: underline; cursor: pointer; }
+.setup-subquantity-status { color: var(--ink-4); font-size: 11px; }

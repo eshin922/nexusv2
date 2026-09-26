@@ -417,10 +417,10 @@ test("operands are keyed by canonical identity, so a repeated leaf stays two", (
   assert.notEqual(repeats[0].key, repeats[1].key);
 });
 
-test("weights are units at the tier: attachment quantity x tier quantity", () => {
+test("weights are ordered units: recipe usage applies only to group members", () => {
   const pkg = blendNode("pkg");
   // Attachment quantities 2, 3, 5, 7 against a tier of 1000.
-  assert.deepEqual(pkg.weights, [2000, 3000, 5000, 7000]);
+  assert.deepEqual(pkg.weights, [2000, 3000, 5000, 1000]);
 });
 
 test("the blend is a weighted mean of its own operands", () => {
@@ -496,7 +496,7 @@ test("a SKU present but unpriced contributes at zero, and is not silently droppe
   const direct = (pkg.operands ?? []).find((o) => o.key.endsWith("ql-direct-1"));
   assert.ok(direct, "the direct attachment must still be a contributor");
   assert.equal(direct.value, 0);
-  assert.equal(pkg.weights?.[3], 7000);
+  assert.equal(pkg.weights?.[3], 1000);
 });
 
 test("the graph reconciles on the nested, unequal-quantity fixture", () => {

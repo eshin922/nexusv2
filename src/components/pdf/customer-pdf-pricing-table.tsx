@@ -170,6 +170,7 @@ export function PricingTable({
                     style={[styles.cNum, rec ? styles.cRec : {}]}
                   >
                     {unitNode}
+                    {sku.tier_quantities?.[ti] != null ? <Text style={styles.linetotal}>{sku.tier_quantities[ti]!.toLocaleString()} units</Text> : null}
                     {lt != null && (
                       <Text
                         style={[

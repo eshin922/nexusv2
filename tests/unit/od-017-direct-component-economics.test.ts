@@ -767,7 +767,7 @@ test("12 · Freight authoring requires no assembly — membership is canonical",
   // subcategory's assembly — could not express a Direct Component at all.
   assert.match(
     worksheet,
-    /from\(quoteLeaves\)\.where\(eq\(quoteLeaves\.quoteId, quote\.id\)\)/,
+    /from\(quoteLeaves\)\.where\(and\(eq\(quoteLeaves\.quoteId, quote\.id\), eq\(quoteLeaves\.commercialKind, "product"\)\)\)/,
   );
   assert.doesNotMatch(
     worksheet,

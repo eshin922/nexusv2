@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CSSProperties } from "react";
@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   addFreightDestination,
   createFreightSubcategory,
+  splitFreightShipment,
   deleteFreightDestination,
   deleteFreightSubcategory,
   selectFreightDestination,
@@ -17,6 +18,7 @@ import {
   updateFreightTracking,
 } from "@/app/actions/freight-worksheet";
 import type { FreightWorkbook } from "@/lib/freight-workbook";
+import { SplitShipmentDialog } from "@/components/costs/split-shipment-dialog";
 // Gate 1B A-6 — the engine's own per-shipment contribution function. This file
 // previously carried five hand-written copies of this arithmetic; the display
 // layer now reads the same computation the price is built from.
@@ -127,12 +129,14 @@ export function FreightDrilldown(props: {
   // Gate 1B A-6: every governed freight value on this surface is read from
   // the canonical graph, resolved once here and passed down as data.
   const graph = useCostingStore(selectGraph);
+  const quantityRollups = useCostingStore((state) => state.costing.skuRollups);
   const shipReads = useMemo(() => readShipmentNodes(graph.nodes), [graph]);
   const { quoteId, tiers, editable, workbook, products, components } = props;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [createProductId, setCreateProductId] = useState<string | null>(null);
+  const [splitProductId, setSplitProductId] = useState<string | null>(null);
   const [openDestinations, setOpenDestinations] = useState<string[]>(() =>
     workbook.destinations.length <= 2 ? workbook.destinations.map((row) => row.id) : [],
   );
@@ -253,7 +257,7 @@ export function FreightDrilldown(props: {
         {/* Components carry their coverage state, so "what still needs a
             shipment" is readable from the product head rather than
             reconstructed by opening each shipment in turn. */}
-      <div className="fr-product-head"><div className="identity"><strong className="product-name">{product.label}</strong><span className="source">{productComponents.length} SKUs</span></div>{editable && <button className="fr-addbtn" onClick={() => setCreateProductId(product.id)}>{shipments.length ? "+ Record shipment" : products.length === 1 ? "+ What ships" : "+ Record shipment"}</button>}</div>
+      <div className="fr-product-head"><div className="identity"><strong className="product-name">{product.label}</strong><span className="source">{productComponents.length} SKUs</span></div>{editable && <div className="fr-shipment-actions"><button className="fr-addbtn" onClick={() => setCreateProductId(product.id)}>{shipments.length ? "+ Record shipment" : products.length === 1 ? "+ What ships" : "+ Record shipment"}</button><button className="fr-addbtn" disabled={!shipments.some((shipment) => !shipment.splitPlan)} title={shipments.length ? "Split an existing shipment across all order options" : "Record a shipment first"} onClick={() => setSplitProductId(product.id)}>Split shipment</button></div>}</div>
         {shipments.length > 0 && !coverage.complete && (
           <div className="fr-coverage" role="status">
             <span className="k">coverage</span>
@@ -279,6 +283,7 @@ export function FreightDrilldown(props: {
       </div>;
     })}
     {workbook.subcategories.length > 0 && <TotalStrip graph={graph} tiers={tiers} workbook={workbook}/>}
+    {splitProductId && <SplitShipmentDialog shipments={workbook.subcategories.filter((row) => row.assemblyId === products.find((product) => product.id === splitProductId)?.assemblyId && !row.splitPlan)} tiers={tiers.map((tier) => ({ ...tier, qty: quantityRollups.find((row) => row.skuId === products.find((product) => product.id === splitProductId)?.assemblyId)?.perTier.find((row) => row.tierId === tier.id)?.orderQuantity ?? tier.qty }))} pending={busy("splitShipment")} close={() => setSplitProductId(null)} submit={submit(splitFreightShipment, "splitShipment", () => setSplitProductId(null))}/>}
     {createProductId && (() => {
       const createProduct = products.find((item) => item.id === createProductId);
       const createAssemblyId = createProduct?.assemblyId ?? null;
@@ -314,11 +319,12 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
     <div className="fr-schead">
       <div className="fr-eyebrow"><span className="num">{index + 1} of {count}</span><span>what ships</span><span className={shipment.crossesInternationalBorder ? "kind" : undefined}>· {shipment.crossesInternationalBorder ? "import · clears customs" : "domestic · no border"}</span></div>
       <div className="fr-scname"><span className="ships">{shipment.label}</span><span className="from">from {shipment.origin || "not set"}</span>{destinations.length > 1 && <span className={`count${shipment.selectedDestinationId ? "" : " undecided"}`}>{destinations.length} destinations priced</span>}</div>
-      <div className="fr-skus">{coversProduct ? <span className="fr-chip all">all {memberships.length} SKUs</span> : <>{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</>}</div>
+      {shipment.splitPlan && <div className="fr-split-summary"><strong>{shipment.splitPlan.percentage}% shipment</strong>{shipment.splitPlan.quantities.map((quantity: any) => <span key={quantity.tierId}>{quantity.units.toLocaleString("en-US")} of {quantity.total.toLocaleString("en-US")} units</span>)}</div>}
+      <div className="fr-shipment-meta"><div className="fr-skus">{coversProduct ? <span className="fr-chip all">all {memberships.length} SKUs</span> : <>{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</>}</div>
       <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/>{shipment.treatment === "pass_through" && <Fact label="treatment" value="pass-through"/>}</div>
+      </div>
       {!selected && destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
-      {editable && <ShipmentEdit shipment={shipment} memberships={memberships} components={components} pending={busy(`editShipment:${shipment.id}`)} submit={submit(updateFreightSubcategory, `editShipment:${shipment.id}`)}/>}
-      {editable && <ShipmentDelete shipment={shipment} destinationCount={destinations.length} workbook={workbook} pending={busy(`deleteShipment:${shipment.id}`)} submit={submit(deleteFreightSubcategory, `deleteShipment:${shipment.id}`)}/>}
+      {editable && <div className="fr-shipment-header-actions"><ShipmentEdit shipment={shipment} memberships={memberships} components={components} pending={busy(`editShipment:${shipment.id}`)} submit={submit(updateFreightSubcategory, `editShipment:${shipment.id}`)}/><ShipmentDelete shipment={shipment} destinationCount={destinations.length} workbook={workbook} pending={busy(`deleteShipment:${shipment.id}`)} submit={submit(deleteFreightSubcategory, `deleteShipment:${shipment.id}`)}/></div>}
     </div>
 
     {destinations.map((destination: any) => <DestinationRow shipReads={shipReads} key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} busy={busy} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
@@ -673,7 +679,7 @@ function DestinationEdit({ destination, pending, submit }: any) {
     !destination.quoteReference && "forwarder quote reference",
   ].filter(Boolean) as string[];
 
-  return <details className="fr-edit-disclosure"><summary>Edit destination</summary>
+  return <details className="fr-edit-disclosure fr-destination-edit"><summary>Edit destination</summary>
     <form action={submit} className="fr-editform">
       <input type="hidden" name="destinationId" value={destination.id}/>
       <div className="fr-field"><label htmlFor={`de-dest-${destination.id}`}>destination <span className="req">required</span></label><input id={`de-dest-${destination.id}`} required name="destination" defaultValue={destination.destination} placeholder="Edina, MN 55439"/></div>

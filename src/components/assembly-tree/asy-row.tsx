@@ -54,6 +54,7 @@ export function AsyRow({
   onMemberDragOverGroup,
   onMemberDragOverGroupTail,
   onMemberDropOnGroup,
+  quantityControl,
 }: {
   asy: AssemblyNode;
   editable: boolean;
@@ -91,6 +92,7 @@ export function AsyRow({
   onMemberDragOverGroup?: (e: React.DragEvent) => void;
   onMemberDragOverGroupTail?: (e: React.DragEvent) => void;
   onMemberDropOnGroup?: (e: React.DragEvent) => void;
+  quantityControl?: React.ReactNode;
 }) {
   const isExpanded = asy.children.length > 0;
   // B-4A item 3 — display only. The stored SKU is unchanged and still carries
@@ -98,6 +100,7 @@ export function AsyRow({
   // word the operator has ever been shown for this concept.
   const displaySku = assemblyDisplaySku(asy.sku, quoteId);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [quantityOpen, setQuantityOpen] = useState(false);
 
   // LEAF-level drag state (scoped per ASY — leaves can only reorder
   // within their parent ASY in v1).
@@ -203,6 +206,7 @@ export function AsyRow({
           open={notesOpen}
           onToggle={() => setNotesOpen((v) => !v)}
         />
+        {quantityControl ? <button type="button" className="setup-wizard-inline-action" disabled={!editable} aria-expanded={quantityOpen} onClick={() => setQuantityOpen((open) => !open)}>Add sub-quantity</button> : null}
         {/* §1 presentation closeout · the "+ Add products" BUTTON is gone from
             this control band; the ACTION moved into the menu below, where the
             destination is still this group. One affordance repeated on every
@@ -230,6 +234,7 @@ export function AsyRow({
           disabled={!editable}
         />
       ) : null}
+      {quantityOpen ? quantityControl : null}
       <div
         className="a1v2-leaves"
         onDragEnd={handleLeafDragEnd}
@@ -364,15 +369,15 @@ function QtyPerParentCell({
     });
   }
 
-  if (!editable) return <>qty/parent {value}</>;
+  if (!editable) return <>units per finished item {value}</>;
 
   return (
     <>
-      qty/parent{" "}
+      units per finished item{" "}
       {editing ? (
         <input
           className="qty-per-parent-input"
-          aria-label="Qty / parent — components per unit of the parent"
+          aria-label="Units of this component per finished item"
           inputMode="numeric"
           autoFocus
           value={draft}
@@ -394,7 +399,7 @@ function QtyPerParentCell({
         <button
           type="button"
           className="qty-per-parent-read"
-          aria-label={`Qty / parent for this component: ${value}. Click to edit.`}
+          aria-label={`Units of this component per finished item: ${value}. Click to edit.`}
           onClick={() => {
             setError(null);
             setEditing(true);

@@ -620,6 +620,8 @@ export async function runMarkComplete(
       // The Item Group DEFINITION multiplier — how many of this leaf ONE group
       // contains, independent of how many groups the tier buys.
       qtyPerParent: Math.max(1, Math.round(leafRollup.qtyPerParent ?? 1)),
+      orderQuantity: perTierRollup.orderQuantity,
+      independentMemberQuantity: perTierRollup.independentMemberQuantity,
       // Reporting basis only. Never reaches a rate, an amount or REG-4.
       unitCost:
         perTierRollup.contributionCostPerUnit != null
@@ -1156,7 +1158,7 @@ export async function runMarkComplete(
         emittedGroupLines.push({
           netsuiteItemId: resolved.netsuiteInternalId,
           sku: resolved.itemidDisplay,
-          quantity: groupingPlan.tierQty ?? 0,
+          quantity: planned.groupQuantity ?? groupingPlan.tierQty ?? 0,
         });
 
         itemGroupOutcomes.push({
@@ -1224,7 +1226,7 @@ export async function runMarkComplete(
     // exactly one half, so nothing can be checked twice or go unchecked.
     const reg4Groups: PostGroupingGroup[] = sendsGroupLines
       ? groupingPlan.groups.map((g) => ({
-          groupQuantity: groupingPlan.tierQty ?? 0,
+          groupQuantity: g.groupQuantity ?? groupingPlan.tierQty ?? 0,
           members: emitted
             .filter((e) => e.assemblyId !== null && e.assemblyId === g.assemblyId)
             .map((e) => ({

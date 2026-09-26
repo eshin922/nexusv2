@@ -15,6 +15,7 @@ import {
 import { fmtPct1 } from "@/lib/money-display";
 import { M3Editor } from "./m3-editor-boundary";
 import { firstAnsweredRead } from "./spreadsheet-view";
+import { OrderQuantity } from "./order-quantity";
 
 /**
  * BY PRODUCT — prototype `editor()` / `edSection()` / `edCard()` / `edField()`.
@@ -99,6 +100,7 @@ export function ByProductView({
       <div className="cm2-product-panel">
         <div className="cm2-product-head">
           <span className="cm2-product-title">{owner.name}</span>
+          <OrderQuantity owner={owner} tierId={tier.id}/>
           <span className="cm2-flags">
             {owner.sku ? <Tag>{owner.sku}</Tag> : <Tag tone="amber">SKU unresolved</Tag>}
             {owner.productType && <Tag>type · {owner.productType}</Tag>}

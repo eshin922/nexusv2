@@ -161,6 +161,8 @@ export type CustomerViewSku = {
    * free one.
    */
   tierLineTotals: ReadonlyArray<number | null>;
+  /** Actual ordered/consumed units for this line in each scenario. */
+  tierQuantities?: ReadonlyArray<number | null>;
   /** "step↓" | "flat" | "partial" | other shape descriptor. Drives flat-row treatment. */
   shape: "step↓" | "flat" | "partial" | string;
 };

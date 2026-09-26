@@ -10,6 +10,7 @@ import {
   productTypes,
   itemGroupCategories,
   quoteLeaves,
+  quotes,
 } from "@/db/schema";
 import { writeAuditEntry, writeAuditEntryReturningId } from "@/lib/audit";
 import { ensureUser } from "@/lib/auth/ensure-user";
@@ -825,15 +826,20 @@ export async function moveProductMembership(
     const quote = await quoteByIdDraft(existing.quoteId);
     assertDraft(quote);
 
-    const evidence = await db.transaction(async (tx) =>
-      moveStructuralMembership(tx as never, {
+    const evidence = await db.transaction(async (tx) => {
+      // Serialize against quantity authoring before changing the owner model.
+      const [lockedQuote] = await tx.select().from(quotes)
+        .where(eq(quotes.id, existing.quoteId)).for("update").limit(1);
+      if (!lockedQuote) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found.");
+      assertDraft(lockedQuote);
+      return moveStructuralMembership(tx as never, {
         quoteLeafId,
         target:
           target === "direct"
             ? { kind: "direct", position }
             : { kind: "group", assemblyId: target, position },
-      }),
-    );
+      });
+    });
 
     // Structure only. `diff_json` records both homes so a forensic reader can
     // see the move without reconstructing it from two rows.

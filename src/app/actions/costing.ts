@@ -76,6 +76,7 @@ import {
 import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
+import { quoteProductTierQuantities } from "@/db/schema";
 import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
 import { resolveLegacyFreightAttribution } from "@/lib/freight-legacy-attribution";
 import {
@@ -598,6 +599,7 @@ function projectSnapshotWorkbook(
 //   - assembly_leaf_inputs / _overrides / _targets : join through
 //     assembly_leaves → assemblies(quote_id)
 async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
+  productQuantityRows: Array<typeof quoteProductTierQuantities.$inferSelect>;
   assemblyRows: Array<typeof assemblies.$inferSelect>;
   /**
    * The governed SKU population (OD-014): canonical `quote_leaves` rows, each
@@ -627,6 +629,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
   quoteLeafLiftRows: Array<typeof quoteLeafLifts.$inferSelect>;
 }> {
   const [
+    productQuantityRows,
     assemblyRows,
     quoteLeafAttachmentJoinRows,
     assemblyLeafInputJoinRows,
@@ -635,6 +638,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     clientTargetJoinRows,
     quoteLeafLiftRows,
   ] = await Promise.all([
+    db.select().from(quoteProductTierQuantities).where(eq(quoteProductTierQuantities.quoteId, quoteId)),
     timed("nm.assemblies", quoteId, db
       .select()
       .from(assemblies)
@@ -762,6 +766,7 @@ async function loadNewModelCostDataForQuote(quoteId: string): Promise<{
     leafMap.set(r.leaves.id, r.leaves);
   }
   return {
+    productQuantityRows,
     assemblyRows,
     quoteLeafAttachmentRows: quoteLeafAttachmentJoinRows.map((r) => ({
       ...r.quote_leaves,
@@ -1023,6 +1028,7 @@ export async function loadQuoteCostingInput(
     const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
 
     const input = buildQuoteCostingInputFromNewModel({
+      productQuantities: newModelData.productQuantityRows,
       // The PROPOSAL when one is given, otherwise what is stored. An
       // exploratory election is evaluated before it is persisted; a page load
       // passes nothing and reads the durable set.
@@ -1630,6 +1636,7 @@ export async function applyClientTargetSolveTierAdj(
     const leafById = new Map(newModelData.leafRows.map((l) => [l.id, l]));
 
     const input = buildQuoteCostingInputFromNewModel({
+      productQuantities: newModelData.productQuantityRows,
       // The PERSISTED set, deliberately. This solves a tier adjustment against
       // the elections actually in force, not against a candidate an operator is
       // still exploring — the answer it returns gets written.
@@ -2005,6 +2012,7 @@ export async function getCostingBundle(
     );
 
     const input = buildQuoteCostingInputFromNewModel({
+      productQuantities: newModelData.productQuantityRows,
       // The PROPOSAL when one is given, otherwise what is stored. An
       // exploratory election is evaluated before it is persisted; a page load
       // passes nothing and reads the durable set.

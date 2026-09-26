@@ -18,6 +18,15 @@ async function manifest(): Promise<FixtureManifest> {
 test.describe.configure({ mode: "serial" });
 
 async function openProduction(page: import("@playwright/test").Page) {
+  // These regressions protect the retained legacy production drawer. The
+  // default Costs route now opens the reviewed product-cost worksheet, so
+  // explicitly select the legacy surface rather than waiting for its drawer
+  // to appear on the new screen. The current worksheet has its own tests.
+  const legacyUrl = new URL(page.url());
+  legacyUrl.searchParams.set("preview", "legacy");
+  if (page.url() !== legacyUrl.toString()) {
+    await page.goto(legacyUrl.toString(), { waitUntil: "networkidle" });
+  }
   // Tier selection is independent of opening a module. Dropping it starts a
   // competing router transition that can strand a subsequent Server Action.
   await expect.poll(() => new URL(page.url()).searchParams.get("tier")).not.toBeNull();

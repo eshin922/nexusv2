@@ -73,6 +73,8 @@ export async function loadAttachmentDependents(
         WHERE quote_leaf_id = ${quoteLeafId})                          AS leaf_targets,
       (SELECT count(*) FROM quote_client_targets
         WHERE quote_leaf_id = ${quoteLeafId})                          AS client_targets,
+      (SELECT count(*) FROM quote_product_tier_quantities
+        WHERE quote_leaf_id = ${quoteLeafId})                          AS product_quantities,
       (SELECT count(*) FROM quote_leaf_lifts
         WHERE quote_leaf_id = ${quoteLeafId})                          AS lifts,
       (SELECT count(*) FROM freight_subcategory_items
@@ -90,6 +92,7 @@ export async function loadAttachmentDependents(
     { singular: "packaging line", plural: "packaging lines", count: n(r.packaging_lines) },
     { singular: "production input", plural: "production inputs", count: n(r.production_rows) },
     { singular: "price override", plural: "price overrides", count: n(r.overrides) },
+    { singular: "product quantity", plural: "product quantities", count: n(r.product_quantities) },
     {
       singular: "client target",
       plural: "client targets",

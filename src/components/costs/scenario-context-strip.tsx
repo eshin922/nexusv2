@@ -24,14 +24,12 @@ export function ScenarioContextStrip({
   scenarioVersion,
   anchorSku,
   tierCount,
-  unitsTotal,
 }: {
   projectId: string;
   scenarioLabel: string;
   scenarioVersion: number;
   anchorSku: ContextSku | null;
   tierCount: number;
-  unitsTotal: number;
 }) {
   if (!anchorSku) return null;
 
@@ -48,8 +46,7 @@ export function ScenarioContextStrip({
       <span className="ctx-name">{anchorSku.productName}</span>
 
       <span className="ctx-meta">
-        {tierCount} tier{tierCount === 1 ? "" : "s"} ·{" "}
-        {unitsTotal.toLocaleString()} units total committed
+        {tierCount} quantity option{tierCount === 1 ? "" : "s"}
       </span>
 
       <span className="ctx-spacer" />

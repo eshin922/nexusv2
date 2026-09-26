@@ -87,6 +87,9 @@ export interface QuoteTierInput {
 }
 
 export interface QuoteCellInput {
+  order_quantity?: number | null;
+  /** Extended offer from the engine; quantity may differ by product. */
+  commercial_line_amount?: number | null;
   margin_pct?: number | null;
   sell_unit?: number | null;
   /**
@@ -333,6 +336,8 @@ export type CellActionState =
   | "conflict";
 
 export interface Cell {
+  order_quantity?: number | null;
+  commercial_line_amount?: number | null;
   sku_id: string;
   sku_name: string;
   tier_id: number;
@@ -605,6 +610,8 @@ export function classify(
         tier_qty: tier.qty,
         margin_pct: margin,
         sell_unit: sellUnit,
+        commercial_line_amount: cellRaw.commercial_line_amount,
+        order_quantity: cellRaw.order_quantity,
         sell_node_key: cellRaw.sell_node_key ?? null,
         cost_unit: cellRaw.cost_unit ?? null,
         recovery_unit: cellRaw.recovery_unit ?? null,
@@ -1098,7 +1105,7 @@ function computeRecommendedTierValue(
     (c) => c.tier_id === t.id && !c.missing,
   );
   return tierCells.reduce(
-    (s, c) => s + (c.sell_unit ?? 0) * t.qty,
+    (s, c) => s + (c.commercial_line_amount ?? (c.sell_unit ?? 0) * t.qty),
     0,
   );
 }

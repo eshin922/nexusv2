@@ -26,6 +26,7 @@ import {
 import type { ChargeElection } from "./commercial-recovery/resolve";
 import { isUnbillablePlacement } from "./commercial-recovery/unbillable-placements";
 import { packagingLineOverride } from "./costs/packaging-markup-authority";
+import { resolveOrderQuantity } from "./product-structure/order-quantity";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -163,6 +164,8 @@ export type SkuRoleValue = "leaf" | "assembly";
 
 export type CostingSku = {
   id: string;
+  /** Explicit ordered units per tier, keyed by quote occurrence. Absent = inherit tier. */
+  orderQuantities?: Readonly<Record<string, number>>;
   canonicalQuoteLeafId?: string | null;
   /**
    * The governed service identity of the library leaf behind this row, when it
@@ -697,6 +700,13 @@ export type SellSource = "computed" | "cell_override";
 
 export type SkuPerTierRollup = {
   tierId: string;
+  /** This line's resolved units; separate from the component usage multiplier. */
+  orderQuantity?: number | null;
+  independentMemberQuantity?: boolean;
+  /** Customer/ERP rate per consumed component, with freight converted from finished-unit basis. */
+  commercialUnitRate?: number;
+  /** Canonical extended component price for the resolved ordered units. */
+  commercialLineAmount?: number;
   packagingCostPerUnit: number;
   productionCostPerUnit: number;
   rawCostPerUnit: number; // bulk_raw_cost amortized when not customer-shipped
@@ -3914,9 +3924,19 @@ function emptyAssemblyPerTier(tier: CostingTier): SkuPerTierRollup {
   };
 }
 
+/** Freight follows the cell ladder but has a finished-unit denominator. */
+function requiredFreightPortion(r: SkuPerTierRollup): number {
+  if (r.sellSource === "cell_override") return 0;
+  const adjustment = r.sellBeforeAdjustmentPerUnit !== 0
+    ? r.sellAfterAdjustmentPerUnit / r.sellBeforeAdjustmentPerUnit : 1;
+  const lift = r.sellAfterAdjustmentPerUnit !== 0
+    ? r.sellAfterLiftPerUnit / r.sellAfterAdjustmentPerUnit : 1;
+  return r.totalLandedFreightWithMarkup * adjustment * lift;
+}
+
 function rollUpAssemblyPerTier(
   tier: CostingTier,
-  children: Array<{ rollup: SkuPerTierRollup; qtyPerParent: number }>,
+  children: Array<{ rollup: SkuPerTierRollup; qtyPerParent: number; freightWeight?: number }>,
   effectiveTarget: number,
   floor: number,
   /**
@@ -4049,15 +4069,17 @@ function rollUpAssemblyPerTier(
   // fold provably an identity there rather than approximately one.
   let amortizedRecovery = 0;
   let amortizedCost = 0;
-  const foldMixed = (value: number, freightPortion: number, qty: number) => {
-    if (qty === 1) return value;
+  const foldMixed = (value: number, freightPortion: number, qty: number, freightWeight = 1) => {
+    if (qty === 1 && freightWeight === 1) return value;
     if (freightPortion === 0) return value * qty;
-    return (value - freightPortion) * qty + freightPortion;
+    return (value - freightPortion) * qty + freightPortion * freightWeight;
   };
 
   for (const c of children) {
     const q = c.qtyPerParent;
     const r = c.rollup;
+    const freightWeight = c.freightWeight ?? 1;
+    const foldChild = (value: number, freight: number, usage: number) => foldMixed(value, freight, usage, freightWeight);
 
     // The freight portion of each composite, derived rather than assumed.
     //
@@ -4114,21 +4136,21 @@ function rollUpAssemblyPerTier(
     const fAfterLift = fAfterAdj * liftRatio;
     // P-Direct-1 · a terminal price carries no separable freight portion. It is
     // one number a person chose, and the freight inside it is inside it.
-    const fRequired = r.sellSource === "cell_override" ? 0 : fAfterLift;
+    const fRequired = requiredFreightPortion(r);
 
     // Mixed-dimension composites.
-    contribution += foldMixed(r.contributionCostPerUnit, fCost, q);
-    requiredSell += foldMixed(r.requiredSellPerUnit, fRequired, q);
-    computedSell += foldMixed(r.computedSellPerUnit, fAfterLift, q);
-    sellBeforeAdj += foldMixed(r.sellBeforeAdjustmentPerUnit, fSellBefore, q);
-    adjDelta += foldMixed(r.adjDeltaPerUnit, fAfterAdj - fSellBefore, q);
-    sellAfterAdj += foldMixed(r.sellAfterAdjustmentPerUnit, fAfterAdj, q);
-    liftDelta += foldMixed(r.liftDeltaPerUnit, fAfterLift - fAfterAdj, q);
+    contribution += foldChild(r.contributionCostPerUnit, fCost, q);
+    requiredSell += foldChild(r.requiredSellPerUnit, fRequired, q);
+    computedSell += foldChild(r.computedSellPerUnit, fAfterLift, q);
+    sellBeforeAdj += foldChild(r.sellBeforeAdjustmentPerUnit, fSellBefore, q);
+    adjDelta += foldChild(r.adjDeltaPerUnit, fAfterAdj - fSellBefore, q);
+    sellAfterAdj += foldChild(r.sellAfterAdjustmentPerUnit, fAfterAdj, q);
+    liftDelta += foldChild(r.liftDeltaPerUnit, fAfterLift - fAfterAdj, q);
     // Scales like any other per-component rate, because that is what it now is.
     amortizedRecovery += foldMixed(r.amortizedRecoveryPerUnit, 0, q);
     amortizedCost += foldMixed(r.amortizedCostPerUnit, 0, q);
-    sellAfterLift += foldMixed(r.sellAfterLiftPerUnit, fAfterLift, q);
-    overrideDelta += foldMixed(
+    sellAfterLift += foldChild(r.sellAfterLiftPerUnit, fAfterLift, q);
+    overrideDelta += foldChild(
       r.overrideDeltaPerUnit,
       fRequired - fAfterLift,
       q,
@@ -4147,11 +4169,11 @@ function rollUpAssemblyPerTier(
     servicesMarkup += r.separateServicesMarkupSumPerUnit * q;
 
     // SELLABLE-UNIT values — already amortised; carried through at ×1.
-    landedFreight += r.totalLandedFreightBeforeMarkup;
-    containerFreight += r.totalContainerFreightBeforeMarkup;
-    dutyTariff += r.totalDutyTariffBeforeMarkup;
-    containerFreightMarkup += r.freightContainerMarkupSumPerUnit;
-    dutyTariffMarkup += r.freightDutyTariffMarkupSumPerUnit;
+    landedFreight += r.totalLandedFreightBeforeMarkup * freightWeight;
+    containerFreight += r.totalContainerFreightBeforeMarkup * freightWeight;
+    dutyTariff += r.totalDutyTariffBeforeMarkup * freightWeight;
+    containerFreightMarkup += r.freightContainerMarkupSumPerUnit * freightWeight;
+    dutyTariffMarkup += r.freightDutyTariffMarkupSumPerUnit * freightWeight;
   }
   // ---- OD-028 - the Item Group as a FIRST-CLASS construction owner ----
   //
@@ -4609,6 +4631,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
   // assemblies see their children's per-tier rollups when they roll up.
   const skuRollups: SkuRollup[] = [];
   const rollupBySku = new Map<string, SkuRollup>();
+  const quantitySkus = new Map(skus.map((sku) => [sku.id, sku]));
 
   function visit(sku: CostingSku, depth: number) {
     if (sku.skuRole === "leaf") {
@@ -4697,9 +4720,11 @@ export function computeQuoteCosting(input: QuoteCostingInput,
             unavailableReason: null,
           },
         ];
-        return computeLeafPerTier({
+        const resolvedQuantity = resolveOrderQuantity(sku.id, tier, quantitySkus);
+        const effectiveTier = { ...tier, qty: resolvedQuantity.ownerQuantity };
+        const result = computeLeafPerTier({
           sku,
-          tier,
+          tier: effectiveTier,
           packaging: pkgs,
           production: prod,
           // Filtered on the CAUSAL owner and the tier: "charges this carton
@@ -4727,7 +4752,13 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           freightLegs: sortedLegs,
           freightLegTiers: input.freightLegTiers,
           freightComponentTierCosts: input.freightComponentTierCosts ?? [],
-          freightShipmentBreaks: input.freightShipmentBreaks ?? [],
+          // Shipment quantities remain independent. This changes only the
+          // denominator expressing its recorded dollar share on this product.
+          freightShipmentBreaks: (input.freightShipmentBreaks ?? []).map((shipment) =>
+            shipment.memberSkuId === sku.id && shipment.tierId === tier.id
+              ? { ...shipment, tierUnits: effectiveTier.qty ?? 0 }
+              : shipment,
+          ),
           freightMarkupPct: input.quote.freightMarkupPct ?? 0.3,
           effectiveAdj,
           adjustmentCandidates,
@@ -4741,6 +4772,15 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           floor: firmSettings.floorMarginPct,
           cellTarget,
         });
+        const usage = sku.parentSkuId ? (sku.qtyPerParent ?? 1) : 1;
+        const freight = requiredFreightPortion(result);
+        const commercialUnitRate = result.requiredSellPerUnit - freight + freight / usage;
+        return {
+          ...result, orderQuantity: resolvedQuantity.quantity,
+          ...(sku.parentSkuId && sku.orderQuantities?.[tier.id] !== undefined ? { independentMemberQuantity: true } : {}),
+          commercialUnitRate,
+          commercialLineAmount: commercialUnitRate * (resolvedQuantity.quantity ?? 0),
+        };
       });
       const rollup: SkuRollup = {
         skuId: sku.id,
@@ -4765,11 +4805,17 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       rollup: rollupBySku.get(k.id)!,
     }));
     const perTier: SkuPerTierRollup[] = tiers.map((tier) => {
-      if (childRollups.length === 0) return emptyAssemblyPerTier(tier);
-      const childTierRollups = childRollups.map(({ sku: k, rollup: r }) => ({
-        rollup: r.perTier.find((pt) => pt.tierId === tier.id)!,
-        qtyPerParent: num(k.qtyPerParent, 1),
-      }));
+      const resolvedQuantity = resolveOrderQuantity(sku.id, tier, quantitySkus);
+      const effectiveTier = { ...tier, qty: resolvedQuantity.quantity };
+      if (childRollups.length === 0) return { ...emptyAssemblyPerTier(effectiveTier), orderQuantity: resolvedQuantity.quantity };
+      const childTierRollups = childRollups.map(({ sku: k, rollup: r }) => {
+        const child = r.perTier.find((pt) => pt.tierId === tier.id)!;
+        const usage = num(k.qtyPerParent, 1);
+        const groupQuantity = num(effectiveTier.qty);
+        const quantity = child.orderQuantity ?? groupQuantity * usage;
+        return { rollup: child, qtyPerParent: groupQuantity > 0 ? quantity / groupQuantity : usage,
+          freightWeight: groupQuantity > 0 ? quantity / (usage * groupQuantity) : 1 };
+      });
       // Slice 9.4b — assemblies don't read cellTargets (leaf-only
       // invariant; see rollUpAssemblyPerTier comment).
       // OD-028 - the assembly's own production, looked up by ASSEMBLY id.
@@ -4780,8 +4826,8 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         tier.tierPriceAdjPct !== null && tier.tierPriceAdjPct !== undefined
           ? num(tier.tierPriceAdjPct)
           : globalAdj;
-      return rollUpAssemblyPerTier(
-        tier,
+      const result = rollUpAssemblyPerTier(
+        effectiveTier,
         childTierRollups,
         effectiveTarget,
         firmSettings.floorMarginPct,
@@ -4791,6 +4837,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         markupDefaults,
         input.chargeElections ?? [],
       );
+      return { ...result, orderQuantity: resolvedQuantity.quantity };
     });
     const rollup: SkuRollup = {
       skuId: sku.id,
@@ -4906,14 +4953,16 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       if (!r) continue;
       const pt = r.perTier.find((p) => p.tierId === tier.id);
       if (!pt) continue;
-      sellBeforePU += pt.sellBeforeAdjustmentPerUnit;
-      adjDeltaPU += pt.adjDeltaPerUnit;
-      liftDeltaPU += pt.liftDeltaPerUnit;
-      overrideDeltaPU += pt.overrideDeltaPerUnit;
+      const orderQuantity = pt.orderQuantity ?? num(tier.qty);
+      const scenarioWeight = num(tier.qty) > 0 ? orderQuantity / num(tier.qty) : 0;
+      sellBeforePU += pt.sellBeforeAdjustmentPerUnit * scenarioWeight;
+      adjDeltaPU += pt.adjDeltaPerUnit * scenarioWeight;
+      liftDeltaPU += pt.liftDeltaPerUnit * scenarioWeight;
+      overrideDeltaPU += pt.overrideDeltaPerUnit * scenarioWeight;
       // NULL is not zero: an overridden cell has no attributable recovery, and
       // adding 0 would state that it embeds none.
       embeddedRecoveryTotalTier += pt.embeddedRecoveryTotal ?? 0;
-      addedRecoveryPU += pt.amortizedRecoveryPerUnit;
+      addedRecoveryPU += pt.amortizedRecoveryPerUnit * scenarioWeight;
       for (const ch of pt.constructed?.charges ?? []) {
         if (ch.placement !== "separate_line") continue;
         const amount = ch.separateInvoiceAmount ?? 0;
@@ -4972,7 +5021,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
         unit: "usd",
         origin: { grade: "thin", actor: null, when: null, doc: null },
       });
-      const tQty = num(tier.qty);
+      const tQty = orderQuantity;
 
       // ── THE SEPARATELY-BILLED CHARGE ENTERS HERE, AS ITS OWN OPERAND ────
       //
@@ -5692,7 +5741,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       contributors.push({
         sku: leaf,
         pt,
-        weight: tierQty * (leaf.qtyPerParent ?? 1),
+        weight: pt.orderQuantity ?? tierQty * (leaf.qtyPerParent ?? 1),
       });
     }
 

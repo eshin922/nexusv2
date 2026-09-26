@@ -385,6 +385,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                               ) : (
                                 <>
                                   <span className="pp-price">{unit(price)}</span>
+                                  {s.tierQuantities?.[ti] != null ? <div className="pp-linetotal">{s.tierQuantities[ti]!.toLocaleString()} units</div> : null}
                                   {line !== null && (
                                     <div className="pp-linetotal">{money(line)}</div>
                                   )}

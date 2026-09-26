@@ -380,7 +380,7 @@ export function projectCommercial(
 
     const cells: CommercialCell[] = tiers.map((t) => {
       const pt = rollup.perTier.find((p) => p.tierId === t.tierId);
-      const rate = pt?.requiredSellPerUnit ?? null;
+      const rate = pt?.commercialUnitRate ?? pt?.requiredSellPerUnit ?? null;
       const cost = pt?.contributionCostPerUnit ?? 0;
       // The Slice 11 rule, preserved verbatim: zero revenue AND zero cost is
       // UNPRICED, not "computed to $0.00". Anything else would synthesize a
@@ -390,8 +390,8 @@ export function projectCommercial(
       }
       // The line's own units: the tier's order size times how many of this
       // component go into one finished unit.
-      const qty = (t.qty ?? 0) * Number(rollup.qtyPerParent ?? 1);
-      return { state: "priced", unitRate: rate, quantity: qty, lineAmount: rate * qty };
+      const qty = pt?.orderQuantity ?? (t.qty ?? 0) * Number(rollup.qtyPerParent ?? 1);
+      return { state: "priced", unitRate: rate, quantity: qty, lineAmount: pt?.commercialLineAmount ?? rate * qty };
     });
 
     lines.push({
@@ -512,7 +512,7 @@ export function projectCommercial(
       // The same rule the member lines use: nothing priced AND nothing costed
       // is UNPRICED, never a computed zero.
       if (rate === 0 && cost === 0) return { state: "quote_on_request" };
-      const qty = t.qty ?? 0;
+      const qty = pt?.orderQuantity ?? t.qty ?? 0;
       return { state: "priced", unitRate: rate, quantity: qty, lineAmount: rate * qty };
     });
 

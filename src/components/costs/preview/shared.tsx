@@ -145,27 +145,13 @@ export function fmtUsd4(n: number): string {
 
 export const EMPTY = "—";
 
-/**
- * The tier column heading, as a label and — only where it adds something — a
- * quantity.
- *
- * THE LABEL OFTEN ALREADY CARRIES THE QUANTITY. Operators name tiers things
- * like `MOQ · 1,000 units`, and appending the number again produced
- * `MOQ · 1,000 UNITS · 1,000`, overflowing a 118px track. So the quantity is a
- * SECOND LINE, and only when the label does not already state it.
- *
- * Match complete numeric tokens, excluding a tier ordinal such as "Tier 1".
- */
+/** Costs columns identify the order option by its actual quantity. */
 export function tierHead(t: { label: string; qty: number | null }): {
   label: string;
   qty: string | null;
 } {
-  const label = t.label.toUpperCase();
-  if (t.qty === null) return { label, qty: null };
-  const formatted = t.qty.toLocaleString("en-US");
-  const quantities = label.replace(/\bTIER\s+\d+\b/g, "").match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
-  const already = quantities.some((value) => Number(value.replaceAll(",", "")) === t.qty);
-  return { label, qty: already ? null : `${formatted} units` };
+  if (t.qty === null) return { label: t.label.toUpperCase(), qty: null };
+  return { label: `${t.qty.toLocaleString("en-US")} units`, qty: null };
 }
 
 /** The tier column heading as one element, shared by every grid view. */

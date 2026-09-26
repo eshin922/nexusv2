@@ -157,7 +157,7 @@ function DrawerInner({
           </span>
           <span className="where">
             {target.kind === "compliance"
-              ? `${target.tierLabel} · ${target.cell.tier_qty.toLocaleString()} units`
+              ? `${target.tierLabel} · ${(target.cell.order_quantity ?? target.cell.tier_qty).toLocaleString()} units`
               : `${target.tierLabel} · ${target.scopeLabel}`}
           </span>
         </div>

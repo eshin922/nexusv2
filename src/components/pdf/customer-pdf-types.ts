@@ -121,6 +121,7 @@ export type CpdfTier = {
 export type CpdfSku = {
   /** Extended amounts per tier, composed on `CustomerView`. */
   tier_line_totals?: ReadonlyArray<number | null>;
+  tier_quantities?: ReadonlyArray<number | null>;
   id: string;
   code: string;
   name: string;

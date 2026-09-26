@@ -28,6 +28,7 @@ import {
   assemblyLeafInputs,
   assemblyLeafOverrides,
   quoteClientTargets,
+  quoteProductTierQuantities,
   quoteLeafLifts,
   assemblyLeaves,
   assemblyProductionInputs,
@@ -3759,6 +3760,11 @@ async function cloneFreightWorksheet(
       carrierForwarder: row.carrierForwarder, incoterm: row.incoterm,
       cargoReadyDate: row.cargoReadyDate, journeyLabel: row.journeyLabel,
       treatment: row.treatment, crossesInternationalBorder: row.crossesInternationalBorder,
+      splitPlan: row.splitPlan ? { ...row.splitPlan, quantities: row.splitPlan.quantities.map((quantity) => {
+        const tierId = tierIdMap.get(quantity.tierId);
+        if (!tierId) throw new Error("clone: shipment split has an unmapped tier");
+        return { ...quantity, tierId };
+      }) } : null,
       selectedDestinationId: null, selectionReason: row.selectionReason,
       displayOrder: row.displayOrder, source: row.source, fieldProvenance: row.fieldProvenance,
     }).returning({ id: freightSubcategories.id });
@@ -4273,6 +4279,20 @@ export async function cloneQuoteGraph(
     // `tier_id` NULL is the COMMON target and stays NULL — it is a fact
     // ("every tier"), not an unmapped reference, so it must not go through the
     // tier map and must not trip the unmapped-ref guard below.
+    const sourceProductQuantities = await tx.select().from(quoteProductTierQuantities)
+      .where(eq(quoteProductTierQuantities.quoteId, args.sourceQuoteId));
+    if (sourceProductQuantities.length) {
+      await tx.insert(quoteProductTierQuantities).values(sourceProductQuantities.map((row) => {
+        const assemblyId = row.assemblyId ? assemblyIdMap.get(row.assemblyId) : null;
+        const quoteLeafId = row.quoteLeafId ? quoteLeafIdMap.get(row.quoteLeafId) : null;
+        const tierId = tierIdMap.get(row.tierId);
+        if (!tierId || (row.assemblyId && !assemblyId) || (row.quoteLeafId && !quoteLeafId)) {
+          throw new Error("clone: product quantity has an unmapped product or tier");
+        }
+        return { quoteId: newQuoteId, assemblyId, quoteLeafId, tierId, quantity: row.quantity };
+      }));
+    }
+
     const sourceClientTargets = await tx
       .select()
       .from(quoteClientTargets)
