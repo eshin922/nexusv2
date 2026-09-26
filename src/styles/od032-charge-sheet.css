@@ -119,6 +119,17 @@
      document with nobody having decided it. */
   color: oklch(0.62 0.13 70);
 }
+.od032-associated-copy {
+  display: block;
+  flex-basis: 100%;
+  margin-top: 2px;
+  color: oklch(0.46 0.02 255);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  line-height: 1.45;
+  text-transform: none;
+}
 
 /* ── phase 1 · the picker ──────────────────────────────────────────────── */
 
