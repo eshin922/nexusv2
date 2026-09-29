@@ -10,6 +10,7 @@ import {
   OTC_COLUMN_DESTINATION,
   SERVICE_IDENTITY_DESTINATION,
   bv011ItemType,
+  bv011AcceptsNetsuiteItemType,
   bv011Label,
   isPerLineDestination,
 } from "../../src/lib/netsuite/bv011-destinations.ts";
@@ -93,28 +94,35 @@ test("BV-011 catalogue is complete and matches the document's own count", () => 
   //   5/11 → 5/12  2026-08-31  `item_group_production` added
   //   5/12 → 5/13  2026-09-06  `otc_mould` added — the half of the component
   //                            "Tooling & dies" charge that is not a die. It
-  //                            is NOT `otc_tooling`: that destination carries
-  //                            an unresolved Inventory-vs-NonInvtPart conflict
-  //                            with its own sandbox item, and a new governed
-  //                            path must not be built on a contested one.
+  //                            is NOT `otc_tooling`: mould and tooling have
+  //                            distinct accounting meanings.
   //   5/13 → 4/14  2026-09-23  Filling aligned with the existing BLD-FILL
   //                            NonInvtPart service item.
+  //   4/14 → 1/17  2026-09-29  Freight, Customs, and Tooling aligned with
+  //                            existing NonInvtPart sandbox items.
   //
   // The seventeenth is Item Group-owned economics, outside the `otc_*`
   // namespace because it is recurring rather than a one-time charge. It exists
   // because a NetSuite Group header carries a quantity and no sell value, so an
   // Item Group's own economics need a line of their own.
-  assert.equal(inventory.length, 4, "four Inventory destinations");
-  assert.equal(BV011_DESTINATIONS.length - inventory.length, 14);
+  assert.equal(inventory.length, 1, "Bulk Raw is the only Inventory destination");
+  assert.equal(BV011_DESTINATIONS.length - inventory.length, 17);
   assert.equal(new Set(BV011_DESTINATIONS.map((d) => d.key)).size, 18, "keys unique");
 });
 
-test("Tooling and Artwork are separate destinations with DIFFERENT item types", () => {
-  // This is the entire reason the input had to be split. If these ever agree,
-  // the split's justification is gone and someone should be told.
-  assert.equal(bv011ItemType("otc_tooling"), "inventory");
+test("Tooling and Artwork remain distinct non-inventory destinations", () => {
+  assert.equal(bv011ItemType("otc_tooling"), "non_inventory");
   assert.equal(bv011ItemType("otc_artwork"), "non_inventory");
-  assert.notEqual(bv011ItemType("otc_tooling"), bv011ItemType("otc_artwork"));
+  assert.equal(bv011ItemType("otc_freight_duties_tariffs"), "non_inventory");
+  assert.equal(bv011ItemType("otc_customs"), "non_inventory");
+});
+
+test("a destination mapping accepts only the governed NetSuite item type", () => {
+  assert.equal(bv011AcceptsNetsuiteItemType("otc_tooling", "NonInvtPart"), true);
+  assert.equal(bv011AcceptsNetsuiteItemType("otc_customs", "InvtPart"), false);
+  assert.equal(bv011AcceptsNetsuiteItemType("otc_raws", "InvtPart"), true);
+  assert.equal(bv011AcceptsNetsuiteItemType("otc_raws", "NonInvtPart"), false);
+  assert.equal(bv011AcceptsNetsuiteItemType("otc_samples", "Group"), false);
 });
 
 test("Pack-out / Assembly is a NON-INVENTORY service item, and routes to otc_packout", () => {
@@ -134,7 +142,7 @@ test("Pack-out / Assembly is a NON-INVENTORY service item, and routes to otc_pac
 test("the legacy combined column has NO destination, and that absence is deliberate", () => {
   assert.ok(
     !(LEGACY_COMBINED_OTC_COLUMN in OTC_COLUMN_DESTINATION),
-    "no entry can be correct for a column spanning two destinations of different item types",
+    "no entry can be correct for a column spanning two distinct accounting destinations",
   );
   // …while both of its governed successors do have one.
   assert.equal(OTC_COLUMN_DESTINATION.toolingTotal, "otc_tooling");

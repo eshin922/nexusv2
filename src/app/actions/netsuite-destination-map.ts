@@ -12,6 +12,7 @@ import { getApplicationDependencies } from "@/lib/integrations/composition";
 import { writeAuditEntry } from "@/lib/audit";
 import {
   BV011_DESTINATIONS,
+  bv011AcceptsNetsuiteItemType,
   bv011ItemType,
   bv011Label,
   isPerLineDestination,
@@ -141,6 +142,12 @@ export async function saveDestinationMapping(
         `"${itemCode}" matches more than one NetSuite item (${resolution.matches
           .map((c) => `${c.itemid} · ${c.itemtype} · id ${c.netsuiteItemId}`)
           .join("; ")}). Use a code that identifies one item — nothing was saved.`,
+      );
+    }
+    if (!bv011AcceptsNetsuiteItemType(destination, resolution.itemtype)) {
+      throw new ActionGuardError(
+        ERR.VALIDATION,
+        `${bv011Label(destination)} requires a ${bv011ItemType(destination) === "inventory" ? "NetSuite inventory" : "NetSuite non-inventory"} item, but "${itemCode}" is ${resolution.itemtype}. Nothing was saved.`,
       );
     }
 

@@ -64,7 +64,8 @@
   font-size: 18px;
   margin: 0 0 3px;
 }
-.cm2-costs-head > .cm2-tag { margin-left: auto; }
+.cm2-costs-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cm2-costs-head-actions .cm2-ctl { text-decoration: none; }
 .cm2-costs-body { padding: 12px 14px 14px; }
 .cm2-costs-body .cm2-views { margin-bottom: 12px; }
 .cm2-ctl {

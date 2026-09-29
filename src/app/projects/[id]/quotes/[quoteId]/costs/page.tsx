@@ -1079,7 +1079,7 @@ export default async function CostBuildPage({
           projectId={project.id}
           quoteId={quote.id}
         >
-          {quote.freightIntent !== "exclude" && <SectionWithDrilldown
+          <SectionWithDrilldown
             id="packaging"
             name="Packaging"
             sublabel={packagingSublabel(pkgRows)}
@@ -1101,7 +1101,7 @@ export default async function CostBuildPage({
               componentCharges={componentCharges}
               chargeReadiness={chargeReadiness}
             />
-          </SectionWithDrilldown>}
+          </SectionWithDrilldown>
 
           <SectionWithDrilldown
             id="production"

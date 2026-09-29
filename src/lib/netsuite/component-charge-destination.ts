@@ -62,11 +62,8 @@ export const TOOLING_CLASSIFICATION_DESTINATION: Record<
   ToolingClassification,
   Bv011Destination
 > = {
-  // NOT `otc_tooling`. That destination carries an unresolved conflict — BV-011
-  // §1.b records it Inventory while its sandbox item OTC-0005 is NonInvtPart —
-  // and a new governed path must not be built on a contested one. `otc_mould`
-  // maps to OTC-0006 "OTC - Mold", which the firm's chart of accounts already
-  // holds as a distinct item.
+  // NOT `otc_tooling`. Mould/collar maps to OTC-0006 "OTC - Mold", a distinct
+  // item from the tooling destination, even though both are Non-inventory.
   mould_collar: "otc_mould",
   cutting_die: "otc_dies",
 };

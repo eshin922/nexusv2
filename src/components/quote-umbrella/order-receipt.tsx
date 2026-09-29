@@ -174,6 +174,10 @@ function usd(n: number, dec = 0): string {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 
+function usdRate(n: number): string {
+  return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
 function shortDate(d: Date | string | null): string {
   if (!d) return "—";
   const date = d instanceof Date ? d : new Date(d);
@@ -251,8 +255,8 @@ export function OrderReceipt({
         <div className="who">
           <div className="t">{customerName}</div>
           <div className="s">
-            {tierLabel} · {tierQty.toLocaleString()} units per SKU ·{" "}
-            {units.toLocaleString()} units total
+            {tierLabel} · {tierQty.toLocaleString()} units in this order option ·{" "}
+            {units.toLocaleString()} units across product lines
             <br />
             against {quoteNumber ?? "(quote)"} v{quoteVersion} · accepted{" "}
             {shortDate(acceptedAt)}
@@ -399,7 +403,7 @@ export function OrderReceipt({
                   </span>
                 </span>
                 <span className="num qty">{l.quantity.toLocaleString()}</span>
-                <span className="num unit">{usd(l.rate, 2)}</span>
+                <span className="num unit">{usdRate(l.rate)}</span>
                 <span className="num ext">{usd(l.quantity * l.rate)}</span>
               </div>
             );
@@ -413,7 +417,7 @@ export function OrderReceipt({
           <span className="v">{usd(subtotal)}</span>
         </div>
         <div className="r9-so-trow">
-          <span className="k">One-time charges</span>
+          <span className="k">Separately billed services & charges</span>
           <span className="v">{usd(oneTimeTotal)}</span>
         </div>
         <div className="r9-so-trow grand">

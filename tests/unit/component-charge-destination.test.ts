@@ -165,20 +165,17 @@ test("an unknown charge type is ungoverned, and is NOT the same state", () => {
 
 test("otc_mould is catalogued as non-inventory, checked not assumed", () => {
   // OTC-0006 is NonInvtPart in the sandbox, as are all 65 active OTC-coded
-  // items. Recording it "inventory" would repeat the `otc_tooling` conflict on
-  // a brand-new key.
+  // items. The distinct key preserves mould/collar's accounting meaning.
   assert.equal(bv011ItemType("otc_mould"), "non_inventory");
   const entry = BV011_DESTINATIONS.find((d) => d.key === "otc_mould");
   assert.ok(entry, "otc_mould must be in the catalogue");
   assert.equal(entry.label, "OTC - Mould / Collar");
 });
 
-test("otc_tooling is left exactly as it was", () => {
-  // The Inventory-vs-NonInvtPart conflict is a separate accounting finding and
-  // this change does not touch it — neither the entry nor its mapping.
+test("otc_tooling matches the existing non-inventory sandbox item", () => {
   const entry = BV011_DESTINATIONS.find((d) => d.key === "otc_tooling");
   assert.ok(entry);
-  assert.equal(entry.itemType, "inventory", "the recorded conflict is preserved, not quietly fixed");
+  assert.equal(entry.itemType, "non_inventory");
 });
 
 // ══════════════════════════════════════════════════════════════════════
