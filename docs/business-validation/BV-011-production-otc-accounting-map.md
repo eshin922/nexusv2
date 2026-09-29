@@ -40,11 +40,11 @@ below governs separately priced services associated with a standalone product.
 
 | Input | Destination | Item type |
 |---|---|---|
-| Freight, Duties, Tariffs | `OTC - Freight, Duties, Tariffs` | Inventory Item |
-| Customs | `OTC - Customs` | Inventory Item |
+| Freight, Duties, Tariffs | `OTC - Freight, Duties, Tariffs` | Non-inventory Item (amended 2026-09-29) |
+| Customs | `OTC - Customs` | Non-inventory Item (amended 2026-09-29) |
 | Setup | `OTC - Setup` | Non-inventory Item |
 | Artwork | `OTC - Artwork` | Non-inventory Item |
-| Tooling | `OTC - Tooling` | Inventory Item |
+| Tooling | `OTC - Tooling` | Non-inventory Item (amended 2026-09-29) |
 | R&D / Formulation | `OTC - Formulation` | Non-inventory Item |
 | Testing / Micros | `OTC - Testing` | Non-inventory Item |
 | Other Service | `OTC - Other Service` | Non-inventory Item |
@@ -61,8 +61,9 @@ defined in the amendment at the foot of this document: recurring Item
 Group-owned economics, not a one-time charge.
 
 **16 destinations** as originally recorded. The current classification after
-the packout and filling amendments is 4 Inventory Item and 12 Non-inventory
-Item (originally 6/10).
+the 2026-09-29 amendment is 1 Inventory Item and 15 Non-inventory Items
+(originally 6/10). The two additional destinations are also Non-inventory,
+making the current catalogue 1 Inventory and 17 Non-inventory.
 
 ---
 
@@ -110,7 +111,8 @@ Fee, Cartons, and Customs as a line distinct from duties and tariffs.
 
 **2 · `Tooling / artwork` is one input; the map is two destinations with
 different item types.** Today a single field carries both. The map separates
-`OTC - Tooling` (Inventory Item) from `OTC - Artwork` (Non-inventory Item).
+`OTC - Tooling` from `OTC - Artwork`. Both are now Non-inventory Items, but
+remain distinct accounting destinations.
 Splitting a persisted field is a migration question, not a UI one.
 
 **3 · Setup and Tooling currently share a markup category.** Both are
@@ -273,9 +275,9 @@ assumed:
 All six are `NonInvtPart` / `Resale`, subsidiary 2, income 218, expense 212.
 Of the account's 230 NonInvtPart items, 224 are subtype `Resale`.
 
-Note this makes the destination Non-inventory while `OTC - Tooling` is recorded
-as Inventory in §1.b — a discrepancy between the map and the sandbox that
-predates this amendment and is left to the Production / OTC workstream (§4).
+The tooling item-type discrepancy recorded here was resolved by the
+2026-09-29 amendment below. The tooling and mould destinations remain distinct
+because they have different accounting meanings.
 
 ### Scope
 
@@ -298,4 +300,18 @@ description. Nexus retains the exact product-to-service association.
 `otc_filling` is governed as a **Non-inventory Item** for this path, matching
 the actual `BLD-FILL` (`NonInvtPart` / `Resale`) item already recorded above.
 The earlier Inventory classification in §1.a is superseded for filling. This
-does not settle the independent `otc_tooling` item-type conflict.
+The independent `otc_tooling` item-type conflict was subsequently settled by
+the 2026-09-29 amendment below.
+
+## Amendment — 2026-09-29 · Existing sandbox NetSuite items
+
+Edward selected the existing non-inventory items for Freight/Duties/Tariffs,
+Customs, and Tooling. Their governed types are therefore Non-inventory Items,
+matching the sandbox's `OTC-0012`, `OTC-0036`, and `OTC-0005` respectively.
+Bulk Raw remains Inventory and has no approved NetSuite mapping yet.
+
+Samples / PPS maps to `OTC-0013` (Samples), rather than the other similarly
+named sandbox items. Carton-related one-time charges always map to `OTC-0053`
+(Master Carton), rather than selecting Master or Inner per charge. These are
+firm-wide destinations. The item identities were verified against active
+sandbox records before the mappings were saved.

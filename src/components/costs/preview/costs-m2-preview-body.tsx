@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 import { useState } from "react";
-import type { CostsOverview } from "@/lib/costs/costs-overview-model";
+import Link from "next/link";
+import { flattenOwners, type CostsOverview } from "@/lib/costs/costs-overview-model";
 import type { PackagingLineTierRead } from "@/lib/costs/packaging-line-graph-read";
 import { SpreadsheetView } from "./spreadsheet-view";
 import { ByProductView } from "./by-product-view";
@@ -83,6 +84,17 @@ export function CostsM2PreviewBody({
   const [view, setView] = useState<ViewKey>("spreadsheet");
   const freightParams = new URLSearchParams(baseParams);
   freightParams.set("section", "freight");
+  const editorHref = (section: "packaging" | "production") => {
+    const params = new URLSearchParams(baseParams);
+    params.set("preview", "legacy");
+    params.set("section", section);
+    return `${pathname}?${params.toString()}`;
+  };
+  const ownerRows = flattenOwners(overview.owners);
+  const hasProductionCosts = ownerRows.some(({ owner }) => owner.productionLines.length > 0);
+  const needsToolingClassification = ownerRows.some(({ owner }) =>
+    owner.charges.some((charge) => charge.chargeKey === "tooling" && charge.toolingClassification === null),
+  );
 
   return (
     <div className="cm2">
@@ -108,7 +120,15 @@ export function CostsM2PreviewBody({
               {overview.tiers.length} pricing tier{overview.tiers.length === 1 ? "" : "s"} · costs per tier
             </div>
           </div>
-          <Tag tone="plain">Costs on this quote</Tag>
+          <div className="cm2-costs-head-actions">
+            {editMode && quoteEditable && needsToolingClassification && (
+              <Link className="cm2-ctl" href={editorHref("packaging")}>Classify tooling →</Link>
+            )}
+            {editMode && quoteEditable && hasProductionCosts && (
+              <Link className="cm2-ctl" href={editorHref("production")}>Edit production costs →</Link>
+            )}
+            <Tag tone="plain">Costs on this quote</Tag>
+          </div>
         </header>
         <div className="cm2-costs-body">
           <div className="cm2-views" role="group" aria-label="Costs view">

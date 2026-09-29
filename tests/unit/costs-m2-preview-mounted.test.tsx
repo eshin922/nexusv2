@@ -240,6 +240,26 @@ test("the costs workspace does not render the retired preview banner", async () 
   assert.equal(m.findAll(".cm2-notice").length, 0);
   await m.unmount();
 });
+
+test("editable costs expose the production editor for associated services", async () => {
+  const m = await mount(
+    <CostsM2PreviewBody
+      overview={OVERVIEW}
+      reads={READS}
+      quoteEditable
+      editMode
+      quoteId="q"
+      pathname="/projects/p/quotes/q/costs"
+      baseParams="tier=tier-1"
+      activeTierId={T1}
+      onSelectTier={() => {}}
+    />,
+  );
+  const link = m.findAll(".cm2-costs-head-actions a").find((a) => a.textContent?.includes("Edit production costs"));
+  assert.ok(link, "associated service costs need a visible route to their editor");
+  assert.equal(link.getAttribute("href"), "/projects/p/quotes/q/costs?tier=tier-1&preview=legacy&section=production");
+  await m.unmount();
+});
 test("internal markup category keys render as operator labels", () => {
   assert.equal(costCategoryLabel("primary_packaging"), "Primary Packaging");
   assert.equal(costCategoryLabel("Primary"), "Primary Packaging");

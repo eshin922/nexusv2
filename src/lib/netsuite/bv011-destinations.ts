@@ -12,7 +12,7 @@
  * destination-keying it is one row and cannot.
  *
  * Source: `docs/business-validation/BV-011-production-otc-accounting-map.md`.
- * Sixteen destinations, six Inventory and ten Non-inventory.
+ * Eighteen destinations, one Inventory and seventeen Non-inventory.
  */
 
 import type { DirectServiceIdentity } from "@/lib/product-structure/direct-service";
@@ -44,12 +44,9 @@ export type Bv011Destination =
   // one of them would book every die as the other, which is the same defect
   // BV-011 §4.2 records for the legacy `Tooling / artwork` column.
   //
-  // A SEPARATE key rather than reusing `otc_tooling`, because `otc_tooling`
-  // carries an unresolved conflict: §1.b records it Inventory while its
-  // sandbox item OTC-0005 is NonInvtPart (confirmed 2026-09-06 by SuiteQL and
-  // by the REST record resolving as `nonInventoryResaleItem`). That is a live
-  // accounting finding, and a new governed path must not be built on a
-  // contested one. `otc_tooling` is left exactly as it is.
+  // A SEPARATE key rather than reusing `otc_tooling`: the mould and cutting-die
+  // items have distinct accounting meanings, regardless of their shared
+  // Non-inventory item type.
   //
   // The firm's chart of accounts already draws this line: OTC-0006 "OTC - Mold"
   // and OTC-0002 "OTC - Cutting Die" are distinct governed items. This records
@@ -68,9 +65,8 @@ export type Bv011Destination =
  * column would be a second copy, free to drift from the document that governs
  * it — and the drift would be invisible, because both would look authoritative.
  *
- * It is not decoration: an admin who maps `OTC - Tooling` to a Non-inventory
- * record has made an accounting error the Verify step can catch, and catching
- * it needs the governed expectation to be readable.
+ * It is not decoration: the selected NetSuite item type must match the
+ * governed destination type before a Sales Order can be relied upon.
  */
 export type Bv011ItemType = "inventory" | "non_inventory";
 
@@ -92,11 +88,11 @@ export const BV011_DESTINATIONS: ReadonlyArray<{
   // OTC item. The destination key is unchanged — there is no `otc_assembly`.
   { key: "otc_packout", label: "OTC - Packout", itemType: "non_inventory", section: "1.a" },
   { key: "otc_raws", label: "OTC - Raws", itemType: "inventory", section: "1.a" },
-  { key: "otc_freight_duties_tariffs", label: "OTC - Freight, Duties, Tariffs", itemType: "inventory", section: "1.b" },
-  { key: "otc_customs", label: "OTC - Customs", itemType: "inventory", section: "1.b" },
+  { key: "otc_freight_duties_tariffs", label: "OTC - Freight, Duties, Tariffs", itemType: "non_inventory", section: "1.b" },
+  { key: "otc_customs", label: "OTC - Customs", itemType: "non_inventory", section: "1.b" },
   { key: "otc_setup", label: "OTC - Setup", itemType: "non_inventory", section: "1.b" },
   { key: "otc_artwork", label: "OTC - Artwork", itemType: "non_inventory", section: "1.b" },
-  { key: "otc_tooling", label: "OTC - Tooling", itemType: "inventory", section: "1.b" },
+  { key: "otc_tooling", label: "OTC - Tooling", itemType: "non_inventory", section: "1.b" },
   { key: "otc_formulation", label: "OTC - Formulation", itemType: "non_inventory", section: "1.b" },
   { key: "otc_testing", label: "OTC - Testing", itemType: "non_inventory", section: "1.b" },
   { key: "otc_other_service", label: "OTC - Other Service", itemType: "non_inventory", section: "1.b" },
@@ -152,12 +148,21 @@ export function bv011ItemType(key: Bv011Destination): Bv011ItemType {
   return d.itemType;
 }
 
+/** NetSuite's SuiteQL itemtype must agree with the governed accounting type. */
+export function bv011AcceptsNetsuiteItemType(
+  key: Bv011Destination,
+  netsuiteItemType: string,
+): boolean {
+  const expected = bv011ItemType(key);
+  return netsuiteItemType === (expected === "inventory" ? "InvtPart" : "NonInvtPart");
+}
+
 /**
  * Separately-billed OTC fee column → destination.
  *
  * `toolingArtworkTotal` is ABSENT ON PURPOSE and its absence is load-bearing.
  * It is the legacy combined column, and BV-011 governs its two halves as
- * different destinations with different item types. No entry can be correct
+ * different accounting destinations. No entry can be correct
  * for it, so a lookup returns undefined and the caller must treat that as
  * "unresolved legacy", not as "no destination".
  */
