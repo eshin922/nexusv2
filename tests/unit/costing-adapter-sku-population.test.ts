@@ -141,6 +141,15 @@ test("every canonical attachment becomes exactly one commercial SKU", () => {
   );
 });
 
+test("the quote attachment carries its HubSpot product type into costing", () => {
+  const rows = attachments();
+  rows[0] = { ...rows[0], hubspotProductType: "Ingestibles" };
+  rows[2] = { ...rows[2], hubspotProductType: "Raw ingredients" };
+  const leaves = leafSkus(args({ quoteLeafAttachments: rows }));
+  assert.equal(leaves.find((s) => s.id === "ql-grouped-1")?.productType, "Ingestibles");
+  assert.equal(leaves.find((s) => s.id === "ql-grouped-3")?.productType, "Raw ingredients");
+});
+
 test("the population is the attachment set, not the assembly set", () => {
   // One assembly, three grouped attachments. If these two numbers were allowed
   // to be conflated, a blend over "products" would divide by the wrong count.
