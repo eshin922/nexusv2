@@ -27,6 +27,7 @@ import type { ChargeElection } from "./commercial-recovery/resolve";
 import { isUnbillablePlacement } from "./commercial-recovery/unbillable-placements";
 import { packagingLineOverride } from "./costs/packaging-markup-authority";
 import { resolveOrderQuantity } from "./product-structure/order-quantity";
+import { productCostLane } from "./costs/product-cost-lane";
 
 // Slice 8 — Pricing rollup. Pure TypeScript, no Drizzle imports,
 // no server-only. Takes plain data structures (caller assembles from DB),
@@ -164,6 +165,8 @@ export type SkuRoleValue = "leaf" | "assembly";
 
 export type CostingSku = {
   id: string;
+  /** HubSpot product type, used only to display unit costs in the correct lane. */
+  productType?: string | null;
   /** Explicit ordered units per tier, keyed by quote occurrence. Absent = inherit tier. */
   orderQuantities?: Readonly<Record<string, number>>;
   canonicalQuoteLeafId?: string | null;
@@ -5151,6 +5154,31 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       breakdown.dutyAndTariffMarkupSum +=
         pt.freightDutyTariffMarkupSumPerUnit * tQty;
       breakdown.separateServicesMarkupSum += sepRecovery;
+    }
+    // Product unit costs share the historical packaging input table, but that
+    // table is not their economic category. Reassign only the quote breakdown:
+    // the leaf pricing, markup authority, and customer/ERP rates stay intact.
+    // A member's resolved orderQuantity includes its group usage (or its own
+    // sub-quantity), so each quote occurrence is counted exactly once here.
+    for (const sku of skus) {
+      if (sku.skuRole !== "leaf") continue;
+      const lane = productCostLane(sku.productType);
+      if (lane === "pkg") continue;
+      const pt = rollupBySku.get(sku.id)?.perTier.find((p) => p.tierId === tier.id);
+      if (!pt) continue;
+      const units = pt.orderQuantity ?? num(tier.qty);
+      const cost = pt.packagingCostPerUnit * units;
+      const sell = pt.packagingMarkupSumPerUnit * units;
+      breakdown.packaging -= cost;
+      breakdown.packagingMarkupSum -= sell;
+      // The existing production breakdown folds raw into production; its
+      // dedicated raw fields let the Price build split the two back out.
+      breakdown.production += cost;
+      breakdown.productionMarkupSum += sell;
+      if (lane === "raw") {
+        breakdown.rawCost += cost;
+        breakdown.rawMarkupSum += sell;
+      }
     }
     const revenueNode: CostingNode = {
       key: nodeKey("quote", tier.id, "revenue"),

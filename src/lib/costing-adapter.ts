@@ -355,6 +355,7 @@ export function buildQuoteCostingInputFromNewModel(
       skuRole: "leaf",
       skuLabel: al.leafSku,
       productName: al.leafName,
+      productType: al.hubspotProductType ?? null,
       sortOrder: al.position,
       serviceIdentity: al.serviceIdentity ?? null,
       associatedProductQuoteLeafId: al.associatedProductQuoteLeafId ?? null,
