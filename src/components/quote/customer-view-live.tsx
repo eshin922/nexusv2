@@ -348,7 +348,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                     {skus.map((s, index) => (
                       <Fragment key={s.id ?? `${s.label}:${s.name}`}>
                       {s.itemGroup && (index === 0 || skus[index - 1]?.itemGroup?.id !== s.itemGroup.id) ? (
-                        <div className="pp-item-group pp-item-group--owned" role="row">
+                        <div className="pp-item-group" role="row">
                           <div className="pp-c-prod" role="rowheader">
                             <span className="pp-item-group-name">{s.itemGroup.name}</span>
                           </div>
@@ -368,7 +368,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                           <div className="pp-c-prod" role="rowheader"><span className="pp-item-group-name">Individual items</span></div>
                         </div>
                       ) : null}
-                      <div className={"pp-tr" + (s.itemGroup ? " pp-tr-group-member" : "") + (s.itemGroup && skus[index + 1]?.itemGroup?.id !== s.itemGroup.id ? " pp-tr-group-last" : "")} role="row">
+                      <div className={"pp-tr" + (s.itemGroup ? " pp-tr-group-member" : "")} role="row">
                         <div className="pp-c-prod" role="rowheader">
                           <div className="pp-prod-name">{s.name}</div>
                           <div className="pp-prod-meta">

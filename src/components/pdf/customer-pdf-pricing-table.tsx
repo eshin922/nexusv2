@@ -122,8 +122,8 @@ export function PricingTable({
           return (
             <Fragment key={sku.id}>
             {sku.item_group && (index === 0 || skus[index - 1]?.item_group?.id !== sku.item_group.id) ? (
-              <View style={[styles.itemGroup, styles.itemGroupOwned]} wrap={false}>
-                <View style={[styles.cProd, styles.groupHeaderProduct]}>
+              <View style={styles.itemGroup} wrap={false}>
+                <View style={styles.cProd}>
                   <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
                 </View>
                 {cols.map(({ tier, ti }) => {
@@ -144,10 +144,10 @@ export function PricingTable({
               </View>
             ) : null}
             {/* A priced SKU row is atomic; never orphan its amount across pages. */}
-            <View style={[styles.tr, sku.item_group ? styles.groupMemberRow : {}, sku.item_group && skus[index + 1]?.item_group?.id !== sku.item_group.id ? styles.groupMemberLast : {}]} wrap={false}>
+            <View style={styles.tr} wrap={false}>
               {/* product cell */}
               <View style={[styles.cProd, sku.item_group ? styles.groupMemberProduct : {}]}>
-                <Text style={styles.prodName}>{sku.name}</Text>
+                <Text style={[styles.prodName, sku.item_group ? styles.groupMemberName : {}]}>{sku.name}</Text>
                 <Text style={styles.prodMeta}>
                   <Text style={styles.prodMetaCode}>{sku.code}</Text>
                   {sku.pack != null && sku.pack.length > 0 ? ` · ${sku.pack}` : ""}
@@ -178,10 +178,10 @@ export function PricingTable({
                     <Text style={styles.priceReq}>quote on request</Text>
                   );
                 } else if (isFlat && !isSingle && ti !== 0) {
-                  unitNode = <Text style={[styles.price, styles.priceDash]}>—</Text>;
+                  unitNode = <Text style={[styles.price, styles.priceDash, sku.item_group ? styles.groupMemberPrice : {}]}>—</Text>;
                 } else {
                   unitNode = (
-                    <Text style={[styles.price, rec ? styles.priceRec : {}]}>
+                    <Text style={[styles.price, rec ? styles.priceRec : {}, sku.item_group ? styles.groupMemberPrice : {}]}>
                       {unit(p)}
                     </Text>
                   );
