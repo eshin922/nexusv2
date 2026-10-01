@@ -403,6 +403,8 @@ export type CustomerView = {
   includeFeeLines: boolean;
   /** Visual grouping only; the accepted accounting lines remain separate. */
   includeAssociatedServicesInProduct?: boolean;
+  /** Hide only the printed member breakdown; group totals and accounting lines remain. */
+  showItemGroupMembers?: boolean;
   /** Whether the commercial terms block prints. */
   includeTerms: boolean;
   /** Whether the customer note prints. Its TEXT is `quote.customerFacingNotes`. */

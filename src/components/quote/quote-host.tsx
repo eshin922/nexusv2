@@ -438,6 +438,7 @@ export function QuoteHost({
             pdfHref={targetSrc}
             pageCount={addendumOn ? 2 : 1}
             presentation={presentation}
+            hasItemGroups={view.skus.some((sku) => sku.itemGroup)}
             tiers={presentationTiers}
             belowFloor={belowFloor}
             unbillableRecovery={unbillableRecovery}

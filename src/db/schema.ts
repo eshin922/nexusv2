@@ -5335,6 +5335,7 @@ export const presentationProfile = pgTable(
     // asserted by falsification in the tests rather than trusted here.
     includeFeeLines: boolean("include_fee_lines").notNull().default(true),
     includeAssociatedServicesInProduct: boolean("include_associated_services_in_product").notNull().default(false),
+    showItemGroupMembers: boolean("show_item_group_members").notNull().default(true),
     includeTerms: boolean("include_terms").notNull().default(true),
     includeAddendum: boolean("include_addendum").notNull().default(false),
     // Whether the note PRINTS. What it SAYS is quotes.customer_facing_notes.

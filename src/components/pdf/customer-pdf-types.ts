@@ -192,6 +192,8 @@ export type CpdfData = {
   /** Which tier's amounts the fee section quotes. Composed on CustomerView. */
   feeBasisTierIdx?: number;
   skus: ReadonlyArray<CpdfSku>;
+  /** Hide group member rows while retaining group totals and accounting lines. */
+  showItemGroupMembers?: boolean;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
   /**

@@ -974,6 +974,13 @@
       "when": 1790325720003,
       "tag": "0141_freight_percentage_split",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1790887396953,
+      "tag": "0142_quote_group_subitems_presentation",
+      "breakpoints": true
     }
   ]
 }

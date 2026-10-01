@@ -224,6 +224,7 @@ export function customerViewToCpdf(
     // Carried, not re-derived. Both renderers quote the same column.
     feeBasisTierIdx: view.feeBasisTierIdx,
     skus,
+    showItemGroupMembers: view.showItemGroupMembers !== false,
     serviceFees,
     freightLines,
   };

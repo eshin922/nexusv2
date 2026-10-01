@@ -223,5 +223,5 @@ test("the renderer shows the qualifier only above 1, and does not touch identity
   assert.match(src, /×\$\{sku\.multiplicity_per_unit\} per unit/);
   // The product name is rendered from `sku.name` alone — the qualifier lives in
   // the meta line beside the code, never concatenated into identity.
-  assert.match(src, /<Text style=\{styles\.prodName\}>\{sku\.name\}<\/Text>/);
+  assert.match(src, /<Text style=\{\[styles\.prodName, sku\.item_group \? styles\.groupMemberName : \{\}\]\}>\{sku\.name\}<\/Text>/);
 });

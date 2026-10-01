@@ -329,6 +329,7 @@ export function CustomerPdfDocument({
                   recommendedTierIdx={recommendedTierIdx}
                   layout={layout}
                   quoteNumber={quote.quote_number}
+                  showItemGroupMembers={data.showItemGroupMembers !== false}
                 />
                 <GrandTotalRow
                   skuSet={skuSet}

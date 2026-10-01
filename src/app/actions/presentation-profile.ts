@@ -64,6 +64,7 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
 const INCLUDE_FIELDS = [
   "includeFeeLines",
   "includeAssociatedServicesInProduct",
+  "showItemGroupMembers",
   "includeTerms",
   "includeAddendum",
   "includeNote",

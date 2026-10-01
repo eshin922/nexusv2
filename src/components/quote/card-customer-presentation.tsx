@@ -22,6 +22,7 @@ export type PresentationState = {
   presentedTierId: string | null;
   includeFeeLines: boolean;
   includeAssociatedServicesInProduct: boolean;
+  showItemGroupMembers: boolean;
   includeTerms: boolean;
   includeAddendum: boolean;
   includeNote: boolean;
@@ -74,6 +75,7 @@ export function CardCustomerPresentation({
   quoteId,
   editable,
   presentation,
+  hasItemGroups,
   tiers,
   detailLevel,
   onDetailLevelChange,
@@ -83,6 +85,7 @@ export function CardCustomerPresentation({
   quoteId: string;
   editable: boolean;
   presentation: PresentationState;
+  hasItemGroups: boolean;
   tiers: readonly PresentationTier[];
   detailLevel: CustomerViewDetailLevel;
   onDetailLevelChange: (next: CustomerViewDetailLevel) => void;
@@ -142,6 +145,11 @@ export function CardCustomerPresentation({
       label: "Include associated services in product price",
       meta: "Customer sees one product price; NetSuite still receives separately priced service lines.",
     },
+    ...(hasItemGroups && detailLevel === "itemized" ? [{
+      field: "showItemGroupMembers" as const,
+      label: "Show group subitems",
+      meta: "Off shows each group total without its product breakdown; separate items still appear.",
+    }] : []),
     { field: "includeTerms", label: "Commercial terms block", meta: "Valid until, payment, lead time, Incoterms." },
     { field: "includeAddendum", label: "Specification addendum", meta: "Adds a second page when there is spec data." },
     { field: "includeNote", label: "Customer note", meta: "Prints verbatim above How to accept." },

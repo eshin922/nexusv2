@@ -95,6 +95,7 @@ export function CustomerViewRail({
   pdfHref,
   pageCount,
   presentation,
+  hasItemGroups,
   tiers,
   belowFloor,
   unbillableRecovery,
@@ -133,6 +134,7 @@ export function CustomerViewRail({
    * does, which they would the moment either derived its own copy.
    */
   presentation: PresentationState;
+  hasItemGroups: boolean;
   /** The quote's tiers, for the visibility toggles and the recommendation. */
   tiers: readonly PresentationTier[];
   /** The send gate's own verdict, evaluated once upstream. */
@@ -257,6 +259,7 @@ export function CustomerViewRail({
         : "Collapsed - total still stated",
     ],
     ["Associated services", presentation.includeAssociatedServicesInProduct ? "Included in product rows" : "Shown as separate rows"],
+    ...(hasItemGroups && detailLevel === "itemized" ? [["Group subitems", presentation.showItemGroupMembers ? "Shown beneath group totals" : "Hidden; group totals shown"] as [string, string]] : []),
     ["Terms", presentation.includeTerms ? "Printed" : "Not printed"],
     ["Addendum", presentation.includeAddendum ? "Included" : "Not included"],
     [
@@ -387,6 +390,7 @@ export function CustomerViewRail({
           quoteId={quoteId}
           editable={isDraft}
           presentation={presentation}
+          hasItemGroups={hasItemGroups}
           tiers={tiers}
           detailLevel={detailLevel}
           onDetailLevelChange={onDetailLevelChange}

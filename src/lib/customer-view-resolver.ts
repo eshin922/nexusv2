@@ -204,6 +204,7 @@ export type ResolveCustomerViewResult =
         presentedTierId: string | null;
         includeFeeLines: boolean;
         includeAssociatedServicesInProduct: boolean;
+        showItemGroupMembers: boolean;
         includeTerms: boolean;
         includeAddendum: boolean;
         includeNote: boolean;
@@ -894,6 +895,7 @@ export async function resolveCustomerView(args: {
     // is what it was sent under.
     includeFeeLines: profile?.includeFeeLines ?? true,
     includeAssociatedServicesInProduct: profile?.includeAssociatedServicesInProduct ?? false,
+    showItemGroupMembers: profile?.showItemGroupMembers ?? true,
     includeTerms: profile?.includeTerms ?? true,
     includeNote: profile?.includeNote ?? true,
   };
@@ -1007,6 +1009,7 @@ export async function resolveCustomerView(args: {
       presentedTierId: profile?.presentedTierId ?? null,
       includeFeeLines: profile?.includeFeeLines ?? true,
       includeAssociatedServicesInProduct: profile?.includeAssociatedServicesInProduct ?? false,
+      showItemGroupMembers: profile?.showItemGroupMembers ?? true,
       includeTerms: profile?.includeTerms ?? true,
       includeAddendum: profile?.includeAddendum ?? false,
       includeNote: profile?.includeNote ?? true,

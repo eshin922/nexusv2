@@ -368,7 +368,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                           <div className="pp-c-prod" role="rowheader"><span className="pp-item-group-name">Individual items</span></div>
                         </div>
                       ) : null}
-                      <div className={"pp-tr" + (s.itemGroup ? " pp-tr-group-member" : "")} role="row">
+                      {(!s.itemGroup || view.showItemGroupMembers !== false) && <div className={"pp-tr" + (s.itemGroup ? " pp-tr-group-member" : "")} role="row">
                         <div className="pp-c-prod" role="rowheader">
                           <div className="pp-prod-name">{s.name}</div>
                           <div className="pp-prod-meta">
@@ -417,7 +417,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                             </div>
                           );
                         })}
-                      </div>
+                      </div>}
                       </Fragment>
                     ))}
                   </div>

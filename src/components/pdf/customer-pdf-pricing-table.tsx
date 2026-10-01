@@ -33,6 +33,7 @@ export function PricingTable({
   layout,
   quoteNumber,
   continued = false,
+  showItemGroupMembers = true,
 }: {
   skus: ReadonlyArray<CpdfSku>;
   tiers: ReadonlyArray<CpdfTier>;
@@ -41,6 +42,7 @@ export function PricingTable({
   /** Required when `continued` true — used in the continuation eyebrow. */
   quoteNumber: string | null;
   continued?: boolean;
+  showItemGroupMembers?: boolean;
 }) {
   // SINGLE-TIER LAYOUT picks which tier to SHOW. With no recommendation it
   // shows the first — a display choice, not a claim that the tier is
@@ -144,7 +146,7 @@ export function PricingTable({
               </View>
             ) : null}
             {/* A priced SKU row is atomic; never orphan its amount across pages. */}
-            <View style={styles.tr} wrap={false}>
+            {(!sku.item_group || showItemGroupMembers) && <View style={styles.tr} wrap={false}>
               {/* product cell */}
               <View style={[styles.cProd, sku.item_group ? styles.groupMemberProduct : {}]}>
                 <Text style={[styles.prodName, sku.item_group ? styles.groupMemberName : {}]}>{sku.name}</Text>
@@ -206,7 +208,7 @@ export function PricingTable({
                   </View>
                 );
               })}
-            </View>
+            </View>}
             </Fragment>
           );
         })}
