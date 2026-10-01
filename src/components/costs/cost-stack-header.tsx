@@ -271,11 +271,6 @@ export function CostStackHeader({
               {selectedUnit ? `Sell-side contributions per ${selectedUnit.isGroup ? "finished item" : "product unit"}` : "Sell-side contributions per finished unit"}
             </span>
           </h2>
-          <select className="r6-stack-scope-select" aria-label="Which price build to show"
-            value={selectedUnit?.id ?? ENTIRE_QUOTE} onChange={(event) => setSelectedUnitId(event.target.value)}>
-            <option value={ENTIRE_QUOTE}>Entire quote</option>
-            {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.label}{unit.priced ? "" : " · not priced"}</option>)}
-          </select>
         </div>
         <div className="legend">
           <LegendItem label="Packaging" variant="pkg" />
@@ -295,6 +290,12 @@ export function CostStackHeader({
               math layer split (UX_BACKLOG: RAW + PASS restoration). */}
           <LegendItem label="Passthrough" variant="pass" />
         </div>
+        <select className="r6-stack-scope-select" aria-label="Which price build to show"
+          title={selectedUnit?.label ?? "Entire quote"}
+          value={selectedUnit?.id ?? ENTIRE_QUOTE} onChange={(event) => setSelectedUnitId(event.target.value)}>
+          <option value={ENTIRE_QUOTE}>Entire quote</option>
+          {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.label}{unit.priced ? "" : " · not priced"}</option>)}
+        </select>
       </div>
 
       {/* Grid: canonical .r6-stack-grid provides 1px gap on --rule bg
