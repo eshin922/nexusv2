@@ -98,7 +98,8 @@ async function validate(manifest?: FixtureManifest) {
     // states, six fixtures; every count below follows the fixture count
     // because each fixture seeds its own project, quote, tiers and
     // attachments regardless of the lifecycle it lands in.
-    const LIFECYCLE_STATES = 6;
+    // 6 lifecycle states + 2 customer-state drafts (unmapped, alt-terms).
+    const LIFECYCLE_STATES = 8;
     const OPERATORS: Array<{
       skuCount: number;
       tierCount: number;
