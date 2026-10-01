@@ -178,8 +178,10 @@
 /* Show the Item Group that owns the following priced member rows. This adds
    structure to the customer document without adding a priced line. */
 .pp-item-group {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; align-items: baseline;
   margin-top: 8px; padding: 7px 0 5px;
   border-bottom: 1px solid var(--pp-strong);
 }
 .pp-item-group-name { font-family: var(--display); font-size: 15px; font-weight: 500; color: var(--pp-ink); }
+.pp-item-group .pp-c-num { font-variant-numeric: tabular-nums; }
+.pp-tr-group-member .pp-c-prod { padding-left: 14px; }

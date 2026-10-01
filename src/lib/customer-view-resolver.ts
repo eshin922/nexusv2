@@ -69,7 +69,7 @@ import type {
 } from "@/types/quote";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { includeAssociatedServicesInProductRows } from "@/lib/associated-service-presentation";
-import { orderCustomerItemGroupRows } from "@/lib/customer-item-group-order";
+import { orderCustomerItemGroupRows, summarizeCustomerItemGroups } from "@/lib/customer-item-group-order";
 
 export type CustomerViewSearchParams = {
   layout?: string;
@@ -693,9 +693,23 @@ export async function resolveCustomerView(args: {
       embeddedRecovery: embeddedRecoveryByTier.get(t.id) ?? null,
     }),
   }));
-  // Row order is presentation-only. Compose tier money in the canonical line
-  // order above, then make each Item Group contiguous for the customer.
-  const displaySkus = orderCustomerItemGroupRows(skus);
+  // Compose tier money in canonical line order above. The group figures below
+  // are display-only subtotals of those same lines, never additional revenue.
+  const groupQuantities = new Map(
+    bundle.data.costing.skuRollups
+      .filter((rollup) => rollup.skuRole === "assembly")
+      .map((rollup) => [rollup.skuId, tierBase.map((tier) =>
+        rollup.perTier.find((cell) => cell.tierId === tier.id)?.orderQuantity ?? null,
+      )] as const),
+  );
+  const groupSummaries = summarizeCustomerItemGroups(skus, groupQuantities);
+  const displaySkus = orderCustomerItemGroupRows(skus).map((sku) => ({
+    ...sku,
+    itemGroup: sku.itemGroup ? {
+      ...sku.itemGroup,
+      tierSummaries: groupSummaries.get(sku.itemGroup.id) ?? [],
+    } : null,
+  }));
 
   // BV-009: freight remains in commercial costing. When bundled into unit
   // price it has no separate customer-facing line, avoiding double signaling.

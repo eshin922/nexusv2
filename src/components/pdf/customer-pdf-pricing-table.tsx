@@ -47,6 +47,7 @@ export function PricingTable({
   // recommended. Nothing in this component says the word.
   const soloIdx = recommendedTierIdx ?? 0;
   const isSingle = layout === "single_tier";
+  const hasItemGroups = skus.some((sku) => sku.item_group);
   const cols = isSingle
     ? [{ tier: tiers[soloIdx], ti: soloIdx }]
     : tiers.map((t, i) => ({ tier: t, ti: i }));
@@ -122,13 +123,30 @@ export function PricingTable({
             <Fragment key={sku.id}>
             {sku.item_group && (index === 0 || skus[index - 1]?.item_group?.id !== sku.item_group.id) ? (
               <View style={styles.itemGroup} wrap={false}>
-                <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
+                <View style={styles.cProd}>
+                  <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
+                </View>
+                {cols.map(({ tier, ti }) => {
+                  const summary = sku.item_group?.tierSummaries?.[ti];
+                  const rec = !isSingle && tier.recommended === true;
+                  return <View key={tier.id} style={[styles.cNum, rec ? styles.cRec : {}]}>
+                    {summary?.unitPrice != null && summary.lineTotal != null ? <>
+                      <Text style={[styles.price, rec ? styles.priceRec : {}]}>{unit(summary.unitPrice)}</Text>
+                      <Text style={styles.linetotal}>Group total {money(summary.lineTotal)}</Text>
+                    </> : <Text style={styles.priceReq}>quote on request</Text>}
+                  </View>;
+                })}
+              </View>
+            ) : null}
+            {!sku.item_group && hasItemGroups && (index === 0 || skus[index - 1]?.item_group) ? (
+              <View style={styles.itemGroup} wrap={false}>
+                <View style={styles.cProd}><Text style={styles.itemGroupName}>Individual items</Text></View>
               </View>
             ) : null}
             {/* A priced SKU row is atomic; never orphan its amount across pages. */}
             <View style={styles.tr} wrap={false}>
               {/* product cell */}
-              <View style={styles.cProd}>
+              <View style={[styles.cProd, sku.item_group ? styles.groupMemberProduct : {}]}>
                 <Text style={styles.prodName}>{sku.name}</Text>
                 <Text style={styles.prodMeta}>
                   <Text style={styles.prodMetaCode}>{sku.code}</Text>

@@ -303,6 +303,9 @@ export const styles = StyleSheet.create({
     paddingRight: 10.5,
     flexDirection: "column",
   },
+  groupMemberProduct: {
+    paddingLeft: 10.5,
+  },
   // .pp-c-num { flex: 1 1 0; min-width: 0; text-align: right;
   //   border-left: 1px solid transparent; border-right: 1px solid transparent;
   //   padding: 0 8px }
