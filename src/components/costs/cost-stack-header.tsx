@@ -1,18 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   selectActiveTierId,
   selectFirmSettings,
   selectGraph,
+  selectPackaging,
   selectQuoteRollup,
+  selectSkuRollups,
   selectSetActiveTier,
   selectTargetMargin,
 } from "@/lib/costing-store";
 import { useCostingStore } from "@/components/costing-store-provider";
 import {
   quoteScopeKey,
+  priceBuildKey,
   readEffectiveTargetMargin,
   readNodeValue,
 } from "@/lib/costing-nodes";
@@ -69,6 +72,7 @@ import type { MarginBand, QuoteMarginStatus } from "@/lib/costing";
 // example under it was wrong.
 
 const URL_PARAM = "tier";
+const ENTIRE_QUOTE = "__entire_quote__";
 
 /**
  * The rows with an independently governed per-unit value, in render order.
@@ -133,6 +137,21 @@ export function CostStackHeader({
   const firmSettings = useCostingStore(selectFirmSettings);
   const quoteTargetMargin = useCostingStore(selectTargetMargin);
   const graph = useCostingStore(selectGraph);
+  const skuRollups = useCostingStore(selectSkuRollups);
+  const packaging = useCostingStore(selectPackaging);
+  const [selectedUnitId, setSelectedUnitId] = useState(ENTIRE_QUOTE);
+  const units = useMemo(() => skuRollups.filter((r) => r.parentSkuId === null).map((r) => {
+    const memberIds = skuRollups.filter((child) => child.parentSkuId === r.skuId).map((child) => child.skuId);
+    const ids = new Set(memberIds.length ? memberIds : [r.skuId]);
+    return {
+      id: r.skuId,
+      label: r.productName || r.skuLabel,
+      isGroup: r.skuRole === "assembly",
+      priced: packaging.some((row) => ids.has(row.quoteSkuId) && row.unitCost !== null),
+      perTier: r.perTier,
+    };
+  }), [skuRollups, packaging]);
+  const selectedUnit = units.find((unit) => unit.id === selectedUnitId);
   // Effective target, READ — value and provenance together.
   //
   // This was a private `quoteTargetMargin ?? firmSettings.targetMarginPct`, one
@@ -155,8 +174,9 @@ export function CostStackHeader({
   const perUnitByTier = useMemo(() => {
     const out = new Map<string, TierPerUnit>();
     for (const tier of tiers) {
-      const read = (name: string): number | null =>
-        readNodeValue(graph, quoteScopeKey(tier.id, `per-unit/${name}`));
+      const scoped = selectedUnit ? (name: string) => priceBuildKey(selectedUnit.id, tier.id, name)
+        : (name: string) => quoteScopeKey(tier.id, `per-unit/${name}`);
+      const read = (name: string): number | null => readNodeValue(graph, scoped(name));
 
       const rows: Array<{ row: GovernedRow; values: RowValues }> = [];
       let complete = true;
@@ -172,12 +192,12 @@ export function CostStackHeader({
       }
       if (!complete) continue;
 
-      const subtotal = readNodeValue(graph,
-        quoteScopeKey(tier.id, "per-unit"),
-      );
+      const subtotal = readNodeValue(graph, selectedUnit
+        ? priceBuildKey(selectedUnit.id, tier.id, "sell-before")
+        : quoteScopeKey(tier.id, "per-unit"));
       const departure = read("departure");
-      const revenue = read("revenue");
-      const costTotal = read("cost-total");
+      const revenue = read(selectedUnit ? "sell" : "revenue");
+      const costTotal = read(selectedUnit ? "cost" : "cost-total");
       if (
         subtotal === null ||
         departure === null ||
@@ -190,7 +210,7 @@ export function CostStackHeader({
       out.set(tier.id, { rows, subtotal, departure, revenue, costTotal });
     }
     return out;
-  }, [graph, tiers]);
+  }, [graph, tiers, selectedUnit]);
 
   const selectTier = (tierId: string) => {
     setActiveTier(tierId);
@@ -218,11 +238,12 @@ export function CostStackHeader({
   const showRaw = rawsMode === "dps_sources";
 
   // Bar geometry, NOT a commercial value: segment widths are a percentage of
-  // the widest tier's per-unit cost, so the bars are comparable across columns.
+  // the widest tier's component subtotal, so every contribution fits its bar
+  // and the bars remain comparable across columns.
   // This arithmetic is about pixels and stays local by design — the dollars it
   // scales were all read from the graph.
-  const maxPerUnitCost = Math.max(
-    ...[...perUnitByTier.values()].map((t) => t.costTotal),
+  const maxContribution = Math.max(
+    ...[...perUnitByTier.values()].map((t) => t.subtotal),
     0.01,
   );
 
@@ -243,12 +264,19 @@ export function CostStackHeader({
           bars showed the outputs. The arithmetic is unchanged — this is the
           label catching up with what the section has been computing.
         */}
-        <h2>
-          Price build
-          <span className="r6-stack-sub">
-            Sell-side contributions per finished unit
-          </span>
-        </h2>
+        <div className="r6-stack-heading">
+          <h2>
+            Price build
+            <span className="r6-stack-sub">
+              {selectedUnit ? `Sell-side contributions per ${selectedUnit.isGroup ? "finished item" : "product unit"}` : "Sell-side contributions per finished unit"}
+            </span>
+          </h2>
+          <select className="r6-stack-scope-select" aria-label="Which price build to show"
+            value={selectedUnit?.id ?? ENTIRE_QUOTE} onChange={(event) => setSelectedUnitId(event.target.value)}>
+            <option value={ENTIRE_QUOTE}>Entire quote</option>
+            {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.label}{unit.priced ? "" : " · not priced"}</option>)}
+          </select>
+        </div>
         <div className="legend">
           <LegendItem label="Packaging" variant="pkg" />
           {/* A legend swatch is a promise that a colour appears in the bars.
@@ -279,19 +307,21 @@ export function CostStackHeader({
       >
         {tiers.map((tier) => {
           const rollup = quoteRollup.find((r) => r.tierId === tier.id);
+          const unitTier = selectedUnit?.perTier.find((r) => r.tierId === tier.id);
           const isActive = activeTierId === tier.id;
           return (
             <TierColumn
               key={tier.id}
-              tier={tier}
+              tier={{ ...tier, qty: selectedUnit ? unitTier?.orderQuantity ?? tier.qty : tier.qty }}
               perUnit={perUnitByTier.get(tier.id)}
               showRaw={showRaw}
-              marginPct={rollup?.blendedMarginPct ?? null}
+              marginPct={selectedUnit ? unitTier?.marginPct ?? null : rollup?.blendedMarginPct ?? null}
               // A missing rollup used to fall back to GOOD, which asserts a
               // verdict for a tier the engine said nothing about. It joins
               // UNAVAILABLE on the honest branch.
-              marginStatus={rollup?.blendedMarginStatus ?? "UNAVAILABLE"}
-              maxPerUnitCost={maxPerUnitCost}
+              marginStatus={selectedUnit ? unitTier?.marginStatus ?? "UNAVAILABLE" : rollup?.blendedMarginStatus ?? "UNAVAILABLE"}
+              scopeLabel={selectedUnit?.label ?? null}
+              maxContribution={maxContribution}
               isActive={isActive}
               effectiveTargetPct={effectiveTargetPct}
               targetSource={effectiveTarget?.source ?? null}
@@ -333,7 +363,8 @@ function TierColumn({
   showRaw,
   marginPct,
   marginStatus,
-  maxPerUnitCost,
+  scopeLabel,
+  maxContribution,
   isActive,
   effectiveTargetPct,
   targetSource,
@@ -344,7 +375,8 @@ function TierColumn({
   showRaw: boolean;
   marginPct: number | null;
   marginStatus: QuoteMarginStatus;
-  maxPerUnitCost: number;
+  scopeLabel: string | null;
+  maxContribution: number;
   isActive: boolean;
   effectiveTargetPct: number | null;
   targetSource: string | null;
@@ -392,7 +424,7 @@ function TierColumn({
               key={row.node}
               row={row}
               values={found ? found.values : null}
-              maxPerUnitCost={maxPerUnitCost}
+              maxContribution={maxContribution}
               hint={
                 row.node === "raw" ? BULK_RAW_OWN_MARKUP : null
               }
@@ -406,7 +438,7 @@ function TierColumn({
           <>
             <div
               className="row sub"
-              title="All products in this tier, per unit: component cost plus markup, allocated over the tier quantity. A whole-quote figure — not the per-SKU blended average shown on Pricing."
+              title={scopeLabel ? `${scopeLabel}: component cost plus markup per ordered unit.` : "All products in this tier, per unit: component cost plus markup, allocated over the tier quantity."}
             >
               <span>Subtotal</span>
               <span className="v">{fmtCurr2(perUnit.subtotal)}</span>
@@ -525,12 +557,12 @@ const BULK_RAW_OWN_MARKUP =
 function CompRow({
   row,
   values,
-  maxPerUnitCost,
+  maxContribution,
   hint,
 }: {
   row: GovernedRow;
   values: RowValues | null;
-  maxPerUnitCost: number;
+  maxContribution: number;
   /** Explanatory metadata about what this row's figure already contains. */
   hint: string | null;
 }) {
@@ -541,10 +573,10 @@ function CompRow({
   // R6 bar: segments scale via width:% of the cell's max per-unit
   // subtotal. Pixel geometry, not commercial arithmetic.
   const costPct = values
-    ? Math.max(0.5, (values.cost / maxPerUnitCost) * 100)
+    ? Math.max(0.5, (values.cost / maxContribution) * 100)
     : 0;
   const markupPct = values
-    ? Math.max(0, (values.markup / maxPerUnitCost) * 100)
+    ? Math.max(0, (values.markup / maxContribution) * 100)
     : 0;
 
   const rowMods = [row.mod, isEmpty ? "empty" : ""].filter(Boolean).join(" ");
