@@ -184,4 +184,11 @@
 }
 .pp-item-group-name { font-family: var(--display); font-size: 15px; font-weight: 500; color: var(--pp-ink); }
 .pp-item-group .pp-c-num { font-variant-numeric: tabular-nums; }
-.pp-tr-group-member .pp-c-prod { padding-left: 14px; }
+.pp-item-group--owned,
+.pp-tr-group-member {
+  background: #f7f5f0;
+  box-shadow: inset 2px 0 var(--pp-strong);
+}
+.pp-item-group--owned .pp-c-prod { padding-left: 14px; }
+.pp-tr-group-member .pp-c-prod { padding-left: 28px; }
+.pp-tr-group-last { border-bottom: 1.5px solid var(--pp-strong); margin-bottom: 8px; }

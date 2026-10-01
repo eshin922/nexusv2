@@ -122,8 +122,8 @@ export function PricingTable({
           return (
             <Fragment key={sku.id}>
             {sku.item_group && (index === 0 || skus[index - 1]?.item_group?.id !== sku.item_group.id) ? (
-              <View style={styles.itemGroup} wrap={false}>
-                <View style={styles.cProd}>
+              <View style={[styles.itemGroup, styles.itemGroupOwned]} wrap={false}>
+                <View style={[styles.cProd, styles.groupHeaderProduct]}>
                   <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
                 </View>
                 {cols.map(({ tier, ti }) => {
@@ -144,7 +144,7 @@ export function PricingTable({
               </View>
             ) : null}
             {/* A priced SKU row is atomic; never orphan its amount across pages. */}
-            <View style={styles.tr} wrap={false}>
+            <View style={[styles.tr, sku.item_group ? styles.groupMemberRow : {}, sku.item_group && skus[index + 1]?.item_group?.id !== sku.item_group.id ? styles.groupMemberLast : {}]} wrap={false}>
               {/* product cell */}
               <View style={[styles.cProd, sku.item_group ? styles.groupMemberProduct : {}]}>
                 <Text style={styles.prodName}>{sku.name}</Text>

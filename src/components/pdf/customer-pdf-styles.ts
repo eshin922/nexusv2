@@ -282,6 +282,12 @@ export const styles = StyleSheet.create({
     borderBottomColor: PP_STRONG,
     borderBottomStyle: "solid",
   },
+  itemGroupOwned: {
+    backgroundColor: PP_NOTES_BG,
+    borderLeftWidth: 1.5,
+    borderLeftColor: PP_STRONG,
+    borderLeftStyle: "solid",
+  },
   itemGroupName: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 11.25,
@@ -296,6 +302,17 @@ export const styles = StyleSheet.create({
     borderBottomColor: PP_RULE,
     borderBottomStyle: "solid",
   },
+  groupMemberRow: {
+    backgroundColor: PP_NOTES_BG,
+    borderLeftWidth: 1.5,
+    borderLeftColor: PP_STRONG,
+    borderLeftStyle: "solid",
+  },
+  groupMemberLast: {
+    borderBottomWidth: 1.25,
+    borderBottomColor: PP_STRONG,
+    marginBottom: 6,
+  },
   // .pp-c-prod { flex: 2.5 1 0; min-width: 0; padding-right: 14px }
   cProd: {
     flex: 2.5,
@@ -303,9 +320,8 @@ export const styles = StyleSheet.create({
     paddingRight: 10.5,
     flexDirection: "column",
   },
-  groupMemberProduct: {
-    paddingLeft: 10.5,
-  },
+  groupHeaderProduct: { paddingLeft: 10.5 },
+  groupMemberProduct: { paddingLeft: 21 },
   // .pp-c-num { flex: 1 1 0; min-width: 0; text-align: right;
   //   border-left: 1px solid transparent; border-right: 1px solid transparent;
   //   padding: 0 8px }
