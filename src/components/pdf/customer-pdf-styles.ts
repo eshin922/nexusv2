@@ -282,23 +282,11 @@ export const styles = StyleSheet.create({
     borderBottomColor: PP_STRONG,
     borderBottomStyle: "solid",
   },
-  itemGroupKind: {
-    fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 6.75,
-    color: PP_MUTED,
-    marginRight: 7.5,
-  },
   itemGroupName: {
     fontFamily: PDF_FONT_FAMILY.serif,
     fontSize: 11.25,
     fontWeight: 500,
     color: PP_INK,
-  },
-  itemGroupSku: {
-    fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 6.75,
-    color: PP_MUTED,
-    marginLeft: 7.5,
   },
   tr: {
     flexDirection: "row",

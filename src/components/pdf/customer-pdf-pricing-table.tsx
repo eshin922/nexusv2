@@ -122,9 +122,7 @@ export function PricingTable({
             <Fragment key={sku.id}>
             {sku.item_group && (index === 0 || skus[index - 1]?.item_group?.id !== sku.item_group.id) ? (
               <View style={styles.itemGroup} wrap={false}>
-                <Text style={styles.itemGroupKind}>Item group</Text>
                 <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
-                {sku.item_group.sku ? <Text style={styles.itemGroupSku}>{sku.item_group.sku}</Text> : null}
               </View>
             ) : null}
             {/* A priced SKU row is atomic; never orphan its amount across pages. */}

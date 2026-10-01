@@ -349,9 +349,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                       {s.itemGroup && (index === 0 || skus[index - 1]?.itemGroup?.id !== s.itemGroup.id) ? (
                         <div className="pp-item-group" role="row">
                           <div role="rowheader">
-                            <span className="pp-item-group-kind">Item group</span>
                             <span className="pp-item-group-name">{s.itemGroup.name}</span>
-                            {s.itemGroup.sku ? <span className="pp-item-group-sku">{s.itemGroup.sku}</span> : null}
                           </div>
                         </div>
                       ) : null}
