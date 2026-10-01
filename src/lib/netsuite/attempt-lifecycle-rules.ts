@@ -84,6 +84,92 @@ export function ownsSnapshot(attempt: {
   return !(attempt.status === "failed" && attempt.errorClass === "validation");
 }
 
+
+/**
+ * THE QUOTE MIRROR, AS A TOTAL PROJECTION OF THE ATTEMPT ROW.
+ *
+ * ── WHY THIS EXISTS ──────────────────────────────────────────────────────
+ *
+ * The mirror was written by three separate call sites, each choosing which
+ * columns to set. Measured on production: `succeeded` wrote all four,
+ * `awaiting_rates` wrote status and message but NOT the SO id, and
+ * `needs_reconciliation` had no writer at all. Two quotes carried a push row
+ * saying `needs_reconciliation` while the quote said NULL, and two carried
+ * `awaiting_rates` with a real SO id on the push row and `null` on the quote --
+ * telling an operator an order exists and giving them nothing to find it with.
+ *
+ * A comment above the reader asserted "failure writes both". It was true of two
+ * failure states out of three, which is how the gap stayed invisible.
+ *
+ * ── WHY A PURE FUNCTION RATHER THAN A SHARED WRITER ─────────────────────
+ *
+ * The `succeeded` mirror is written INSIDE the freeze transaction that also
+ * flips `quote.status` to `complete` and writes the audit row. That atomicity
+ * is not negotiable, so the projection has to be spreadable into an existing
+ * `.set()` as well as callable as its own update. Expressing it as data rather
+ * than as a write is what lets one definition serve both.
+ *
+ * TOTAL over `AttemptStatus`: the switch has no `default`, so a sixth state
+ * fails to compile rather than silently mirroring as something else.
+ */
+export interface AttemptMirrorSource {
+  status: AttemptStatus;
+  netsuiteSoId: string | null;
+  netsuiteSoTranid: string | null;
+  errorDetail: string | null;
+}
+
+export interface QuoteMirrorFields {
+  netsuiteSoPushStatus: AttemptStatus;
+  netsuiteSoId: string | null;
+  netsuiteSoTranid: string | null;
+  netsuiteSoPushError: string | null;
+}
+
+/** Operator copy for an unreconciled CREATE. Names the order when one is known. */
+export function needsReconciliationOperatorMessage(
+  soId: string | null,
+  detail: string | null,
+): string {
+  const base = soId
+    ? `A Sales Order (${soId}) may already exist for this deal and could not be matched to this quote.`
+    : "A Sales Order may already exist for this deal and could not be matched to this quote.";
+  return `${base} No further order will be sent until this is resolved.${detail ? ` Provider detail: ${detail}` : ""}`;
+}
+
+export function mirrorFieldsFor(attempt: AttemptMirrorSource): QuoteMirrorFields {
+  // The identity is projected for EVERY state, not only the ones that
+  // previously bothered. An id that exists on the attempt row and not on the
+  // quote is the specific defect this closes.
+  const identity = {
+    netsuiteSoId: attempt.netsuiteSoId,
+    netsuiteSoTranid: attempt.netsuiteSoTranid,
+  };
+  switch (attempt.status) {
+    case "pending":
+      return { ...identity, netsuiteSoPushStatus: "pending", netsuiteSoPushError: null };
+    case "awaiting_rates":
+      return {
+        ...identity,
+        netsuiteSoPushStatus: "awaiting_rates",
+        netsuiteSoPushError: awaitingRatesOperatorMessage(attempt.netsuiteSoTranid),
+      };
+    case "succeeded":
+      return { ...identity, netsuiteSoPushStatus: "succeeded", netsuiteSoPushError: null };
+    case "failed":
+      return { ...identity, netsuiteSoPushStatus: "failed", netsuiteSoPushError: attempt.errorDetail };
+    case "needs_reconciliation":
+      return {
+        ...identity,
+        netsuiteSoPushStatus: "needs_reconciliation",
+        netsuiteSoPushError: needsReconciliationOperatorMessage(
+          attempt.netsuiteSoId,
+          attempt.errorDetail,
+        ),
+      };
+  }
+}
+
 /** Operator-facing copy for the resumable state. Displays the tranid when known. */
 export function awaitingRatesOperatorMessage(tranid: string | null): string {
   return tranid

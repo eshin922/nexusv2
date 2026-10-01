@@ -309,7 +309,21 @@ test("12 · markComplete gates succeeded on the convergence result", () => {
     markComplete,
     /netsuiteSoId: salesOrderInternalId, \/\/ non-null ⇒ cannot become `failed`/,
   );
-  assert.match(markComplete, /netsuiteSoPushStatus: "awaiting_rates"/);
+  // W1 - the mirror literal moved OUT of markComplete.
+  //
+  // This used to assert `netsuiteSoPushStatus: "awaiting_rates"` appears here,
+  // which was true while markComplete wrote the quote mirror inline. It now
+  // routes through `recordAttemptFailure`, which projects the attempt row via
+  // `mirrorFieldsFor` -- so the property is enforced by the lifecycle for
+  // EVERY state rather than by a literal on one branch.
+  //
+  // The property is unchanged and is now stronger; only its locus moved. It is
+  // falsified exhaustively in w1-push-recovery-contract.test.ts
+  // ("another interruption mid-resume remains safely resumable").
+  assert.ok(
+    !/netsuiteSoPushStatus: "awaiting_rates"/.test(markComplete),
+    "markComplete must no longer write the mirror inline - one writer only",
+  );
 });
 
 test("13 · addresses are re-derived every run, never cached", async () => {

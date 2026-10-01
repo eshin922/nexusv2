@@ -267,21 +267,40 @@ test("12 · operator surface states the resumable case truthfully and shows the 
     "Sales Order created · pricing completion pending · safe to retry",
   );
   // The surface must NOT reuse the failed copy — the order did reach NetSuite.
-  assert.match(tab, /const isAwaitingRates =\s*soPushMirror\.pushStatus === "awaiting_rates"/);
+  //
+  // W1 - the derivation moved. `isAwaitingRates` is no longer read directly
+  // off the mirror string; it is the result of the TOTAL mapping in
+  // receipt-variant.ts, which is what stopped `needs_reconciliation` falling
+  // through an open `else` into `pending`. Same property, one source.
+  assert.match(tab, /const isAwaitingRates = realVariant === "awaiting"/);
+  assert.match(tab, /receiptVariantFor\(/);
   assert.match(tab, /pricing completion pending/);
   assert.match(tab, /retrying continues the same order rather than creating a second one/);
   // And it renders the tranid when known.
   assert.match(tab, /Sales Order \$\{soPushMirror\.soTranid\} created/);
 });
 
-test("13 · markComplete mirrors the resumable variant, not 'failed', when an SO exists", () => {
-  assert.match(
-    markComplete,
-    /netsuiteSoPushStatus: resumeSoId \? "awaiting_rates" : "failed"/,
+test("13 · the resumable variant is mirrored by the lifecycle, not by markComplete", () => {
+  // W1 - this asserted markComplete recomputed `awaiting_rates` vs `failed`
+  // from `resumeSoId` inline. That inline copy is exactly what left production
+  // quotes mirroring a status while omitting the SO id, and it was a second
+  // expression of a rule `failureStatusFor` already owned.
+  //
+  // The property -- an existing order never mirrors as `failed` -- is
+  // unchanged. It is now enforced by the branch in `recordAttemptFailure` and
+  // projected by `mirrorFieldsFor`, and falsified over the whole state space
+  // in w1-push-recovery-contract.test.ts.
+  assert.ok(
+    !/netsuiteSoPushStatus: resumeSoId \? "awaiting_rates" : "failed"/.test(markComplete),
+    "the inline mirror ternary must be gone - one projection, not two",
   );
-  assert.match(
-    markComplete,
-    /netsuiteSoPushError: resumeSoId\s*\?\s*awaitingRatesOperatorMessage\(resumeSoTranid\)/,
+  assert.match(markComplete, /recordAttemptFailure\(/);
+  // And markComplete must not have grown a replacement mirror of its own.
+  const inlineMirrors = (markComplete.match(/netsuiteSoPushStatus:/g) ?? []).length;
+  assert.equal(
+    inlineMirrors,
+    0,
+    "markComplete writes the mirror only through mirrorFieldsFor",
   );
 });
 
