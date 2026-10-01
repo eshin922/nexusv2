@@ -272,6 +272,22 @@ export const styles = StyleSheet.create({
   tbody: {
     flexDirection: "column",
   },
+  itemGroup: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 6,
+    paddingTop: 5.25,
+    paddingBottom: 3.75,
+    borderBottomWidth: 0.75,
+    borderBottomColor: PP_STRONG,
+    borderBottomStyle: "solid",
+  },
+  itemGroupName: {
+    fontFamily: PDF_FONT_FAMILY.serif,
+    fontSize: 11.25,
+    fontWeight: 500,
+    color: PP_INK,
+  },
   tr: {
     flexDirection: "row",
     alignItems: "baseline",
@@ -287,6 +303,9 @@ export const styles = StyleSheet.create({
     paddingRight: 10.5,
     flexDirection: "column",
   },
+  groupMemberProduct: { paddingLeft: 18 },
+  groupMemberName: { fontSize: 8.625, fontWeight: 400, color: PP_INK_2 },
+  groupMemberPrice: { fontSize: 8.25, fontWeight: 400, color: PP_INK_2 },
   // .pp-c-num { flex: 1 1 0; min-width: 0; text-align: right;
   //   border-left: 1px solid transparent; border-right: 1px solid transparent;
   //   padding: 0 8px }

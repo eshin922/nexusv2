@@ -16,6 +16,7 @@
 // `quantity` + `label` — both customer-visible per data-source map.
 
 import { Text, View } from "@react-pdf/renderer";
+import { Fragment } from "react";
 
 import { lineTotal, money, qtyK, unit } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
@@ -32,6 +33,7 @@ export function PricingTable({
   layout,
   quoteNumber,
   continued = false,
+  showItemGroupMembers = true,
 }: {
   skus: ReadonlyArray<CpdfSku>;
   tiers: ReadonlyArray<CpdfTier>;
@@ -40,12 +42,14 @@ export function PricingTable({
   /** Required when `continued` true — used in the continuation eyebrow. */
   quoteNumber: string | null;
   continued?: boolean;
+  showItemGroupMembers?: boolean;
 }) {
   // SINGLE-TIER LAYOUT picks which tier to SHOW. With no recommendation it
   // shows the first — a display choice, not a claim that the tier is
   // recommended. Nothing in this component says the word.
   const soloIdx = recommendedTierIdx ?? 0;
   const isSingle = layout === "single_tier";
+  const hasItemGroups = skus.some((sku) => sku.item_group);
   const cols = isSingle
     ? [{ tier: tiers[soloIdx], ti: soloIdx }]
     : tiers.map((t, i) => ({ tier: t, ti: i }));
@@ -115,17 +119,37 @@ export function PricingTable({
 
       {/* tbody (CD `pdf-render.jsx:114`) */}
       <View style={styles.tbody}>
-        {skus.map((sku) => {
+        {skus.map((sku, index) => {
           const isFlat = sku.shape === "flat";
           return (
-            // Slice 11 Step 3 Fix 2 (CA 2026-06-30): a SKU row is
-            // atomic; never split across pages. Auto-flow would
-            // otherwise orphan the extended-price line below the
-            // product name (per CA's "RPL-400 split" reference).
-            <View key={sku.id} style={styles.tr} wrap={false}>
+            <Fragment key={sku.id}>
+            {sku.item_group && (index === 0 || skus[index - 1]?.item_group?.id !== sku.item_group.id) ? (
+              <View style={styles.itemGroup} wrap={false}>
+                <View style={styles.cProd}>
+                  <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
+                </View>
+                {cols.map(({ tier, ti }) => {
+                  const summary = sku.item_group?.tierSummaries?.[ti];
+                  const rec = !isSingle && tier.recommended === true;
+                  return <View key={tier.id} style={[styles.cNum, rec ? styles.cRec : {}]}>
+                    {summary?.unitPrice != null && summary.lineTotal != null ? <>
+                      <Text style={[styles.price, rec ? styles.priceRec : {}]}>{unit(summary.unitPrice)}</Text>
+                      <Text style={styles.linetotal}>Group total {money(summary.lineTotal)}</Text>
+                    </> : <Text style={styles.priceReq}>quote on request</Text>}
+                  </View>;
+                })}
+              </View>
+            ) : null}
+            {!sku.item_group && hasItemGroups && (index === 0 || skus[index - 1]?.item_group) ? (
+              <View style={styles.itemGroup} wrap={false}>
+                <View style={styles.cProd}><Text style={styles.itemGroupName}>Individual items</Text></View>
+              </View>
+            ) : null}
+            {/* A priced SKU row is atomic; never orphan its amount across pages. */}
+            {(!sku.item_group || showItemGroupMembers) && <View style={styles.tr} wrap={false}>
               {/* product cell */}
-              <View style={styles.cProd}>
-                <Text style={styles.prodName}>{sku.name}</Text>
+              <View style={[styles.cProd, sku.item_group ? styles.groupMemberProduct : {}]}>
+                <Text style={[styles.prodName, sku.item_group ? styles.groupMemberName : {}]}>{sku.name}</Text>
                 <Text style={styles.prodMeta}>
                   <Text style={styles.prodMetaCode}>{sku.code}</Text>
                   {sku.pack != null && sku.pack.length > 0 ? ` · ${sku.pack}` : ""}
@@ -156,10 +180,10 @@ export function PricingTable({
                     <Text style={styles.priceReq}>quote on request</Text>
                   );
                 } else if (isFlat && !isSingle && ti !== 0) {
-                  unitNode = <Text style={[styles.price, styles.priceDash]}>—</Text>;
+                  unitNode = <Text style={[styles.price, styles.priceDash, sku.item_group ? styles.groupMemberPrice : {}]}>—</Text>;
                 } else {
                   unitNode = (
-                    <Text style={[styles.price, rec ? styles.priceRec : {}]}>
+                    <Text style={[styles.price, rec ? styles.priceRec : {}, sku.item_group ? styles.groupMemberPrice : {}]}>
                       {unit(p)}
                     </Text>
                   );
@@ -184,7 +208,8 @@ export function PricingTable({
                   </View>
                 );
               })}
-            </View>
+            </View>}
+            </Fragment>
           );
         })}
       </View>

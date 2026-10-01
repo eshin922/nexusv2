@@ -119,6 +119,13 @@ export type CpdfTier = {
 };
 
 export type CpdfSku = {
+  /** Presentation-only Item Group context; no additional priced line. */
+  item_group?: {
+    id: string;
+    name: string;
+    sku: string | null;
+    tierSummaries?: ReadonlyArray<{ unitPrice: number | null; lineTotal: number | null }>;
+  } | null;
   /** Extended amounts per tier, composed on `CustomerView`. */
   tier_line_totals?: ReadonlyArray<number | null>;
   tier_quantities?: ReadonlyArray<number | null>;
@@ -185,6 +192,8 @@ export type CpdfData = {
   /** Which tier's amounts the fee section quotes. Composed on CustomerView. */
   feeBasisTierIdx?: number;
   skus: ReadonlyArray<CpdfSku>;
+  /** Hide group member rows while retaining group totals and accounting lines. */
+  showItemGroupMembers?: boolean;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
   /**

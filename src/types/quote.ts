@@ -122,6 +122,14 @@ export type CustomerViewQuote = {
 export type CustomerViewSku = {
   /** Quote-local line identity. Distinguishes the same service SKU on two products. */
   id?: string;
+  /** Presentation context for a priced line that belongs to an Item Group. */
+  itemGroup?: {
+    id: string;
+    name: string;
+    sku: string | null;
+    /** Display-only sum of member lines, divided by the group's own quantity. */
+    tierSummaries?: ReadonlyArray<{ unitPrice: number | null; lineTotal: number | null }>;
+  } | null;
   /** Associated production work included in the displayed product price. */
   includedServices?: readonly string[];
   /** Customer-visible friendly label (e.g. "GLW-30"). */
@@ -395,6 +403,8 @@ export type CustomerView = {
   includeFeeLines: boolean;
   /** Visual grouping only; the accepted accounting lines remain separate. */
   includeAssociatedServicesInProduct?: boolean;
+  /** Hide only the printed member breakdown; group totals and accounting lines remain. */
+  showItemGroupMembers?: boolean;
   /** Whether the commercial terms block prints. */
   includeTerms: boolean;
   /** Whether the customer note prints. Its TEXT is `quote.customerFacingNotes`. */

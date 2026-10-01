@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { CustomerView } from "@/types/quote";
 import { extendedAmount, unitPrice } from "@/lib/money-display";
 import { longDate } from "@/lib/customer-dates";
@@ -136,6 +136,7 @@ function useFitScale() {
 
 export function CustomerViewLive({ view }: { view: CustomerView }) {
   const { tiers, skus, serviceFees, freightLines, quote, vendor, customer } = view;
+  const hasItemGroups = skus.some((sku) => sku.itemGroup);
 
   // ── THE DOCUMENT STATES ONLY WHAT IT HAS AUTHORITY FOR ─────────────────
   //
@@ -344,8 +345,30 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
 
                 {!turnkey && (
                   <div className="pp-tbody" role="rowgroup">
-                    {skus.map((s) => (
-                      <div key={s.id ?? `${s.label}:${s.name}`} className="pp-tr" role="row">
+                    {skus.map((s, index) => (
+                      <Fragment key={s.id ?? `${s.label}:${s.name}`}>
+                      {s.itemGroup && (index === 0 || skus[index - 1]?.itemGroup?.id !== s.itemGroup.id) ? (
+                        <div className="pp-item-group" role="row">
+                          <div className="pp-c-prod" role="rowheader">
+                            <span className="pp-item-group-name">{s.itemGroup.name}</span>
+                          </div>
+                          {cols.map(({ ti, tier, rec }) => {
+                            const summary = s.itemGroup?.tierSummaries?.[ti];
+                            return <div key={tier.id} role="cell" className={"pp-c-num" + (rec ? " pp-c-rec" : "")}>
+                              {summary?.unitPrice != null && summary.lineTotal != null ? <>
+                                <span className="pp-price">{unit(summary.unitPrice)}</span>
+                                <div className="pp-linetotal">Group total {money(summary.lineTotal)}</div>
+                              </> : <span className="pp-price req">quote on request</span>}
+                            </div>;
+                          })}
+                        </div>
+                      ) : null}
+                      {!s.itemGroup && hasItemGroups && (index === 0 || skus[index - 1]?.itemGroup) ? (
+                        <div className="pp-item-group" role="row">
+                          <div className="pp-c-prod" role="rowheader"><span className="pp-item-group-name">Individual items</span></div>
+                        </div>
+                      ) : null}
+                      {(!s.itemGroup || view.showItemGroupMembers !== false) && <div className={"pp-tr" + (s.itemGroup ? " pp-tr-group-member" : "")} role="row">
                         <div className="pp-c-prod" role="rowheader">
                           <div className="pp-prod-name">{s.name}</div>
                           <div className="pp-prod-meta">
@@ -394,7 +417,8 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                             </div>
                           );
                         })}
-                      </div>
+                      </div>}
+                      </Fragment>
                     ))}
                   </div>
                 )}

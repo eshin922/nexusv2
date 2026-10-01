@@ -172,6 +172,7 @@ export function customerViewToCpdf(
   }));
 
   const skus: CpdfSku[] = view.skus.map((s) => ({
+    item_group: s.itemGroup,
     id: s.id ?? s.label,
     code: s.label,
     name: s.name,
@@ -223,6 +224,7 @@ export function customerViewToCpdf(
     // Carried, not re-derived. Both renderers quote the same column.
     feeBasisTierIdx: view.feeBasisTierIdx,
     skus,
+    showItemGroupMembers: view.showItemGroupMembers !== false,
     serviceFees,
     freightLines,
   };

@@ -69,6 +69,7 @@ import type {
 } from "@/types/quote";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { includeAssociatedServicesInProductRows } from "@/lib/associated-service-presentation";
+import { orderCustomerItemGroupRows, summarizeCustomerItemGroups } from "@/lib/customer-item-group-order";
 
 export type CustomerViewSearchParams = {
   layout?: string;
@@ -203,6 +204,7 @@ export type ResolveCustomerViewResult =
         presentedTierId: string | null;
         includeFeeLines: boolean;
         includeAssociatedServicesInProduct: boolean;
+        showItemGroupMembers: boolean;
         includeTerms: boolean;
         includeAddendum: boolean;
         includeNote: boolean;
@@ -527,6 +529,15 @@ export async function resolveCustomerView(args: {
   // of reconstructions. Sharing the producer makes the agreement structural.
   const projection = projectCommercial(bundle.data);
   const unitLines = projection.lines.filter((l) => l.kind !== "otc");
+  const itemGroupsById = new Map(
+    bundle.data.costing.skuRollups
+      .filter((rollup) => rollup.skuRole === "assembly")
+      .map((rollup) => [rollup.skuId, {
+        id: rollup.skuId,
+        name: rollup.productName,
+        sku: rollup.skuLabel || null,
+      }] as const),
+  );
 
   let skus: CustomerViewSku[] = unitLines.map((line) => {
     const tierPrices = line.cells.map((c) =>
@@ -541,6 +552,9 @@ export async function resolveCustomerView(args: {
         : "step↓";
     return {
       id: line.quoteLeafId ?? line.key,
+      itemGroup: line.owningAssemblyId
+        ? itemGroupsById.get(line.owningAssemblyId) ?? null
+        : null,
       label: line.displaySku ?? "",
       name: line.displayName,
       pack: null,
@@ -680,6 +694,23 @@ export async function resolveCustomerView(args: {
       embeddedRecovery: embeddedRecoveryByTier.get(t.id) ?? null,
     }),
   }));
+  // Compose tier money in canonical line order above. The group figures below
+  // are display-only subtotals of those same lines, never additional revenue.
+  const groupQuantities = new Map(
+    bundle.data.costing.skuRollups
+      .filter((rollup) => rollup.skuRole === "assembly")
+      .map((rollup) => [rollup.skuId, tierBase.map((tier) =>
+        rollup.perTier.find((cell) => cell.tierId === tier.id)?.orderQuantity ?? null,
+      )] as const),
+  );
+  const groupSummaries = summarizeCustomerItemGroups(skus, groupQuantities);
+  const displaySkus = orderCustomerItemGroupRows(skus).map((sku) => ({
+    ...sku,
+    itemGroup: sku.itemGroup ? {
+      ...sku.itemGroup,
+      tierSummaries: groupSummaries.get(sku.itemGroup.id) ?? [],
+    } : null,
+  }));
 
   // BV-009: freight remains in commercial costing. When bundled into unit
   // price it has no separate customer-facing line, avoiding double signaling.
@@ -815,7 +846,7 @@ export async function resolveCustomerView(args: {
     },
     preparedBy,
     tiers,
-    skus,
+    skus: displaySkus,
     serviceFees,
     freightLines,
     landedLogistics,
@@ -864,6 +895,7 @@ export async function resolveCustomerView(args: {
     // is what it was sent under.
     includeFeeLines: profile?.includeFeeLines ?? true,
     includeAssociatedServicesInProduct: profile?.includeAssociatedServicesInProduct ?? false,
+    showItemGroupMembers: profile?.showItemGroupMembers ?? true,
     includeTerms: profile?.includeTerms ?? true,
     includeNote: profile?.includeNote ?? true,
   };
@@ -977,6 +1009,7 @@ export async function resolveCustomerView(args: {
       presentedTierId: profile?.presentedTierId ?? null,
       includeFeeLines: profile?.includeFeeLines ?? true,
       includeAssociatedServicesInProduct: profile?.includeAssociatedServicesInProduct ?? false,
+      showItemGroupMembers: profile?.showItemGroupMembers ?? true,
       includeTerms: profile?.includeTerms ?? true,
       includeAddendum: profile?.includeAddendum ?? false,
       includeNote: profile?.includeNote ?? true,

@@ -2722,6 +2722,7 @@ export async function reviseQuote(
             presentedTierId: priorProfile.presentedTierId,
             includeFeeLines: priorProfile.includeFeeLines,
             includeAssociatedServicesInProduct: priorProfile.includeAssociatedServicesInProduct,
+            showItemGroupMembers: priorProfile.showItemGroupMembers,
             includeTerms: priorProfile.includeTerms,
             includeAddendum: priorProfile.includeAddendum,
             includeNote: priorProfile.includeNote,
