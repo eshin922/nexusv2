@@ -4,7 +4,7 @@
    unedited. Everything Nexus needs that CD's standalone prototype did not is
    here instead, so an R-round refresh stays a re-copy.
 
-   Two adaptations. Nothing else belongs in this file.
+   Nexus-specific presentation additions also belong here.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── 1 · FONT BINDING ────────────────────────────────────────────────────
@@ -174,3 +174,14 @@
   font-variant-numeric: tabular-nums;
 }
 .pp-c-rec .pp-component-num { color: var(--pp-ink); }
+
+/* Show the Item Group that owns the following priced member rows. This adds
+   structure to the customer document without adding a priced line. */
+.pp-item-group {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-top: 8px; padding: 7px 0 5px;
+  border-bottom: 1px solid var(--pp-strong);
+}
+.pp-item-group-kind { margin-right: 10px; font-family: var(--mono); font-size: 9px; color: var(--pp-muted); text-transform: uppercase; letter-spacing: .06em; }
+.pp-item-group-name { font-family: var(--display); font-size: 15px; font-weight: 500; color: var(--pp-ink); }
+.pp-item-group-sku { margin-left: 10px; font-family: var(--mono); font-size: 9px; color: var(--pp-muted); }

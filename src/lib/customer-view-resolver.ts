@@ -69,6 +69,7 @@ import type {
 } from "@/types/quote";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { includeAssociatedServicesInProductRows } from "@/lib/associated-service-presentation";
+import { orderCustomerItemGroupRows } from "@/lib/customer-item-group-order";
 
 export type CustomerViewSearchParams = {
   layout?: string;
@@ -527,6 +528,15 @@ export async function resolveCustomerView(args: {
   // of reconstructions. Sharing the producer makes the agreement structural.
   const projection = projectCommercial(bundle.data);
   const unitLines = projection.lines.filter((l) => l.kind !== "otc");
+  const itemGroupsById = new Map(
+    bundle.data.costing.skuRollups
+      .filter((rollup) => rollup.skuRole === "assembly")
+      .map((rollup) => [rollup.skuId, {
+        id: rollup.skuId,
+        name: rollup.productName,
+        sku: rollup.skuLabel || null,
+      }] as const),
+  );
 
   let skus: CustomerViewSku[] = unitLines.map((line) => {
     const tierPrices = line.cells.map((c) =>
@@ -541,6 +551,9 @@ export async function resolveCustomerView(args: {
         : "step↓";
     return {
       id: line.quoteLeafId ?? line.key,
+      itemGroup: line.owningAssemblyId
+        ? itemGroupsById.get(line.owningAssemblyId) ?? null
+        : null,
       label: line.displaySku ?? "",
       name: line.displayName,
       pack: null,
@@ -680,6 +693,9 @@ export async function resolveCustomerView(args: {
       embeddedRecovery: embeddedRecoveryByTier.get(t.id) ?? null,
     }),
   }));
+  // Row order is presentation-only. Compose tier money in the canonical line
+  // order above, then make each Item Group contiguous for the customer.
+  const displaySkus = orderCustomerItemGroupRows(skus);
 
   // BV-009: freight remains in commercial costing. When bundled into unit
   // price it has no separate customer-facing line, avoiding double signaling.
@@ -815,7 +831,7 @@ export async function resolveCustomerView(args: {
     },
     preparedBy,
     tiers,
-    skus,
+    skus: displaySkus,
     serviceFees,
     freightLines,
     landedLogistics,

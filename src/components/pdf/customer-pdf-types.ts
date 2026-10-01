@@ -119,6 +119,8 @@ export type CpdfTier = {
 };
 
 export type CpdfSku = {
+  /** Presentation-only Item Group context; no additional priced line. */
+  item_group?: { id: string; name: string; sku: string | null } | null;
   /** Extended amounts per tier, composed on `CustomerView`. */
   tier_line_totals?: ReadonlyArray<number | null>;
   tier_quantities?: ReadonlyArray<number | null>;

@@ -272,6 +272,34 @@ export const styles = StyleSheet.create({
   tbody: {
     flexDirection: "column",
   },
+  itemGroup: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 6,
+    paddingTop: 5.25,
+    paddingBottom: 3.75,
+    borderBottomWidth: 0.75,
+    borderBottomColor: PP_STRONG,
+    borderBottomStyle: "solid",
+  },
+  itemGroupKind: {
+    fontFamily: PDF_FONT_FAMILY.mono,
+    fontSize: 6.75,
+    color: PP_MUTED,
+    marginRight: 7.5,
+  },
+  itemGroupName: {
+    fontFamily: PDF_FONT_FAMILY.serif,
+    fontSize: 11.25,
+    fontWeight: 500,
+    color: PP_INK,
+  },
+  itemGroupSku: {
+    fontFamily: PDF_FONT_FAMILY.mono,
+    fontSize: 6.75,
+    color: PP_MUTED,
+    marginLeft: 7.5,
+  },
   tr: {
     flexDirection: "row",
     alignItems: "baseline",

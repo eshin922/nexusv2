@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { CustomerView } from "@/types/quote";
 import { extendedAmount, unitPrice } from "@/lib/money-display";
 import { longDate } from "@/lib/customer-dates";
@@ -344,8 +344,18 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
 
                 {!turnkey && (
                   <div className="pp-tbody" role="rowgroup">
-                    {skus.map((s) => (
-                      <div key={s.id ?? `${s.label}:${s.name}`} className="pp-tr" role="row">
+                    {skus.map((s, index) => (
+                      <Fragment key={s.id ?? `${s.label}:${s.name}`}>
+                      {s.itemGroup && (index === 0 || skus[index - 1]?.itemGroup?.id !== s.itemGroup.id) ? (
+                        <div className="pp-item-group" role="row">
+                          <div role="rowheader">
+                            <span className="pp-item-group-kind">Item group</span>
+                            <span className="pp-item-group-name">{s.itemGroup.name}</span>
+                            {s.itemGroup.sku ? <span className="pp-item-group-sku">{s.itemGroup.sku}</span> : null}
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="pp-tr" role="row">
                         <div className="pp-c-prod" role="rowheader">
                           <div className="pp-prod-name">{s.name}</div>
                           <div className="pp-prod-meta">
@@ -395,6 +405,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                           );
                         })}
                       </div>
+                      </Fragment>
                     ))}
                   </div>
                 )}

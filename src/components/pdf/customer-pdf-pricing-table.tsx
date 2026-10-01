@@ -16,6 +16,7 @@
 // `quantity` + `label` — both customer-visible per data-source map.
 
 import { Text, View } from "@react-pdf/renderer";
+import { Fragment } from "react";
 
 import { lineTotal, money, qtyK, unit } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
@@ -115,14 +116,19 @@ export function PricingTable({
 
       {/* tbody (CD `pdf-render.jsx:114`) */}
       <View style={styles.tbody}>
-        {skus.map((sku) => {
+        {skus.map((sku, index) => {
           const isFlat = sku.shape === "flat";
           return (
-            // Slice 11 Step 3 Fix 2 (CA 2026-06-30): a SKU row is
-            // atomic; never split across pages. Auto-flow would
-            // otherwise orphan the extended-price line below the
-            // product name (per CA's "RPL-400 split" reference).
-            <View key={sku.id} style={styles.tr} wrap={false}>
+            <Fragment key={sku.id}>
+            {sku.item_group && (index === 0 || skus[index - 1]?.item_group?.id !== sku.item_group.id) ? (
+              <View style={styles.itemGroup} wrap={false}>
+                <Text style={styles.itemGroupKind}>Item group</Text>
+                <Text style={styles.itemGroupName}>{sku.item_group.name}</Text>
+                {sku.item_group.sku ? <Text style={styles.itemGroupSku}>{sku.item_group.sku}</Text> : null}
+              </View>
+            ) : null}
+            {/* A priced SKU row is atomic; never orphan its amount across pages. */}
+            <View style={styles.tr} wrap={false}>
               {/* product cell */}
               <View style={styles.cProd}>
                 <Text style={styles.prodName}>{sku.name}</Text>
@@ -185,6 +191,7 @@ export function PricingTable({
                 );
               })}
             </View>
+            </Fragment>
           );
         })}
       </View>

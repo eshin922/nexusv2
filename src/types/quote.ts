@@ -122,6 +122,8 @@ export type CustomerViewQuote = {
 export type CustomerViewSku = {
   /** Quote-local line identity. Distinguishes the same service SKU on two products. */
   id?: string;
+  /** Presentation context for a priced line that belongs to an Item Group. */
+  itemGroup?: { id: string; name: string; sku: string | null } | null;
   /** Associated production work included in the displayed product price. */
   includedServices?: readonly string[];
   /** Customer-visible friendly label (e.g. "GLW-30"). */
