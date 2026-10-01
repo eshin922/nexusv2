@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   selectActiveTierId,
@@ -290,12 +290,11 @@ export function CostStackHeader({
               math layer split (UX_BACKLOG: RAW + PASS restoration). */}
           <LegendItem label="Passthrough" variant="pass" />
         </div>
-        <select className="r6-stack-scope-select" aria-label="Which price build to show"
-          title={selectedUnit?.label ?? "Entire quote"}
-          value={selectedUnit?.id ?? ENTIRE_QUOTE} onChange={(event) => setSelectedUnitId(event.target.value)}>
-          <option value={ENTIRE_QUOTE}>Entire quote</option>
-          {units.map((unit) => <option key={unit.id} value={unit.id}>{unit.label}{unit.priced ? "" : " · not priced"}</option>)}
-        </select>
+        <PriceBuildScopeMenu
+          units={units}
+          selectedId={selectedUnit?.id ?? ENTIRE_QUOTE}
+          onSelect={setSelectedUnitId}
+        />
       </div>
 
       {/* Grid: canonical .r6-stack-grid provides 1px gap on --rule bg
@@ -331,6 +330,76 @@ export function CostStackHeader({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PriceBuildScopeMenu({
+  units,
+  selectedId,
+  onSelect,
+}: {
+  units: ReadonlyArray<{ id: string; label: string; priced: boolean }>;
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const choices = [
+    { id: ENTIRE_QUOTE, label: "Entire quote" },
+    ...units.map((unit) => ({ id: unit.id, label: `${unit.label}${unit.priced ? "" : " · not priced"}` })),
+  ];
+  const selectedLabel = choices.find((choice) => choice.id === selectedId)?.label ?? "Entire quote";
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="r6-stack-scope" ref={rootRef}>
+      <button type="button" ref={triggerRef} className="r6-stack-scope-trigger"
+        aria-label="Which price build to show" aria-haspopup="menu" aria-expanded={open}
+        title={selectedLabel} onClick={() => setOpen((wasOpen) => !wasOpen)}>
+        <span className="r6-stack-scope-value">{selectedLabel}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="r6-stack-scope-menu" role="menu" ref={menuRef}
+          aria-label="Which price build to show"
+          onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+            const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+              : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+            buttons[next]?.focus();
+          }}>
+          {choices.map((choice) => (
+            <button key={choice.id} type="button" role="menuitemradio"
+              aria-checked={choice.id === selectedId}
+              onClick={() => { onSelect(choice.id); setOpen(false); triggerRef.current?.focus(); }}>
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
