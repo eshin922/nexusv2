@@ -2031,3 +2031,45 @@
 .setup-subquantity-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .setup-subquantity-reset { border: 0; background: transparent; padding: 2px; color: var(--ink-3); font-size: 11px; text-decoration: underline; cursor: pointer; }
 .setup-subquantity-status { color: var(--ink-4); font-size: 11px; }
+.setup-wizard-group-product-options {
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+
+.setup-wizard-group-product-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.setup-wizard-group-product-option:last-child {
+  border-bottom: 0;
+}
+
+.setup-wizard-group-product-option > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.setup-wizard-group-product-option strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setup-wizard-group-product-option span {
+  color: var(--ink-4);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.setup-wizard-group-product-error {
+  color: var(--bad);
+  font-size: 12px;
+}

@@ -6,6 +6,7 @@ import type { TargetTier } from "./client-target";
 import type { AssemblyTree } from "@/lib/assembly-tree";
 import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { AsyRow } from "./asy-row";
+import type { QuoteProductOption } from "./group-product-picker";
 import type { AssemblyLeafNode } from "@/lib/assembly-tree";
 import { AddComponentChargesSheet } from "./add-component-charges-sheet";
 import { DirectProductRow } from "./direct-product-row";
@@ -591,6 +592,27 @@ export function AssemblyTreeBody({
       groupName: assembly.name || assembly.sku || "Item group",
     })),
   );
+  // Products is the sole source for Item Group selection. Reuse the existing
+  // quote occurrence instead of attaching the same library SKU a second time;
+  // that preserves its costs and prevents a duplicate Costs owner.
+  const groupProductOptions: QuoteProductOption[] = [
+    ...productEntries.map(({ product }) => ({
+      quoteLeafId: product.quoteLeafId,
+      name: product.name,
+      sku: product.sku,
+      assemblyId: null,
+      groupName: null,
+    })),
+    ...orderedAssemblies.flatMap((assembly) =>
+      childrenOf(assembly.id).map((product) => ({
+        quoteLeafId: product.quoteLeafId,
+        name: product.name,
+        sku: product.sku,
+        assemblyId: assembly.id,
+        groupName: assembly.name,
+      })),
+    ),
+  ];
 
   return (
     <div
@@ -778,9 +800,7 @@ export function AssemblyTreeBody({
                 overZoneTail(e, { kind: "group", assemblyId: asy.id })
               }
               onMemberDropOnGroup={commitDrop}
-              assemblies={assemblies}
-              fullLeafTypes={fullLeafTypes}
-              permissions={permissions}
+              products={groupProductOptions}
             />
           ))}
           <CreateItemGroupTrigger
