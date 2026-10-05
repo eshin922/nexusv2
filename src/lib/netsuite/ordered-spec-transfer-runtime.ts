@@ -186,12 +186,16 @@ export const realSpecTransferDeps: SpecTransferDeps = {
       transactionId: ref(r.custrecord_nxos_transaction),
       lineKey: ref(r.custrecord_nxos_line_key),
       itemId: ref(r.custrecord_nxos_item),
+      quoteLeafId: ref(r.custrecord_nxos_quote_leaf),
+      snapshotId: ref(r.custrecord_nxos_snapshot),
+      specSchema: ref(r.custrecord_nxos_schema),
       disposition: ref(r.custrecord_nxos_disposition),
       projectionVersion: ref(r.custrecord_nxos_projection_version),
       sourceHash: ref(r.custrecord_nxos_source_hash),
       exportHash: ref(r.custrecord_nxos_export_hash),
       redactedKeys: redacted,
       valuesJson: r.custrecord_nxos_values == null ? null : String(r.custrecord_nxos_values),
+      readable: r.custrecord_nxos_readable == null ? "" : String(r.custrecord_nxos_readable),
     };
   },
 

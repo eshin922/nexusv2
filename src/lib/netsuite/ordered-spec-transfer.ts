@@ -72,12 +72,16 @@ export type ObservedSpecRecord = {
   transactionId: string | null;
   lineKey: string | null;
   itemId: string | null;
+  quoteLeafId: string | null;
+  snapshotId: string | null;
+  specSchema: string | null;
   disposition: string | null;
   projectionVersion: string | null;
   sourceHash: string | null;
   exportHash: string | null;
   redactedKeys: string[] | null;
   valuesJson: string | null;
+  readable: string;
 };
 
 export type SpecTransferStatus =
@@ -160,7 +164,14 @@ export function buildSpecRecordBody(args: {
 
 function verifyRecord(
   observed: ObservedSpecRecord,
-  expected: { soId: string; lineKey: string; itemId: string; projection: OrderedSpecProjection },
+  expected: {
+    soId: string;
+    lineKey: string;
+    itemId: string;
+    quoteLeafId: string;
+    snapshotId: string;
+    projection: OrderedSpecProjection;
+  },
 ): string[] {
   const cmp = compareReadBack(
     { ...expected.projection, lineKey: expected.lineKey, itemId: expected.itemId },
@@ -176,7 +187,12 @@ function verifyRecord(
     },
   );
   const out = cmp.matches ? [] : [...cmp.mismatched];
+  if (observed.externalId !== orderedSpecExternalId(expected.soId, expected.lineKey)) out.push("external_id");
   if (observed.transactionId !== expected.soId) out.push("transaction");
+  if (observed.quoteLeafId !== expected.quoteLeafId) out.push("quote_leaf");
+  if (observed.snapshotId !== expected.snapshotId) out.push("snapshot");
+  if (observed.specSchema !== expected.projection.specSchema) out.push("schema");
+  if (observed.readable !== expected.projection.readable) out.push("readable");
   return out;
 }
 
@@ -249,11 +265,35 @@ export async function reconcileOrderedSpecs(
 
     const posted = m.posted;
     const itemId = posted.itemId ?? "";
-    const expected = { soId: args.soId, lineKey: posted.lineUniqueKey, itemId, projection: p };
+    const expected = {
+      soId: args.soId,
+      lineKey: posted.lineUniqueKey,
+      itemId,
+      quoteLeafId: m.frozen.quoteLeafId!,
+      snapshotId: args.snapshotId,
+      projection: p,
+    };
     const externalId = orderedSpecExternalId(args.soId, posted.lineUniqueKey);
 
     try {
       let recordId = await deps.findRecordIdByExternalId(externalId);
+      // A line may already point to a record whose externalId was changed or
+      // whose lookup is temporarily unavailable. Verify that linked record
+      // before creating anything; otherwise a retry could create a second
+      // record and only then discover the conflicting link.
+      if (recordId === null && posted.specLinkId !== null) {
+        row.recordId = posted.specLinkId;
+        try {
+          const mismatched = verifyRecord(await deps.readRecord(posted.specLinkId), expected);
+          row.reason = mismatched.length > 0
+            ? `record_disagrees:${mismatched.join("|")}`
+            : "linked_record_not_found_by_external_id";
+        } catch {
+          row.reason = `line_linked_to_other_record:${posted.specLinkId}`;
+        }
+        row.status = "conflict";
+        continue;
+      }
       if (recordId === null) {
         const body = buildSpecRecordBody({
           soId: args.soId,

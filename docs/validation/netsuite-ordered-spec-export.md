@@ -31,9 +31,11 @@ posted product line to NetSuite, links the line to it, and reads both back.
    assembly posted FLAT (no Group line) among ungrouped lines; identical
    compositions by occurrence order, labelled `by_order`; anything ambiguous is
    a named failure, never a guess;
-3. per line, find the record by `externalId`; create it if absent; verify it if
-   present — a disagreeing record or a line linked to another record is a
-   `conflict` and is **never overwritten**;
+3. per line, find the record by `externalId`, or inspect the record already
+   linked from the line before creating anything; create only if neither
+   exists. Read back the external ID, line, item, quote leaf, snapshot, schema,
+   hashes, values and readable text. A disagreeing record or a line linked to
+   another record is a `conflict` and is **never overwritten**;
 4. link the line if unlinked;
 5. re-read the order: every link persisted, every `lineUniqueKey` unchanged,
    and **no quantity, rate, amount or total moved** — otherwise the transfer
@@ -84,7 +86,8 @@ Scripts: `scripts/gate-1b/netsuite-spec-probe-*.ts`,
 1. Create `customrecord_nx_ordered_spec` (13 `custrecord_nxos_*` fields,
    permission list: Nexus Integration = Create/View) and `custcol_nx_ordered_spec`
    (List/Record → the record, Sale Item) in production NetSuite, exactly as in
-   sandbox (record type 1612).
+   sandbox. Sandbox internal ID 1612 is evidence, not a required production
+   ID; the integration uses the record's script ID.
 2. Re-run `netsuite-spec-probe-w1-w2.ts`'s precondition gate against production
    metadata (read-only part) to prove the objects are visible.
 3. Set `NETSUITE_ORDERED_SPEC_EXPORT=enabled` in production.

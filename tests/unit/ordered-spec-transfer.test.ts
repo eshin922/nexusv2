@@ -266,12 +266,16 @@ class FakeNetSuite {
           transactionId: String((r.custrecord_nxos_transaction as { id: string }).id),
           lineKey: String(r.custrecord_nxos_line_key),
           itemId: String((r.custrecord_nxos_item as { id: string }).id),
+          quoteLeafId: String(r.custrecord_nxos_quote_leaf),
+          snapshotId: String(r.custrecord_nxos_snapshot),
+          specSchema: r.custrecord_nxos_schema == null ? null : String(r.custrecord_nxos_schema),
           disposition: String(r.custrecord_nxos_disposition),
           projectionVersion: String(r.custrecord_nxos_projection_version),
           sourceHash: String(r.custrecord_nxos_source_hash),
           exportHash: String(r.custrecord_nxos_export_hash),
           redactedKeys: JSON.parse(String(r.custrecord_nxos_redacted_keys)),
           valuesJson: String(r.custrecord_nxos_values),
+          readable: r.custrecord_nxos_readable == null ? "" : String(r.custrecord_nxos_readable),
         };
       },
       patchLineLink: async (_so, line, recordId) => {
@@ -356,6 +360,27 @@ test("a record that disagrees is a CONFLICT and is never overwritten", async () 
   assert.equal(r.status, "conflict");
   assert.equal(JSON.stringify(ns.records.get(id)), before);
   assert.match(r.lines.find((l) => l.quoteLeafId === "L-box")!.reason!, /^record_disagrees:/);
+});
+
+test("a record with wrong provenance or readable text is a conflict, even when its hashes agree", async () => {
+  const corruptions: Array<[string, unknown, string]> = [
+    ["externalId", "nxos:other:14", "external_id"],
+    ["custrecord_nxos_quote_leaf", "L-other", "quote_leaf"],
+    ["custrecord_nxos_snapshot", "snap-other", "snapshot"],
+    ["custrecord_nxos_schema", "secondary", "schema"],
+    ["custrecord_nxos_readable", "Size: wrong", "readable"],
+  ];
+  for (const [field, value, reason] of corruptions) {
+    const { ns, frozen } = scenario();
+    await reconcileOrderedSpecs(ns.deps(frozen), ARGS);
+    const rec = [...ns.records.values()].find((r) => r.custrecord_nxos_quote_leaf === "L-box")!;
+    rec[field] = value;
+    const before = JSON.stringify(rec);
+    const result = await reconcileOrderedSpecs(ns.deps(frozen), ARGS);
+    assert.equal(result.status, "conflict", field);
+    assert.match(result.lines.find((l) => l.quoteLeafId === "L-box")!.reason!, new RegExp(reason), field);
+    assert.equal(JSON.stringify(rec), before, `${field} was overwritten`);
+  }
 });
 
 test("a changed frozen hash for the same line key is refused, not a second record", async () => {
