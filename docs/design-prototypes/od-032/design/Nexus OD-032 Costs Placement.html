@@ -1,0 +1,536 @@
+<title>Costs Placement Round Trip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* House style inherited verbatim from `Nexus OD-032 Round Trip`. This is a
+     sibling document in the same bundle, so it is not the place for a new
+     visual identity — warm paper, single-theme, painted explicitly. */
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: oklch(0.965 0.008 85);
+    color: oklch(0.20 0.02 255);
+    font-family: 'Instrument Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: oklch(0.92 0.04 255); }
+
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 40px 90px; }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    color: oklch(0.68 0.012 255);
+  }
+  h1 {
+    font-family: 'Newsreader', serif; font-size: 40px; font-weight: 400;
+    margin: 12px 0 0; letter-spacing: -0.01em; text-wrap: balance;
+  }
+  h2 {
+    font-family: 'Newsreader', serif; font-size: 27px; font-weight: 400;
+    margin: 9px 0 0; text-wrap: balance;
+  }
+  h3 { font-family: 'Newsreader', serif; font-size: 19px; font-weight: 400; margin: 0; }
+  .lede { font-size: 15.5px; color: oklch(0.36 0.02 255); margin-top: 10px; max-width: 760px; line-height: 1.55; text-wrap: pretty; }
+  .body { font-size: 13px; color: oklch(0.36 0.02 255); line-height: 1.6; text-wrap: pretty; }
+  .muted { color: oklch(0.52 0.015 255); }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  section { margin-top: 52px; }
+  .card {
+    background: oklch(0.985 0.006 85); border: 1px solid oklch(0.88 0.012 85);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .cards { display: flex; gap: 10px; margin-top: 26px; align-items: stretch; flex-wrap: wrap; }
+  .cards > * { flex: 1 1 280px; }
+  .scroll { overflow-x: auto; }
+  .panel {
+    background: oklch(0.985 0.006 85); border: 1px solid oklch(0.88 0.012 85);
+    border-radius: 10px; overflow: hidden; margin-top: 20px;
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    background: oklch(0.975 0.010 85); border-bottom: 1px solid oklch(0.20 0.02 255);
+  }
+  .tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 4px 8px; border-radius: 5px;
+    background: oklch(0.945 0.010 85); border: 1px solid oklch(0.88 0.012 85);
+    color: oklch(0.52 0.015 255); white-space: nowrap;
+  }
+  .tag.own { background: oklch(0.92 0.04 255); border-color: oklch(0.42 0.14 255); color: oklch(0.28 0.12 255); font-weight: 500; }
+  .tag.warn { background: oklch(0.94 0.05 75); border-color: oklch(0.72 0.12 65); color: oklch(0.42 0.12 55); }
+  .region {
+    background: oklch(0.985 0.006 85); border: 1px solid oklch(0.88 0.012 85);
+    border-radius: 8px; overflow: hidden; margin-top: 10px;
+  }
+  .region-head {
+    display: flex; align-items: center; gap: 12px; padding: 11px 14px;
+    background: oklch(0.975 0.010 85); border-bottom: 1px solid oklch(0.94 0.008 85);
+  }
+  .region-name { font-family: 'Newsreader', serif; font-style: italic; font-size: 16px; }
+  .grid-head, .grid-row {
+    display: grid; grid-template-columns: 1fr 96px 96px 96px 24px;
+    gap: 14px; align-items: baseline; padding: 9px 14px;
+  }
+  .grid-head { border-bottom: 1px solid oklch(0.92 0.010 85); }
+  .grid-row { border-bottom: 1px solid oklch(0.955 0.008 85); }
+  .num { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; }
+  .colhead { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.68 0.012 255); text-align: right; }
+  .ownerbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: oklch(0.968 0.012 85);
+    border-bottom: 1px solid oklch(0.92 0.010 85);
+  }
+  .charges {
+    background: oklch(0.975 0.010 85); border-top: 1px solid oklch(0.92 0.010 85);
+    padding: 10px 14px 12px 46px;
+  }
+  .charge-row {
+    display: grid; grid-template-columns: 1fr 110px 96px 150px 24px; gap: 14px;
+    align-items: baseline; padding: 8px 11px; background: oklch(0.995 0.003 85);
+    border: 1px solid oklch(0.92 0.010 85); border-radius: 6px;
+  }
+  .charge-meta { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: oklch(0.68 0.012 255); margin-top: 2px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid oklch(0.92 0.010 85); vertical-align: top; }
+  th { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase; color: oklch(0.68 0.012 255); border-bottom: 1px solid oklch(0.20 0.02 255); }
+  td.mono, th.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .rule { height: 1px; background: oklch(0.88 0.012 85); margin: 28px 0; border: 0; }
+  .callout { border-left: 2px solid oklch(0.42 0.14 255); padding-left: 14px; margin-top: 14px; }
+  .callout.warn { border-left-color: oklch(0.72 0.12 65); }
+  code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+</style>
+
+<div class="wrap">
+
+  <header style="padding-top:46px">
+    <div class="eyebrow">OD-032 · Costs placement round trip · no implementation</div>
+    <h1>Where these charges live on the Costs page we already have</h1>
+    <p class="lede">
+      Three owner types now exist. This decides where each renders on the <em>shipped</em> V1
+      Costs page — not what an ideal Costs page would look like. That question belongs to the
+      post-V1 redesign, and every compromise made here is recorded as an input to it.
+    </p>
+  </header>
+
+  <div class="cards">
+    <div class="card">
+      <div class="eyebrow">Answer</div>
+      <h3 style="margin-top:6px">Owner-grouped rows, in place</h3>
+      <p class="body muted" style="font-size:12px;margin:5px 0 0">
+        Not a dedicated region. A charge renders where its owner already lives, so no row
+        moves between regions and no section is created.
+      </p>
+    </div>
+    <div class="card">
+      <div class="eyebrow">Disruption</div>
+      <h3 style="margin-top:6px">Nothing moves</h3>
+      <p class="body muted" style="font-size:12px;margin:5px 0 0">
+        Production keeps its charges. Freight keeps duty and customs. Tier geometry is
+        untouched in both regions.
+      </p>
+    </div>
+    <div class="card" style="background:oklch(0.945 0.010 85);border-style:dashed">
+      <div class="eyebrow">Recorded for later</div>
+      <h3 style="margin-top:6px">Five V1 compromises</h3>
+      <p class="body muted" style="font-size:12px;margin:5px 0 0">
+        Written down in §05 so they arrive as inputs to the post-V1 redesign rather than as
+        accidental permanent architecture.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="eyebrow">01 · the question, narrowed</div>
+    <h2>The page is not up for redesign. Only the placement is.</h2>
+    <p class="body" style="max-width:820px;margin-top:10px">
+      The earlier stop found that this bundle never draws the Costs region, and that the
+      layout document it amends describes a page that was never built. Both remain true. The
+      response is <strong style="font-weight:500">not</strong> to design that page now — a
+      dedicated post-V1 redesign will reconsider Packaging, Production, Freight, landed
+      costs and all three charge owners as one system.
+    </p>
+    <div class="callout">
+      <p class="body" style="margin:0">
+        So the question this answers is <em>“where can these charges live clearly and
+        correctly in the existing V1 Costs page?”</em> — and explicitly not <em>“what should
+        the ideal future Costs page look like?”</em>
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="eyebrow">02 · the three owners, and what actually exists</div>
+    <h2>Two of the three have a population. One does not.</h2>
+    <p class="body" style="max-width:820px;margin-top:10px">
+      Measured against the live database rather than assumed, because the placement of an
+      empty category is a different decision from the placement of a full one.
+    </p>
+
+    <div class="panel scroll" style="margin-top:18px">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:200px">Owner type</th>
+            <th>What it means</th>
+            <th class="mono" style="width:290px">Read from</th>
+            <th style="width:150px">Population today</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong style="font-weight:500">Item Group</strong></td>
+            <td>Production economics. BV-012 §1.a: the finished-good Item Group incurs them, not a component underneath it.</td>
+            <td class="mono">assembly_production_inputs<wbr>.assembly_id</td>
+            <td><span class="tag own">104 fee columns</span></td>
+          </tr>
+          <tr>
+            <td><strong style="font-weight:500">Component</strong></td>
+            <td>Packaging-origin, authored against the component that caused it.</td>
+            <td class="mono">quote_charge_instances<wbr>.owner_quote_leaf_id</td>
+            <td><span class="tag">none until phase 4</span></td>
+          </tr>
+          <tr>
+            <td><strong style="font-weight:500">Project</strong></td>
+            <td>Genuinely engagement-caused.</td>
+            <td class="mono">—</td>
+            <td><span class="tag warn">empty</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cards" style="margin-top:14px">
+      <div class="card">
+        <div class="eyebrow">Neither read is coerced</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          The Item Group comes straight from the key its economics are stored under. The
+          component comes from a real foreign key. No anchor is consulted on either path, so
+          the OD-028 exposure never arises — and <code>owner_ref</code> is read by neither.
+        </p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">The majority quote has one Item Group</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          34 quotes carry one, 15 carry two, 4 carry six. Only <strong
+          style="font-weight:500">three live quotes</strong> have one-time fees across more
+          than one Item Group. Grouping must still be correct for them — but the visible
+          change on most quotes is a label, not a rearrangement.
+        </p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Project is empty, and stays empty</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          Nothing qualifies today, and the V1 authoring sheet offers only component types. A
+          region for a category with no members would be a heading nobody can fill —
+          designed away rather than designed.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="eyebrow">03 · the decision</div>
+    <h2>A charge renders where its owner already lives</h2>
+    <p class="body" style="max-width:820px;margin-top:10px">
+      The instruction asks for an explicit choice between a dedicated region, owner-grouped
+      rows inside existing regions, or another layout. This is the second, and the rule above
+      is what makes it more than a convenience: the owner is a commercial object that
+      <em>already has a place on this page</em>, so putting its charges anywhere else would
+      separate a cost from the thing that caused it.
+    </p>
+
+    <div class="scroll">
+      <div class="panel" style="min-width:720px">
+        <div class="panel-head">
+          <span class="eyebrow" style="color:oklch(0.36 0.02 255)">Shipped V1 Costs page</span>
+          <span style="flex:1"></span>
+          <span class="tag">unchanged region order</span>
+        </div>
+        <div style="padding:14px 16px">
+          <table style="font-size:12.5px">
+            <thead>
+              <tr>
+                <th style="width:190px">Region</th>
+                <th style="width:220px">Already holds</th>
+                <th>Gains</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong style="font-weight:500">Packaging</strong></td>
+                <td class="muted">per-component unit cost lines</td>
+                <td><span class="tag own">component-owned charges</span> nested under the component row that caused them</td>
+              </tr>
+              <tr>
+                <td><strong style="font-weight:500">Production</strong></td>
+                <td class="muted">per-Item-Group tables · COGS + one-time fees</td>
+                <td><span class="tag">an owner attribution line</span> — the charges are already here and already grouped; the grouping becomes <em>stated</em> rather than implicit</td>
+              </tr>
+              <tr>
+                <td><strong style="font-weight:500">Freight</strong></td>
+                <td class="muted">legs · duty · customs</td>
+                <td class="muted">nothing — see compromise <strong style="font-weight:500">C2</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:18px">
+      <p class="body" style="margin:0">
+        <strong style="font-weight:500">No row moves between regions, and no region is
+        created.</strong> That is the whole disruption budget spent: one attribution line in
+        Production, one nested block in Packaging.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="eyebrow">04 · drawn</div>
+    <h2>What the operator sees</h2>
+
+    <p class="body" style="max-width:820px;margin-top:10px">
+      The charge row treatment is carried across verbatim from the round trip’s
+      <em>Result · owned rows</em> state — same 5-column grid, same mono meta line reading
+      <code>type · one-time · unplaced</code>, same trailing <code>···</code>. It was drawn
+      there inside a Setup tree row; here it sits inside a Costs region that carries the tier
+      grid, which is the one adaptation this document makes and the reason it exists.
+    </p>
+
+    <!-- ── PRODUCTION ────────────────────────────────────────────── -->
+    <h3 style="margin-top:26px;font-size:17px">Production — the Item Group owns its charges, and now says so</h3>
+    <div class="scroll">
+      <div class="region" style="min-width:720px">
+        <div class="region-head">
+          <span class="tag own">FIX-ASY-B</span>
+          <span class="region-name">Fixture ASY B</span>
+          <span style="flex:1"></span>
+          <span class="mono" style="font-size:10px;color:oklch(0.68 0.012 255)">1 product</span>
+        </div>
+
+        <!-- the one added element -->
+        <div class="ownerbar">
+          <span class="eyebrow">One-time charges · caused by this Item Group</span>
+          <span style="flex:1"></span>
+          <span class="mono" style="font-size:10px;color:oklch(0.52 0.015 255)">BV-012 · finished-good economics</span>
+        </div>
+
+        <div class="grid-head">
+          <span class="colhead" style="text-align:left">Line</span>
+          <span class="colhead">Tier 1</span>
+          <span class="colhead">Tier 2</span>
+          <span class="colhead">Tier 3</span>
+          <span></span>
+        </div>
+        <div class="grid-row">
+          <span>Setup fee total<div class="charge-meta">project setup · one-time · included</div></span>
+          <span class="num">1,200.00</span><span class="num">1,200.00</span><span class="num">1,200.00</span>
+          <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+        </div>
+        <div class="grid-row">
+          <span>R&amp;D fee total<div class="charge-meta">rd formulation · one-time · separate</div></span>
+          <span class="num">3,400.00</span><span class="num">3,400.00</span><span class="num">3,400.00</span>
+          <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+        </div>
+        <div class="grid-row" style="border-bottom:0">
+          <span>Filling / blending tier total<div class="charge-meta muted">tier total · not a one-time charge</div></span>
+          <span class="num">8,150.00</span><span class="num">14,900.00</span><span class="num">27,300.00</span>
+          <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+        </div>
+      </div>
+    </div>
+    <p class="body muted" style="font-size:12px;margin-top:8px;max-width:820px">
+      Everything above already renders exactly like this. The single addition is the
+      attribution line — without it the grouping is real but unexplained, and an operator has
+      no way to read <em>why</em> these fees sit under this Item Group rather than anywhere
+      else. Tier columns keep their x-positions.
+    </p>
+
+    <!-- ── PACKAGING ─────────────────────────────────────────────── -->
+    <h3 style="margin-top:32px;font-size:17px">Packaging — a component carries the charges it caused</h3>
+    <div class="scroll">
+      <div class="region" style="min-width:720px">
+        <div class="region-head">
+          <span class="eyebrow" style="color:oklch(0.36 0.02 255)">Packaging · component lines</span>
+          <span style="flex:1"></span>
+          <span class="mono" style="font-size:10px;color:oklch(0.68 0.012 255)">4 components · 2 suppliers</span>
+        </div>
+
+        <div class="grid-head">
+          <span class="colhead" style="text-align:left">Component</span>
+          <span class="colhead">Tier 1</span>
+          <span class="colhead">Tier 2</span>
+          <span class="colhead">Tier 3</span>
+          <span></span>
+        </div>
+        <div class="grid-row">
+          <span>Dropper assembly<div class="charge-meta">10064-GNX-Dropper · qty 1</div></span>
+          <span class="num">0.4100</span><span class="num">0.3850</span><span class="num">0.3600</span>
+          <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+        </div>
+
+        <!-- the component that owns charges -->
+        <div class="grid-row" style="border-bottom:0">
+          <span>
+            Genexa — Box — Kids’ Cough
+            <div class="charge-meta">10064-GNX-Box · qty 1</div>
+          </span>
+          <span class="num">0.2250</span><span class="num">0.2100</span><span class="num">0.1950</span>
+          <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+        </div>
+        <div style="padding:0 14px 10px;display:flex;justify-content:flex-end">
+          <span class="tag own">3 charges · $3,180</span>
+        </div>
+
+        <div class="charges">
+          <div class="eyebrow" style="margin-bottom:8px">One-time charges caused by this component</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div class="charge-row">
+              <span>Print plates<div class="charge-meta">print plates · one-time · unplaced</div></span>
+              <span class="num">$1,450</span>
+              <span class="colhead">cost · tier 1</span>
+              <span class="colhead" style="color:oklch(0.52 0.015 255)">recovery set in pricing</span>
+              <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+            </div>
+            <div class="charge-row">
+              <span>Tooling &amp; dies<div class="charge-meta">tooling &amp; dies · one-time · unplaced</div></span>
+              <span class="num">$1,180</span>
+              <span class="colhead">cost · tier 1</span>
+              <span class="colhead" style="color:oklch(0.52 0.015 255)">recovery set in pricing</span>
+              <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+            </div>
+            <div class="charge-row">
+              <span>Samples &amp; proofs<div class="charge-meta">samples &amp; proofs · one-time · unplaced</div></span>
+              <span class="num">$550</span>
+              <span class="colhead">cost · tier 1</span>
+              <span class="colhead" style="color:oklch(0.52 0.015 255)">recovery set in pricing</span>
+              <span class="mono" style="font-size:12px;color:oklch(0.68 0.012 255);text-align:right">···</span>
+            </div>
+          </div>
+          <p class="body muted" style="font-size:11.5px;margin-top:10px">
+            Ordinary rows — edited in place, no return to the sheet. Deleting the component
+            asks about these three by name and total before taking them with it.
+          </p>
+        </div>
+      </div>
+    </div>
+    <p class="body muted" style="font-size:12px;margin-top:8px;max-width:820px">
+      Packaging is a flat table of component lines, so “beneath the owning component” is
+      beneath a <em>row</em> — exactly the nesting the round trip drew beneath a Setup tree
+      row. Components with no charges are unchanged and gain nothing, which is every
+      component today.
+    </p>
+
+    <div class="callout" style="margin-top:20px">
+      <p class="body" style="margin:0">
+        <strong style="font-weight:500">The cost figure sits in the charge row, not in the
+        tier grid.</strong> A one-time charge is a total, not a per-tier rate, and its per-tier
+        amounts are entered by the operator rather than derived. Laying it across the tier
+        columns would invite reading it as a rate that scales — the arithmetic phase 2 spent
+        its falsifications proving does not happen.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="eyebrow">05 · compromises, recorded</div>
+    <h2>What V1 accepts, so the redesign inherits it as a question</h2>
+    <p class="body" style="max-width:820px;margin-top:10px">
+      Each of these is a live consequence of optimising for minimum disruption. None is a
+      defect, and none should be read later as a decision about what the page ought to be.
+    </p>
+
+    <div class="panel scroll" style="margin-top:18px">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:52px">#</th>
+            <th style="width:280px">The compromise</th>
+            <th>Why V1 accepts it, and what the redesign should ask</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">C1</td>
+            <td><strong style="font-weight:500">One-time charges stay split across two regions.</strong> Item Group charges in Production, component charges in Packaging.</td>
+            <td>The layout document wants them gathered into one section at the foot. Gathering them now would move rows out of a certified region for a layout nobody has drawn. <em>The redesign should decide whether one-time charges are a family that reads better together than beside their cause.</em></td>
+          </tr>
+          <tr>
+            <td class="mono">C2</td>
+            <td><strong style="font-weight:500">Duty and customs stay in Freight.</strong> The “landed” grouping §7 asks for does not exist.</td>
+            <td>Moving them is a Freight change, which Phase 3 excludes, and they are not charges under this model — they are freight economics. <em>The redesign should decide whether “landed” is a region or a reading.</em></td>
+          </tr>
+          <tr>
+            <td class="mono">C3</td>
+            <td><strong style="font-weight:500">Project setup has two owners, split by age.</strong> The existing <code>setupFeeTotal</code> population is Item-Group-owned; a newly authored Project setup charge would be quote-owned.</td>
+            <td>Both are honest about their own storage: the existing rows are stored against an assembly and BV-012 governs them. <em>The redesign should decide whether Project setup is ever really quote-owned, or whether the vocabulary entry is the thing that is wrong.</em></td>
+          </tr>
+          <tr>
+            <td class="mono">C4</td>
+            <td><strong style="font-weight:500">There is no Project region.</strong> A genuinely quote-caused charge would have nowhere to render.</td>
+            <td>Nothing qualifies, and the V1 sheet offers only component types — so the state is unreachable rather than unhandled. <em>Guard: if a quote-owned type is ever added to the sheet, this region must exist first.</em></td>
+          </tr>
+          <tr>
+            <td class="mono">C5</td>
+            <td><strong style="font-weight:500">Production’s attribution line is the only signal that grouping is by owner.</strong> One region states its owner; the other implies it by nesting.</td>
+            <td>Two regions, two structures, two treatments — consistent within each, not with each other. <em>The redesign should decide what owner attribution looks like as one grammar across the page.</em></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="eyebrow">06 · what this does not touch</div>
+    <h2>The boundaries this placement keeps</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="eyebrow">No anchor is surfaced</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          Neither owner read consults the anchor leaf. The Item Group comes from the key its
+          economics are stored under; the component from a real FK. <code>owner_ref</code> is
+          read by neither, and OD-028 stays post-gate.
+        </p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">No economics move</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          This is placement only. No amount, markup, margin or recovery changes, and the
+          customer document is untouched — recovery moves economics, presentation never does.
+        </p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Tier geometry preserved</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          Both regions already carry the tier grid at fixed x-positions, and neither addition
+          disturbs a column. The nested charge block sits below the grid, not inside it.
+        </p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Recovery stays in Pricing</div>
+        <p class="body" style="font-size:12.5px;margin:7px 0 0">
+          Charges arrive <code>unplaced</code> and the row says so. Placement is elected in
+          Commercial Recovery, per instance — asking here would fuse the two decisions the
+          model keeps apart.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <p class="body muted" style="font-size:11.5px">
+    Sibling to <em>Nexus OD-032 Round Trip</em> in the same bundle; house style inherited
+    from it rather than restated. Population figures measured against the live database on
+    2026-08-27. Phase 4 authoring remains blocked until this placement is approved.
+  </p>
+
+</div>
