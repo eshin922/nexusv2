@@ -40,6 +40,10 @@ import {
   readSalesOrderLines,
 } from "./item-groups";
 import { runRateConvergence } from "./rate-convergence";
+import {
+  runOrderedSpecTransfer,
+  type OrderedSpecTransferOutcome,
+} from "./ordered-spec-transfer-runtime";
 import { patchSalesOrderLine } from "./client";
 import { enforceNonTaxableLines } from "./tax-policy";
 import { reconcileBeforeCreate } from "./create-reconciliation";
@@ -141,6 +145,8 @@ export interface MarkCompleteResult {
     errorDetail?: string;
   };
   retryOutcome: "fresh" | "converged_from_prior_success";
+  /** Separate from commercial success by construction. See STEP 11. */
+  specTransfer: OrderedSpecTransferOutcome;
 }
 
 export interface MarkCompleteInput {
@@ -2059,7 +2065,20 @@ export async function runMarkComplete(
     currentAmount,
   });
 
+  // ============================================================
+  // STEP 11 — Ordered-spec transfer (post-tx, never blocks complete)
+  // ============================================================
+  // The redacted frozen specification of every posted product line, written
+  // to `customrecord_nx_ordered_spec`, linked on the line, and read back. Its
+  // status lives in `netsuite_spec_transfers`, NEVER in the commercial push
+  // status: the quote is already `complete` and the Sales Order commercially
+  // verified, and a spec failure must not make that order look failed.
+  // `runOrderedSpecTransfer` never throws; a failure is retried through the
+  // same function (`retryOrderedSpecTransfer`).
+  const specTransfer = await runOrderedSpecTransfer({ quoteId });
+
   return {
+    specTransfer,
     completedAt,
     netsuite: {
       salesOrderId: salesOrderInternalId,

@@ -1,5 +1,17 @@
 # NetSuite File Cabinet — measured capability of the current integration role
 
+> **Addendum 2026-10-05 — READ access has changed; write is still unmeasured.**
+> Re-probed read-only against `7924416_SB2`. SuiteQL `file` and
+> `mediaitemfolder` now return rows, REST `/record/v1/file` and `/folder` list
+> 1,000+ entries, and file CONTENT is readable via
+> `/document/v1/file/{id}/content`. Of 2,194 non-bundle text files, 218 were
+> readable and 1,976 returned `403 Permission violation` (folder-restricted
+> vendor/bundle content; no DPS-named file was denied). `GET /record/v1/file/{id}`
+> returns "operation not supported" — use the `/document/v1` path.
+> Upload, attach, and line-level attach were NOT tested (writes). The open
+> questions below about attachment remain open. Details:
+> `.artifacts/netsuite-item-spec-plan.md` §1, §2.7, §9 (probe W-3).
+
 **Probed 2026-08-21 against the sandbox. Read-only except one refused create.**
 Nothing was written; no production customer or order was touched.
 

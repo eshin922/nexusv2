@@ -1,7 +1,16 @@
 # DEFECT · `schema_pending` freezes into an order packet as `specified`
 
-**Found 2026-09-15 · open · pre-existing · NOT caused by and NOT fixed by the
-Ingestibles/Topicals gap-fill.**
+**Found 2026-09-15 · CLOSED 2026-10-05 · pre-existing · NOT caused by and NOT
+fixed by the Ingestibles/Topicals gap-fill.**
+
+> **Resolution, 2026-10-05.** A fifth frozen disposition, `schema_pending`.
+> `frozenSpecDispositionOf` (`src/lib/ordered-spec-disposition.ts`) is an
+> exhaustive switch over the stored pin vocabulary with a `never` binding; an
+> unknown pin throws instead of freezing as `specified`. Migration 0143 widens
+> `qsls_disposition_known` (applied to the shared database 2026-10-05).
+> Historical rows: 0 frozen rows carried `schema_pending`, so nothing is
+> reinterpreted. The Order Packet now shows `schema_pending`, `unmapped` and
+> `no_type` as `not_governed`. See `docs/validation/netsuite-ordered-spec-export.md`.
 
 Recorded separately so it is not folded into that work and lost with it.
 

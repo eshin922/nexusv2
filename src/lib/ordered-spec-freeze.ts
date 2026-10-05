@@ -3,6 +3,10 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { leafSpecs, quoteLeaves, quoteSnapshotLeafSpecs } from "@/db/schema";
+import {
+  frozenSpecDispositionOf,
+  type FrozenSpecDisposition,
+} from "@/lib/ordered-spec-disposition";
 import { orderedSpecContentHash } from "@/lib/ordered-spec-hash";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -32,32 +36,12 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * states which.
  */
 
-export type FrozenSpecDisposition =
-  | "specified"
-  | "no_schema"
-  | "unmapped"
-  | "no_type";
+export type { FrozenSpecDisposition } from "@/lib/ordered-spec-disposition";
 
 export type OrderedSpecFreezeResult = {
   frozen: number;
   byDisposition: Record<FrozenSpecDisposition, number>;
 };
-
-/**
- * Classify what a live authority says about itself.
- *
- * Reads the PINNED schema, never the live Product Type. The pin exists so a
- * later reclassification cannot reinterpret values already authored, and
- * consulting the live type here would defeat it at exactly the moment it
- * matters most.
- */
-function dispositionOf(specSchema: string | null, productTypeId: string | null): FrozenSpecDisposition {
-  if (specSchema === "no_schema") return "no_schema";
-  if (specSchema === "unmapped") return "unmapped";
-  if (specSchema === "no_type") return "no_type";
-  if (specSchema === null) return productTypeId ? "unmapped" : "no_type";
-  return "specified";
-}
 
 /**
  * Freeze one specification per ordered leaf on `quoteId` into `snapshotId`.
@@ -109,7 +93,9 @@ export async function freezeOrderedSpecs(
   const tally = emptyTally();
   const values = rows.map((r) => {
     const disposition = r.specId
-      ? dispositionOf(r.specSchema, r.productTypeId)
+      ? // Exhaustive over the stored pin vocabulary; an unknown pin throws and
+        // fails the send rather than freezing as `specified`.
+        frozenSpecDispositionOf(r.specSchema, r.productTypeId)
       : // No authority at all. Not "no spec" — nobody decided anything, which
         // is what `unmapped` means and `no_schema` does not.
         "unmapped";
@@ -143,7 +129,7 @@ export async function freezeOrderedSpecs(
 }
 
 function emptyTally(): Record<FrozenSpecDisposition, number> {
-  return { specified: 0, no_schema: 0, unmapped: 0, no_type: 0 };
+  return { specified: 0, no_schema: 0, schema_pending: 0, unmapped: 0, no_type: 0 };
 }
 
 /**

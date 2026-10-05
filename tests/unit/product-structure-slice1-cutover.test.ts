@@ -1034,6 +1034,26 @@ const classifiedIdentityFiles = new Set([
   // the existing line-cell editor and scopes markup writes by lineGroupId; it
   // performs no canonical-to-legacy lookup itself.
   "src/components/costs/preview/editable-fields.tsx",
+  // CLASSIFIED — canonical identity only, read from the FROZEN snapshot. The
+  // ordered-spec export (Stage 5) reads `quote_snapshot_lines.quote_leaf_id`
+  // and `quote_snapshot_leaf_specs.quote_leaf_id`, matches them to posted
+  // Sales Order lines by lineUniqueKey, and writes the id as a NetSuite record
+  // field. It never reads `assembly_leaves` and resolves no legacy junction.
+  "src/lib/netsuite/ordered-spec-matching.ts",
+  "src/lib/netsuite/ordered-spec-transfer.ts",
+  "src/lib/netsuite/ordered-spec-transfer-runtime.ts",
+  // CLASSIFIED — names `quote_leaf_id` only in documentation of which frozen
+  // lines are spec-bearing (the line KIND decides, not leaf presence).
+  "src/lib/ordered-spec-disposition.ts",
+  // CLASSIFIED — sandbox E2E harness with an INJECTED frozen order. Its
+  // quoteLeafIds are synthetic UUIDs that never touch the Nexus database; it
+  // reads no `quote_leaves` or `assembly_leaves` row.
+  "scripts/gate-1b/ordered-spec-transfer-e2e-disposable.ts",
+  // CLASSIFIED — fresh-push E2E verifier. Reads `quote_snapshot_leaf_specs.
+  // quote_leaf_id` from the FROZEN snapshot to compare NetSuite records against
+  // frozen values; it resolves no legacy junction and writes no Nexus row
+  // beyond what `runMarkComplete` itself writes.
+  "scripts/gate-1b/ordered-spec-transfer-e2e-fresh.ts",
 ]);
 
 async function sourceFiles(dir: string): Promise<string[]> {

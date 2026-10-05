@@ -484,6 +484,42 @@ export async function patchSalesOrderLine(
   }
 }
 
+/**
+ * Link ONE Sales Order line to its Nexus ordered-spec record
+ * (`custcol_nx_ordered_spec`). Stage 5 of the ordered-spec export.
+ *
+ * Same discipline as `patchSalesOrderLine`: one per-line URL built here, one
+ * field named literally, no argument that can widen it to the sublist shape.
+ * It carries no commercial field. W-1 (2026-10-05) proved this PATCH persists
+ * on an expanded group member and leaves every lineUniqueKey unchanged; the
+ * reconciler still re-reads the order and refuses success if any commercial
+ * field moved.
+ *
+ * `lineIdx` must come from a fresh read of the order.
+ */
+export async function patchSalesOrderLineSpecLink(
+  soId: string,
+  lineIdx: number,
+  recordId: string,
+  config?: NetsuiteConfig,
+): Promise<void> {
+  if (!Number.isInteger(lineIdx) || lineIdx < 0) {
+    throw new Error(
+      `[netsuite] patchSalesOrderLineSpecLink: lineIdx must be a non-negative integer (got ${String(lineIdx)})`,
+    );
+  }
+  if (!/^\d+$/.test(recordId)) {
+    throw new Error("[netsuite] patchSalesOrderLineSpecLink: recordId must be a NetSuite internal id");
+  }
+  await nsRequest({
+    method: "PATCH",
+    path: `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`,
+    body: { custcol_nx_ordered_spec: { id: recordId } },
+    config,
+    maxRetries: 2,
+  });
+}
+
 export async function createRecord(args: {
   recordType: string;
   body: Record<string, unknown>;

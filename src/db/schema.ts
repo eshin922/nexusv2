@@ -1115,10 +1115,12 @@ export const quoteSnapshotLeafSpecs = pgTable(
      * Why this row looks the way it does — stated, never inferred from an
      * empty `spec_values`.
      *
-     *   specified  a schema applies and values are frozen
-     *   no_schema  specifications intentionally do not apply — an ANSWER
-     *   unmapped   classified, no governed disposition — NOT an answer
-     *   no_type    no authoritative Product Type
+     *   specified       a schema applies and values are frozen
+     *   no_schema       specifications intentionally do not apply — an ANSWER
+     *   schema_pending  a schema is owed but not implemented — NOT an answer
+     *                   (migration 0143; see `ordered-spec-disposition.ts`)
+     *   unmapped        classified, no governed disposition — NOT an answer
+     *   no_type         no authoritative Product Type
      */
     disposition: text("disposition").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -4511,6 +4513,62 @@ export const netsuiteSoPushes = pgTable(
       t.quoteId,
       t.acceptedTierId,
     ),
+  ],
+);
+
+/**
+ * Ordered-spec transfer to NetSuite — ONE row per posted Sales Order.
+ * Migration 0144.
+ *
+ * SEPARATE FROM COMMERCIAL SUCCESS, deliberately. `netsuite_so_pushes` and
+ * `quotes.netsuite_so_push_status` say whether the ORDER reached NetSuite
+ * correctly; this table says whether each posted product line's frozen
+ * specification reached it and was read back. A spec failure never makes a
+ * commercially correct order look failed, and a commercial success never
+ * implies the specs arrived.
+ *
+ * `lines` is the per-line evidence: lineUniqueKey, quote_leaf_id, NetSuite
+ * record id, source/export hash, disposition, per-line status and reason. Keys
+ * and hashes only — never spec VALUES, so a withheld value cannot reach this
+ * table through a diagnostic.
+ *
+ * Status: `pending` · `succeeded` · `succeeded_with_exceptions` (every line
+ * verified, some lines carry an unresolved disposition) · `failed` (retryable)
+ * · `conflict` (NetSuite holds something that disagrees with Nexus; never
+ * overwritten — needs a person).
+ */
+export const netsuiteSpecTransfers = pgTable(
+  "netsuite_spec_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id, { onDelete: "cascade" }),
+    quoteSnapshotId: uuid("quote_snapshot_id")
+      .notNull()
+      .references(() => quoteSnapshots.id, { onDelete: "restrict" }),
+    netsuiteSoId: text("netsuite_so_id").notNull(),
+    status: text("status").notNull(),
+    projectionVersion: text("projection_version").notNull(),
+    productLineCount: integer("product_line_count").notNull().default(0),
+    verifiedCount: integer("verified_count").notNull().default(0),
+    exceptionCount: integer("exception_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    lines: jsonb("lines").notNull().default(sql`'[]'::jsonb`),
+    errorDetail: text("error_detail"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("netsuite_spec_transfers_so_unique_idx").on(t.netsuiteSoId),
+    index("netsuite_spec_transfers_quote_idx").on(t.quoteId),
   ],
 );
 
