@@ -35,7 +35,9 @@ posted product line to NetSuite, links the line to it, and reads both back.
    linked from the line before creating anything; create only if neither
    exists. Read back the external ID, line, item, quote leaf, snapshot, schema,
    hashes, values and readable text. A disagreeing record or a line linked to
-   another record is a `conflict` and is **never overwritten**;
+   another record is a `conflict` and is **never overwritten**. A linked record
+   that returns 404 is a conflict; a temporary read failure is `failed` so it
+   can be retried without creating another record;
 4. link the line if unlinked;
 5. re-read the order: every link persisted, every `lineUniqueKey` unchanged,
    and **no quantity, rate, amount or total moved** — otherwise the transfer

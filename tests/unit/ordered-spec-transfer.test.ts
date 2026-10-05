@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { isOrderedSpecExportEnabled } from "../../src/lib/config/ordered-spec-export.ts";
 import { orderedSpecContentHash } from "../../src/lib/ordered-spec-hash.ts";
+import { NetsuiteError } from "../../src/lib/netsuite/errors.ts";
 import {
   matchPostedSpecLines,
   type FrozenLine,
@@ -225,6 +226,7 @@ class FakeNetSuite {
   dropLinks = false;
   driftOnPatch = false;
   raceOnCreate = false;
+  linkedReadError: Error | null = null;
 
   constructor(lines: PostedSoLine[]) {
     this.lines = lines;
@@ -259,7 +261,9 @@ class FakeNetSuite {
         return id;
       },
       readRecord: async (id): Promise<ObservedSpecRecord> => {
-        const r = this.records.get(id)!;
+        if (id === "777" && this.linkedReadError) throw this.linkedReadError;
+        const r = this.records.get(id);
+        if (!r) throw new NetsuiteError("not_found", { status: 404, detail: "record not found" });
         return {
           id,
           externalId: String(r.externalId),
@@ -399,6 +403,18 @@ test("a line already linked to a different record is a conflict", async () => {
   const r = await reconcileOrderedSpecs(ns.deps(frozen), ARGS);
   assert.equal(r.status, "conflict");
   assert.match(r.lines.find((l) => l.quoteLeafId === "L-serum")!.reason!, /line_linked_to_other_record:777/);
+});
+
+test("a temporary failure reading an already-linked record is retryable, not a conflict", async () => {
+  for (const className of ["network", "server"] as const) {
+    const { ns, frozen } = scenario();
+    ns.lines[1].specLinkId = "777";
+    ns.linkedReadError = new NetsuiteError(className, { detail: "temporary read failure" });
+    const result = await reconcileOrderedSpecs(ns.deps(frozen), ARGS);
+    assert.equal(result.status, "failed", className);
+    assert.equal(result.lines.find((l) => l.quoteLeafId === "L-serum")!.status, "failed", className);
+    assert.equal(ns.creates, 1, "must not create a second record for the linked line");
+  }
 });
 
 test("a link that does not persist fails the line", async () => {

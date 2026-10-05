@@ -41,6 +41,7 @@ import {
   type FrozenLine,
   type PostedLine,
 } from "./ordered-spec-matching";
+import { NetsuiteError } from "./errors";
 
 export const ORDERED_SPEC_RECORD_TYPE = "customrecord_nx_ordered_spec";
 export const ORDERED_SPEC_LINE_FIELD = "custcol_nx_ordered_spec";
@@ -288,8 +289,13 @@ export async function reconcileOrderedSpecs(
           row.reason = mismatched.length > 0
             ? `record_disagrees:${mismatched.join("|")}`
             : "linked_record_not_found_by_external_id";
-        } catch {
-          row.reason = `line_linked_to_other_record:${posted.specLinkId}`;
+        } catch (e) {
+          if (e instanceof NetsuiteError && e.className === "not_found") {
+            row.reason = `line_linked_to_other_record:${posted.specLinkId}`;
+          } else {
+            row.reason = `provider_error:${e instanceof Error ? e.message.slice(0, 160) : "unknown"}`;
+            continue;
+          }
         }
         row.status = "conflict";
         continue;
