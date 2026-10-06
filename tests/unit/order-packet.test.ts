@@ -78,21 +78,41 @@ test("an unresolvable artifact is reported, never guessed", async () => {
 
 test("not_spec_bearing is distinct from governed_no_spec", async () => {
   const src = codeOnly(await READER());
-  for (const d of ["specified", "governed_no_spec", "not_spec_bearing", "unresolved"]) {
+  const mapping = codeOnly(
+    await readFile(new URL("../../src/lib/order-packet/disposition.ts", import.meta.url), "utf8"),
+  );
+  for (const d of ["not_spec_bearing", "unresolved"]) {
     assert.match(src, new RegExp(`"${d}"`), `${d} missing`);
   }
+  for (const d of ["specified", "governed_no_spec", "not_governed"]) {
+    assert.match(mapping, new RegExp(`"${d}"`), `${d} missing`);
+  }
+  assert.match(src, /packetDispositionOf\(/, "frozen dispositions go through the exhaustive mapping");
   // A line with no quote_leaf_id is not an item missing a spec — it is not a
   // specifiable item. Reporting them alike would invent a missing
   // specification for a setup fee.
-  const branch = src.slice(src.indexOf("if (!l.quoteLeafId)"));
-  assert.match(branch.slice(0, 400), /"not_spec_bearing"/);
+  // Spec-bearing is decided by the frozen LINE KIND, not leaf presence: an OTC
+  // charge carries its product's quote_leaf_id and is still not an item.
+  const guard = src.indexOf("if (!l.quoteLeafId || !isSpecBearingLineKind(l.lineKind))");
+  assert.notEqual(guard, -1, "the packet must gate spec-bearing lines by line kind");
+  assert.match(src.slice(guard, guard + 400), /"not_spec_bearing"/);
 });
 
 test("every disposition has an operator-facing sentence", async () => {
   const src = codeOnly(await PAGE());
-  for (const d of ["specified", "governed_no_spec", "not_spec_bearing", "unresolved"]) {
+  for (const d of ["specified", "governed_no_spec", "not_governed", "not_spec_bearing", "unresolved"]) {
     assert.match(src, new RegExp(`case "${d}"`), `${d} has no note`);
   }
+});
+
+test("the packet redacts withheld values in the READER, before any consumer", async () => {
+  const src = codeOnly(await READER());
+  assert.match(src, /redactWithheldSpecValues\(/);
+  assert.doesNotMatch(
+    src,
+    /values:\s*\(s\.specValues/,
+    "raw frozen values must not reach the packet; they may contain fm_actives",
+  );
 });
 
 test("an unresolved item does NOT fall back to the live spec", async () => {

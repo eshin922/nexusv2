@@ -13,7 +13,8 @@
  *
  * P-2  `cloneQuoteGraph` carries a component charge COMPLETELY: its causal
  *      owner remapped to the cloned component, its label, the separation
- *      between two same-type charges, and its per-tier money.
+ *      between two same-type charges, its per-tier money, and the tooling
+ *      classification Accounting needs to post a copied tooling charge.
  *
  * ── THE FIXTURE IS BUILT SO EACH CHECK CAN FAIL ──────────────────────────
  *
@@ -150,12 +151,24 @@ async function main() {
         idB !== idA,
       );
 
+      const toolingId = await ensureChargeInstance(tx, {
+        quoteId: source!.id,
+        chargeKey: "tooling",
+        ownerRef: leafB.id,
+        label: "ZZ-VALIDATION-copy-tooling-classification",
+      });
+      await tx
+        .update(quoteChargeInstances)
+        .set({ toolingClassification: "cutting_die" })
+        .where(eq(quoteChargeInstances.id, toolingId));
+
       // Per-tier money, deliberately different per charge.
       await tx.insert(quoteChargeInstanceTiers).values([
         { chargeInstanceId: idA, tierId: tier.id, costAmount: PLATES_A.cost, recoveryAsk: PLATES_A.ask },
         { chargeInstanceId: idB, tierId: tier.id, costAmount: PLATES_B.cost, recoveryAsk: PLATES_B.ask },
         // A NULL ask, to prove NULL carries as NULL rather than becoming zero.
         { chargeInstanceId: idQuote, tierId: tier.id, costAmount: "900.00", recoveryAsk: null },
+        { chargeInstanceId: toolingId, tierId: tier.id, costAmount: "250.00", recoveryAsk: "300.00" },
       ]);
 
       // One election, on charge A only — so the copy must also carry an
@@ -185,6 +198,7 @@ async function main() {
           ownerRef: quoteChargeInstances.ownerRef,
           ownerLeaf: quoteChargeInstances.ownerQuoteLeafId,
           label: quoteChargeInstances.label,
+          toolingClassification: quoteChargeInstances.toolingClassification,
         })
         .from(quoteChargeInstances)
         .where(eq(quoteChargeInstances.quoteId, newQuoteId));
@@ -229,10 +243,21 @@ async function main() {
       );
 
       // The instances are the copy's own, never the source's.
-      const sourceIds = new Set([idA, idB, idQuote]);
+      const sourceIds = new Set([idA, idB, idQuote, toolingId]);
       record(
         "P-2 · the copy gets its own instance ids",
         copied.every((c) => !sourceIds.has(c.id)),
+      );
+
+      const copiedTooling = copied.find(
+        (c) => c.chargeKey === "tooling" && c.label === "ZZ-VALIDATION-copy-tooling-classification",
+      );
+      record(
+        "P-2 · a copied tooling charge retains its Accounting classification",
+        copiedTooling?.toolingClassification === "cutting_die" &&
+          copiedTooling.ownerLeaf !== leafB.id &&
+          copyLeafIds.has(copiedTooling.ownerLeaf ?? ""),
+        `classification=${copiedTooling?.toolingClassification ?? "NULL"}`,
       );
 
       // Money, per (instance, tier). A total can agree while two charges swap.

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { ensureUser } from "@/lib/auth/ensure-user";
 import { readOrderPacket, type PacketItem } from "@/lib/order-packet/reader";
+import { WITHHELD_NOTICE } from "@/lib/ordered-spec-projection";
 
 /**
  * The Nexus Order Packet — the durable, order-specific record behind one Sales
@@ -33,6 +34,15 @@ function dispositionNote(item: PacketItem): string {
       return "Frozen specification as ordered.";
     case "governed_no_spec":
       return "No specification applies to this item — a governed answer, recorded at send.";
+    case "not_governed": {
+      const why =
+        item.spec?.frozenDisposition === "schema_pending"
+          ? "a specification schema for this product category was owed but not yet implemented"
+          : item.spec?.frozenDisposition === "no_type"
+            ? "the product had no authoritative Product Type"
+            : "the product's category had no governed specification rule";
+      return `No governed specification was available at send: ${why}. This is NOT a statement that no specification applies.`;
+    }
     case "not_spec_bearing":
       return "Not a specifiable item (service or one-time charge). No specification is expected.";
     case "unresolved":
@@ -121,11 +131,16 @@ export default async function OrderPacketPage({
                     </div>
                   ))}
                 </dl>
-              ) : (
+              ) : item.spec.redactedKeys.length === 0 ? (
                 <div style={{ fontSize: 12.5, opacity: 0.6, marginTop: 8 }}>
                   No values were authored for this specification at send.
                 </div>
-              )}
+              ) : null}
+              {item.spec.redactedKeys.length > 0 ? (
+                <div style={{ fontSize: 12.5, opacity: 0.7, marginTop: 6 }}>
+                  {WITHHELD_NOTICE}.
+                </div>
+              ) : null}
             </>
           ) : null}
         </article>

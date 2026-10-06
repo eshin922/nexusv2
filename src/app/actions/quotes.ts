@@ -4624,6 +4624,7 @@ export async function cloneQuoteGraph(
       ownerRef: quoteChargeInstances.ownerRef,
       ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       label: quoteChargeInstances.label,
+      toolingClassification: quoteChargeInstances.toolingClassification,
     })
     .from(quoteChargeInstances)
     .where(eq(quoteChargeInstances.quoteId, args.sourceQuoteId));
@@ -4673,6 +4674,12 @@ export async function cloneQuoteGraph(
       ownerRef,
       label: src.label,
     });
+    if (src.toolingClassification !== null) {
+      await tx
+        .update(quoteChargeInstances)
+        .set({ toolingClassification: src.toolingClassification })
+        .where(eq(quoteChargeInstances.id, newInstanceId));
+    }
     chargeInstanceIdMap.set(src.id, newInstanceId);
   }
 
@@ -5314,6 +5321,7 @@ export async function markComplete(
     amountPushed: number;
     retryOutcome: "fresh" | "converged_from_prior_success";
     amountPatchStatus: "skipped" | "patched" | "failed";
+    specTransferStatus: string;
   }>
 > {
   return runAction(async () => {
@@ -5360,6 +5368,39 @@ export async function markComplete(
       amountPushed: result.netsuite.amountPushed,
       retryOutcome: result.retryOutcome,
       amountPatchStatus: result.amountPatch.status,
+      // Reported separately: a spec transfer outcome never changes the
+      // commercial result above.
+      specTransferStatus: result.specTransfer.status,
+    };
+  });
+}
+
+/**
+ * Retry (or re-verify) the ordered-spec transfer for a quote whose Sales
+ * Order already exists. Runs the SAME reconciliation `markComplete` runs after
+ * a fresh push; idempotent, and touches no commercial field or quote status.
+ */
+export async function retryOrderedSpecTransfer(
+  formData: FormData,
+): Promise<ActionResult<{ status: string; verified: number; exceptions: number; failed: number }>> {
+  return runAction(async () => {
+    await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) {
+      throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    }
+    const { runOrderedSpecTransfer } = await import(
+      "@/lib/netsuite/ordered-spec-transfer-runtime"
+    );
+    const out = await runOrderedSpecTransfer({ quoteId });
+    if ("reason" in out) {
+      throw new ActionGuardError(ERR.VALIDATION, out.reason);
+    }
+    return {
+      status: out.status,
+      verified: out.verifiedCount ?? 0,
+      exceptions: out.exceptionCount ?? 0,
+      failed: out.failedCount ?? 0,
     };
   });
 }

@@ -121,8 +121,14 @@ test("the freeze LEFT joins, so a leaf without an authority is not dropped", asy
 
 test("every disposition is explicit, and 'no authority' is not 'no schema'", async () => {
   const src = codeOnly(await FREEZE());
-  for (const d of ["specified", "no_schema", "unmapped", "no_type"]) {
-    assert.match(src, new RegExp(`"${d}"`), `${d} is not handled`);
+  // Classification lives in the leaf module since the schema_pending fix
+  // (DEFECT-2026-09-15); behaviour is proven in ordered-spec-projection.test.ts.
+  const classifier = codeOnly(
+    await readFile(new URL("../../src/lib/ordered-spec-disposition.ts", import.meta.url), "utf8"),
+  );
+  assert.match(src, /frozenSpecDispositionOf\(/, "the freeze must use the exhaustive classifier");
+  for (const d of ["specified", "no_schema", "schema_pending", "unmapped", "no_type"]) {
+    assert.match(classifier, new RegExp(`"${d}"`), `${d} is not handled`);
   }
   // A leaf with no authority row at all resolves to `unmapped` — nobody decided
   // anything — and must NOT be recorded as `no_schema`, which is a decision.

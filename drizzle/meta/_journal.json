@@ -981,6 +981,20 @@
       "when": 1790887396953,
       "tag": "0142_quote_group_subitems_presentation",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1791225602961,
+      "tag": "0143_frozen_spec_schema_pending",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1791230694981,
+      "tag": "0144_netsuite_spec_transfers",
+      "breakpoints": true
     }
   ]
 }
