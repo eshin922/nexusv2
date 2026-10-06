@@ -75,6 +75,19 @@ function view(over: {
 
 // ── the regression: the button must actually do something ──────────────────
 
+test("Map opens its search panel directly beneath the selected company", async () => {
+  const m = await mount(view({}));
+  await m.click('[data-testid="open-company-B"]');
+
+  const row = m.byTestId("open-company-B")?.closest("tr");
+  const panel = m.byTestId("customer-map-panel");
+  assert.ok(row);
+  assert.ok(panel);
+  assert.equal(panel.getAttribute("data-company"), "company-B");
+  assert.equal(row.nextElementSibling, panel.closest("tr"));
+  await m.unmount();
+});
+
 test("clicking Search issues exactly one request", async () => {
   const calls: string[] = [];
   const search: SearchService = async (q) => {
