@@ -1,8 +1,8 @@
 import "server-only";
 import { Client } from "@hubspot/api-client";
-import { count, desc, ilike, inArray, max } from "drizzle-orm";
+import { count, desc, eq, ilike, inArray, max } from "drizzle-orm";
 import { db } from "@/db";
-import { hubspotDealsCache } from "@/db/schema";
+import { hubspotDealsCache, projects } from "@/db/schema";
 import {
   ACTIVE_STAGE_IDS,
   fetchCompanyIdsForDeals,
@@ -283,6 +283,21 @@ export async function syncDeals(): Promise<{
       await fetchActivePage({ c, after: cursor, ownerDetailsById });
     allRows.push(...rows);
     cursor = nextCursor;
+  }
+
+  // The active search stops returning a deal as soon as it closes. Refresh
+  // project-linked deals that just disappeared BEFORE deleting the old active
+  // rows, so their cache rows acquire the closed stage and remain available to
+  // the quote's customer/terms and Sales Order lineage reads. The old full
+  // sync deleted those rows, even though a Nexus project still referenced them.
+  const activeIds = new Set(allRows.map((row) => row.dealId));
+  const projectDeals = await db
+    .selectDistinct({ dealId: hubspotDealsCache.dealId })
+    .from(hubspotDealsCache)
+    .innerJoin(projects, eq(projects.hubspotDealId, hubspotDealsCache.dealId))
+    .where(inArray(hubspotDealsCache.dealStage, [...ACTIVE_STAGE_IDS]));
+  for (const { dealId } of projectDeals) {
+    if (!activeIds.has(dealId)) await syncDealById(dealId);
   }
 
   await db.transaction(async (tx) => {
