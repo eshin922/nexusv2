@@ -135,6 +135,12 @@
   padding-bottom: 16px;
   border-bottom: 1.5px solid var(--pp-strong);
 }
+.pp-masthead .v-logo {
+  display: block;
+  width: 67px;
+  height: 67px;
+  object-fit: contain;
+}
 .pp-masthead .v-name {
   font-family: "Newsreader", Georgia, serif;
   font-size: 27px; font-weight: 500; letter-spacing: -0.02em;

@@ -96,7 +96,7 @@ export const styles = StyleSheet.create({
   },
 
   // ─────────────────────────────────────────────────────────────
-  // Masthead — pp-masthead, .v-name, .v-sub, .v-meta, .qnum
+  // Masthead — pp-masthead, subsidiary logo, .v-meta, .qnum
   // styles.css:133-154
   // ─────────────────────────────────────────────────────────────
   masthead: {
@@ -111,6 +111,10 @@ export const styles = StyleSheet.create({
   // .pp-masthead .v-id — implicit container; CD JSX uses className="v-id"
   vId: {
     flexDirection: "column",
+  },
+  vLogo: {
+    width: 50,
+    height: 50,
   },
   vName: {
     fontFamily: PDF_FONT_FAMILY.serif,
