@@ -236,8 +236,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
             {/* ── Masthead ─────────────────────────────────────────── */}
             <div className="pp-masthead">
               <div className="v-id">
-                <div className="v-name">{vendor.name}</div>
-                {vendor.sub && <div className="v-sub">{vendor.sub}</div>}
+                <img className="v-logo" src="/brand/dps-secondary-black.png" alt="The DPS" />
               </div>
               <div className="v-meta">
                 {/* Absence is rendered as absence. No invented number or date. */}

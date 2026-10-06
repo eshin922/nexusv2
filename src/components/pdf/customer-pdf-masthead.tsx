@@ -1,16 +1,10 @@
-// Slice 11 Step 3 — Pattern-30 verbatim port of CD's Masthead.
-// Source: docs/design-prototypes/dist/Nexus Customer PDF Render/app/cpdf/
-//         pdf-render.jsx:41-55 (component) + styles.css:133-154 (CSS).
-//
-// Pattern 30: structure (DOM hierarchy, child order, class names)
-// preserved 1:1. Substitutions: <div> → <View>, <span> → <Text>,
-// <strong> → <Text style={vMetaStrong}>.
-//
-// Pattern 45 boundary: prop types from `customer-pdf-types`; zero
-// costing-surface imports.
+// The quote masthead shares the exact subsidiary logo used by the sandbox
+// NetSuite purchase order. Its quote metadata still follows the customer PDF
+// layout; the logo replaces only the former text wordmark and tagline.
 
-import { Text, View } from "@react-pdf/renderer";
+import { Image, Text, View } from "@react-pdf/renderer";
 
+import { DPS_LOGO_DATA_URI } from "@/lib/dps-logo-data";
 import { longDate } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
 import type { CpdfQuote, CpdfVendor } from "./customer-pdf-types";
@@ -24,10 +18,9 @@ export function Masthead({
 }) {
   return (
     <View style={styles.masthead}>
-      {/* .v-id (CD `pdf-render.jsx:44`) */}
+      {/* Subsidiary mark, sized to the purchase-order masthead. */}
       <View style={styles.vId}>
-        <Text style={styles.vName}>{vendor.name}</Text>
-        <Text style={styles.vSub}>{vendor.sub}</Text>
+        <Image src={DPS_LOGO_DATA_URI} style={styles.vLogo} />
       </View>
       {/* .v-meta (CD `pdf-render.jsx:48`) */}
       <View style={styles.vMeta}>
