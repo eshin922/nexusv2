@@ -76,9 +76,9 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
   {
     href: "/admin/users",
     label: "Users",
-    nav: "Manual phone entry for PreparedBy",
+    nav: "Access, spec permissions + phone",
     index:
-      "User records and the manual phone entry that PreparedBy reads on the customer-facing quote.",
+      "Manage users, grant or remove spec-editing access, and maintain the phone number shown on customer-facing quotes.",
   },
   {
     href: "/admin/audit-log",

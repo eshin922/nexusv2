@@ -40,12 +40,10 @@ export default async function AdminUsersPage() {
           Manage <em>users</em>
         </h1>
         <p className="sub">
-          An employee reaches Nexus only if they are added here first — a
-          sign-in with no record waiting for it is refused, not enrolled.
-          The load-bearing edit is{" "}
-          <strong style={{ color: "var(--ink)" }}>phone</strong>: it populates
-          the PreparedBy block on customer-facing PDFs, and HubSpot
-          doesn&rsquo;t sync it.
+          Employees must be added here first, before they can sign in. Select <strong>Edit</strong>
+          on a user to grant or remove spec-editing access, manage library
+          product creation, or update the phone number shown on quotes.
+          Admins have spec-editing access through their role.
         </p>
       </div>
 
@@ -62,25 +60,6 @@ export default async function AdminUsersPage() {
         }))}
       />
 
-      <div className="r5-dn">
-        <span className="lbl">Designer note</span>
-        Add User creates the record; it does not grant anything beyond the
-        role. Approval authority, spec and leaf permissions stay separate
-        grants, because each is a decision someone should have to make on
-        purpose rather than inherit from a hiring form. Editing an existing
-        person&rsquo;s role is likewise not here — changing what someone can
-        already reach is a different act from deciding what they start with.
-        <br />
-        <br />
-        Spec and leaf grants now live in the row editor, which is the change
-        this note anticipated. They had no surface at all before: both columns
-        were seeded once by migration and nothing could set them, so the guards
-        that read them resolved in practice to admins-only — and a PM asked to
-        complete a SKU was refused at save, after the form had let her type it.
-        Granting them is still its own deliberate act, not a consequence of a
-        role. Admins pass those guards by role regardless, so the toggles say
-        so rather than implying they do something.
-      </div>
     </div>
   );
 }
