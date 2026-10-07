@@ -595,7 +595,7 @@ export function TabSalesOrder({
   if (!isAccepted && !isComplete) {
     return (
       <div className="r9-wrap">
-        <p className="eyebrow">Sub-tab 5 · Sales Order · awaiting acceptance</p>
+        <p className="eyebrow">Sub-tab 4 · Sales Order · awaiting acceptance</p>
         <h1 className="r8-h1">Record acceptance first</h1>
         <p className="r8-sub">
           The Sales Order is prepared from the tier the customer named at
@@ -617,7 +617,7 @@ export function TabSalesOrder({
   if (!carriedTier) {
     return (
       <div className="r9-wrap">
-        <p className="eyebrow">Sub-tab 5 · Sales Order</p>
+        <p className="eyebrow">Sub-tab 4 · Sales Order</p>
         <h1 className="r8-h1">Missing tier data</h1>
         <p className="r8-sub">
           Cannot render the order — no tier rollup found. Check that
@@ -668,7 +668,7 @@ export function TabSalesOrder({
       <div className="r8-cols">
         <div>
           <p className="eyebrow">
-            Sub-tab 5 · Sales Order ·{" "}
+            Sub-tab 4 · Sales Order ·{" "}
             {placed ? "record" : failed ? "push failed" : "pending"}
           </p>
           <h1 className="r8-h1">{headingText}</h1>

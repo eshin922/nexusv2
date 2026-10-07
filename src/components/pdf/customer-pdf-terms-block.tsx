@@ -98,8 +98,7 @@ export function HowToAccept() {
       <Text style={styles.h3}>How to accept</Text>
       <Text style={styles.acceptP}>
         Reply to this quote with the tier and quantity you{"'"}d like to proceed
-        on. We{"'"}ll issue a PO confirmation and production schedule within 2
-        business days of acceptance.
+        on.
       </Text>
     </View>
   );

@@ -724,8 +724,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                 <div className="pp-h3">How to accept</div>
                 <p>
                   Reply to this quote with the tier and quantity you&rsquo;d like
-                  to proceed on. We&rsquo;ll issue a PO confirmation and
-                  production schedule within 2 business days of acceptance.
+                  to proceed on.
                 </p>
               </div>
             </div>

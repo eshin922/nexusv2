@@ -54,15 +54,14 @@ export function SubTabStrip({
   const children: React.ReactNode[] = [];
 
   SUBTABS.forEach((tab, i) => {
-    // Lock threshold rule: sits BETWEEN tab 4 (Acceptance) and
-    // tab 5 (Sales Order) — the reversible/irreversible boundary.
+    // Lock threshold sits between Acceptance and Sales Order.
     // Slice 12 Step 8a — R9.1-2 rename: caption "lock threshold" →
     // "lock". Same visual role, tighter copy per data.js rename map.
     // Visual armed state (dashed → solid) driven by the parent's
     // `.r9-armed-strip` class per §4 "the rule is armed precisely
     // when the PM is cleared to cross it" — see r9-quote-umbrella-
     // addendum.css `.r9-armed-strip .r8-threshold` override.
-    if (i === 4) {
+    if (i === 3) {
       children.push(
         <div
           key="threshold"

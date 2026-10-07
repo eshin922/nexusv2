@@ -12,7 +12,7 @@
 //   > - Sub-tab 4 (renamed "Acceptance") — a CAPTURE, not a ceremony.
 //   >   Their words, the tier chips, how it arrived. Writes
 //   >   customer_accepted_tier_id. Fires the HubSpot push. Reversible.
-//   > - Sub-tab 5 (renamed "Sales Order") — the ORDER RECEIPT.
+//   > - Sales Order — the ORDER RECEIPT.
 //   >   Writes accepted_tier_id, pushes the NetSuite SO, locks.
 //
 // Two variants driven by quote.status:
@@ -225,7 +225,7 @@ export function TabMarkAccepted({
         return;
       }
       setState({ kind: "idle" });
-      router.refresh();
+      onGo("review");
     });
   }
 
@@ -246,7 +246,7 @@ export function TabMarkAccepted({
       <div className="r9-wrap">
         <div className="r8-cols r9-single">
           <div>
-            <p className="eyebrow">Sub-tab 4 · Acceptance · recorded</p>
+            <p className="eyebrow">Sub-tab 3 · Acceptance · recorded</p>
             <h1 className="r8-h1">
               {customer.name ?? "The customer"} accepted at <em>{capturedLabel}</em>
             </h1>
@@ -295,7 +295,7 @@ export function TabMarkAccepted({
 
             <div className="r8-rollback" style={{ marginTop: 14 }}>
               <div className="t">
-                <strong>Recorded in error?</strong> Roll back to Send to Client —
+                <strong>Recorded in error?</strong> Return to Client Review —
                 reverses the HubSpot stage and returns the quote to <code>sent</code>.
                 The review log and the tier they named are kept.
               </div>
@@ -306,7 +306,7 @@ export function TabMarkAccepted({
                   disabled={isPending}
                   data-testid="mark-accepted-rollback"
                 >
-                  {isPending ? "Rolling back…" : "↺ Roll back to Send to Client"}
+                  {isPending ? "Rolling back…" : "↺ Return to Client Review"}
                 </button>
                 <ReviseButton
                   quoteId={quoteId}
@@ -405,7 +405,7 @@ export function TabMarkAccepted({
     <div className="r9-wrap">
       <div className="r8-cols r9-single">
         <div>
-          <p className="eyebrow">Sub-tab 4 · Acceptance</p>
+          <p className="eyebrow">Sub-tab 3 · Acceptance</p>
           <h1 className="r8-h1">
             What did <em>{customer.name ?? "the customer"}</em> say?
           </h1>

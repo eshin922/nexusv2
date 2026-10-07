@@ -2488,18 +2488,16 @@ export async function sendQuote(
       }, tx);
 
       // Slice 12 Step 5b — auto-log the send as a system entry in
-      // the Client Review feed per §0 Round 4 disposition. Becomes
-      // the feed's origin entry (author='system' visually; per R8
-      // data.js §review_events shape). First quote_review_events
-      // writer. Note copy mirrors R8 fixture: "Quote v{N} sent to
-      // {email}".
+      // the Client Review feed. The persisted event type stays `sent` for
+      // lifecycle compatibility, while the operator-facing note records what
+      // Nexus actually did: finalize the PDF for manual delivery.
       const [reviewEvent] = await tx
         .insert(quoteReviewEvents)
         .values({
           quoteId,
           versionNumber: quote.versionNumber,
           eventType: "sent",
-          note: `Quote v${quote.versionNumber} sent to ${preparedBy.email}`,
+          note: `Quote v${quote.versionNumber} finalized; delivery is manual.`,
           authorUserId: null, // system-generated
           system: true,
         })
@@ -2519,7 +2517,7 @@ export async function sendQuote(
           versionNumber: quote.versionNumber,
           eventType: "sent",
           system: true,
-          note: `Quote v${quote.versionNumber} sent to ${preparedBy.email}`,
+          note: `Quote v${quote.versionNumber} finalized; delivery is manual.`,
         },
       }, tx);
 
