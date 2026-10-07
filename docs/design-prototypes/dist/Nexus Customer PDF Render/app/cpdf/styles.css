@@ -317,7 +317,7 @@
   font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--pp-muted); margin-bottom: 5px;
 }
-.pp-notes p { font-size: 11px; color: var(--pp-ink-2); line-height: 1.55; margin: 0; }
+.pp-notes p { font-size: 11px; color: var(--pp-ink-2); line-height: 1.55; margin: 0; white-space: pre-wrap; }
 
 /* How-to-accept */
 .pp-accept { margin-top: 22px; }

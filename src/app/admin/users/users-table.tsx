@@ -7,8 +7,8 @@ import { AddUserModal } from "./add-user-modal";
 
 // Slice RI.8 step 4 — Round 5 vocabulary on /admin/users. CSS classes
 // `.r5-users-*` mirror `.r5-md-*` shape conventions (click-Edit row
-// becomes editor; foot strip with count). v1 functional scope is
-// unchanged from RI.7: phone-only inline edit.
+// becomes editor; foot strip with count). The row editor owns both
+// per-user permissions and the customer-facing phone number.
 
 type Row = {
   id: string;
@@ -48,8 +48,8 @@ function GrantsCell({ user }: { user: Row }) {
     );
   }
   const held = [
-    user.canEditSpecs ? "specs" : null,
-    user.canCreateLeaves ? "leaves" : null,
+    user.canEditSpecs ? "edit specs" : null,
+    user.canCreateLeaves ? "create products" : null,
   ].filter(Boolean) as string[];
   return (
     <div className="grants">
@@ -71,6 +71,9 @@ export function UsersTable({ users }: { users: Row[] }) {
   const [editId, setEditId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const withPhone = users.filter((u) => u.phone !== null && u.phone !== "").length;
+  const canEditSpecsCount = users.filter(
+    (u) => u.role === "admin" || u.canEditSpecs,
+  ).length;
   const pendingCount = users.filter(
     (u) => u.bindingState === "pending_first_sign_in",
   ).length;
@@ -82,7 +85,7 @@ export function UsersTable({ users }: { users: Row[] }) {
         <div>Email</div>
         <div>Role</div>
         <div>Status</div>
-        <div>Grants</div>
+        <div>Permissions</div>
         <div>Phone</div>
         <div></div>
       </div>
@@ -107,15 +110,18 @@ export function UsersTable({ users }: { users: Row[] }) {
             editing={editId === u.id}
             onStartEdit={() => setEditId(u.id)}
             onCancel={() => setEditId(null)}
-            onSaved={() => setEditId(null)}
+            onSaved={() => {
+              setEditId(null);
+              router.refresh();
+            }}
           />
         ))
       )}
 
       <div className="r5-users-foot">
         <span>
-          {users.length} user{users.length === 1 ? "" : "s"} · {pendingCount}{" "}
-          pending sign-in · {withPhone} with phone
+          {users.length} user{users.length === 1 ? "" : "s"} · {canEditSpecsCount}{" "}
+          can edit specs · {pendingCount} pending sign-in · {withPhone} with phone
         </span>
         <button
           type="button"
@@ -209,13 +215,16 @@ function EditingRow({
   function save() {
     setError(null);
     startTransition(async () => {
-      const phoneForm = new FormData();
-      phoneForm.set("userId", user.id);
-      phoneForm.set("phone", phone);
-      const phoneResult = await updateUserPhone(phoneForm);
-      if (!phoneResult.ok) {
-        setError(phoneResult.error.message);
-        return;
+      const phoneChanged = phone.trim() !== (user.phone ?? "").trim();
+      if (phoneChanged) {
+        const phoneForm = new FormData();
+        phoneForm.set("userId", user.id);
+        phoneForm.set("phone", phone);
+        const phoneResult = await updateUserPhone(phoneForm);
+        if (!phoneResult.ok) {
+          setError(phoneResult.error.message);
+          return;
+        }
       }
 
       // Only when they actually moved. Granting is an audited event, and
@@ -228,9 +237,13 @@ function EditingRow({
         if (leaves) grantForm.set("canCreateLeaves", "on");
         const grantResult = await updateUserGrants(grantForm);
         if (!grantResult.ok) {
-          // The phone already saved. Say so rather than reporting a single
-          // failure that hides a partial success.
-          setError(`Phone saved. Grants were not: ${grantResult.error.message}`);
+          // If the phone changed, it already saved. Say so rather than
+          // reporting a single failure that hides a partial success.
+          setError(
+            phoneChanged
+              ? `Phone saved. Permissions were not: ${grantResult.error.message}`
+              : grantResult.error.message,
+          );
           return;
         }
       }
@@ -266,7 +279,7 @@ function EditingRow({
                 onChange={(e) => setSpecs(e.target.checked)}
                 aria-label={`${user.name ?? user.email} may edit specs`}
               />
-              specs
+              Edit specs
             </label>
             <label>
               <input
@@ -275,7 +288,7 @@ function EditingRow({
                 onChange={(e) => setLeaves(e.target.checked)}
                 aria-label={`${user.name ?? user.email} may create library leaves`}
               />
-              leaves
+              Create library products
             </label>
           </>
         )}

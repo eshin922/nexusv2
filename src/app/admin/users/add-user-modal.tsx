@@ -74,6 +74,8 @@ export function AddUserModal({ onClose }: { onClose: (created: boolean) => void 
             Pre-authorizes this person. They are recorded now and the record
             binds to their identity the first time they sign in with their
             work account — nothing is emailed and no password is set here.
+            After adding them, use Edit on their row to grant spec-editing
+            access if needed.
           </p>
         </div>
 
