@@ -6,9 +6,9 @@
 //
 // Pattern 30: structure preserved 1:1. `.pp-terms` + nested
 // `.pp-term` cells map to flex-wrap container + 50% flex children.
-// Per audit §4 the entire (eyebrow + h2 + Terms + Notes +
-// HowToAccept) group is a kept-together unit — consumer wraps the
-// composition in a `<View wrap={false}>`.
+// Each block can paginate independently; the quote must not reserve enough
+// space for all commercial details, notes, conditions, and acceptance copy as
+// one unbreakable unit.
 //
 // `text-transform: uppercase` on labels (styles.css:298, 311) →
 // `.toUpperCase()` at render time.
