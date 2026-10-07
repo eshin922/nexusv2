@@ -63,11 +63,13 @@ The release chair needs a single signed answer and measured evidence for:
 
 ## 3. Nexus blank-slate rehearsal, preparation only
 
-The requested reset removes active Nexus transaction/workflow data while
-retaining Product Library defaults, settings, users and valid reference data.
-It does not delete HubSpot deals or NetSuite orders. An existing deal with a
-NetSuite SO must not be treated as a fresh order after its Nexus push row is
-removed.
+Edward confirmed on 7 October that **all Nexus quotes entered so far are test
+cases**. The reset removes all current Nexus project, quote, order and related
+working data, including quote PDFs/attachments, while retaining Product
+Library defaults, settings, users and valid reference data. A permanent quote
+archive or historical ordered-spec backfill is unnecessary. The reset does not
+delete HubSpot deals or NetSuite orders; an existing deal with a NetSuite SO
+must not be treated as a fresh order after its Nexus push row is removed.
 
 The first executable artifact is
 [`scripts/cutover/reset-inventory.mjs`](../../scripts/cutover/reset-inventory.mjs).
@@ -80,21 +82,23 @@ restored copy, for example:
 node --env-file=.env.restored.local scripts/cutover/reset-inventory.mjs > reset-inventory.json
 ```
 
-No restored production database or storage copy is attached to this worktree,
-so no rehearsal or row-level manifest has been run yet. The next gate is to
-obtain an isolated restore, then:
+Edward confirmed that no isolated restore is available yet. No rehearsal or
+row-level manifest has been run. The next gate is to create an isolated
+database and quote-file restore, then:
 
 - Classify each candidate as transactional, retained reference, or mixed;
   examine JSON/soft references as well as FKs. `leaf_specs`, `audit_log`,
   idempotency rows and NetSuite mapping caches require row-level treatment.
-- Inventory PDF/attachment object keys and bytes, quote/deal/SO lineage,
-  statuses and row counts. Archive and restore-test them before any deletion.
+- Inventory PDF/attachment object keys, quote/deal/SO lineage, statuses and
+  row counts. Take and restore-test a temporary rollback backup before any
+  deletion; retain it only through the agreed reset verification window.
 - Build a reviewed allowlist reset on the restored copy, verify before/after
   counts and preserved Library/settings checksums, and test a new project and
   quote. No broad `TRUNCATE ... CASCADE` and no external-system writes.
 - Only after Edward approves a cutover window: pause writers, take a final
-  backup, execute the rehearsed reset once, and reconcile the active blank
-  slate against the archive and external order ledger.
+  temporary backup, execute the rehearsed reset once, and reconcile the active
+  blank slate against the manifest and external order ledger. Remove the
+  rollback copy after the verification window.
 
 **Exit condition for this work package:** the operator review has a defect
 disposition; priority PRs are either merged with current evidence or explicitly
