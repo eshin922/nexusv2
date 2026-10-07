@@ -202,11 +202,16 @@ test("adding products into a group lives on that group's row, not the quote head
   // move look like a regression.
   const row = await code("src/components/assembly-tree/asy-row.tsx");
   const menu = await code("src/components/assembly-tree/asy-context-menu.tsx");
-  const rowScope = row + menu;
-  assert.match(rowScope, /mode="group"/);
-  // The destination is the group the operator acted on — already chosen, so
-  // the picker has nothing left to ask.
-  assert.match(rowScope, /initialTargetAssemblyId=\{(asy\.id|assemblyId)\}/);
+  const picker = await code("src/components/assembly-tree/group-product-picker.tsx");
+  const tree = await code("src/components/assembly-tree/assembly-tree-body.tsx");
+  assert.match(menu, /<GroupProductPicker/);
+  assert.match(menu, /assemblyId=\{assemblyId\}/);
+  assert.match(tree, /groupProductOptions/);
+  assert.match(tree, /\.\.\.productEntries\.map/);
+  assert.match(tree, /\.\.\.orderedAssemblies\.flatMap/);
+  assert.match(picker, /moveProductMembership\(formData\)/);
+  assert.doesNotMatch(menu, /LibraryBrowseTrigger/);
+  assert.doesNotMatch(picker, /attachAssemblyLeaf|attachQuoteProduct/);
 
   // And the route is genuinely reachable from the row: the menu is rendered by
   // the row, so "in the menu" is not somewhere else on the surface.

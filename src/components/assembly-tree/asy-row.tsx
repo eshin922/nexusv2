@@ -9,7 +9,6 @@ import { AsyContextMenu } from "./asy-context-menu";
 import { LeafContextMenu } from "./leaf-context-menu";
 import { AsyNotesDrawerPanel, AsyNotesTrigger } from "./asy-notes-drawer";
 import { assemblyDisplaySku } from "@/lib/product-structure/assembly-display-sku";
-import type { LeafSpecEntryProductType } from "@/lib/leaf-spec-loader";
 import { CompletenessChip } from "./completeness-chip";
 import {
   reorderAssemblyLeaves,
@@ -17,7 +16,7 @@ import {
 } from "@/app/actions/assemblies";
 import { DragGrip } from "./drag-grip";
 import { leafCostDisplay, leafCostTitle } from "@/lib/leaf-cost-display";
-import type { LibraryPermissions } from "@/lib/permissions/library-product";
+import type { QuoteProductOption } from "./group-product-picker";
 
 // Phase A.1 v2 impl-2 Step 4-9 — AsyRow client component
 //
@@ -32,9 +31,7 @@ import type { LibraryPermissions } from "@/lib/permissions/library-product";
 // ASY" affordance which is deferred to a follow-up).
 
 export function AsyRow({
-  assemblies,
-  fullLeafTypes,
-  permissions,
+  products,
   asy,
   editable,
   projectId,
@@ -58,9 +55,7 @@ export function AsyRow({
 }: {
   asy: AssemblyNode;
   editable: boolean;
-  assemblies: { id: string; sku: string; name: string; leafCount: number }[];
-  fullLeafTypes: LeafSpecEntryProductType[];
-  permissions: LibraryPermissions;
+  products: readonly QuoteProductOption[];
   projectId: string;
   quoteId: string;
   isDragging: boolean;
@@ -219,12 +214,10 @@ export function AsyRow({
         <AsyContextMenu
           assemblyId={asy.id}
           assemblySku={displaySku ?? asy.name}
+          assemblyName={asy.name}
+          memberCount={asy.children.length}
+          products={products}
           disabled={!editable}
-          quoteId={quoteId}
-          projectId={projectId}
-          assemblies={assemblies}
-          fullLeafTypes={fullLeafTypes}
-          permissions={permissions}
         />
       </div>
       {notesOpen ? (

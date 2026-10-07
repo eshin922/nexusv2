@@ -177,6 +177,29 @@ test("a packaging line binds to the owner that carries its quote_leaf_id", () =>
   assert.equal(overview.gaps.length, 0);
 });
 
+test("moving a quoted product into an item group keeps one Costs owner and one cost line", () => {
+  const overview = buildCostsOverview({
+    ...emptyFacts(),
+    assemblies: [{ id: "asy-1", sku: "ASY-1", name: "Finished kit", position: 0 }],
+    members: [{
+      assemblyLeafId: "al-1",
+      assemblyId: "asy-1",
+      quoteLeafId: "ql-product",
+      name: "Bottle",
+      sku: "B-1",
+      quantity: "1",
+      position: 0,
+      productType: null,
+    }],
+    packagingRows: [pkg({ quoteLeafId: "ql-product", tierId: T1, lineGroupId: "lg-1", unitCost: "0.2500" })],
+  });
+  const matchingOwners = flattenOwners(overview.owners).filter((row) => row.owner.quoteLeafId === "ql-product");
+  assert.equal(matchingOwners.length, 1);
+  assert.equal(matchingOwners[0].owner.kind, "group_member");
+  assert.equal(matchingOwners[0].owner.recurringLines.length, 1);
+  assert.equal(matchingOwners[0].owner.recurringLines[0].cells.get(T1)?.unitCost, "0.2500");
+});
+
 test("packaging markup category follows Setup Product Type over a stale line category", () => {
   const overview = buildCostsOverview({
     ...emptyFacts(),

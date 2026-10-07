@@ -60,6 +60,10 @@ const classifiedIdentityFiles = new Set([
   "src/app/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs/page.tsx",
   "src/app/projects/[id]/quotes/[quoteId]/page.tsx", "src/components/add-product/add-product-modal.tsx",
   "src/components/assembly-tree/asy-row.tsx", "src/components/assembly-tree/leaf-context-menu.tsx",
+  // CLASSIFIED — Setup picker carries the canonical quoteLeafId of an existing
+  // Product to the governed membership-move action. It creates no attachment,
+  // resolves no legacy junction, and writes no costs itself.
+  "src/components/assembly-tree/group-product-picker.tsx",
   "src/components/costing-store-provider.tsx", "src/components/costs/freight-drilldown.tsx", "src/components/costs/production-drilldown.tsx",
   // CLASSIFIED — enduring. The packaging drilldown addresses graph nodes by
   // `line.quoteSkuId`, which IS the assembly_leaf id and IS the id the engine
