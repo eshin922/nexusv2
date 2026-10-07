@@ -366,8 +366,10 @@ export function CustomerPdfDocument({
             </>
           )}
 
-          {/* Terms group — kept-together (wrap={false}) per audit §4 */}
-          <View style={termsWrapperStyle} wrap={false}>
+          {/* Let the commercial details, note, conditions, and acceptance copy
+              paginate independently. Keeping the entire section unbreakable
+              strands most of page one when the conditions are long. */}
+          <View style={termsWrapperStyle}>
             {showTermsHead && <PassThroughTermsHead />}
             {quote.include_terms && (
               <TermsBlock quote={quote} incoterms={quote.incoterms} />
