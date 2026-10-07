@@ -1,0 +1,177 @@
+# Nexus → HubSpot → NetSuite production cutover plan
+
+**Working plan · 6 October 2026. No production HubSpot or NetSuite configuration change is authorized by this document.** NetSuite ordered specifications and the revised purchase-order PDF remain sandbox-only until Edward signals the production cutover. Nexus code can be deployed with production ordered-spec export off.
+
+## Outcome and boundary
+
+For each accepted quote, the production systems must identify the same customer and the same ordered products, create **one** Sales Order for the HubSpot deal, preserve the accepted quantities and prices, attach a frozen, redacted specification to each product line, and generate a vendor Purchase Order whose individual lines show the correct corresponding specification. A service or one-time charge remains its own NetSuite line; its charge does not inflate the product line rate. The vendor document keeps the existing DPS logo and terms and conditions, with the approved quote-family styling.
+
+The production cutover is a **future controlled event**. Until then, do not create the production NetSuite custom record or fields, change the production PO script/form/template, enable `NETSUITE_ORDERED_SPEC_EXPORT` for production, or run a production order as a test.
+
+**Added reset requirement:** before the live order rollout, Nexus must have a clean transactional slate. All existing deal/project, quote, order and dependent working records are to leave the active Nexus environment. Product Library entries, their master specifications, configuration, users and other reference data stay. This is an active-data reset, not an instruction to delete HubSpot deals or NetSuite transactions.
+
+## Current evidence and gaps
+
+| Area | Verified or implemented | Still needed for production |
+|---|---|---|
+| Nexus ordered-spec writer | PR #621 merged. Frozen accepted snapshot is the source; one record per posted product line, unique by SO ID and `lineUniqueKey`. Redacts `fm_actives`; commercial quantities, rates, amounts and total are read back unchanged. Separate retry/status table. Sandbox fresh push SO2747 passed 4/4 lines and amount reconciliation. | Confirm deployed Nexus version and shared migrations 0143/0144; production switch remains off until readiness gates pass. |
+| NetSuite spec object | Sandbox `7924416_SB2`: `customrecord_nx_ordered_spec`, 13 fields, and SO-line `custcol_nx_ordered_spec` are working. | Read-only production collision/role comparison, then recreate by **script ID**, grant production integration role, and prove read-back before switch-on. Internal IDs may differ. |
+| Vendor PO | Sandbox workflow/script traced. Revised quote-family template was previewed with real order values and approved; tags/newlines and pagination were corrected in sandbox. | Resolve SO↔PO line-link defects; implement per-line spec propagation and production template rollout. Confirm form 218 binds template 400 before replacing it. |
+| HubSpot | Nexus reads the production portal `21497798`; Accept-stage sync and a live HubSpot→production-NetSuite Sales Order workflow are known. | Inventory and settle all stage-triggered automations. Choose **one** SO creation authority so Nexus and HubSpot cannot create two orders for one deal. Validate company identity and customer mappings. |
+| Spec taxonomy | Nexus maps product type to pinned primary, secondary, tertiary or formulated schemas. | Reconcile the live HubSpot `hs_product_type` options and identify `schema_pending`, `unmapped`, `no_type` products. Raw ingredients currently have `schema_pending`; this is not a completed product specification. |
+
+## Gate 0 — lock the operating model
+
+- [ ] **Name the Sales Order creator.** Recommended: Nexus creates the production SO from the frozen accepted quote. The active HubSpot workflow **“NETSUITE: Auto create NetSuite sales order from won deal”** also creates a production SO when a deal enters `Won - In production (Sales)` (stage `195607084`). HubSpot administrator and Accounting must either retire/disable that SO action for Nexus-owned deals with a proven exclusion, or explicitly choose the alternative HubSpot-owned SO path and redesign Nexus completion around it. **No production Accept or `markComplete` until exactly one path is proven.** Simply reversing a test deal’s stage does not undo workflow enrollment.
+- [ ] Record whether production Nexus SO push is to be switched from sandbox `7924416_SB2` to the production account. Inventory the actual deployed account/configuration and token role; do not infer it from a local `.env` file.
+- [ ] Freeze the production window, owners and change tickets: Edward (release decision), HubSpot administrator (workflow/associations), NetSuite administrator (customization/script/form/template), Accounting (items, tax, terms, PO), and Nexus engineering (app, integration, evidence).
+- [ ] Decide whether `fm_actives` may appear on the **customer PDF**. It is already withheld from NetSuite records, the Order Packet, and vendor PO text. The customer PDF decision is separate; do not silently broaden disclosure.
+- [ ] Decide which existing SOs, if any, should receive a controlled ordered-spec backfill. A backfill is not the same as enabling future writes; require an SO/quote snapshot inventory and exception review first.
+- [ ] Resolve the reset/backfill conflict: after the Nexus blank-slate reset, the old quote snapshots needed for spec backfill will no longer exist in the active database. If historical backfill is wanted, complete it **before** reset or retain a governed read-only archive and design an explicit archive-based backfill. Do not promise to retry from deleted snapshots.
+
+## Gate R — Nexus transactional blank slate
+
+**Proposed scope:** clear deal-specific `projects` and all their quotes/scenarios, sent versions, accepted snapshots, commercial and ordered-spec transfer records, quote-owned specs, item groups assembled within quotes, cost/pricing inputs, freight/shipment/destination records, quote attachments and PDFs, production-completion records, quote review/approval events, and per-user project/quote navigation state. A project is the local container for a HubSpot deal, so keeping old projects would leave a populated Deals/Orders surface even if only quotes were removed. This proposal includes test/certification and real projects; the dry-run manifest must name every affected deal before execution.
+
+**Preserve:** `leaves` (Product Library), **`leaf_specs` where `quote_id IS NULL`** (Library defaults), `product_types` and their field schemas, category/default pricing and charge settings, `firm_settings`, users/roles, SKU identity registry/counters/allocations, HubSpot product linkage, and approved customer/item/accounting mappings. Keep HubSpot deals and product records, and all NetSuite SOs/POs, untouched by the Nexus reset unless a separate, explicit disposition is approved.
+
+**Environment-bound reference needs special handling.** `netsuite_customer_map`, `netsuite_service_item_map`, `netsuite_destination_item_map` and `netsuite_item_groups` contain NetSuite internal IDs. Keep the mapping knowledge and verification history, but **do not use sandbox IDs against production**. Capture an account-scoped copy, compare each target to the production account, and reverify/update the active map before the first production order. `netsuite_item_groups` is a customer/composition → NetSuite Group-ID cache; its sandbox entries cannot be trusted as production group identities. Either namespace it by account or archive/clear its sandbox rows and rebuild production group identities. That is an exception to mechanically retaining every reference-like table, required to honor the intent of preserving *valid* reference data.
+
+### Inventory and execution controls
+
+1. **Read-only inventory first.** Query the live database catalog for every FK to `projects`, `quotes`, `quote_tiers`, `quote_snapshots`, `quote_leaves`, assemblies, freight and charge tables; include tables with soft references or JSON-held quote/project IDs. Reconcile the catalog with the current Drizzle schema and list row counts, earliest/latest dates, statuses, HubSpot deal IDs, NetSuite SO IDs, storage paths and sample records. Do not infer the full delete set from table names or rely on `ON DELETE CASCADE` alone.
+2. **Classify each row/table** as transactional delete, retained reference, mixed (row filter required), or external artifact. Special mixed cases include `leaf_specs` (quote-owned vs Library master), `audit_log` (quote/order events vs settings/product events), `action_idempotency` (results may replay an erased quote ID), and `netsuite_item_groups` (reference identity tied to a specific NetSuite account). Review any unmatched table before proceeding.
+3. **Archive recoverably.** Take a point-in-time database backup plus a manifest/export of all affected rows and relationships. Export the `quote-pdfs` and `quote-attachments` object keys and bytes before database deletion; sent quote PDFs and uploaded files are **not** removed by a database cascade. Preserve an access-controlled archive and restoration procedure, including the immutable sent/accepted versions and audit history. Record hash, row count and storage-object count. Set retention according to the firm's legal/accounting policy; a blank active workspace does not imply destruction of business records.
+4. **Pause writers.** Put Nexus order creation, HubSpot import/sync that creates projects, Send/Accept/Complete, background retries and relevant jobs in a controlled maintenance state. Check no in-flight HubSpot/NetSuite side effect or stored-file write remains. Capture the final baseline after writers stop.
+5. **Rehearse on a restored copy** of the production database/storage namespace with the same schema and data shape. Use a reviewed, idempotent reset script with an allowlist of transactional tables/rows, no `TRUNCATE ... CASCADE` over the whole schema, no `DROP`, and no writes to HubSpot or NetSuite. Delete children in FK-safe order or rely on proved cascades; explicitly handle restrictive tier/snapshot links. Capture before/after counts and an exact rollback restore test.
+6. **Run the approved reset once**, after the final backup, with counts and a transaction log. Remove stored files only after the corresponding archive and DB state are verified; use the captured object manifest, not a broad bucket prefix. Recheck active-table counts and orphan references. Preserve settings/Library row counts and checksums, Library default specs, SKU identities and approved mapping snapshots.
+7. **Validate the blank slate in the UI and API:** no projects, quote scenarios, accepted versions, Orders, freight shipments, cost rows, quote attachments or stale recent/pinned project links; Product Library and settings still render with the same data. Create one **new** test project and quote after the reset to prove normal authoring, then continue to the controlled cutover pilot.
+
+**External-system consequence:** deleting a Nexus `netsuite_so_pushes` row does not delete its NetSuite SO or NetSuite duplicate-deal protection. If an old HubSpot deal is imported again and completed, the external SO may block it or expose a duplicate risk. The reset manifest must record each deal→SO relationship and mark old deals **not reusable for a new order** unless that external lineage is separately reconciled. Do not erase the only idempotency evidence and then retry an old order.
+
+## Gate 1 — HubSpot preparation (read and reconcile first)
+
+| Change/check | Execution and acceptance evidence |
+|---|---|
+| Deal→company identity | Enumerate each target deal’s company associations and primary label. Nexus selects the **explicit primary** company, never the first returned association. Zero/multiple primary associations are exceptions to fix in HubSpot. Compare the selected HubSpot company ID to the Nexus customer-map row. |
+| MISTR-style duplicates | Reconcile duplicate HubSpot company records by **company ID and verified NetSuite customer internal ID**, not domain string alone. The MISTR LLC / `heymistr.com` case is one customer (NetSuite `321443`) even though HubSpot identifiers differ. Document which HubSpot company owns each deal; update the mapping for that exact company ID and re-read it. Do not globally merge companies on matching domains. |
+| Customer terms | For every pilot deal, re-read the mapped NetSuite customer’s terms and the quote’s payment-terms readiness. A missing or mismatched company must block before send/complete with a specific reason. Include the formerly blocked MISTR quote in verification. |
+| Product identity | Audit HubSpot product IDs, internal SKUs and `hs_product_type` values against Nexus Library and the production NetSuite item map. Match stable IDs/SKUs, not labels or product descriptions. Resolve duplicate SKUs and unknown type options before order creation. |
+| Spec source | Produce a field-level matrix: HubSpot source property, Nexus product type/schema/key, whether the value is deal-level or line/product-level, normalization rule, and whether it is safe to become a product-library default. Multi-product free text must not be copied to every SKU. This is a separate reconciliation from the ordered-spec export, which uses the frozen Nexus quote values. |
+| Workflow inventory | Export every workflow or external automation reacting to the Nexus Accept stage, amount change, or deal Won state; capture enrollment, re-enrollment, queued/in-flight and replay behavior. Verify the chosen one-SO rule on the exact production configuration. Preserve other intended workflows such as notifications. |
+| Certification isolation | Keep certification Accept writes suppressed while tests point at sandbox NetSuite. Verify deployed `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC` state at the cutover window. If live Accept sync is part of the chosen model, remove suppression only after the workflow duplicate-order issue is settled; then prove the stage and amount audit/write against one controlled deal. |
+| Token and security | Check production read/write token scopes and ownership; rotate the HubSpot private-app token apparently exposed through NetSuite script parameter `custscript_api_key`, move it to a protected secret mechanism, and prove no token value appears in page source or logs. |
+
+## Gate 2 — production NetSuite object and accounting preparation
+
+1. Run `scripts/gate-1b/netsuite-spec-customization-compare.ts` **read-only** against production using real credentials, or inspect the same objects and integration-token role in the NetSuite UI. Record collisions and pre-existing fields. Sandbox internal record ID `1612` is **not** a production ID to hard-code.
+2. Create custom record **Nexus Ordered Spec**, script ID `customrecord_nx_ordered_spec`, with name and external ID, stored values, inline editing/deleting off, permission-list access. Add the 13 `custrecord_nxos_*` fields listed below, all optional at the NetSuite field layer because Nexus validates before writing. `custrecord_nxos_values` and `custrecord_nxos_readable` must be **Long Text**.
+3. Create stored List/Record transaction line field `custcol_nx_ordered_spec` → Nexus Ordered Spec; apply to **Sale Item** and permit the production Nexus integration role to set/read it. Extend to **Purchase Item** only when the PO propagation implementation has passed sandbox tests. Grant the integration role custom-record Create/View and SO-line edit; operators View. Verify with that role, not Administrator alone.
+4. Confirm the production customer, item and accounting maps: product SKUs, Item Group masters and expanded members, separately billed service/OTC items, `OTC-0013` for Samples & PPS, non-inventory items for Freight/Duties/Tariffs, Customs and Tooling, and Master Carton `OTC-0053` for carton charges per prior decisions. Resolve any destination currently unmapped; do not substitute a neighboring item. Reconfirm currency, subsidiary, tax, ship-to, payment terms, vendor, unit cost and PO form behavior with Accounting.
+5. Confirm the production integration account/token, subsidiary, permissions and API reachability. Capture baseline totals and record counts before any write. Keep `NETSUITE_ORDERED_SPEC_EXPORT` absent/disabled through this gate.
+
+| Ordered-spec field | Type / purpose |
+|---|---|
+| `custrecord_nxos_transaction` | List/Record → Transaction, source SO |
+| `custrecord_nxos_line_key` | Integer, SO `lineUniqueKey` |
+| `custrecord_nxos_item` | List/Record → Item |
+| `custrecord_nxos_quote_leaf` | Text, Nexus quote leaf ID |
+| `custrecord_nxos_snapshot` | Text, accepted quote snapshot ID |
+| `custrecord_nxos_source_hash` | Text, frozen source SHA-256 |
+| `custrecord_nxos_export_hash` | Text, redacted export SHA-256 |
+| `custrecord_nxos_projection_version` | Text |
+| `custrecord_nxos_redacted_keys` | Text, withheld key-name list only |
+| `custrecord_nxos_disposition` | Text, specified/no-schema/exception state |
+| `custrecord_nxos_schema` | Text, pinned schema |
+| `custrecord_nxos_values` | **Long Text**, redacted JSON |
+| `custrecord_nxos_readable` | **Long Text**, vendor-readable lines |
+
+The record external ID is `nxos:<SO internal ID>:<lineUniqueKey>`. A retry must find and verify the same record. A conflicting record/link is not overwritten. Product-line `schema_pending`, `unmapped`, and `no_type` are visible exceptions, not fabricated specifications.
+
+### Item-level spec coverage to sign off
+
+The NetSuite design stores each schema's keyed values in `custrecord_nxos_values` and the human-readable, redacted rendering in `custrecord_nxos_readable`, with the record linked to the **particular SO line**. It does **not** create a separate NetSuite custom field for every spec key. That distinction should be accepted explicitly if Accounting needs SuiteQL reports by a particular attribute. Before rollout, export the live Nexus `product_types.field_schema` definitions and compare every key and label to the list below; the database, not these historical seed files, is the runtime authority.
+
+| Nexus schema | Current field keys to verify end to end | NetSuite PO expectation |
+|---|---|---|
+| Primary packaging | `pp_description`, `pp_component_type`, `pp_quantities`, `pp_size`, `pp_material`, `pp_deco`, `pp_additional_details`, `pp_factory_1`, `pp_factory_2`, `pp_packout_details` | Each populated field belongs to its individual product line. |
+| Secondary packaging, labels, cards/booklets | `sp_description`, `sp_material`, `sp_size`, `sp_color`, `sp_coating`, `sp_finishing`, `sp_quantities`, `sp_additional_details`, `sp_factory_1`, `sp_factory_2`, `sp_packout_details` | Preserve the pinned schema even if the same SKU appears twice with different values. |
+| Tertiary packaging | `tp_description`, `tp_type`, `tp_outer_dims`, `tp_inner_dims`, `tp_flute`, `tp_ect_or_board`, `tp_units_per_case`, `tp_print`, `tp_closure`, `tp_pallet_config` | Verify dimensional/numeric formatting and multiline text on the vendor PDF. |
+| Formulated (Ingestibles, Topicals) | `fm_description`, `fm_form`, `fm_net_content`, `fm_actives`, `fm_additional_details`, `fm_factory_1`, `fm_factory_2`, `fm_packout_details` | `fm_actives` is withheld; other populated keys appear under the correct line. The previously noted fresh-push redaction case with populated `fm_actives` still needs a formulated sandbox fixture. |
+| Raw ingredients | **No governed item-level schema yet** (`schema_pending`) | Do not claim the vendor PO is fully specified. Define/review the raw schema first if these products require item-level PO specifications. |
+
+For each schema, test empty, partial and complete values, punctuation/HTML-like text, long text, amendment/version freeze, group members and direct products. Compare the frozen Nexus hash to the NetSuite source/export hashes; then inspect the vendor PDF for correct labels and values. `no_schema` categories should not receive a spurious specification block.
+
+## Gate 2b — Nexus ↔ NetSuite integration changes
+
+These are application and integration work, distinct from creating NetSuite custom fields. The production account and API credentials must never be put in the repository or in a test script's output.
+
+| Integration surface | Work to complete | Required proof |
+|---|---|---|
+| Account routing | Inventory deployed `NETSUITE_ACCOUNT_ID`, `NETSUITE_ENV`, token-based-authentication consumer/token identity and `NEXUS_NETSUITE_PROVIDER`. When the release is approved, point Nexus to the intended production account and role as one governed change. The account ID itself, not only the advisory `NETSUITE_ENV`, must confirm the target. | Read-only account identity check before any write, then one pilot SO in that exact account. No sandbox and production credentials mixed. |
+| Commercial SO push | Preserve the existing frozen accepted-tier projection, one deal/one SO reconciliation, separate service and OTC lines, Item Group member links, sub-quantities, cost basis, accounting map, customer/terms and post-group rate convergence. | Frozen quote vs actual SO line-by-line and total-to-cent comparison, including repeated SKUs, group members and a service whose displayed price is included in the customer product price while NetSuite still posts it separately. |
+| Spec transfer | After successful SO creation, run the existing idempotent `reconcileOrderedSpecs` path. Match by SO `lineUniqueKey` and quote leaf/snapshot, not SKU. Verify record provenance, redaction, links, hashes and unchanged financial fields. | `netsuite_spec_transfers` says succeeded or explicit exception; every product line linked, no service/OTC/group-header link; retry creates no second record. |
+| Exception operations | Expose or document a controlled operator path for `retryOrderedSpecTransfer` (currently a server action with **no UI button**). Classify transient failure vs a record/link conflict; never auto-overwrite conflict data. | Operator can find and retry a failed transfer; a conflicting record remains unchanged with a visible case ID and resolution procedure. |
+| Order Packet | Verify the deployed durable base URL and `custbody_nexus_order_packet` behavior before enabling the SO link. A temporary PDF URL or customer session URL cannot be a permanent NetSuite document pointer. | From the production SO, an authorized operator opens the exact accepted snapshot and its redacted item-level specs; unauthorized access remains blocked. |
+| SO→PO bridge | Version and deploy the existing NetSuite User Event source, adding matched-line spec link and readable-text copy on PO create, append and sync. Ensure the bridge tolerates a spec transfer arriving after the commercial SO. | SO/PO line-key pairing is one-to-one across duplicate SKUs, copied lines, grouped items and multiple vendors; late arrival is retried or held visibly. |
+| Observability and reconciliation | Make commercial push and spec-transfer statuses independently visible. Add a daily exception view for pending/failed/conflict transfers, duplicate-deal SOs, PO lines with missing/mismatched spec links, and customer-map/terms blockers. | Named owner, alert threshold, runbook and first-week daily report; no spec text or credentials in telemetry. |
+| Integration safety | Confirm no hidden fallback can create a production SO from a certification quote. Disable debug payload logging (`NETSUITE_DEBUG_PAYLOAD`); keep production spec export off until Gate 4. | Deployed environment and one-SO workflow evidence, not a local config file. |
+
+## Gate 3 — SO → vendor PO design and sandbox proof
+
+The existing chain is saved search `customsearch_dps_wf_check_condition_to_c` (1814) → workflow `customworkflow_dps_create_po_from_so` (429) → User Event `customscript_dps_new_po_creation_ue` (2587; file 29867) → PO form `custform_dps_strs_purchase_order` (218) → Advanced PDF template `CUSTTMPL_TVN_PF_PURCHASE_ORDER` (sandbox 400). A vendor and unit cost on an SO line make it eligible; the script creates/appends one PO per vendor. Preserve this business workflow unless Accounting chooses a change explicitly.
+
+- [ ] **Fix line identity before carrying specs.** Copied SO lines can retain old `custcol_dps_linked_order` / `custcol_dps_order_line_key`; the manual-link path pairs by item + quantity and is ambiguous for identical SKUs. Clear inherited links on copies, prove a bijection of SO `lineUniqueKey` ↔ PO line key, and refuse ambiguous manual links. Regression: same SKU twice with equal quantity but different specs, and the same group repeated.
+- [ ] **Propagate the exact SO line spec.** In the PO User Event, copy the verified `custcol_nx_ordered_spec` link from the matched SO line to its PO line (field applied to Purchase Item), and populate a separate PO line `custcol_nx_spec_text` from the linked record’s **redacted readable** field. Treat missing/conflicting/mismatched links as explicit exceptions; never match a spec by SKU or header field. Update the ongoing SO→PO sync path as well as initial PO creation, with defined behavior if the SO spec link arrives after a PO exists.
+- [ ] **Make the PDF line-specific.** Save a versioned production template derived from the approved sandbox quote-theme candidate. Print `ORDERED SPECIFICATION` under each applicable PO item with escaped text and real line breaks; never render literal `<br />` or HTML from a value. Keep the original logo and terms and conditions, table columns, to/from addresses, clear “PURCHASE ORDER” title, and corrected pagination. Remove the redundant production-details section only after confirming its content is present in individual specifications or intentionally retained elsewhere.
+- [ ] **Keep legacy headers during transition.** The User Event currently copies **63 SO header fields** through `custscript_dps_ue_sale_copy_field`; template 400 prints PP/SP/SGA/COP header sections. Do not delete or blank them until all PO consumers and historical reprints have been checked. New per-line specs must take precedence on the vendor PDF without mixing two products into one header field.
+- [ ] Prove sandbox cases: primary/secondary/tertiary/formulated schema fields where available; one vs many product lines; duplicate SKU variants; Item Group and direct lines; unequal sub-quantities; multiple vendors; non-spec service/OTC lines; PO append/sync/edit/reprint; long text and special characters; no `fm_actives`; no extra blank page; exact amounts and terms. Capture the generated **PDF bytes**, line links and record IDs as evidence.
+
+## Gate 3b — sandbox invoice template inventory
+
+The sandbox Advanced PDF/HTML Templates list marks **DPS Invoice** as the preferred Invoice template: script ID `CUSTTMPL_DPS_INVOICE`, sandbox internal template ID `502`, template version `74`. Its source was inspected read-only on 6 October 2026. It is a separate customer-facing document from the vendor PO. The current source prints invoice number/date, bill-to address, sales rep, customer PO number, due date, terms, item description/quantity/rate/amount, subtotal, tax, shipping, total, paid and remaining amounts, plus the existing late-payment terms. It loops through invoice items; it does **not** reference `custcol_nx_ordered_spec` or print ordered specifications. Its active form binding and a representative rendered invoice still need verification. The exact source has not yet been saved to the repository, so a versioned export and checksum belong in the cutover evidence pack before any invoice change.
+
+- [ ] Export the preferred sandbox invoice template through an approved NetSuite file/export path and preserve its exact source and checksum alongside the PO baseline. Verify which Invoice transaction form selects it, including any form override of the preferred template.
+- [ ] Decide whether invoices should show any item-level specification. The current template does not. Keep `fm_actives` and other withheld formula references off customer invoices unless Edward explicitly approves disclosure; do not inherit vendor-PO spec output automatically.
+- [ ] Test a representative sandbox invoice with Item Group members, direct products, separate services/OTC charges, partial or split fulfillment as applicable, taxes, terms, and payments. Reconcile printed line amounts and total to the underlying NetSuite invoice and source SO. Only then decide whether invoice styling or fields need changing at production cutover.
+
+## Gate 4 — controlled production sequence (only after Edward signals)
+
+| Order | Action | Stop condition / proof |
+|---:|---|---|
+| 1 | Announce a change window; pause Nexus transactional writers and relevant PO creation. Export current HubSpot workflow definition and production NetSuite script, form, template and role settings. Capture deployed Nexus SHA and DB migration state. | A recoverable baseline exists for every changed object. |
+| 2 | Execute Gate R: archive and rehearse, reset Nexus transactional data, verify zero active orders/projects/quotes and unchanged Library/settings, then keep writers paused. | Exact reset manifest reconciles; archive restoration works; no external transaction was deleted. |
+| 3 | Resolve HubSpot one-SO ownership in production and test the exclusion/disable semantics without a customer order. Reverify exact company-ID customer mappings and customer terms against the **production** NetSuite account. | No path can create a duplicate SO; no sandbox mapping ID is used; no unresolved pilot customer. |
+| 4 | Apply NetSuite record, 13 fields, SO/PO line fields and permissions; deploy the corrected PO User Event with versioned source and a rollback copy. Publish the new PDF template as a **new** template first; bind the intended PO form only after a controlled render check. | Production read-only comparison matches sandbox script IDs/types; integration role can read/write intended fields; original template remains restorable. |
+| 5 | Deploy any remaining Nexus changes and confirm shared migrations 0143/0144. Keep production ordered-spec export **off**. Create a **new**, controlled project and quote after reset; preflight its mapping, terms, frozen spec readiness and one-SO status. | All prereqs green. No production SO or PO created by preflight. |
+| 6 | Enable production ordered-spec export and execute **one** authorized pilot: Send/Accept/Complete through the intended ownership path, then assign a vendor and create/print its PO. | Exactly one SO for the deal; SO total/line amounts equal frozen quote; one linked spec record per product line; services/OTC not spec-bearing; PO line keys/specs/vendor PDF correct; `fm_actives` absent. |
+| 7 | Review evidence with Accounting/Ops and Edward. Expand to a small monitored batch only after the pilot is signed off; enable normal volume after monitoring thresholds are met. | No failed/conflict spec transfers, duplicate SO, customer-term mismatch, or wrong vendor spec. |
+
+Do **not** use an ordinary live customer deal as a disposable test. If a pilot uses the production HubSpot portal, its deal and customer must be deliberately designated, its stage-trigger consequences understood, and its production order treated as real evidence. Testing through the sandbox NetSuite account remains the default until this gate is explicitly authorized.
+
+## Monitoring, backfill and rollback
+
+- Watch `netsuite_so_pushes` and `netsuite_spec_transfers` independently. A commercial SO can succeed while its spec transfer fails; queue `failed` for retry, and send `conflict` to a person. Record only IDs/hashes/status in logs, never spec values or credentials.
+- Compare, per pilot: HubSpot deal ID → primary company ID → Nexus map → NetSuite customer internal ID; quote snapshot/tier → SO line keys/item IDs/quantities/rates/amounts/total; SO line → ordered-spec record → PO line → printed vendor text. Repeat for identical SKUs and group members.
+- Backfill only an inventoried set of existing SOs whose accepted snapshots and line keys are unambiguous. Dry-run the match, then retry in batches with reconciliation and exception review. Never reprice or recreate the SO to attach a spec.
+- **Fast stop:** disable `NETSUITE_ORDERED_SPEC_EXPORT`, pause completion/PO creation, and revert the PO form to the preserved prior template if the PDF is wrong. Restore the prior User Event version if propagation is wrong. Turn off the new HubSpot-to-SO path only according to the documented workflow behavior; do not toggle it blindly where queued enrollments might replay.
+- Existing SOs, PO links and ordered-spec records are durable business records. Rollback of code/configuration does **not** delete or undo them; reconcile each affected order explicitly. A bad spec link must be corrected with an audited repair, not by guessing which repeated SKU it belongs to.
+- A full database restore after new production orders begin would erase those new orders. After the reset/pilot, recovery must be a **selective, reviewed restore from the archive** or a forward repair, with a fresh backup first. The reset itself should be performed as one controlled unit, with the application paused until the zero-count and preservation checks pass.
+
+## Open decisions that block an executable cutover
+
+1. Which system alone creates production Sales Orders for Nexus-originated accepted deals, and how will the active HubSpot workflow exclude the other path?
+2. Are the production NetSuite record/field script IDs unused, and which role is behind the production Nexus token? Current production comparison is unmeasured because real credentials were unavailable in the earlier audit.
+3. What should happen to PO lines when an SO spec transfer completes **after** a PO was generated, and are existing PO lines to be updated automatically or held for review?
+4. Which product categories with `schema_pending` (notably Raw ingredients) need a new governed item-level schema before vendor POs may rely on specs? Which fields, if any, are intentionally absent?
+5. Is `fm_actives` permitted on the customer PDF? Its NetSuite and vendor export is withheld already.
+6. Which historical SOs are in scope for backfill, and who signs off on ambiguous line matches?
+7. Confirm the proposed blank-slate scope includes **all Nexus projects**, including real-customer, training and certification projects, rather than only their quotes/orders; confirm retention and access rules for the archived sent PDFs, attachments and transaction audits. The active reset will not remove HubSpot deals or NetSuite transactions.
+8. Choose how production will separate sandbox and production NetSuite customer/item/group mappings while preserving the reference data. A copied sandbox internal ID is not a valid production mapping merely because the row is retained.
+
+## Source evidence
+
+- Repository: `docs/validation/netsuite-ordered-spec-export.md` and `netsuite-ordered-spec-production-readiness.md`.
+- Repository: `docs/validation/netsuite-po-creation-trace.md`, `production-go-live-checklist.md`, and `hubspot-stage-trigger-finding.md`.
+- Code: `src/lib/netsuite/ordered-spec-transfer.ts`, `src/lib/config/ordered-spec-export.ts`, `src/lib/product-structure/spec-schema-mapping.ts`.
+- Approved sandbox PO candidate: `C:\Code\nexusv2-ordered-spec-export\netsuite\templates\dps-purchase-order.quote-theme-v2.xml`; the sandbox original is preserved beside it.
