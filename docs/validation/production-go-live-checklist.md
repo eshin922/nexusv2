@@ -1,5 +1,16 @@
 # Production go-live checklist — RELEASE BLOCKERS
 
+> **Historical certification-era checklist.** Do not use this page alone to
+> change the deployed HubSpot Accept suppression flag or activate production
+> NetSuite. The 7 October 2026 cutover decision record is
+> [`2026-10-07-stabilization-and-cutover-readiness.md`](2026-10-07-stabilization-and-cutover-readiness.md),
+> with execution detail in
+> [`production-hubspot-netsuite-cutover-plan.md`](production-hubspot-netsuite-cutover-plan.md).
+> The beta disposition kept Accept suppression enabled; whether and when to
+> remove it depends on proving exactly one Sales Order creator per deal. The
+> checks below remain useful evidence requirements **after** that decision,
+> but their original "re-enable now" wording is not a current instruction.
+
 Items here are **release-readiness gates, not deferred recommendations.** Each
 must be proven with evidence before production go-live.
 

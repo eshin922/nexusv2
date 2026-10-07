@@ -23,6 +23,13 @@ The immediate candidates are:
 | #620 — scoped Price build | **Hold for current operator review** | Compare all-quote and selected group/SKU contributions at both tiers, including Packaging, Production and Raw lanes; verify total conservation and no group double count. Rebase and test against current main. |
 | #625 — invoice template | **Keep draft and sandbox-only** | It records source/candidate, not an approved production invoice. Verify real invoice rendering, form binding, line amounts, terms and specification disclosure before ready-for-review. |
 
+The code in #616, #618 and #620 is **not on current `main`**, so those three
+behaviors must not be represented as live production functionality. They are
+previously requested fixes/refinements, not a mandate to merge during the
+operator stabilization review. The review must first establish whether each
+still reproduces on the current baseline; then rebase and validate any
+needed change.
+
 The other 46 PRs span old design, certification, fixes and evidence. Do not
 bulk-merge or bulk-close them by age. Assign each an owner and one outcome:
 **still needed**, **superseded by a named commit/PR**, or **archive as evidence**.
