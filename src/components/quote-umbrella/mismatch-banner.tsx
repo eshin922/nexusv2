@@ -14,8 +14,7 @@
 //      PDF in a new tab; falls back to a re-sign attempt via
 //      resignSnapshotPdf when the 30-day signed URL has expired
 //      (Q4b)
-//   2. Send v{N+1} to customer — navigates to Send sub-tab (where
-//      SendQuoteFlow lives per Step 5d)
+//   2. Finalize v{N+1} — returns to Preview, where finalization lives
 //   3. Dismiss — local-state hide; not persisted (v3 brief doesn't
 //      mandate durability, and ephemeral matches R8 canonical
 //      demo shape)
@@ -90,15 +89,14 @@ export function MismatchBanner({
       </span>
       <div className="txt">
         <h4>
-          You sent <strong>v{sentVersion}</strong> on{" "}
+          You finalized <strong>v{sentVersion}</strong> on{" "}
           {shortDate(sentSnapshot.sentAt)} · current draft is{" "}
           <strong>v{draftVersion}</strong>
         </h4>
         <p>
-          The customer is responding to <strong>v{sentVersion}</strong>. Your
-          v{draftVersion} edits aren&apos;t visible to them until you send
-          again. Acceptance records against the version the customer actually
-          saw.
+          Your v{draftVersion} edits are not part of the finalized customer
+          document yet. Confirm which version the customer received before
+          recording acceptance; delivery is handled outside Nexus.
         </p>
         {resignError && (
           <div
@@ -124,15 +122,15 @@ export function MismatchBanner({
             disabled={resigning}
             data-testid="mismatch-view-sent"
           >
-            {resigning ? "Loading…" : `View v${sentVersion} (sent)`}
+            {resigning ? "Loading…" : `View v${sentVersion} (finalized)`}
           </button>
           {/* Q4a — Compare button hidden; see file header rationale. */}
           <button
             className="btn sm"
-            onClick={() => onGo("send")}
-            data-testid="mismatch-send-draft"
+            onClick={() => onGo("preview")}
+            data-testid="mismatch-finalize-draft"
           >
-            Send v{draftVersion} to customer
+            Finalize v{draftVersion}
           </button>
           <button
             className="btn sm ghost"

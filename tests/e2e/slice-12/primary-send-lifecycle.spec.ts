@@ -22,7 +22,7 @@ async function readManifest(): Promise<FixtureManifest> {
 
 test.describe.configure({ mode: "serial" });
 
-test("draft Preview to Send to Client to Client Review", async ({
+test("draft Preview finalizes into Client Review", async ({
   page,
   networkLedger,
 }, testInfo) => {
@@ -73,7 +73,6 @@ test("draft Preview to Send to Client to Client Review", async ({
       request.method() === "POST" &&
       request.resourceType() === "fetch" &&
       /^\/projects\/[^/]+\/quotes\/[^/]+\/quote$/.test(url.pathname) &&
-      url.searchParams.get("tab") === "send" &&
       request.headers()["next-action"] !== undefined &&
       failure === "net::ERR_ABORTED";
     // This trace recorded HTTP 200 text/x-component for the send Server Action
@@ -95,24 +94,16 @@ test("draft Preview to Send to Client to Client Review", async ({
     "true",
   );
 
-  await page.getByRole("tab", { name: /Send to Client/ }).click();
-  await expect(page.getByTestId("send-quote-button")).toBeEnabled();
-  await page.getByTestId("send-quote-button").click();
-  await expect(page.getByText("Send this quote?")).toBeVisible();
-  await page.getByTestId("send-quote-confirm").click();
-  await expect(page.getByText("Sent ✓")).toBeVisible({ timeout: 60_000 });
-  await page.getByTestId("send-quote-success-close").click();
-
-  await expect(page.getByText(/quote state · sent · awaiting customer/i))
-    .toBeVisible();
-  await page.getByRole("button", { name: /Open Client Review/ }).click();
+  await expect(page.getByTestId("cv-primary")).toBeEnabled();
+  await page.getByTestId("cv-primary").click();
   await expect(page.getByRole("tab", { name: /Client Review/ })).toHaveAttribute(
     "aria-selected",
     "true",
+    { timeout: 60_000 },
   );
-  await expect(page.getByText("Sent", { exact: true })).toBeVisible();
+  await expect(page.getByText("Finalized", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("Quote v1 sent to owner@nexus-validation.invalid"),
+    page.getByText("Quote v1 finalized; delivery is manual."),
   ).toBeVisible();
 
   const sql = postgres(process.env.DATABASE_URL!, {
@@ -201,7 +192,7 @@ test("draft Preview to Send to Client to Client Review", async ({
       {
         event_type: "sent",
         version_number: 1,
-        note: "Quote v1 sent to owner@nexus-validation.invalid",
+        note: "Quote v1 finalized; delivery is manual.",
         system: true,
       },
     ]);

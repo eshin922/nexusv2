@@ -41,7 +41,7 @@ function shortDateTime(d: Date): string {
 function eventTypeLabel(t: string): string {
   switch (t) {
     case "sent":
-      return "Sent";
+      return "Finalized";
     case "responded":
       return "Responded";
     case "asked":
@@ -98,16 +98,16 @@ export function TabClientReview({
   const addEntryDisabledReason: string | undefined = isSent
     ? undefined
     : isDraftWithHistory
-      ? "Send the revised version first to log new entries. The prior review log stays readable here."
+      ? "Finalize the revised version first to log new entries. The prior review log stays readable here."
       : quoteStatus === "draft"
-        ? "The Client Review feed opens once the quote is sent."
+        ? "The Client Review feed opens once the quote is finalized."
         : `Feed writes are blocked in '${quoteStatus}' state.`;
 
   return (
     <div className="r8-wrap">
       <div className="r8-cols">
         <div>
-          <p className="eyebrow">Sub-tab 3 · Client Review</p>
+          <p className="eyebrow">Sub-tab 2 · Client Review</p>
           <h1 className="r8-h1">
             Track what comes back from{" "}
             <em>{customer.name ?? "the customer"}</em>
@@ -259,8 +259,8 @@ export function TabClientReview({
                 lineHeight: 1.5,
               }}
             >
-              The customer sees "revised quote {quote.quoteNumber ?? "…"}"{" "}
-              — the number never changes.
+              The revised PDF keeps quote number {quote.quoteNumber ?? "…"}.
+              Download and deliver it manually after finalizing.
             </p>
           </div>
           <div className="r8-card">
@@ -302,7 +302,7 @@ export function TabClientReview({
         return (
           <AdvanceBar
             weight="light"
-            back={{ label: "Send", onClick: () => onGo("send") }}
+            back={{ label: "Preview", onClick: () => onGo("preview") }}
             mid={
               <span>
                 {/* Slice 12 Step 7c review-fix (CB P4.4) — verbatim R8

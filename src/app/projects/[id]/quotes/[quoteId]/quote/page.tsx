@@ -14,7 +14,6 @@ import {
   getLatestRespondedEventForPrefill,
 } from "@/lib/quote-review-events";
 import { getLatestSupersededSnapshot } from "@/lib/quote-snapshots";
-import { loadUnresolvedQuoteCosts } from "@/lib/quote-cost-completeness";
 import { resolveHubspotAcceptStageLabel } from "@/lib/hubspot-stage-label";
 import { loadSalesOrderPreflight } from "@/lib/netsuite/sales-order-preflight";
 import { loadIdentityReadiness } from "@/lib/netsuite/identity-readiness";
@@ -63,8 +62,8 @@ export default async function CustomerViewPage({
     addendum?: string;
     /**
      * Slice 12 Step 1 — sub-tab selection within the Quote umbrella.
-     * Defaults to `preview` if absent or invalid. Values: preview,
-     * send, review, accepted, tier (see subtabs.ts SUBTABS canon).
+     * Defaults to `preview` if absent or invalid. Legacy `send` links
+     * open Preview for drafts and Client Review after finalization.
      */
     tab?: string;
     /** Parity-evidence mount. Admin-only, temporary. */
@@ -159,10 +158,6 @@ export default async function CustomerViewPage({
       latestSupersededSnapshot,
       acceptancePrefill,
       firmSettingsRow,
-      // Send readiness. The cost guard has always refused an unresolved send;
-      // loading it here is what lets the surface SAY so before the operator
-      // presses the button, instead of the refusal arriving as an exception.
-      unresolvedCosts,
     ] = await Promise.all([
       loadScenarioVersionChain({
         projectId: project.id,
@@ -186,7 +181,6 @@ export default async function CustomerViewPage({
         .where(isNull(firmSettings.effectiveUntil))
         .orderBy(desc(firmSettings.effectiveFrom))
         .limit(1),
-      loadUnresolvedQuoteCosts(quote.id),
     ]);
 
     // Slice 12 Step 8b — pull the HubSpot amount 8a pushed at
@@ -318,7 +312,9 @@ export default async function CustomerViewPage({
     const activeTab =
       quote.status === "complete" && activeTabRaw !== "tier"
         ? "preview"
-        : activeTabRaw;
+        : tab === "send" && quote.status !== "draft"
+          ? "review"
+          : activeTabRaw;
 
     const showStateSwitcher =
       dev === "1" || process.env.NODE_ENV !== "production";
@@ -377,7 +373,6 @@ export default async function CustomerViewPage({
           />
         </div>
         <QuoteUmbrella
-          unresolvedCosts={unresolvedCosts}
           activeTab={activeTab}
           view={view}
           quoteId={quote.id}

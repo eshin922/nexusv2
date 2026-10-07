@@ -246,12 +246,9 @@ test("Phase 0 · the irreversible push and the second sendQuote site are guarded
   );
   assert.ok(so.includes("detected and refused rather than duplicated"));
 
-  // The SECOND call site of the action soak run 5 caught. Repairing only the
-  // one the soak landed on would scope the fix to the evidence, not the defect.
-  const flow = readFileSync("src/components/quote-umbrella/send-quote-flow.tsx", "utf8");
-  assert.ok(flow.includes("runGoverned(() => sendQuote(fd))"));
-  assert.ok(flow.includes('setStatus({ kind: "error", message: r.message })'));
-  // `onClose` refuses to dismiss while sending, so a rejection that left the
-  // status pinned on "sending" shut the operator inside the modal.
-  assert.ok(flow.includes("if (isSending) return"), "the trap this repair opens");
+  // Finalize on Preview is the only UI caller of sendQuote. A failed action
+  // must leave an actionable error on that surface.
+  const finalize = readFileSync("src/components/quote/finalize-quote-button.tsx", "utf8");
+  assert.ok(finalize.includes("runGoverned(() => sendQuote(fd))"));
+  assert.ok(finalize.includes("setError(r.message)"));
 });

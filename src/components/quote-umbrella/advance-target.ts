@@ -1,18 +1,17 @@
 // Slice 12 Step 9 — shared advance-target helper.
 //
-// The umbrella has 5 sub-tabs (Preview, Send, Client Review, Mark
-// Accepted, Sales Order). Each renders an AdvanceBar whose target
+// The umbrella has four sub-tabs (Preview, Client Review, Acceptance,
+// Sales Order). Each renders an AdvanceBar whose target
 // depends on WHERE the quote is in its lifecycle — not on which
 // tab is currently rendered.
 //
 // Pre-Step-9 history: each tab hardcoded its advance target. That
 // worked while quote.status stayed in sync with the "current"
-// lifecycle position — draft on Preview/Send, sent on Review, etc.
+// lifecycle position — draft on Preview, sent on Review, etc.
 // It broke the moment a PM revisited an earlier tab on a
 // later-lifecycle quote: Client Review on an accepted quote still
 // pointed at "Mark Accepted →" (P6). CB round 1 fixed the same
-// defect on Send-to-Client but by branching in-file rather than
-// centralizing — Client Review + others carried the pattern.
+// defect in another tab by branching in-file rather than centralizing.
 //
 // This helper computes the "next lifecycle target" from
 // quoteStatus alone. Every tab consumes it; hardcoded advance
@@ -20,14 +19,14 @@
 //
 // Lifecycle → frontier tab (the sub-tab that owns the current
 // state's forward action):
-//   draft     → send      (draft's forward action is to send)
-//   sent      → accepted  (post-send: record acceptance)
+//   draft     → preview   (finalize from Preview)
+//   sent      → accepted  (record acceptance)
 //   accepted  → tier      (post-accept: push the Sales Order)
 //   complete  → null      (umbrella read-only)
 //
 // Additional rule: if the current tab IS the frontier, no forward
 // advance from this tab (the tab has its own submit-style action
-// like SendQuote, fireMark, or the SendOrderModal — not an
+// like finalizing, fireMark, or the SendOrderModal — not an
 // AdvanceBar forward). Callers still render the AdvanceBar as
 // a status pill without a forward button in that case.
 
@@ -53,7 +52,7 @@ export function computeUmbrellaAdvance(
 
   const frontier: SubTabId | null =
     quoteStatus === "draft"
-      ? "send"
+      ? "preview"
       : quoteStatus === "sent"
         ? "accepted"
         : quoteStatus === "accepted"
@@ -65,11 +64,11 @@ export function computeUmbrellaAdvance(
   // action, not a forward advance. Caller renders no forward button.
   if (frontier === currentTab) return null;
 
-  if (frontier === "send") {
+  if (frontier === "preview") {
     return {
-      targetTab: "send",
-      label: "Continue to Send →",
-      caption: "Reversible — you can come back and revise",
+      targetTab: "preview",
+      label: "Review draft →",
+      caption: "Finalize the quote from its preview",
     };
   }
   if (frontier === "accepted") {

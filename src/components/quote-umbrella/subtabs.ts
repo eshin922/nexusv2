@@ -1,29 +1,27 @@
 // Slice 12 Step 1 — sub-tab definitions.
 //
-// Order is LOCKED per v3 brief §4.1 (Preview → Send → Client Review →
-// Mark Accepted → Tier Selection). Sub-tab IDs are canonical from R8
-// data.js (`window.NXR8.subtabs`); URL query param `?tab=<id>` uses
-// these values verbatim.
+// The quote flow is Preview → Client Review → Acceptance → Sales Order.
+// URL query param `?tab=<id>` uses these IDs; the page redirects legacy
+// `?tab=send` links to the appropriate remaining tab.
 //
 // `state_req` — minimum quote.status for the tab to be reachable.
-//   preview + send both need `draft`
+//   preview needs `draft`
 //   review + accepted both need `sent`
 //   tier needs `accepted`
 // `kind` — visual treatment on the sub-tab strip:
-//   transition — normal sub-tab (Preview, Send, Mark Accepted)
+//   transition — normal sub-tab (Preview, Acceptance)
 //   log        — Client Review (rounded-square numeral, dotted underline)
 //   lock       — Tier Selection (the irreversible commit; heavy Advance)
 
 export type SubTabId =
   | "preview"
-  | "send"
   | "review"
   | "accepted"
   | "tier";
 
 export type SubTabDef = {
   id: SubTabId;
-  n: 1 | 2 | 3 | 4 | 5;
+  n: 1 | 2 | 3 | 4;
   label: string;
   state_req: "draft" | "sent" | "accepted";
   kind: "transition" | "log" | "lock";
@@ -31,16 +29,15 @@ export type SubTabDef = {
 
 export const SUBTABS: readonly SubTabDef[] = [
   { id: "preview",  n: 1, label: "Preview Quote",  state_req: "draft",    kind: "transition" },
-  { id: "send",     n: 2, label: "Send to Client", state_req: "draft",    kind: "transition" },
-  { id: "review",   n: 3, label: "Client Review",  state_req: "sent",     kind: "log" },
+  { id: "review",   n: 2, label: "Client Review",  state_req: "sent",     kind: "log" },
   // Slice 12 Step 8a — R9.1 renames per docs/design-prototypes/dist/
   // round-9/app/r9/data.js. String changes only — sub-tab ids
   // (`accepted`, `tier`) stay stable so URL params (`?tab=accepted`)
   // don't break for bookmarks. Rationale (R9.1-2): "Mark Accepted"
   // and "Tier Selection" both named buttons/actions; the new labels
   // name the ARTIFACT, which stays true across all of a tab's states.
-  { id: "accepted", n: 4, label: "Acceptance",     state_req: "sent",     kind: "transition" },
-  { id: "tier",     n: 5, label: "Sales Order",    state_req: "accepted", kind: "lock" },
+  { id: "accepted", n: 3, label: "Acceptance",     state_req: "sent",     kind: "transition" },
+  { id: "tier",     n: 4, label: "Sales Order",    state_req: "accepted", kind: "lock" },
 ] as const;
 
 export function isSubTabId(v: unknown): v is SubTabId {

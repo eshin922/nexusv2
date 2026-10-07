@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { sendQuote } from "@/app/actions/quotes";
 import { ERR } from "@/lib/action-result";
@@ -66,6 +67,7 @@ export function FinalizeQuoteButton({
   title?: string;
 }) {
   const { pdfLayout, detailLevel, includeSpecAddendum } = useQuoteAxis();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // ── ONE REFUSAL RENDERS AS A WORK LIST, NOT A SENTENCE ─────────────────
@@ -140,7 +142,12 @@ export function FinalizeQuoteButton({
             // Soak run 5 measured a 503 here that left the quote in `draft`
             // with nothing on screen; the operator's evidence that the freeze
             // had failed was that the page did not change.
-            if (r.kind === "ok") return;
+            if (r.kind === "ok") {
+              const target = new URL(window.location.href);
+              target.searchParams.set("tab", "review");
+              router.replace(`${target.pathname}${target.search}`);
+              return;
+            }
             if (r.kind === "unreachable") {
               setError(r.message);
               return;

@@ -13,12 +13,8 @@ function formatShortDate(iso: string | null): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Slice 12 Step 5d — SendButton MOVED out of this file into
-// src/components/quote-umbrella/send-quote-flow.tsx. Send action now
-// lives in the Send sub-tab (Step 5c body); PreviewToolbar retains
-// info + notes + download + PDF-layout toggle only. History of the
-// send button (dev stub → real send path → in-DOM Modal Gate-0 hotfix
-// → context-read axis at Step 5d) lives in that file's header.
+// Finalization lives in the customer-view rail on Preview Quote.
+// This toolbar retains info, notes, downloads, and PDF-layout controls.
 
 /**
  * F4 — the PURE / PASS-THROUGH / PARTIAL switcher is gone.
@@ -174,9 +170,6 @@ export function PreviewToolbar({
         >
           ↳ Download + open mail draft
         </button>
-        {/* Send button MOVED to Send sub-tab per Step 5d — see
-            src/components/quote-umbrella/send-quote-flow.tsx +
-            tab-send-to-client.tsx pre-send state. */}
       </div>
       {notesOpen && (
         <CustomerNotesDrawer

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
@@ -24,7 +24,7 @@ function trackedSourceFiles(): string[] {
     },
   )
     .split(/\r?\n/)
-    .filter((file) => /\.(?:ts|tsx)$/.test(file));
+    .filter((file) => /\.(?:ts|tsx)$/.test(file) && existsSync(join(ROOT, file)));
 }
 
 test("validation-mode selection is confined to startup composition", () => {
