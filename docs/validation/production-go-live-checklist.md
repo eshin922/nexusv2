@@ -41,6 +41,26 @@ fire**, which is why the write is suppressed rather than reversed.
 | **Hard boundary** | `src/lib/integrations/hubspot-certification-suppression.ts` |
 | **Regressions** | `tests/unit/certification-hubspot-suppression.test.ts` |
 
+### When this gate applies — NOT at beta launch
+
+**Business disposition, 2026-08-25.** `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC=1` is
+set on **Production, Preview and Development** and **remains enabled throughout
+beta**. The beta requirement is the opposite of this checklist: Nexus Acceptance
+must NOT change the production HubSpot deal stage or trigger the downstream
+workflow.
+
+So the evidence below is the **production-handoff** gate, not a beta launch
+blocker. It becomes live only when Edward explicitly authorizes Nexus Acceptance
+to control HubSpot stage progression. Do not run it against a beta deployment
+and read a throw as a release defect — with the flag set, it throws by design.
+
+**Stage and amount are enabled together.** They are inseparable at the API
+layer — `hubspot.ts:updateDealStage` puts `dealstage` and `amount` into one
+`properties` object for a single `basicApi.update` PATCH — and inseparable by
+disposition: no independent stage/amount control is required, and no separate
+feature flag or synchronization path is to be created for it. Removing
+suppression enables both writes at once.
+
 ### Go-live evidence required
 
 - [ ] **1 · Synchronization is enabled.** `NEXUS_SUPPRESS_HUBSPOT_ACCEPT_SYNC`
