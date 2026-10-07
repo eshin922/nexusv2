@@ -6,9 +6,8 @@
 //
 // Pattern 30: structure preserved 1:1. `.pp-terms` + nested
 // `.pp-term` cells map to flex-wrap container + 50% flex children.
-// Each block can paginate independently; the quote must not reserve enough
-// space for all commercial details, notes, conditions, and acceptance copy as
-// one unbreakable unit.
+// The sections paginate independently. Notes, conditions, and acceptance copy
+// each stay together, without forcing the whole group onto a new page.
 //
 // `text-transform: uppercase` on labels (styles.css:298, 311) →
 // `.toUpperCase()` at render time.
@@ -64,7 +63,7 @@ export function TermsBlock({
 export function TcsBlock({ tcs }: { tcs: string | null }) {
   if (tcs == null || tcs.length === 0) return null;
   return (
-    <View style={styles.notes}>
+    <View style={styles.notes} wrap={false}>
       <Text style={styles.notesLabel}>{"Terms & conditions".toUpperCase()}</Text>
       <Text style={styles.notesP}>{tcs}</Text>
     </View>
@@ -74,7 +73,7 @@ export function TcsBlock({ tcs }: { tcs: string | null }) {
 export function NotesBlock({ notes }: { notes: string | null }) {
   if (notes == null || notes.length === 0) return null;
   return (
-    <View style={styles.notes}>
+    <View style={styles.notes} wrap={false}>
       <Text style={styles.notesLabel}>{"Notes".toUpperCase()}</Text>
       <Text style={styles.notesP}>{notes}</Text>
     </View>
@@ -83,7 +82,7 @@ export function NotesBlock({ notes }: { notes: string | null }) {
 
 export function HowToAccept() {
   return (
-    <View style={styles.accept}>
+    <View style={styles.accept} wrap={false}>
       <Text style={styles.h3}>How to accept</Text>
       <Text style={styles.acceptP}>
         Reply to this quote with the tier and quantity you{"'"}d like to proceed
