@@ -21,6 +21,18 @@ import { longDate } from "./customer-pdf-helpers";
 import { styles } from "./customer-pdf-styles";
 import type { CpdfQuote } from "./customer-pdf-types";
 
+function VerbatimLines({ value }: { value: string }) {
+  return (
+    <View>
+      {value.split(/\r\n|\r|\n/).map((line, index) => (
+        <Text key={index} style={styles.notesP}>
+          {line || "\u00a0"}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 export function TermsBlock({
   quote,
   incoterms,
@@ -65,7 +77,7 @@ export function TcsBlock({ tcs }: { tcs: string | null }) {
   return (
     <View style={styles.notes} wrap={false}>
       <Text style={styles.notesLabel}>{"Terms & conditions".toUpperCase()}</Text>
-      <Text style={styles.notesP}>{tcs}</Text>
+      <VerbatimLines value={tcs} />
     </View>
   );
 }
@@ -75,7 +87,7 @@ export function NotesBlock({ notes }: { notes: string | null }) {
   return (
     <View style={styles.notes} wrap={false}>
       <Text style={styles.notesLabel}>{"Notes".toUpperCase()}</Text>
-      <Text style={styles.notesP}>{notes}</Text>
+      <VerbatimLines value={notes} />
     </View>
   );
 }
