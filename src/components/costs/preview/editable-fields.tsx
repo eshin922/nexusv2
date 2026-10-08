@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { updateAssemblyLeafInputLineMeta } from "@/app/actions/assembly-leaf-inputs";
 import { useCostingStore } from "@/components/costing-store-provider";
-import { ChargeAmountInput, PackagingTierCell, type LineForUI } from "@/components/costs/packaging-drilldown";
+import { ChargeAmountInput, ChargeBasisField, PackagingTierCell, type LineForUI } from "@/components/costs/packaging-drilldown";
 import type { OverviewCharge, OverviewRecurringLine, OverviewTierFact } from "@/lib/costs/costs-overview-model";
 import type { PackagingLineTierRead } from "@/lib/costs/packaging-line-graph-read";
 import { PACKAGING_DOMAIN } from "@/lib/costs/packaging-domain";
@@ -268,10 +268,14 @@ export function ChargeCostField({
 export type M3EditorFieldProps =
   | { kind: "recurring"; line: OverviewRecurringLine; tier: OverviewTierFact; read: PackagingLineTierRead; disabled: boolean }
   | { kind: "markup"; line: OverviewRecurringLine; resolved: PackagingLineTierRead | null; disabled: boolean }
-  | { kind: "charge"; quoteId: string; charge: OverviewCharge; tier: OverviewTierFact; disabled: boolean };
+  | { kind: "charge"; quoteId: string; charge: OverviewCharge; tier: OverviewTierFact; disabled: boolean }
+  | { kind: "charge-basis"; quoteId: string; charge: OverviewCharge; disabled: boolean };
 
 /** Single lazy-load boundary: mounting read-only M2 must not pull server actions into its module graph. */
 export default function M3EditorField(props: M3EditorFieldProps) {
+  if (props.kind === "charge-basis") {
+    return <ChargeBasisField quoteId={props.quoteId} chargeInstanceId={props.charge.chargeInstanceId} basis={props.charge.costBasis} hasCosts={props.charge.amounts.size > 0} disabled={props.disabled} />;
+  }
   if (props.kind === "recurring") {
     return <RecurringCostField line={props.line} tier={props.tier} read={props.read} disabled={props.disabled} />;
   }

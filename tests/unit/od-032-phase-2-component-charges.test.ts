@@ -236,6 +236,28 @@ function componentEconomics(args: Parameters<typeof input>[0]) {
     .filter((e) => e.ownerKind === "component");
 }
 
+test("per-unit component cost extends by the product's own ordered units", () => {
+  const perUnit = charge({
+    chargeKey: "project_setup",
+    costBasis: "per_unit",
+    cost: 0.2243,
+  });
+  const inherited = componentEconomics({ componentCharges: [perUnit] });
+  assert.equal(inherited.length, 1);
+  assert.ok(Math.abs(inherited[0]!.cost - 672.9) < 0.000001);
+
+  const independent = input({ componentCharges: [perUnit] });
+  const leaf = independent.skus.find((sku) => sku.id === "leaf")!;
+  leaf.orderQuantities = { [TIER]: 200 };
+  const charged = computeQuoteCosting(independent).skuRollups
+    .filter((sku) => sku.parentSkuId === null)
+    .flatMap((sku) => sku.perTier)
+    .flatMap((tier) => tier.chargeEconomics ?? [])
+    .find((item) => item.chargeInstanceId === perUnit.chargeInstanceId);
+  assert.ok(charged);
+  assert.ok(Math.abs(charged.cost - 44.86) < 0.000001);
+});
+
 const cents = (n: number) => Math.round(n * 100) / 100;
 function sameMoney(a: number, b: number, why: string) {
   assert.ok(

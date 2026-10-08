@@ -366,7 +366,8 @@ function ChargesGroup({
                   {charge.ownLabel ? ` · ${charge.ownLabel}` : ""}
                 </div>
                 <div className="cm2-flags">
-                  <Tag tone="accent">One-time cost</Tag>
+                  <Tag tone="accent">{charge.costBasis === "per_unit" ? "Cost per unit" : "One-time cost"}</Tag>
+                  {editMode ? <M3Editor kind="charge-basis" quoteId={quoteId} charge={charge} disabled={false} /> : null}
                   <ChargeStateTag charge={charge} />
                 </div>
               </div>
@@ -376,7 +377,7 @@ function ChargesGroup({
                 <ValueCell
                   key={t.id}
                   stored={charge.amounts.get(t.id)?.cost ?? null}
-                  tierLabel={`${t.label} · cost as recorded`}
+                  tierLabel={`${t.label} · ${charge.costBasis === "per_unit" ? "cost per unit" : "one-time total"}`}
                   highlighted={t.id === tier.activeTierId}
                 />
               ))}

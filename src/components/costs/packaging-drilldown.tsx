@@ -28,6 +28,7 @@ import {
 import type { ComponentChargeForCosts } from "@/lib/component-charges/read";
 import type { ComponentChargeReadiness } from "@/lib/component-charges/readiness";
 import {
+  updateComponentChargeBasis,
   updateComponentChargeCost,
   updateToolingClassification,
 } from "@/app/actions/component-charges";
@@ -1670,9 +1671,14 @@ function ComponentChargeRow({
             and shipping it would teach the superseded model at exactly the
             moment the architecture stopped matching it. Named as the surface
             names itself; divergence asserted in the Shape A suite. */}
-        <span className="od032-costs-charge-note">
-          one-time · set in Commercial recovery
-        </span>
+        <ChargeBasisField
+          quoteId={quoteId}
+          chargeInstanceId={charge.chargeInstanceId}
+          basis={charge.costBasis ?? "one_time"}
+          hasCosts={charge.amounts.length > 0}
+          disabled={disabled}
+        />
+        <span className="od032-costs-charge-note od032-costs-charge-recovery">set in Commercial recovery</span>
       </div>
 
       {/* ── ACCOUNTING TYPE — TOOLING ONLY ───────────────────────────────
@@ -1719,7 +1725,9 @@ function ComponentChargeRow({
           <div key={t.id} className="od032-costs-charge-tier">
             <span className="od032-costs-charge-tier-label">{t.label}</span>
             <label className="od032-costs-charge-field">
-              <span className="od032-costs-charge-field-label">cost</span>
+              <span className="od032-costs-charge-field-label">
+                {charge.costBasis === "per_unit" ? "cost / unit" : "total cost"}
+              </span>
               <ChargeAmountInput
                 quoteId={quoteId}
                 chargeInstanceId={charge.chargeInstanceId}
@@ -1742,6 +1750,47 @@ function ComponentChargeRow({
         </p>
       )}
     </div>
+  );
+}
+
+export function ChargeBasisField({
+  quoteId, chargeInstanceId, basis, hasCosts, disabled,
+}: {
+  quoteId: string;
+  chargeInstanceId: string;
+  basis: "one_time" | "per_unit";
+  hasCosts: boolean;
+  disabled: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="od032-costs-charge-note od032-costs-charge-basis">
+      <select
+        aria-label="Charge cost basis"
+        aria-busy={pending}
+        value={basis}
+        disabled={disabled}
+        title="Changing the basis clears previously entered tier costs so amounts are never reinterpreted."
+        onChange={(event) => {
+          const next = event.target.value as "one_time" | "per_unit";
+          setError(null);
+          startTransition(async () => {
+            const result = await updateComponentChargeBasis({
+              quoteId, chargeInstanceId, basis: next,
+            });
+            if (!result.ok) setError(result.error.message);
+            else router.refresh();
+          });
+        }}
+      >
+        <option value="one_time">One-time total</option>
+        <option value="per_unit">Cost per unit</option>
+      </select>
+      {hasCosts ? <span className="od032-costs-charge-basis-warning">Changing clears entered costs</span> : null}
+      {error ? <span role="alert">{error}</span> : null}
+    </span>
   );
 }
 

@@ -22,6 +22,7 @@ import {
   type CreateComponentChargesResult,
 } from "@/lib/component-charges/create";
 import {
+  updateComponentChargeBasisAs,
   updateComponentChargeCostAs,
 } from "@/lib/component-charges/update";
 import type { ActionResult } from "@/lib/action-result";
@@ -61,6 +62,15 @@ export async function updateComponentChargeCost(input: {
 }) {
   const user = await ensureUser();
   return updateComponentChargeCostAs(user.id, input);
+}
+
+export async function updateComponentChargeBasis(input: {
+  quoteId: string;
+  chargeInstanceId: string;
+  basis: "one_time" | "per_unit";
+}) {
+  const user = await ensureUser();
+  return updateComponentChargeBasisAs(user.id, input);
 }
 
 /*

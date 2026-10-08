@@ -107,7 +107,7 @@ test("an instance with no economics yet still appears", () => {
 test("the block names the charge, its label, and where recovery is decided", () => {
   const pkg = read(PKG);
   assert.match(pkg, /One-time charges caused by this component/);
-  assert.match(pkg, /one-time · set in Commercial recovery/);
+  assert.match(pkg, /set in Commercial recovery/);
   // The operator's own label, when there is one — that is what tells two
   // charges of a type apart.
   assert.match(pkg, /od032-costs-charge-label/);

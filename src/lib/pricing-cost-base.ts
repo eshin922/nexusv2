@@ -107,7 +107,7 @@ export function costBaseFingerprint(input: QuoteCostingInput): string {
     parts.push(`assemblyprod:${row}`);
   }
   const charges = (input.componentCharges ?? []).map((c) => JSON.stringify([
-    c.chargeInstanceId, c.tierId, c.chargeKey, c.ownerRef, q(c.cost),
+    c.chargeInstanceId, c.tierId, c.chargeKey, c.ownerRef, c.costBasis ?? "one_time", q(c.cost),
   ]));
   for (const row of charges.sort()) parts.push(`charge:${row}`);
   const elections = (input.chargeElections ?? []).map((e) => JSON.stringify([

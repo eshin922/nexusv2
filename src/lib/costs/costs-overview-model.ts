@@ -257,6 +257,7 @@ export type OverviewProductionLine = {
 export type OverviewCharge = {
   chargeInstanceId: string;
   chargeKey: string;
+  costBasis: "one_time" | "per_unit";
   /** The charge type's canonical label. */
   typeLabel: string;
   /** The operator's own label, where there is one. Never substituted. */
@@ -412,6 +413,7 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
     const charge: OverviewCharge = {
       chargeInstanceId: c.chargeInstanceId,
       chargeKey: c.chargeKey,
+      costBasis: c.costBasis ?? "one_time",
       typeLabel:
         COMPONENT_CHARGE_LABELS[c.chargeKey as ComponentChargeKey] ?? c.chargeKey,
       ownLabel: c.label,

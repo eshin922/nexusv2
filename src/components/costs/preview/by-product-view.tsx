@@ -299,7 +299,8 @@ export function ByProductView({
                   {charge.typeLabel}
                   {charge.ownLabel ? ` · ${charge.ownLabel}` : ""}
                 </span>
-                <Tag tone="accent">One-time cost</Tag>
+                <Tag tone="accent">{charge.costBasis === "per_unit" ? "Cost per unit" : "One-time cost"}</Tag>
+                {editMode ? <M3Editor kind="charge-basis" quoteId={quoteId} charge={charge} disabled={false} /> : null}
                 <ChargeStateTag charge={charge} />
               </div>
               <div className="cm2-edgrid cm2-charge-grid" style={{ ["--cm2-charge-tiers" as string]: String(overview.tiers.length) }}>
@@ -313,13 +314,13 @@ export function ByProductView({
                 */}
                 {overview.tiers.map((t) => editMode ? (
                   <div className="cm2-edfield" key={t.id}>
-                    <span className="cm2-edlabel">{`One-time amount · ${t.label}`}</span>
+                    <span className="cm2-edlabel">{`${charge.costBasis === "per_unit" ? "Cost per unit" : "One-time amount"} · ${t.label}`}</span>
                     <M3Editor kind="charge" quoteId={quoteId} charge={charge} tier={t} disabled={false} />
                   </div>
                 ) : (
                   <EdField
                     key={t.id}
-                    label={`One-time amount · ${t.label}`}
+                    label={`${charge.costBasis === "per_unit" ? "Cost per unit" : "One-time amount"} · ${t.label}`}
                     value={charge.amounts.get(t.id)?.cost ?? null}
                     mono
                   />

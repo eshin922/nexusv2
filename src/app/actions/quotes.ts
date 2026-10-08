@@ -4619,6 +4619,7 @@ export async function cloneQuoteGraph(
     .select({
       id: quoteChargeInstances.id,
       chargeKey: quoteChargeInstances.chargeKey,
+      costBasis: quoteChargeInstances.costBasis,
       ownerRef: quoteChargeInstances.ownerRef,
       ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       label: quoteChargeInstances.label,
@@ -4672,6 +4673,11 @@ export async function cloneQuoteGraph(
       ownerRef,
       label: src.label,
     });
+    if (src.costBasis === "per_unit") {
+      await tx.update(quoteChargeInstances)
+        .set({ costBasis: "per_unit" })
+        .where(eq(quoteChargeInstances.id, newInstanceId));
+    }
     if (src.toolingClassification !== null) {
       await tx
         .update(quoteChargeInstances)
