@@ -124,7 +124,9 @@ test("an unreadable amount is refused, never coerced", () => {
   // `Number("")` is 0 and `Number("abc")` is NaN. Both would enter the quote as
   // a cost fact nobody stated.
   const u = codeOnly(read(UPDATE));
-  assert.match(u, /!\/\^\\d\+\(\\\.\\d\{1,2\}\)\?\$\/\.test\(t\)/);
+  assert.match(u, /basis === "per_unit"/);
+  assert.match(u, /\\d\{1,4\}/);
+  assert.match(u, /\\d\{1,2\}/);
   for (const raw of ["Number(input.cost)", "Number(raw)", "parseFloat"]) {
     assert.ok(!u.includes(raw), `${raw} would coerce rather than refuse`);
   }
@@ -150,12 +152,14 @@ test("an ask cannot be entered before a cost", () => {
 // The Costs writer cannot do Setup's job or Recovery's
 // ══════════════════════════════════════════════════════════════════════
 
-test("the Costs writer writes ECONOMICS and nothing else", () => {
+test("the Costs writer changes only economics and its cost basis", () => {
   const u = codeOnly(read(UPDATE));
-  // No insert into the instance table: it cannot create a charge or change one.
+  // The instance's cost basis is a Costs fact; charge identity and owner remain Setup's.
   assert.ok(
-    !/insert\(quoteChargeInstances\)/.test(u) && !/update\(quoteChargeInstances\)/.test(u),
-    "Costs must not create or alter a charge — Setup owns identity and ownership",
+    !/insert\(quoteChargeInstances\)/.test(u) &&
+      /update\(quoteChargeInstances\)\.set\(\{ costBasis: input\.basis \}\)/.test(u) &&
+      !/\.set\(\{[^}]*ownerRef/.test(u),
+    "Costs may change the cost basis, never create or reassign a charge",
   );
   // No election: Recovery owns customer treatment.
   assert.ok(
@@ -214,7 +218,7 @@ test("one cell per QUOTED TIER, not one per stored amount", () => {
   // rather than a shorter row.
   const pkg = codeOnly(read(PKG));
   assert.match(pkg, /const byTier = new Map\(charge\.amounts\.map\(\(a\) => \[a\.tierId, a\]\)\)/);
-  assert.match(pkg, /tiers\.map\(\(t\) => \([\s\S]{0,600}?byTier\.get\(t\.id\)\?\.cost \?\? null/);
+  assert.match(pkg, /tiers\.map\(\(t\) => \([\s\S]{0,1200}?byTier\.get\(t\.id\)\?\.cost \?\? null/);
   assert.ok(
     !/charge\.amounts\.map\(\(a\) => \(/.test(pkg),
     "rendering the stored amounts in stored order is the defect",

@@ -4990,6 +4990,8 @@ export const quoteChargeInstances = pgTable(
      * found it next.
      */
     toolingClassification: toolingClassification("tooling_classification"),
+    /** Cost entry grain. Existing charges remain one-time totals. */
+    costBasis: text("cost_basis").notNull().default("one_time"),
     /** `'@quote'` or a `quote_leaves` id. Never null — a nullable owner is the
      * state the design rejects, and the one that makes freight attribution
      * guesswork today. */
@@ -5030,13 +5032,13 @@ export const quoteChargeInstances = pgTable(
 /**
  * Per-tier economics for one charge instance — OD-032 phase 2.
  *
- * Both amounts are OPERATOR-ENTERED and nothing is derived. Per
- * `costs-page-layout` §1: "one-time costs are entered per tier, explicitly, by
- * the operator... Division is the operator's statement, not a calculation."
+ * Both amounts are OPERATOR-ENTERED. One-time cost amounts are tier totals;
+ * per-unit cost amounts are rates. The engine extends those rates by the
+ * owning product's ordered units at each tier.
  *
- * THERE IS NO `basis` COLUMN. Every component-owned charge is `one_time` —
- * "no exceptions, and the sheet never asks" — and a column that can hold only
- * one value can one day hold another.
+ * The instance's cost basis determines whether this amount is a tier total or
+ * a per-unit rate. The costing engine multiplies per-unit rates by the owning
+ * product's ordered quantity, including independent sub-quantities.
  */
 export const quoteChargeInstanceTiers = pgTable(
   "quote_charge_instance_tiers",
@@ -5048,7 +5050,7 @@ export const quoteChargeInstanceTiers = pgTable(
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
     /** What DPS pays. Cost truth: invariant under every recovery election. */
-    costAmount: numeric("cost_amount", { precision: 12, scale: 2 })
+    costAmount: numeric("cost_amount", { precision: 14, scale: 4 })
       .notNull()
       .default("0"),
     /**

@@ -57,14 +57,14 @@ import { revalidateQuoteTree } from "@/lib/revalidate";
  * Rejected rather than coerced: `Number("")` is 0 and `Number("abc")` is NaN,
  * and both would enter the quote as a cost fact nobody stated.
  */
-function money(raw: string | null | undefined, what: string): string | null {
+function money(raw: string | null | undefined, what: string, basis: "one_time" | "per_unit"): string | null {
   if (raw === null || raw === undefined) return null;
   const t = raw.trim().replace(/,/g, "");
   if (t === "") return null;
-  if (!/^\d+(\.\d{1,2})?$/.test(t)) {
+  if (!(basis === "per_unit" ? /^\d+(\.\d{1,4})?$/ : /^\d+(\.\d{1,2})?$/).test(t)) {
     throw new ActionGuardError(
       ERR.VALIDATION,
-      `${what} must be a positive amount with at most two decimals — received "${raw}".`,
+      `${what} must be a positive amount with at most ${basis === "per_unit" ? "four" : "two"} decimals — received "${raw}".`,
     );
   }
   return t;
@@ -81,6 +81,7 @@ async function loadTarget(quoteId: string, chargeInstanceId: string, tierId: str
       id: quoteChargeInstances.id,
       chargeKey: quoteChargeInstances.chargeKey,
       label: quoteChargeInstances.label,
+      costBasis: quoteChargeInstances.costBasis,
       ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
     })
     .from(quoteChargeInstances)
@@ -159,7 +160,8 @@ export async function updateComponentChargeCostAs(
       input.tierId,
     );
 
-    const next = money(input.cost, `Cost for ${tier.label}`);
+    const basis = charge.costBasis === "per_unit" ? "per_unit" : "one_time";
+    const next = money(input.cost, `Cost for ${tier.label}`, basis);
     if (next !== null && Number(next) === 0) {
       throw new ActionGuardError(
         ERR.VALIDATION,
@@ -242,6 +244,62 @@ export async function updateComponentChargeCostAs(
   });
 }
 
+/** Changing the unit of measure must never reinterpret a stored dollar figure. */
+export async function updateComponentChargeBasisAs(
+  userId: string,
+  input: { quoteId: string; chargeInstanceId: string; basis: "one_time" | "per_unit" },
+): Promise<ActionResult<{ chargeInstanceId: string; basis: "one_time" | "per_unit" }>> {
+  return runAction(async () => {
+    const quote = await quoteByIdDraft(input.quoteId);
+    assertNotFrozen(quote);
+    if (input.basis !== "one_time" && input.basis !== "per_unit") {
+      throw new ActionGuardError(ERR.VALIDATION, "Choose a valid cost basis.");
+    }
+    const [charge] = await db.select({
+      id: quoteChargeInstances.id,
+      ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
+      costBasis: quoteChargeInstances.costBasis,
+      chargeKey: quoteChargeInstances.chargeKey,
+    }).from(quoteChargeInstances).where(and(
+      eq(quoteChargeInstances.id, input.chargeInstanceId),
+      eq(quoteChargeInstances.quoteId, input.quoteId),
+    )).limit(1);
+    if (!charge || !charge.ownerQuoteLeafId) {
+      throw new ActionGuardError(ERR.NOT_FOUND, "That product charge is not on this quote.");
+    }
+    if (charge.costBasis === input.basis) {
+      return { chargeInstanceId: charge.id, basis: input.basis };
+    }
+    await db.transaction(async (tx) => {
+      const previous = await tx.select({
+        tierId: quoteChargeInstanceTiers.tierId,
+        cost: quoteChargeInstanceTiers.costAmount,
+      }).from(quoteChargeInstanceTiers).where(
+        eq(quoteChargeInstanceTiers.chargeInstanceId, charge.id),
+      );
+      await tx.delete(quoteChargeInstanceTiers).where(
+        eq(quoteChargeInstanceTiers.chargeInstanceId, charge.id),
+      );
+      await tx.update(quoteChargeInstances).set({ costBasis: input.basis }).where(
+        eq(quoteChargeInstances.id, charge.id),
+      );
+      await writeAuditEntry({
+        userId, entityType: "quote", entityId: input.quoteId,
+        action: "component_charge_cost_basis_updated",
+        diffJson: {
+          charge_instance_id: charge.id,
+          charge_key: charge.chargeKey,
+          from: charge.costBasis,
+          to: input.basis,
+          cleared_tier_costs: previous,
+        },
+      }, tx);
+    });
+    revalidateQuoteTree(quote.projectId, input.quoteId);
+    return { chargeInstanceId: charge.id, basis: input.basis };
+  });
+}
+
 /**
  * What DPS intends to recover for this charge at this tier.
  *
@@ -306,7 +364,7 @@ export async function updateComponentChargeAskAs(
       );
     }
 
-    const next = money(input.ask, `Recovery ask for ${tier.label}`);
+    const next = money(input.ask, `Recovery ask for ${tier.label}`, "one_time");
     const before = existing.recoveryAsk ?? null;
     if (before === next) {
       return { chargeInstanceId: input.chargeInstanceId, tierId: input.tierId, ask: next };

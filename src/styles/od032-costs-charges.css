@@ -82,6 +82,25 @@
   color: var(--ink-4);
   white-space: nowrap;
 }
+.od032-costs-charge-basis select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 3px 5px;
+}
+.od032-costs-charge-recovery {
+  margin-left: 0;
+}
+.od032-costs-charge-basis-warning {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-4);
+  font-size: 8px;
+  letter-spacing: 0;
+  text-transform: none;
+}
 
 /* ── per-tier fixed totals ────────────────────────────────────────────── */
 

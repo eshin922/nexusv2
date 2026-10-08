@@ -896,6 +896,7 @@ async function loadComponentCharges(
       chargeInstanceId: quoteChargeInstanceTiers.chargeInstanceId,
       tierId: quoteChargeInstanceTiers.tierId,
       chargeKey: quoteChargeInstances.chargeKey,
+      costBasis: quoteChargeInstances.costBasis,
       ownerQuoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       costAmount: quoteChargeInstanceTiers.costAmount,
     })
@@ -919,6 +920,7 @@ async function loadComponentCharges(
         chargeInstanceId: r.chargeInstanceId,
         tierId: r.tierId,
         chargeKey: r.chargeKey,
+        costBasis: r.costBasis === "per_unit" ? "per_unit" : "one_time",
         // Non-null by the WHERE above; the narrowing is for the compiler,
         // which cannot see a predicate expressed in SQL.
         ownerRef: r.ownerQuoteLeafId as string,

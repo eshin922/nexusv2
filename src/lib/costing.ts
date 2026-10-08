@@ -1392,6 +1392,8 @@ export type ComponentChargeInput = {
   chargeKey: RecoveryChargeKey;
   /** The `quote_leaves` id that caused it. Causal, never an anchor. */
   ownerRef: string;
+  /** Existing charges default to a one-time tier total. */
+  costBasis?: "one_time" | "per_unit";
   /** What DPS pays, for THIS tier. Operator-entered; nothing is derived. */
   cost: number;
 };
@@ -1410,7 +1412,7 @@ export type ComponentChargeInput = {
 /**
  * Component-owned charges, as `ChargeEconomics`.
  *
- * ── THE AMOUNT IS A TOTAL, AND NOTHING SCALES IT ────────────────────────
+ * ── ECONOMICS CARRY A TIER TOTAL ────────────────────────────────────────
  *
  * Every value on a leaf rollup is per-unit and is multiplied by `q` on the way
  * up, because a component used q times per parent contributes q times its unit
@@ -1418,11 +1420,10 @@ export type ComponentChargeInput = {
  * where `chargeEconomics` bubbles: "CONCATENATED, NOT SCALED... multiplying it
  * by a bill-of-materials quantity would invent money."
  *
- * So this returns the operator's figure unchanged. There is no per-unit
- * division here and no quantity multiplication anywhere above, which together
- * are why a $1,450 plate set contributes $1,450 and not $1,450 x qty — the
- * OD-025 shape, avoided by construction rather than by arithmetic that happens
- * to cancel.
+ * One-time input is already a tier total and travels unchanged. Per-unit input
+ * is first extended by this product's ordered units (including its independent
+ * sub-quantity), producing a tier total. That total then follows the same
+ * non-scaling rollup, so a $1,450 plate set still contributes exactly $1,450.
  *
  * ── THE RATE COMES FROM THE CHARGE TYPE ─────────────────────────────────
  *
@@ -1448,16 +1449,18 @@ export type ComponentChargeInput = {
 export function componentChargeEconomics(
   charges: readonly ComponentChargeInput[],
   markupDefaults: Record<string, number>,
+  orderedUnits = 1,
 ): ChargeEconomics[] {
   const out: ChargeEconomics[] = [];
   for (const c of charges) {
+    const tierCost = c.costBasis === "per_unit" ? c.cost * orderedUnits : c.cost;
     // A zero-cost charge is not a charge, the same rule the production columns
     // use. An instance with no economics entered yet is not yet a cost fact.
     //
     // The old test also asked whether a recovery had been entered. With the
     // recovery derived from cost that question no longer adds anything: a
     // zero cost recovers zero at every rate.
-    if (c.cost === 0) continue;
+    if (tierCost === 0) continue;
 
     // Total over `ComponentChargeKey`, so `unclassified` is the only way to
     // miss -- and it is a decision, not an absent row.
@@ -1487,11 +1490,11 @@ export function componentChargeEconomics(
       chargeInstanceId: c.chargeInstanceId,
       ownerKind: "component",
       ownerRef: c.ownerRef,
-      cost: c.cost,
+      cost: tierCost,
       // NULL survives as NULL. Coercing to 0 would turn "nothing governs what
       // this recovers" into "this recovers nothing" -- a different commercial
       // claim, and the one BV-013 exists to keep apart.
-      recoverableSell: ratePct === null ? null : c.cost * (1 + ratePct),
+      recoverableSell: ratePct === null ? null : tierCost * (1 + ratePct),
       // Recorded only when a rate actually resolved, matching
       // `chargeEconomicsFor`. Naming a category beside a null rate would
       // claim an authority that did not answer.
@@ -2159,6 +2162,8 @@ function computeLeafPerTier(args: {
    * charge lands on is decided by who caused it rather than by row order.
    */
   componentCharges: readonly ComponentChargeInput[];
+  /** This product's ordered units, including an independent sub-quantity. */
+  chargeUnits?: number | null;
   /**
    * Recovery elections for this quote. Resolved ONCE, here, into the
    * constructed commercial state every consumer reads. Empty is the whole of
@@ -2447,7 +2452,7 @@ function computeLeafPerTier(args: {
   // tooling AND a plate set its own carton caused.
   const chargeEconomics = [
     ...chargeEconomicsFor(production, productionMarkupResolution.value),
-    ...componentChargeEconomics(args.componentCharges, markupDefaults),
+    ...componentChargeEconomics(args.componentCharges, markupDefaults, args.chargeUnits ?? 0),
   ];
 
   // ── THE CONSTRUCTION, AT THE ONLY PLACE THAT CAN DO IT ─────────────────
@@ -4751,6 +4756,7 @@ export function computeQuoteCosting(input: QuoteCostingInput,
                   c.tierId === tier.id,
               )
             : [],
+          chargeUnits: resolvedQuantity.quantity,
           chargeElections: input.chargeElections ?? [],
           freightLegs: sortedLegs,
           freightLegTiers: input.freightLegTiers,

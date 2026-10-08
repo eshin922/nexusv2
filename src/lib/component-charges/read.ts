@@ -25,6 +25,7 @@ export type ComponentChargeForCosts = {
   /** The `quote_leaves` id that caused it. */
   quoteLeafId: string;
   chargeKey: string;
+  costBasis?: "one_time" | "per_unit";
   label: string | null;
   /** Which kind of tooling, for a `tooling` charge. NULL on every other type. */
   toolingClassification: "mould_collar" | "cutting_die" | null;
@@ -40,6 +41,7 @@ export async function readComponentChargesForCosts(
       chargeInstanceId: quoteChargeInstances.id,
       quoteLeafId: quoteChargeInstances.ownerQuoteLeafId,
       chargeKey: quoteChargeInstances.chargeKey,
+      costBasis: quoteChargeInstances.costBasis,
       label: quoteChargeInstances.label,
       toolingClassification: quoteChargeInstances.toolingClassification,
       tierId: quoteChargeInstanceTiers.tierId,
@@ -69,6 +71,7 @@ export async function readComponentChargesForCosts(
         chargeInstanceId: r.chargeInstanceId,
         quoteLeafId: owner,
         chargeKey: r.chargeKey,
+        costBasis: r.costBasis === "per_unit" ? "per_unit" : "one_time",
         label: r.label,
         toolingClassification: r.toolingClassification ?? null,
         amounts: [],
