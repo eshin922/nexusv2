@@ -6086,6 +6086,34 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       const members = unit.skuRole === "assembly"
         ? skus.filter((s) => s.parentSkuId === unit.id)
         : [unit];
+      // Product costs live in the historical packaging input table. Publish
+      // the same product-type lane reassignment used by the quote-wide stack
+      // at this commercial unit's grain too.
+      const classifiedShift = (root: typeof unit) => {
+        const shift = { prodCost: 0, prodSell: 0, rawCost: 0, rawSell: 0 };
+        const visit = (sku: typeof unit, weight: number) => {
+          if (sku.skuRole === "assembly") {
+            for (const child of skus.filter((s) => s.parentSkuId === sku.id)) {
+              visit(child, weight * num(child.qtyPerParent, 1));
+            }
+            return;
+          }
+          const lane = productCostLane(sku.productType);
+          if (lane === "pkg") return;
+          const pt = rollupBySku.get(sku.id)?.perTier.find((p) => p.tierId === tier.id);
+          if (!pt) return;
+          if (lane === "raw") {
+            shift.rawCost += pt.packagingCostPerUnit * weight;
+            shift.rawSell += pt.packagingMarkupSumPerUnit * weight;
+          } else {
+            shift.prodCost += pt.packagingCostPerUnit * weight;
+            shift.prodSell += pt.packagingMarkupSumPerUnit * weight;
+          }
+        };
+        visit(root, 1);
+        return shift;
+      };
+      const laneShift = classifiedShift(unit);
       // A COMPONENT TRACES TO THE LEAVES THAT COMPOSE IT (P-PriceBuild-UX1).
       //
       // These were bare origins, so clicking one opened a terminal with a
@@ -6101,7 +6129,8 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       const part = (
         name: string,
         label: string,
-        pick: (p: SkuPerTierRollup) => number,
+        pick: (p: SkuPerTierRollup, member: typeof unit) => number,
+        governedTotal: number,
       ) => {
         const operands = members.flatMap((m) => {
           const mpt = rollupBySku.get(m.id)?.perTier.find((x) => x.tierId === tier.id);
@@ -6117,11 +6146,25 @@ export function computeQuoteCosting(input: QuoteCostingInput,
             key: nodeKey(unitBase, name, m.canonicalQuoteLeafId ?? m.id),
             kind: "origin" as const,
             label: productIdentityLabel(m),
-            value: pick(mpt) * qty,
+            value: pick(mpt, m) * qty,
             unit: "usd" as const,
             origin: { grade: "thin" as const, actor: null, when: null, doc: null },
           }];
         });
+        // An Item Group may have its own economics or a freight allocation
+        // that differs from the sum of member-unit rates. Carry the governed
+        // group remainder explicitly instead of losing it from the build.
+        const memberTotal = operands.reduce((acc, o) => acc + o.value, 0);
+        if (unit.skuRole === "assembly" && Math.abs(governedTotal - memberTotal) > 1e-9) {
+          operands.push({
+            key: nodeKey(unitBase, name, "group-own"),
+            kind: "origin" as const,
+            label: (unit.productName || unit.skuLabel) + " — group contribution",
+            value: governedTotal - memberTotal,
+            unit: "usd" as const,
+            origin: { grade: "thin" as const, actor: null, when: null, doc: null },
+          });
+        }
         const value = operands.reduce((acc, o) => acc + o.value, 0);
         return operands.length > 1
           ? {
@@ -6145,11 +6188,14 @@ export function computeQuoteCosting(input: QuoteCostingInput,
       // Exactly the five that compose the per-unit sell. Verified on live data:
       // 6.95 + 0 + 0 + 0.56 + 0 = 7.51 = requiredSellPerUnit.
       const parts = [
-        part("pkg", "Packaging", (p) => p.packagingMarkupSumPerUnit),
-        part("prod", "Production", (p) => p.productionMarkupSumPerUnit),
-        part("raw", "Bulk raw", (p) => p.rawMarkupSumPerUnit),
-        part("frt", "Freight", (p) => p.freightContainerMarkupSumPerUnit),
-        part("dt", "Duty & tariff", (p) => p.freightDutyTariffMarkupSumPerUnit),
+        part("pkg", "Packaging", (p, m) => {
+          const shift = classifiedShift(m);
+          return p.packagingMarkupSumPerUnit - shift.prodSell - shift.rawSell;
+        }, upt.packagingMarkupSumPerUnit - laneShift.prodSell - laneShift.rawSell),
+        part("prod", "Production", (p, m) => p.productionMarkupSumPerUnit + classifiedShift(m).prodSell, upt.productionMarkupSumPerUnit + laneShift.prodSell),
+        part("raw", "Bulk raw", (p, m) => p.rawMarkupSumPerUnit + classifiedShift(m).rawSell, upt.rawMarkupSumPerUnit + laneShift.rawSell),
+        part("frt", "Freight", (p) => p.freightContainerMarkupSumPerUnit, upt.freightContainerMarkupSumPerUnit),
+        part("dt", "Duty & tariff", (p) => p.freightDutyTariffMarkupSumPerUnit, upt.freightDutyTariffMarkupSumPerUnit),
       ];
       // THE COMPONENTS SUM TO THE BUILD, NOT TO THE TERMINAL SELL.
       //
@@ -6189,6 +6235,21 @@ export function computeQuoteCosting(input: QuoteCostingInput,
           unit: "usd" as const,
           origin: { grade: "thin" as const, actor: null, when: null, doc: null },
         });
+      // Costs' scoped Price build reads the same five sell contributions as
+      // Pricing, with their cost/markup segments published by this engine.
+      // The assembly rollup already weights each child by qtyPerParent.
+      const componentBases = [
+        ["pkg", "Packaging", upt.packagingCostPerUnit - laneShift.prodCost - laneShift.rawCost, upt.packagingMarkupSumPerUnit - laneShift.prodSell - laneShift.rawSell],
+        ["prod", "Production", upt.productionCostPerUnit + laneShift.prodCost, upt.productionMarkupSumPerUnit + laneShift.prodSell],
+        ["raw", "Bulk raw", upt.rawCostPerUnit + laneShift.rawCost, upt.rawMarkupSumPerUnit + laneShift.rawSell],
+        ["frt", "Freight", upt.totalContainerFreightBeforeMarkup, upt.freightContainerMarkupSumPerUnit],
+        ["dt", "Duty & tariff", upt.totalDutyTariffBeforeMarkup, upt.freightDutyTariffMarkupSumPerUnit],
+      ] as const;
+      for (const [name, label, cost, markedUp] of componentBases) {
+        scalar(`${name}/cost`, `${label} cost per unit`, cost);
+        scalar(`${name}/markup`, `${label} markup per unit`, markedUp - cost);
+      }
+      scalar("departure", "Price decision per unit", upt.requiredSellPerUnit - parts.reduce((a, p) => a + p.value, 0));
       const rung = (name: string, label: string, value: number): CostingNode => ({
         key: nodeKey(unitBase, name),
         kind: "origin",
