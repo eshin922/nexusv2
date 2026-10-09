@@ -24,7 +24,7 @@ import {
 import { materializePackagingRows } from "@/lib/packaging-materialization";
 import { revalidateQuoteTree } from "@/lib/revalidate";
 import { evaluateAttachmentEligibility } from "@/lib/product-structure/attachment-eligibility";
-import { moveStructuralMembership } from "@/lib/product-structure/structural-move";
+import { moveStructuralMembership, StructuralMoveBlockedError, StructuralMoveError } from "@/lib/product-structure/structural-move";
 import { assertMembershipQuantity } from "@/lib/product-structure/membership-quantity";
 import { quoteByIdDraft } from "@/lib/quote-guards";
 import {
@@ -826,20 +826,31 @@ export async function moveProductMembership(
     const quote = await quoteByIdDraft(existing.quoteId);
     assertDraft(quote);
 
-    const evidence = await db.transaction(async (tx) => {
-      // Serialize against quantity authoring before changing the owner model.
-      const [lockedQuote] = await tx.select().from(quotes)
-        .where(eq(quotes.id, existing.quoteId)).for("update").limit(1);
-      if (!lockedQuote) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found.");
-      assertDraft(lockedQuote);
-      return moveStructuralMembership(tx as never, {
-        quoteLeafId,
-        target:
-          target === "direct"
-            ? { kind: "direct", position }
-            : { kind: "group", assemblyId: target, position },
+    let evidence: Awaited<ReturnType<typeof moveStructuralMembership>>;
+    try {
+      evidence = await db.transaction(async (tx) => {
+        // Serialize against quantity authoring before changing the owner model.
+        const [lockedQuote] = await tx.select().from(quotes)
+          .where(eq(quotes.id, existing.quoteId)).for("update").limit(1);
+        if (!lockedQuote) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found.");
+        assertDraft(lockedQuote);
+        return moveStructuralMembership(tx as never, {
+          quoteLeafId,
+          target:
+            target === "direct"
+              ? { kind: "direct", position }
+              : { kind: "group", assemblyId: target, position },
+        });
       });
-    });
+    } catch (error) {
+      if (error instanceof StructuralMoveBlockedError) {
+        throw new ActionGuardError(ERR.VALIDATION, error.message);
+      }
+      if (error instanceof StructuralMoveError) {
+        throw new ActionGuardError(ERR.DATA_INTEGRITY, error.message);
+      }
+      throw error;
+    }
 
     // Structure only. `diff_json` records both homes so a forensic reader can
     // see the move without reconstructing it from two rows.

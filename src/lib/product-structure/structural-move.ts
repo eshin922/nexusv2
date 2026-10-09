@@ -54,6 +54,14 @@ export class StructuralMoveError extends Error {
   }
 }
 
+/** A valid move request that the current commercial structure cannot support. */
+export class StructuralMoveBlockedError extends StructuralMoveError {
+  constructor(message: string) {
+    super(message);
+    this.name = "StructuralMoveBlockedError";
+  }
+}
+
 /** Where the product should end up. `direct` means quote level, no Item Group. */
 export type MoveTarget =
   | { kind: "group"; assemblyId: string; position: number }
@@ -185,7 +193,7 @@ export async function moveStructuralMembership(
       .from(quoteLeaves)
       .where(eq(quoteLeaves.associatedProductQuoteLeafId, canonical.id));
     if (servedBy.length > 0)
-      throw new StructuralMoveError(
+      throw new StructuralMoveBlockedError(
         `This product has ${servedBy.length} service${servedBy.length === 1 ? "" : "s"} attached for it. ` +
           `Remove ${servedBy.length === 1 ? "that service" : "those services"} before moving it into an Item Group.`,
       );
