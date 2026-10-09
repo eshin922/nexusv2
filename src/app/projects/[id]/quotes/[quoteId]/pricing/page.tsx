@@ -21,6 +21,7 @@ import { PricingClassifierProvider } from "@/components/pricing-surface/pricing-
 import { PricingStagingProvider } from "@/components/pricing-surface/pricing-staging-context";
 import { PricingProvenanceProvider } from "@/components/pricing-surface/pricing-provenance-context";
 import { PricingSurfaceShell } from "@/components/pricing-surface/pricing-surface-shell";
+import { undecidedCostedChargeCount } from "@/lib/pricing-cost-base";
 
 // slice-pricing-surface-redesign Step 8 — Pricing surface is now
 // driven entirely by `<PricingSurfaceShell>`. The legacy reframe-shell
@@ -177,6 +178,7 @@ export default async function CostingPage({
   }
 
   const editable = quote.status === "draft";
+  const undecidedCharges = undecidedCostedChargeCount(bundle.data);
 
   // PSR needs the ★ recommended flag (the classifier's
   // recommended_tier_id input). CostingTier rollup doesn't carry it;
@@ -299,6 +301,14 @@ export default async function CostingPage({
                 <span style={{ fontFamily: "var(--mono)" }}>{quote.status}</span>{" "}
                 status. Editing is disabled.
               </p>
+            </div>
+          )}
+
+          {editable && undecidedCharges > 0 && (
+            <div role="status" className="r2-pricing-recovery-notice">
+              <strong>{undecidedCharges} costed associated {undecidedCharges === 1 ? "charge needs" : "charges need"} a recovery choice.</strong>{" "}
+              The blended margin includes their costs but cannot include their sell amounts until you choose how they are recovered on the Quote screen. Make that choice before requesting a margin approval.{" "}
+              <Link href={`/projects/${projectId}/quotes/${quoteId}/quote`}>Choose charge recovery →</Link>
             </div>
           )}
 

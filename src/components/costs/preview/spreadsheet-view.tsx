@@ -1,6 +1,6 @@
 "use client";
 
-import { BlankCell, costCategoryLabel, Tag, TextCell, TierHeadCell, ValueCell, toolingLabel } from "./shared";
+import { BlankCell, costCategoryLabel, fmtUsd4, Tag, TextCell, TierHeadCell, ValueCell, toolingLabel } from "./shared";
 import {
   flattenOwners,
   type CostsOverview,
@@ -35,6 +35,7 @@ import { OrderQuantity } from "./order-quantity";
 export function SpreadsheetView({
   overview,
   reads,
+  groupedCostByTier = new Map(),
   activeTierId,
   onSelectTier,
   quoteId,
@@ -42,6 +43,7 @@ export function SpreadsheetView({
 }: {
   overview: CostsOverview;
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier?: ReadonlyMap<string, ReadonlyMap<string, number>>;
   activeTierId: string | null;
   onSelectTier: (tierId: string) => void;
   quoteId: string;
@@ -85,6 +87,7 @@ export function SpreadsheetView({
           depth={depth}
           tiers={tiers}
           reads={reads}
+          groupedCostByTier={groupedCostByTier}
           activeTierId={activeTierId}
           quoteId={quoteId}
           editMode={editMode}
@@ -137,6 +140,7 @@ function OwnerRows({
   depth,
   tiers,
   reads,
+  groupedCostByTier,
   activeTierId,
   quoteId,
   editMode,
@@ -145,6 +149,7 @@ function OwnerRows({
   depth: number;
   tiers: readonly OverviewTierFact[];
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier: ReadonlyMap<string, ReadonlyMap<string, number>>;
   activeTierId: string | null;
   quoteId: string;
   editMode: boolean;
@@ -169,6 +174,21 @@ function OwnerRows({
           {ownerTail(owner)}
         </div>
       </div>
+
+      {owner.kind === "item_group" && (
+        <div className="cm2-row cm2-parent cm2-group-cost">
+          <div className="cm2-ident" data-indent={depth + 1}>
+            <div className="cm2-label cm2-strong">Grouped cost</div>
+            <div className="cm2-meta">Includes member products and group production · shown once</div>
+          </div>
+          {tiers.map((tier) => {
+            const cost = groupedCostByTier.get(owner.key)?.get(tier.id);
+            return <ValueCell key={tier.id} stored={cost === undefined ? null : fmtUsd4(cost)} basis="per finished unit" highlighted={tier.id === activeTierId} />;
+          })}
+          <BlankCell />
+          <div className="cm2-tail">Separately billed charges remain separate</div>
+        </div>
+      )}
 
       {owner.recurringLines.map((line) => (
         <RecurringRow

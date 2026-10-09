@@ -17,6 +17,8 @@ export function DirectProductRow({
   onRowDragOver,
   onRowDrop,
   onMoveStart,
+  onMoveEarlier,
+  onMoveLater,
   onAddCharges,
   onRemove,
   removePending = false,
@@ -34,6 +36,8 @@ export function DirectProductRow({
   onRowDragOver?: (e: React.DragEvent) => void;
   onRowDrop?: (e: React.DragEvent) => void;
   onMoveStart?: (e: React.DragEvent) => void;
+  onMoveEarlier?: () => void;
+  onMoveLater?: () => void;
   onAddCharges?: () => void;
   onRemove?: () => void;
   removePending?: boolean;
@@ -74,6 +78,12 @@ export function DirectProductRow({
         {associatedProductName ? <div className="setup-wizard-associated-owner">For {associatedProductName}</div> : null}
         <span className="sr-only" aria-label="unit cost">{costDisplay}</span>
         <div className="setup-wizard-direct-charges">
+          {(onMoveEarlier || onMoveLater) && (
+            <span className="setup-wizard-order-actions">
+              {onMoveEarlier && <button type="button" className="setup-wizard-inline-action" onClick={onMoveEarlier} disabled={!editable || savingStructure} aria-label={`Move ${product.name} up`}>↑ Move up</button>}
+              {onMoveLater && <button type="button" className="setup-wizard-inline-action" onClick={onMoveLater} disabled={!editable || savingStructure} aria-label={`Move ${product.name} down`}>↓ Move down</button>}
+            </span>
+          )}
           {onAddCharges ? (
             <>
               <span>Associated costs · {chargeCount + associatedServiceCount ? `${chargeCount + associatedServiceCount} added` : "none selected"}</span>
