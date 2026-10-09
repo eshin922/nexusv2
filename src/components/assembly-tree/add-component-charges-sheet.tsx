@@ -489,8 +489,9 @@ export function AddComponentChargesSheet({
               to it next — otherwise a charge created with no cost reads as an
               omission rather than as the intermediate state it is. */}
           <p className="od032-note">
-            Cost is entered on <span className="mono">Costs</span>, beneath this
-            component, for every quoted tier. Recovery is decided in{" "}
+            Cost is entered on <span className="mono">Costs</span>: one-time
+            charges beneath this product, attached services in the Production
+            section, for every quoted tier. Recovery is decided in{" "}
             <span className="mono">Commercial recovery</span> once the cost is
             complete. The quote cannot be sent until both are done.
           </p>
