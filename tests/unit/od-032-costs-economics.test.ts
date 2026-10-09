@@ -125,7 +125,7 @@ test("an unreadable amount is refused, never coerced", () => {
   // a cost fact nobody stated.
   const u = codeOnly(read(UPDATE));
   assert.match(u, /basis === "per_unit"/);
-  assert.match(u, /\\d\{1,4\}/);
+  assert.match(u, /\\d\{1,5\}/);
   assert.match(u, /\\d\{1,2\}/);
   for (const raw of ["Number(input.cost)", "Number(raw)", "parseFloat"]) {
     assert.ok(!u.includes(raw), `${raw} would coerce rather than refuse`);

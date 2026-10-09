@@ -1553,7 +1553,7 @@ export function PackagingTierCell({
     >
       <input
         type="number"
-        step="0.0001"
+        step="0.00001"
         min={0}
         value={unitCost}
         disabled={disabled}

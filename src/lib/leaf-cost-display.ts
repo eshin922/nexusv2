@@ -51,5 +51,5 @@ export function leafCostTitle(unitCost: string | number | null | undefined): str
       "as no price rather than a price of zero. Cost it on Costs."
     );
   }
-  return `Unit cost from the product library: $${n.toFixed(4)}.`;
+  return `Unit cost from the product library: $${n.toFixed(5)}.`;
 }
