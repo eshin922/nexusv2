@@ -188,6 +188,7 @@ function body(activeTierId: string | null = T1) {
     <CostsM2PreviewBody
       overview={OVERVIEW}
       reads={READS}
+      groupedCostByTier={new Map([["group:asy-1", new Map([[T1, 2.443], [T2, 1.921]])]])}
       quoteEditable
       pathname="/projects/p/quotes/q/costs"
       baseParams="section=freight"
@@ -196,6 +197,20 @@ function body(activeTierId: string | null = T1) {
     />
   );
 }
+
+test("an item group shows its governed cost once, with member costs beneath it", async () => {
+  const m = await mount(body());
+  const groupRows = m.findAll(".cm2-row").filter((row) => row.querySelector(".cm2-label")?.textContent === "Grouped cost");
+  assert.equal(groupRows.length, 1);
+  assert.deepEqual(
+    [...groupRows[0].querySelectorAll(".cm2-value")].map((cell) => cell.textContent),
+    ["$2.4430", "$1.9210", "unpriced"],
+  );
+  assert.equal(m.findAll(".cm2-row").filter((row) => row.querySelector(".cm2-label")?.textContent === "Product cost").length, 1);
+  await switchTo(m, "By product");
+  assert.match(m.text(), /Grouped cost · Tier 1: \$2\.4430 per finished unit/);
+  await m.unmount();
+});
 
 const labels = (m: Awaited<ReturnType<typeof mount>>, sel = ".cm2-label") =>
   m.findAll(sel).map((n) => n.textContent ?? "");
@@ -535,7 +550,7 @@ test("every owner survives a change of view", async () => {
     "Micro testing",
   ];
 
-  const sheet = m.findAll(".cm2-parent .cm2-label").map((n) => n.textContent);
+  const sheet = m.findAll(".cm2-parent:not(.cm2-group-cost) .cm2-label").map((n) => n.textContent);
   assert.deepEqual(sheet, expected);
 
   await switchTo(m, "By module");

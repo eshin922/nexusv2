@@ -40,6 +40,7 @@ import { OrderQuantity } from "./order-quantity";
 export function ByProductView({
   overview,
   reads,
+  groupedCostByTier = new Map(),
   activeTierId,
   onSelectTier,
   quoteId,
@@ -47,6 +48,7 @@ export function ByProductView({
 }: {
   overview: CostsOverview;
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier?: ReadonlyMap<string, ReadonlyMap<string, number>>;
   activeTierId: string | null;
   onSelectTier: (tierId: string) => void;
   quoteId: string;
@@ -59,6 +61,7 @@ export function ByProductView({
   // give — before hydration, or on a tier this quote does not carry.
   const tier =
     overview.tiers.find((t) => t.id === activeTierId) ?? overview.tiers[0] ?? null;
+  const groupedCost = owner && tier ? groupedCostByTier.get(owner.key)?.get(tier.id) : undefined;
 
   if (!owner || !tier) {
     return (
@@ -130,6 +133,16 @@ export function ByProductView({
             ))}
           </span>
         </div>
+
+        {owner.kind === "item_group" && (
+          <div className="cm2-group-foot">
+            <strong>Grouped cost · {tier.label}: </strong>
+            {groupedCost !== undefined
+              ? `${fmtUsd4(groupedCost)} per finished unit`
+              : "unpriced"}
+            <span> · includes member products and group production; separately billed charges remain separate</span>
+          </div>
+        )}
 
         <section className="cm2-section">
           <div className="cm2-section-head">
