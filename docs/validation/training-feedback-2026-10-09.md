@@ -30,3 +30,11 @@ Source: user-provided training transcript. The transcript records observations a
 - For large hypothetical scenario sets, use an estimate workbook until the customer narrows the choices; use Nexus to build a formal quote or a small number of meaningful alternatives.
 - A one-time total is independent of tier quantity, but a formal quote still requires an order quantity. Distinguish those concepts in the UI.
 - The go-live date discussed in the call is conditional on verified fixes, not an automatic release instruction.
+
+## First code audit
+
+- The current Item Group picker calls `moveProductMembership`, whose writer keeps the same `quote_leaves.id` and moves its membership atomically. It does not create a second product attachment. This is evidence against a new-write duplication, but the reported Smart Press quote still needs a row-level and customer-preview check; old physical duplicates are not removed by changing the picker.
+- The Costs page builds production-cost input rows for both standalone and product-associated services from quote service leaves. That establishes an intended input path, not that the reported Micro Testing row is reachable and editable in the affected quote.
+- Freight has unit coverage for a priced shipment reading nonzero, but the reported zero-after-navigation sequence has not been reproduced. Keep this open.
+- The source of the fifth-decimal limit is concrete: `parseUnitMoney` accepts scale 4, `assembly_leaf_inputs.unit_cost` stores scale 4, the Packaging input steps by 0.0001, and the Sales Order adapter serializes four decimals. This needs a coordinated precision change, not a cosmetic input edit.
+- The associated-cost sheet now offers multiple labeled Other Service charges in one submission and explicit removal for existing charge or service rows. Deleting a charge also deletes its entered per-tier economics; the confirmation names that consequence. The governed action and audit already existed. This change is in PR #634.
