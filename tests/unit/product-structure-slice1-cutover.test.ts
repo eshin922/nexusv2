@@ -11,6 +11,10 @@ const classifiedIdentityFiles = new Set([
   // never resolves a library SKU or uses a grouped-membership fallback.
   "src/app/actions/product-quantities.ts",
   "src/components/assembly-tree/product-quantity-table.tsx",
+  // The group picker receives canonical quote occurrence IDs from Setup and
+  // passes one unchanged to the structural move writer. It neither reads a
+  // library leaf ID nor creates a second quote attachment.
+  "src/components/assembly-tree/quote-product-group-picker.tsx",
   // SKU allocation. Handles the LIBRARY leaf id (`leaves.id`) and no
   // attachment identity at all: a reservation binds to the product in the
   // catalog, which exists independently of any quote, so neither
