@@ -258,6 +258,17 @@ test("per-unit component cost extends by the product's own ordered units", () =>
   assert.ok(Math.abs(charged.cost - 44.86) < 0.000001);
 });
 
+test("a five-decimal per-unit charge extends before order-total rounding", () => {
+  const perUnit = charge({
+    chargeKey: "project_setup",
+    costBasis: "per_unit",
+    cost: 0.12405,
+  });
+  const economics = componentEconomics({ componentCharges: [perUnit] });
+  assert.equal(economics.length, 1);
+  assert.ok(Math.abs(economics[0]!.cost - 372.15) < 0.000001);
+});
+
 const cents = (n: number) => Math.round(n * 100) / 100;
 function sameMoney(a: number, b: number, why: string) {
   assert.ok(
