@@ -11,6 +11,7 @@ export type QuoteGroupProduct = {
   sku: string | null;
   groupId: string | null;
   groupName: string | null;
+  associatedServiceCount: number;
 };
 
 /** Select an existing quote attachment; never create a second product line. */
@@ -83,8 +84,9 @@ export function QuoteProductGroupPicker({
                   <span>
                     <strong>{product.name}</strong>
                     <small>{product.sku ?? "No SKU"}{product.groupName ? ` · in ${product.groupName}` : " · standalone"}</small>
+                    {product.associatedServiceCount > 0 ? <small>Has an associated service. Keep this product standalone or remove the service before grouping.</small> : null}
                   </span>
-                  <button type="button" className="od032-btn" onClick={() => select(product)} disabled={pending}>Add to group</button>
+                  <button type="button" className="od032-btn" onClick={() => select(product)} disabled={pending || product.associatedServiceCount > 0}>Add to group</button>
                 </li>
               ))}
             </ul>

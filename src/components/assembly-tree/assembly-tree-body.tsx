@@ -781,8 +781,8 @@ export function AssemblyTreeBody({
               }
               onMemberDropOnGroup={commitDrop}
               quoteProducts={[
-                ...productEntries.map(({ product }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId: null, groupName: null })),
-                ...groupedProductEntries.map(({ product, groupId, groupName }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId, groupName })),
+                ...productEntries.map(({ product }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId: null, groupName: null, associatedServiceCount: tree.directProducts.filter((service) => service.associatedProductQuoteLeafId === product.quoteLeafId).length })),
+                ...groupedProductEntries.map(({ product, groupId, groupName }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId, groupName, associatedServiceCount: 0 })),
               ]}
             />
           ))}
