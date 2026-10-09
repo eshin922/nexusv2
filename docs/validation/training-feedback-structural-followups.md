@@ -2,9 +2,9 @@
 
 These items are confirmed gaps but are not part of PR #634. Each crosses persisted quote structure or the frozen Sales Order contract. Keep the sandbox NetSuite changes separate from production cutover.
 
-## 1. Repair historical Item Group duplication
+## 1. Repair historical Item Group duplication — completed for Smart Press Alt 1
 
-Smart Pressed Juice Alt 1 has eight library SKUs represented by two separate quote product rows each. The standalone rows own the entered 5,000/10,000 tier quantities; the grouped rows own the group membership. Three pairs have different unit costs. The repair must not choose an economic value by accident.
+Smart Pressed Juice Alt 1 had eight library SKUs represented by two separate quote product rows each. The standalone rows owned the entered 5,000/10,000 tier quantities; the grouped rows owned the group membership. Three pairs had different unit costs. The user authorized discarding duplicate test-quote pricing. A guarded transaction transferred the eight tier quantities to the grouped rows and removed the standalone copies, retaining grouped costs. Database and live Setup/Costs read-back passed. The steps below remain the procedure for any future quote with this defect; do not rerun the one-off repair on an unrelated quote.
 
 1. Capture a before snapshot of both quote-leaf IDs, tier quantities, unit costs, specification versions, dependent charge/service IDs, quote totals, and customer-visible rows.
 2. For each paired SKU, retain the grouped quote-leaf ID and transfer the standalone tier quantities to it. Choose which existing unit cost to retain based on the operator's decision, not on row order.
