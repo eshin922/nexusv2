@@ -567,6 +567,7 @@
  * controls, but place them in the card header and give charges their own
  * divider row so every product reads as one consistent record. */
 .setup-wizard-quote-items .a1v2-asy-row.a1v2-direct-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto auto auto;
@@ -577,6 +578,37 @@
   border: 1px solid var(--rule);
   border-radius: 10px;
   background: var(--paper);
+}
+.setup-wizard-quote-items .a1v2-direct-row > .a1v2-grip {
+  position: absolute;
+  top: 11px;
+  right: 13px;
+  opacity: 0.75;
+}
+.quote-group-picker { width: min(540px, 100%); }
+.quote-group-picker-close {
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 22px;
+  cursor: pointer;
+}
+.quote-group-picker-list { list-style: none; margin: 0; padding: 0; }
+.quote-group-picker-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.quote-group-picker-list li:last-child { border-bottom: 0; }
+.quote-group-picker-list strong { display: block; font-size: 13px; font-weight: 500; }
+.quote-group-picker-list small { display: block; margin-top: 3px; color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
+.quote-group-picker-empty, .quote-group-picker-error { margin: 4px 0; font-size: 12px; }
+.quote-group-picker-error { color: var(--bad); }
+.setup-wizard-quote-items .a1v2-direct-row > .name-cell > .name {
+  padding-right: 22px;
 }
 .setup-wizard-quote-items .a1v2-direct-row > .name-cell { display: contents; }
 .setup-wizard-quote-items .a1v2-direct-row > .name-cell > .name {

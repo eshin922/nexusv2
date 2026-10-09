@@ -588,6 +588,7 @@ export function AssemblyTreeBody({
   const groupedProductEntries = orderedAssemblies.flatMap((assembly) =>
     childrenOf(assembly.id).map((product) => ({
       product,
+      groupId: assembly.id,
       groupName: assembly.name || assembly.sku || "Item group",
     })),
   );
@@ -640,6 +641,7 @@ export function AssemblyTreeBody({
                 overProductRow(e, { kind: "direct" }, product.quoteLeafId)
               }
               onRowDrop={commitDrop}
+              onMoveStart={product.commercialKind === "product" ? (e) => beginMove(e, product.quoteLeafId, product.name, product.sku) : undefined}
               // ── A DIRECT PRODUCT AUTHORS CHARGES; A DIRECT SERVICE DOES NOT
               //
               // Both render through this row. `commercialKind` is the governed
@@ -778,9 +780,10 @@ export function AssemblyTreeBody({
                 overZoneTail(e, { kind: "group", assemblyId: asy.id })
               }
               onMemberDropOnGroup={commitDrop}
-              assemblies={assemblies}
-              fullLeafTypes={fullLeafTypes}
-              permissions={permissions}
+              quoteProducts={[
+                ...productEntries.map(({ product }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId: null, groupName: null })),
+                ...groupedProductEntries.map(({ product, groupId, groupName }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId, groupName })),
+              ]}
             />
           ))}
           <CreateItemGroupTrigger

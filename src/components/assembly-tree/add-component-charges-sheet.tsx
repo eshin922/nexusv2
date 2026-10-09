@@ -251,6 +251,7 @@ export function AddComponentChargesSheet({
           <p className="od032-owner">
             Owned by <span className="mono">{componentSku ?? "—"}</span> · {componentName}
           </p>
+          <p className="od032-owner">Need another charge of the same type? Reopen this picker and give it a different label.</p>
         </header>
 
         <div className="od032-sheet-body">

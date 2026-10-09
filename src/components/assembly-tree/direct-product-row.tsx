@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { DirectProductNode } from "@/lib/assembly-tree";
 import { leafCostDisplay } from "@/lib/leaf-cost-display";
 import { CompletenessChip } from "./completeness-chip";
+import { DragGrip } from "./drag-grip";
 
 /** Standalone products use the same card grammar as grouped products. */
 export function DirectProductRow({
@@ -15,6 +16,7 @@ export function DirectProductRow({
   pending: savingStructure,
   onRowDragOver,
   onRowDrop,
+  onMoveStart,
   onAddCharges,
   onRemove,
   removePending = false,
@@ -31,6 +33,7 @@ export function DirectProductRow({
   pending?: boolean;
   onRowDragOver?: (e: React.DragEvent) => void;
   onRowDrop?: (e: React.DragEvent) => void;
+  onMoveStart?: (e: React.DragEvent) => void;
   onAddCharges?: () => void;
   onRemove?: () => void;
   removePending?: boolean;
@@ -58,6 +61,7 @@ export function DirectProductRow({
       onDragOver={onRowDragOver}
       onDrop={onRowDrop}
     >
+      {editable && onMoveStart ? <DragGrip onDragStart={onMoveStart} title="Drag to reorder or group this product" /> : null}
       <div className="name-cell">
         <div className="name setup-wizard-product-name">
           {product.name}
