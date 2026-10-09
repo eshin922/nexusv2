@@ -142,6 +142,41 @@
   margin-top: 5px;
   color: oklch(0.68 0.012 255);
 }
+.od032-existing {
+  margin-top: 14px;
+}
+.od032-existing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid oklch(0.94 0.008 85);
+  font-size: 12px;
+}
+.od032-existing-row .od032-btn {
+  flex: none;
+}
+.od032-service-remove {
+  margin: 0 0 8px 30px;
+}
+.od032-repeat-charges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 7px 0 12px 30px;
+}
+.od032-repeat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.od032-repeat-row .od032-label-input {
+  flex: 1;
+  min-width: 0;
+}
 .od032-pick {
   width: 100%;
   display: flex;

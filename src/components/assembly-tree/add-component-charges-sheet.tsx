@@ -49,9 +49,9 @@ import {
   labelRequiredFor,
   type ComponentChargeKey,
 } from "@/lib/commercial-recovery/registry";
-import { createComponentCharges } from "@/app/actions/component-charges";
+import { createComponentCharges, deleteComponentCharge } from "@/app/actions/component-charges";
 import { runGoverned, failureMessage } from "@/lib/governed-action";
-import { attachQuoteProduct } from "@/app/actions/quote-products";
+import { attachQuoteProduct, detachQuoteProduct } from "@/app/actions/quote-products";
 import { useRouter } from "next/navigation";
 import { DIRECT_SERVICE_LABELS } from "@/lib/product-structure/direct-service";
 import {
@@ -85,7 +85,7 @@ export function AddComponentChargesSheet({
   associatedServices = [],
   enableAssociatedServices = false,
   suggestedServiceIdentities = [],
-  existingServiceIdentities = [],
+  existingServices = [],
   existingKeys,
   onClose,
 }: {
@@ -99,7 +99,7 @@ export function AddComponentChargesSheet({
   associatedServices?: ReadonlyArray<{ id: string; serviceIdentity: string }>;
   enableAssociatedServices?: boolean;
   suggestedServiceIdentities?: readonly ProductAssociableServiceIdentity[];
-  existingServiceIdentities?: readonly ProductAssociableServiceIdentity[];
+  existingServices?: ReadonlyArray<{ quoteLeafId: string; serviceIdentity: ProductAssociableServiceIdentity }>;
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -118,7 +118,9 @@ export function AddComponentChargesSheet({
   const router = useRouter();
   /** Per type, as typed. Only read for the types that need one. */
   const [labels, setLabels] = useState<Record<string, string>>({});
+  const [extraOtherLabels, setExtraOtherLabels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
   const [mounted, setMounted] = useState(false);
 
@@ -183,6 +185,12 @@ export function AddComponentChargesSheet({
         return `This component already has a ${COMPONENT_CHARGE_LABELS[k]} charge labelled "${label}".`;
       }
     }
+    if (picked.has("other_service")) {
+      const allLabels = [labels.other_service ?? "", ...extraOtherLabels].map((label) => label.trim());
+      if (allLabels.some((label) => !label)) return "Give each Other Service charge a label.";
+      if (new Set(allLabels).size !== allLabels.length) return "Give each Other Service charge a different label.";
+      if (allLabels.some((label) => ownedLabels("other_service").includes(label))) return "An Other Service charge already uses one of these labels.";
+    }
     return null;
   };
 
@@ -198,7 +206,10 @@ export function AddComponentChargesSheet({
           charges: [...picked].map((key) => ({
             chargeKey: key,
             label: labels[key]?.trim() || null,
-          })),
+          })).concat(extraOtherLabels.filter(() => picked.has("other_service")).map((label) => ({
+            chargeKey: "other_service" as ComponentChargeKey,
+            label: label.trim(),
+          }))),
         }));
         const failed = failureMessage(outcome);
         if (failed) {
@@ -222,6 +233,33 @@ export function AddComponentChargesSheet({
           router.refresh();
           return;
         }
+      }
+      onClose();
+      router.refresh();
+    });
+  }
+
+  function removeExisting(kind: "charge" | "service", id: string) {
+    if (saving) return;
+    if (confirmingRemovalId !== id) {
+      setConfirmingRemovalId(id);
+      return;
+    }
+    setError(null);
+    startSaving(async () => {
+      const outcome = kind === "charge"
+        ? await runGoverned(() => deleteComponentCharge({ quoteId, chargeInstanceId: id }))
+        : await runGoverned(async () => {
+            const formData = new FormData();
+            formData.set("quoteId", quoteId);
+            formData.set("quoteLeafId", id);
+            return detachQuoteProduct(formData);
+          });
+      const failed = failureMessage(outcome);
+      if (failed) {
+        setError(failed);
+        setConfirmingRemovalId(null);
+        return;
       }
       onClose();
       router.refresh();
@@ -364,11 +402,42 @@ export function AddComponentChargesSheet({
                       data-testid={`label-${k}`}
                     />
                   )}
+                  {on && k === "other_service" && (
+                    <div className="od032-repeat-charges">
+                      {extraOtherLabels.map((label, repeatIndex) => (
+                        <div className="od032-repeat-row" key={repeatIndex}>
+                          <input
+                            className="od032-label-input"
+                            aria-label={`Label for additional Other Service ${repeatIndex + 2}`}
+                            placeholder="Another charge · what is it for?"
+                            value={label}
+                            onChange={(e) => setExtraOtherLabels((current) => current.map((item, index) => index === repeatIndex ? e.target.value : item))}
+                          />
+                          <button type="button" className="od032-btn" onClick={() => setExtraOtherLabels((current) => current.filter((_, index) => index !== repeatIndex))}>Remove</button>
+                        </div>
+                      ))}
+                      <button type="button" className="od032-btn" onClick={() => setExtraOtherLabels((current) => [...current, ""])}>+ Another Other Service charge</button>
+                    </div>
+                  )}
                 </li>
                 </Fragment>
               );
             })}
           </ul>
+
+          {existingKeys.length > 0 && (
+            <div className="od032-existing" aria-label="Existing associated charges">
+              <div className="od032-picker-section">Already added · charges</div>
+              {existingKeys.map((charge) => (
+                <div className="od032-existing-row" key={charge.chargeInstanceId}>
+                  <span>{COMPONENT_CHARGE_LABELS[charge.chargeKey as ComponentChargeKey] ?? charge.chargeKey}{charge.label ? ` · ${charge.label}` : ""}</span>
+                  <button type="button" className="od032-btn" disabled={saving} onClick={() => removeExisting("charge", charge.chargeInstanceId)}>
+                    {confirmingRemovalId === charge.chargeInstanceId ? "Confirm remove · deletes entered costs" : "Remove"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {enableAssociatedServices && (
             <ul className="od032-picker" aria-label="Production services for this product">
@@ -377,7 +446,7 @@ export function AddComponentChargesSheet({
               </li>
               {PRODUCT_ASSOCIABLE_SERVICE_IDENTITIES.map((identity) => {
                 const available = associatedServices.some((service) => service.serviceIdentity === identity);
-                const existing = existingServiceIdentities.includes(identity);
+                const existing = existingServices.some((service) => service.serviceIdentity === identity);
                 const selected = pickedServices.has(identity);
                 return (
                   <li key={identity}>
@@ -404,6 +473,11 @@ export function AddComponentChargesSheet({
                       </span>
                       <span className="od032-basis">service line</span>
                     </button>
+                    {existingServices.filter((service) => service.serviceIdentity === identity).map((service) => (
+                      <button key={service.quoteLeafId} type="button" className="od032-btn od032-service-remove" disabled={saving} onClick={() => removeExisting("service", service.quoteLeafId)}>
+                        {confirmingRemovalId === service.quoteLeafId ? "Confirm remove · deletes entered costs" : `Remove ${DIRECT_SERVICE_LABELS[identity]}`}
+                      </button>
+                    ))}
                   </li>
                 );
               })}
