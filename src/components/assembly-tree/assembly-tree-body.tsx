@@ -36,6 +36,7 @@ import { useRouter } from "next/navigation";
 import type { LibraryPermissions } from "@/lib/permissions/library-product";
 import type { ComponentChargeKey } from "@/lib/commercial-recovery/registry";
 import type { ProductAssociableServiceIdentity } from "@/lib/product-structure/service-association";
+import { placeSetupServices } from "@/lib/product-structure/setup-service-placement";
 
 // Phase A.1 v2 impl-2 Step 9 — Drag-to-reorder ASY rows.
 //
@@ -585,6 +586,10 @@ export function AssemblyTreeBody({
   }));
   const productEntries = directEntries.filter(({ product }) => product.commercialKind === "product");
   const serviceEntries = directEntries.filter(({ product }) => product.commercialKind === "service");
+  const servicePlacement = placeSetupServices(
+    productEntries.map(({ product }) => product),
+    serviceEntries.map(({ product }) => product),
+  );
   const groupedProductEntries = orderedAssemblies.flatMap((assembly) =>
     childrenOf(assembly.id).map((product) => ({
       product,
@@ -674,6 +679,26 @@ export function AssemblyTreeBody({
               removePending={removingQuoteLeafId === product.quoteLeafId}
               editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${product.leafId}/specs`}
             />
+            {servicePlacement.associatedByProduct.get(product.quoteLeafId)?.length ? (
+              <div className="setup-wizard-associated-services">
+                <div className="setup-wizard-associated-services-label">Associated services · separate NetSuite lines for {product.sku ?? product.name}</div>
+                {servicePlacement.associatedByProduct.get(product.quoteLeafId)!.map((service) => (
+                  <DirectProductRow
+                    key={service.quoteLeafId}
+                    product={service}
+                    editable={editable}
+                    isMoving={movingLeafId === service.quoteLeafId}
+                    pending={optimistic?.quoteLeafId === service.quoteLeafId}
+                    dropEdge={dropEdgeFor({ kind: "direct" }, service.quoteLeafId)}
+                    onRowDragOver={(e) => overProductRow(e, { kind: "direct" }, service.quoteLeafId)}
+                    onRowDrop={commitDrop}
+                    onRemove={() => removeDirectProduct(service.quoteLeafId)}
+                    removePending={removingQuoteLeafId === service.quoteLeafId}
+                    editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${service.leafId}/specs`}
+                  />
+                ))}
+              </div>
+            ) : null}
             </Fragment>
           ))}
           {groupedProductEntries.map(({ product, groupName }) => {
@@ -796,7 +821,7 @@ export function AssemblyTreeBody({
           <div className="setup-wizard-data-section-header"><h4>Services</h4></div>
       <p className="setup-wizard-section-lede">Tick the work DPS is quoting, then say where each one belongs.</p>
       <div className="setup-wizard-indent">
-          {serviceEntries.map(({ product }) => (
+          {servicePlacement.standalone.map((product) => (
             <Fragment key={product.quoteLeafId}>
               {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
                 <RootLane

@@ -342,6 +342,10 @@ const classifiedIdentityFiles = new Set([
   // resolves an identity, maps between the two spaces, or shows either id to the
   // operator, who sees product name and SKU.
   "src/components/assembly-tree/assembly-tree-body.tsx",
+  // CLASSIFIED — canonical only, presentation placement. Associated services
+  // are grouped by their owning quoteLeafId for Setup display; this helper
+  // neither resolves legacy identity nor changes persisted line order.
+  "src/lib/product-structure/setup-service-placement.ts",
   // CLASSIFIED — read-only evidence, canonical only. OW-2's isolation reads
   // `quote_leaf_id` from `quote_product_attach` audit rows and matches it
   // against `skuRollups[].skuId`, which OD-017 made the canonical quote-leaf id.
