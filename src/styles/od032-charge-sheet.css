@@ -179,6 +179,24 @@
   background: oklch(0.42 0.14 255);
   border-color: oklch(0.42 0.14 255);
 }
+.od032-add-symbol {
+  width: 15px;
+  flex: none;
+  color: oklch(0.42 0.14 255);
+  font-weight: 700;
+  text-align: center;
+}
+.od032-instance-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 9px 30px;
+}
+.od032-instance-row .od032-label-input {
+  margin-top: 0;
+  min-width: 0;
+  flex: 1;
+}
 .od032-pick-text {
   flex: 1;
   display: block;

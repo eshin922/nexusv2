@@ -1,23 +1,21 @@
-# Repeatable Testing / Micros — verified gap and implementation contract
+# Repeatable associated costs — implementation contract
 
-Status: draft implementation on `fix/repeatable-testing-micros`. The working choice is individually priced, named test instances; the user has been asked whether they instead want one counted line. No migration or application code has been deployed.
+Status: draft implementation on `fix/repeatable-testing-micros`. No migration or application code from this branch has been deployed.
 
-## Reproduction from current code
+## Verified problem
 
-The associated-cost picker renders Testing / Micros as one checkbox keyed by service identity and disables it once present (`add-component-charges-sheet.tsx`). `attachDirectProduct` rejects a second row with the same product and library leaf. The database's `quote_leaves_product_service_unique_idx` independently enforces that one-row limit. Therefore the reported need for two or three tests cannot be solved by changing only the picker.
+The Setup picker used a checkbox for each component charge and each product-associated service. A single visit could add only one of each type. Filling / Blending and Pack-out / Assembly were then disabled after the first attachment; Testing / Micros alone had a named second-instance path. This did not match the training request: any associated cost may occur multiple times, and each occurrence needs a note that distinguishes its costing line.
 
-## If tests are individually priced
+## Behavior
 
-Model each named test as its own top-level service quote leaf, linked to the owning product quote leaf. The implemented picker requires a nonblank distinct label for every new test; historical unlabeled test lines remain valid. Migration 0148 replaces the `(product, service leaf)` unique index with an index that also keys the normalized label. Each instance retains its own cost row, customer line or included-service contribution, and NetSuite service line. The label is carried through Setup, Costs, commercial projection, quote freeze, Copy Quote, customer display, and NetSuite description. The number of attached instances is the test count; product ordered units remain a separate fact.
+Every component charge type (Print plates, Tooling, Artwork & plate, Samples, Project setup, R&D, Other Service) and every associable production service (Filling / Blending, Pack-out / Assembly, Testing / Micros) now has an Add action. Operators can add multiple rows of any type in one picker visit. Each new row requires a short note, unique for that type and product. The note becomes the existing charge label or service instance label; these fields already flow to Costs and downstream descriptions. Each entry retains its own economic row and can be priced separately. This is a number of distinct costs or services, not a multiplier on ordered product quantity.
 
-The code-level proof covers two differently named tests with independent costs, customer subtotal conservation, and two distinct NetSuite-shaped lines. A draft-quote browser walk, copy/revise/freeze read-back, and sandbox NetSuite write/read-back remain before production deployment. They require a database with migration 0148 applied; the shared database has not been modified by this branch.
+Component-charge storage already supports multiple labeled instances and its action writes a submission transactionally. Migration 0148 replaces the associated-service uniqueness index with `(product, service leaf, normalized instance note)`; legacy unlabeled services remain valid. The service action accepts notes for all three governed identities. Copy Quote preserves service notes. The picker rejects blank or duplicate notes before submission; the server and database remain the final duplicate guards.
 
-## If tests share one counted service line
+The existing picker submits charge rows together, then service rows individually. A failed service attachment can leave earlier additions saved; the picker removes successful draft rows from its local selection, stays open, reports the failure and refreshes the quote, so retry submits only remaining entries. This existing cross-type transaction boundary is still a limitation to address before calling an end-to-end multi-type submission atomic.
 
-Keep one service quote leaf and add an explicit test count plus notes. Determine whether vendor cost is per test or a one-time combined total before changing calculations. Verify that the customer and NetSuite quantity/rate/amount convention remains consistent with the existing one-time Testing / Micros accounting treatment. This is not equivalent to duplicating the service row.
+## Validation and remaining proof
 
-## Existing evidence
+Type checking and focused tests pass. Full unit and CI checks are being rerun. Before production use, run a draft-quote browser walk with two of the same charge and two of the same production service, independently cost each row, copy and freeze the quote, and verify distinct customer and sandbox NetSuite lines. That browser walk requires a database with migration 0148 applied; this branch has not modified the shared database. Production NetSuite remains unchanged until cutover.
 
-The current Costs page has an editable Testing / Micros service amount in both standalone and product-associated placements on the checked Smart Press Alt 2 quote. The earlier missing-input report does not reproduce there. The repeatability limit above is separately confirmed by code and database constraints. Production NetSuite stays unchanged until cutover.
-
-Validation: 3,529 unit tests and `verify:ci` pass on the draft branch. Migration order is #636 (0146) → #637 (0147) → this branch (0148).
+Migration order: #636 (0146) → #637 (0147) → this branch (0148).

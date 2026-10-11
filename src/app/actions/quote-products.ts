@@ -25,7 +25,7 @@ import {
   DirectAttachmentConflictError,
 } from "@/lib/product-structure/direct-attachment";
 import { quoteByIdDraft } from "@/lib/quote-guards";
-import { evaluateServiceAssociation } from "@/lib/product-structure/service-association";
+import { evaluateServiceAssociation, isProductAssociableServiceIdentity } from "@/lib/product-structure/service-association";
 
 /**
  * Quote → Add Product. Attaches a library product DIRECTLY to the quote, with
@@ -73,11 +73,11 @@ export async function attachQuoteProduct(
       .limit(1);
     if (leafRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Product not found");
-    if (serviceInstanceLabel && (!associatedProductQuoteLeafId || leafRows[0].serviceIdentity !== "testing_micros")) {
-      throw new ActionGuardError(ERR.VALIDATION, "Only product-associated Testing / Micros may have a test name.");
+    if (serviceInstanceLabel && (!associatedProductQuoteLeafId || !isProductAssociableServiceIdentity(leafRows[0].serviceIdentity))) {
+      throw new ActionGuardError(ERR.VALIDATION, "Only product-associated services may have an instance note.");
     }
     if (serviceInstanceLabel && serviceInstanceLabel.length > 120) {
-      throw new ActionGuardError(ERR.VALIDATION, "Test name must be 120 characters or fewer.");
+      throw new ActionGuardError(ERR.VALIDATION, "Service note must be 120 characters or fewer.");
     }
 
     // Same predicate the grouped path uses. One gate, so the two attachment

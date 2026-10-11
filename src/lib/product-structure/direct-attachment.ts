@@ -85,8 +85,8 @@ export async function attachDirectProduct(
   // 0136 · and scoped by association. A standalone attachment is one per quote
   // (unchanged, and now also a partial unique index); a product-associated
   // service is one per (product, service, normalized instance label). Unlabeled
-  // lines remain unique; named Testing / Micros instances may repeat for one
-  // product while retaining independent economics.
+  // lines remain unique; noted instances of every product-associated service
+  // may repeat for one product while retaining independent economics.
   // A Direct Product never carries an association, so its check is exactly
   // what it was.
   const existing = await tx

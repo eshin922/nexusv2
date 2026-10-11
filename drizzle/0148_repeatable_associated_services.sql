@@ -1,4 +1,4 @@
--- A product may have independently priced, named Testing / Micros instances.
+-- A product may have independently priced, noted instances of any associated service.
 -- Existing unlabeled services remain unique through COALESCE(label, '').
 -- Requires migration 0147_grouped_product_associated_services first.
 ALTER TABLE "quote_leaves"
