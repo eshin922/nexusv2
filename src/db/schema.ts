@@ -3428,8 +3428,8 @@ export const quoteLeaves = pgTable(
      *
      * NULL = a standalone Direct Service, one per quote per service leaf
      * (`quote_leaves_standalone_service_unique_idx`). Set = this product's own
-     * instance of the service; one per (product, service leaf)
-     * (`quote_leaves_product_service_unique_idx`). The five service library
+     * instance of the service; named Testing / Micros instances are distinct
+     * (`quote_leaves_product_service_instance_unique_idx`). The five service library
      * leaves stay unique, so this column is what lets two products on one
      * quote each carry their own Filling / Blending.
      *
@@ -3443,6 +3443,8 @@ export const quoteLeaves = pgTable(
      * Written only through `attachDirectProduct`.
      */
     associatedProductQuoteLeafId: uuid("associated_product_quote_leaf_id"),
+    /** Quote-owned name distinguishing independently priced Testing / Micros instances. */
+    serviceInstanceLabel: text("service_instance_label"),
     // GENERATED product discriminator for the association FK. The historical
     // directness discriminator remains for compatibility with earlier schema.
     associatedProductKind: leafCommercialKind(
@@ -3477,6 +3479,10 @@ export const quoteLeaves = pgTable(
       "quote_leaves_association_owner_is_direct_service",
       sql`"associated_product_quote_leaf_id" IS NULL OR ("commercial_kind" = 'service' AND "assembly_id" IS NULL)`,
     ),
+    check(
+      "quote_leaves_service_instance_label_check",
+      sql`"service_instance_label" IS NULL OR ("commercial_kind" = 'service' AND "associated_product_quote_leaf_id" IS NOT NULL AND btrim("service_instance_label") <> '')`,
+    ),
     foreignKey({
       columns: [
         t.associatedProductQuoteLeafId,
@@ -3486,8 +3492,8 @@ export const quoteLeaves = pgTable(
       foreignColumns: [t.id, t.quoteId, t.commercialKind],
       name: "quote_leaves_associated_product_fk",
     }),
-    uniqueIndex("quote_leaves_product_service_unique_idx")
-      .on(t.associatedProductQuoteLeafId, t.leafId)
+    uniqueIndex("quote_leaves_product_service_instance_unique_idx")
+      .on(t.associatedProductQuoteLeafId, t.leafId, sql`coalesce(lower(btrim(${t.serviceInstanceLabel})), '')`)
       .where(sql`"associated_product_quote_leaf_id" IS NOT NULL`),
     uniqueIndex("quote_leaves_standalone_service_unique_idx")
       .on(t.quoteId, t.leafId)

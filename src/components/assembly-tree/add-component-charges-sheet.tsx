@@ -86,6 +86,7 @@ export function AddComponentChargesSheet({
   enableAssociatedServices = false,
   suggestedServiceIdentities = [],
   existingServiceIdentities = [],
+  existingTestLabels = [],
   existingKeys,
   onClose,
 }: {
@@ -100,6 +101,7 @@ export function AddComponentChargesSheet({
   enableAssociatedServices?: boolean;
   suggestedServiceIdentities?: readonly ProductAssociableServiceIdentity[];
   existingServiceIdentities?: readonly ProductAssociableServiceIdentity[];
+  existingTestLabels?: readonly string[];
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -115,6 +117,7 @@ export function AddComponentChargesSheet({
 }) {
   const [picked, setPicked] = useState<Set<ComponentChargeKey>>(new Set());
   const [pickedServices, setPickedServices] = useState<Set<ProductAssociableServiceIdentity>>(new Set());
+  const [testLabel, setTestLabel] = useState("");
   const router = useRouter();
   /** Per type, as typed. Only read for the types that need one. */
   const [labels, setLabels] = useState<Record<string, string>>({});
@@ -171,6 +174,14 @@ export function AddComponentChargesSheet({
    * failure afterwards.
    */
   const blocked = (): string | null => {
+    if (pickedServices.has("testing_micros")) {
+      const label = testLabel.trim();
+      if (!label) return "Name the Testing / Micros test so its cost and service line can be identified.";
+      if (label.length > 120) return "Test name must be 120 characters or fewer.";
+      if (existingTestLabels.some((existing) => existing.trim().toLowerCase() === label.toLowerCase())) {
+        return `A Testing / Micros test named "${label}" is already attached to this product.`;
+      }
+    }
     for (const k of picked) {
       const label = labels[k]?.trim() || null;
       if (needsLabel(k) && !label) {
@@ -216,6 +227,7 @@ export function AddComponentChargesSheet({
         formData.set("quoteId", quoteId);
         formData.set("leafId", leaf.id);
         formData.set("associatedProductQuoteLeafId", quoteLeafId);
+        if (identity === "testing_micros") formData.set("serviceInstanceLabel", testLabel.trim());
         const result = await attachQuoteProduct(formData);
         if (!result.ok) {
           setError(result.error.message);
@@ -379,14 +391,15 @@ export function AddComponentChargesSheet({
                 const available = associatedServices.some((service) => service.serviceIdentity === identity);
                 const existing = existingServiceIdentities.includes(identity);
                 const selected = pickedServices.has(identity);
+                const repeatable = identity === "testing_micros";
                 return (
                   <li key={identity}>
                     <button
                       type="button"
                       className="od032-pick"
                       role="checkbox"
-                      aria-checked={selected || existing}
-                      disabled={!available || existing}
+                      aria-checked={selected || (existing && !repeatable)}
+                      disabled={!available || (existing && !repeatable)}
                       onClick={() => setPickedServices((current) => {
                         const next = new Set(current);
                         if (next.has(identity)) next.delete(identity);
@@ -394,16 +407,26 @@ export function AddComponentChargesSheet({
                         return next;
                       })}
                     >
-                      <span className="od032-box" data-on={selected || existing ? "yes" : undefined}>
-                        {selected || existing ? "✓" : ""}
+                      <span className="od032-box" data-on={selected || (existing && !repeatable) ? "yes" : undefined}>
+                        {selected || (existing && !repeatable) ? "✓" : ""}
                       </span>
                       <span className="od032-pick-text">
                         <span className="od032-pick-name">{DIRECT_SERVICE_LABELS[identity]}</span>
                         {suggestedServiceIdentities.includes(identity) && <span className="od032-pick-suggested">common on this type</span>}
-                        <span className="od032-pick-hint">{existing ? "Already attached to this product" : available ? "Cost and sell price are entered on Costs, per tier" : "Unavailable in the service library"}</span>
+                        <span className="od032-pick-hint">{repeatable && existing ? `${existingTestLabels.length} test${existingTestLabels.length === 1 ? "" : "s"} attached · add another named test` : existing ? "Already attached to this product" : available ? "Cost and sell price are entered on Costs, per tier" : "Unavailable in the service library"}</span>
                       </span>
                       <span className="od032-basis">service line</span>
                     </button>
+                    {repeatable && selected ? (
+                      <input
+                        className="od032-label-input"
+                        aria-label="Name this Testing / Micros test"
+                        placeholder="e.g. Micro screening"
+                        value={testLabel}
+                        maxLength={120}
+                        onChange={(event) => setTestLabel(event.target.value)}
+                      />
+                    ) : null}
                   </li>
                 );
               })}

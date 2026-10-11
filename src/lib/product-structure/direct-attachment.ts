@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { ensureQuoteSpecAuthority } from "./quote-spec-authority";
 import type { db } from "../../db/index.ts";
 import { assemblyLeaves, quoteLeaves } from "../../db/schema.ts";
@@ -42,6 +42,7 @@ export type DirectAttachmentEvidence = {
   position: number;
   /** Migration 0136. The Direct Product a Direct Service is for; else null. */
   associatedProductQuoteLeafId: string | null;
+  serviceInstanceLabel: string | null;
 };
 
 export async function attachDirectProduct(
@@ -69,9 +70,11 @@ export async function attachDirectProduct(
      * product-kind and top-level independently.
      */
     associatedProductQuoteLeafId?: string | null;
+    serviceInstanceLabel?: string | null;
   },
 ): Promise<DirectAttachmentEvidence> {
   const associatedProductQuoteLeafId = args.associatedProductQuoteLeafId ?? null;
+  const serviceInstanceLabel = args.serviceInstanceLabel?.trim() || null;
 
   // Duplicate check is scoped to DIRECT attachments only. The same library
   // product may legitimately be attached directly AND be a member of an Item
@@ -81,8 +84,9 @@ export async function attachDirectProduct(
   //
   // 0136 · and scoped by association. A standalone attachment is one per quote
   // (unchanged, and now also a partial unique index); a product-associated
-  // service is one per (product, service). Two products each carrying their
-  // own Filling / Blending are two different obligations, not a duplicate.
+  // service is one per (product, service, normalized instance label). Unlabeled
+  // lines remain unique; named Testing / Micros instances may repeat for one
+  // product while retaining independent economics.
   // A Direct Product never carries an association, so its check is exactly
   // what it was.
   const existing = await tx
@@ -96,6 +100,9 @@ export async function attachDirectProduct(
         associatedProductQuoteLeafId
           ? eq(quoteLeaves.associatedProductQuoteLeafId, associatedProductQuoteLeafId)
           : isNull(quoteLeaves.associatedProductQuoteLeafId),
+        associatedProductQuoteLeafId
+          ? sql`coalesce(lower(btrim(${quoteLeaves.serviceInstanceLabel})), '') = ${serviceInstanceLabel?.toLowerCase() ?? ""}`
+          : isNull(quoteLeaves.serviceInstanceLabel),
       ),
     )
     .limit(1);
@@ -127,6 +134,7 @@ export async function attachDirectProduct(
       quantity: args.quantity,
       position: args.position,
       associatedProductQuoteLeafId,
+      serviceInstanceLabel,
     })
     .returning();
 
@@ -137,6 +145,7 @@ export async function attachDirectProduct(
     quantity: row.quantity,
     position: row.position,
     associatedProductQuoteLeafId: row.associatedProductQuoteLeafId,
+    serviceInstanceLabel: row.serviceInstanceLabel,
   };
 }
 
@@ -208,5 +217,6 @@ export async function detachDirectProduct(
     quantity: row.quantity,
     position: row.position,
     associatedProductQuoteLeafId: row.associatedProductQuoteLeafId,
+    serviceInstanceLabel: row.serviceInstanceLabel,
   };
 }

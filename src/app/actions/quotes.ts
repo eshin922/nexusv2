@@ -4101,6 +4101,7 @@ export async function cloneQuoteGraph(
       createdBy: args.createdByUserId,
       specTemplateFromQuoteId: args.sourceQuoteId,
       associatedProductQuoteLeafId: associatedProductQuoteLeafId ?? null,
+      serviceInstanceLabel: direct.serviceInstanceLabel,
     });
     quoteLeafIdMap.set(direct.id, attached.quoteLeafId);
   }

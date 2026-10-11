@@ -217,7 +217,7 @@ test("the duplicate check is scoped by association", async () => {
     /associatedProductQuoteLeafId\s*\?\s*eq\(quoteLeaves\.associatedProductQuoteLeafId, associatedProductQuoteLeafId\)\s*:\s*isNull\(quoteLeaves\.associatedProductQuoteLeafId\)/,
   );
   // The association is written, not dropped on the floor.
-  assert.match(src, /position: args\.position,\s*associatedProductQuoteLeafId,\s*\}\)/);
+  assert.match(src, /position: args\.position,\s*associatedProductQuoteLeafId,\s*serviceInstanceLabel,\s*\}\)/);
 });
 
 test("detaching a product with services attached for it is refused, not cascaded", async () => {
@@ -249,7 +249,7 @@ test("the attach action validates the pair before writing anything", async () =>
   const gateAt = body.indexOf("evaluateServiceAssociation(");
   const writeAt = body.indexOf("attachDirectProductRow(");
   assert.ok(gateAt > 0 && writeAt > 0 && gateAt < writeAt);
-  assert.match(body, /associatedProductQuoteLeafId,\s*\}\);/);
+  assert.match(body, /associatedProductQuoteLeafId,\s*serviceInstanceLabel,\s*\}\);/);
   // Audit records the operator's choice explicitly.
   assert.match(body, /"direct_service_for_product"/);
   assert.match(body, /associated_product_quote_leaf_id: row\.associatedProductQuoteLeafId/);

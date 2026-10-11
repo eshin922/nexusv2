@@ -898,6 +898,9 @@ export function AssemblyTreeBody({
             .filter((service) => service.associatedProductQuoteLeafId === chargeSheetLeaf.quoteLeafId)
             .map((service) => service.serviceIdentity)
             .filter((identity): identity is ProductAssociableServiceIdentity => identity === "filling_blending" || identity === "packout_assembly" || identity === "testing_micros")}
+          existingTestLabels={tree.directProducts
+            .filter((service) => service.associatedProductQuoteLeafId === chargeSheetLeaf.quoteLeafId && service.serviceIdentity === "testing_micros")
+            .map((service) => service.serviceInstanceLabel ?? "")}
           existingKeys={
             existingComponentCharges?.filter(
               (c) => c.quoteLeafId === chargeSheetLeaf.quoteLeafId,
