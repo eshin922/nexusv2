@@ -16,6 +16,6 @@ The existing picker submits charge rows together, then service rows individually
 
 ## Validation and remaining proof
 
-Type checking and focused tests pass. Full unit and CI checks are being rerun. Before production use, run a draft-quote browser walk with two of the same charge and two of the same production service, independently cost each row, copy and freeze the quote, and verify distinct customer and sandbox NetSuite lines. That browser walk requires a database with migration 0148 applied; this branch has not modified the shared database. Production NetSuite remains unchanged until cutover.
+Type checking, 3,529 unit tests, `verify:ci`, and migration-index checks pass. Before production use, run a draft-quote browser walk with two of the same charge and two of the same production service, independently cost each row, copy and freeze the quote, and verify distinct customer and sandbox NetSuite lines. That browser walk requires a database with migration 0148 applied; this branch has not modified the shared database. Production NetSuite remains unchanged until cutover.
 
 Migration order: #636 (0146) → #637 (0147) → this branch (0148).
