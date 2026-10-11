@@ -16,6 +16,8 @@ The existing picker submits charge rows together, then service rows individually
 
 ## Validation and remaining proof
 
-Type checking, 3,529 unit tests, `verify:ci`, and migration-index checks pass. Before production use, run a draft-quote browser walk with two of the same charge and two of the same production service, independently cost each row, copy and freeze the quote, and verify distinct customer and sandbox NetSuite lines. That browser walk requires a database with migration 0148 applied; this branch has not modified the shared database. Production NetSuite remains unchanged until cutover.
+An isolated local PostgreSQL container (`nexus-validation-db-repeatable`, port 55437) was migrated through 0148 and seeded with the validation fixture. In the current Setup view, one product accepted two Print plates charges (Front plate and Back plate) and two Filling / Blending services (Primary blend and Secondary blend). Database read-back confirmed four independent records and their notes. In the current Costs view, the charges were independently costed at 45/60 and 25/35 across the two tiers. Direct service amounts were edited inline at 130/300 and 240/600; the Price build production contribution changed when the first service changed. The current Costs grid now owns direct-service editing and no longer sends those rows to the legacy Production editor. The redundant charge pricing-state and cost-basis badges were removed; the cost-basis selector and actionable tooling-classification warning remain.
+
+Type checking and 3,529 unit tests pass. Copy/freeze, customer quote output, and sandbox NetSuite read-back have not been exercised in this local browser walk; do not treat it as full send-to-order certification. The isolated database is separate from the shared database; no shared migration or production NetSuite change was made. Production NetSuite remains unchanged until cutover.
 
 Migration order: #636 (0146) → #637 (0147) → this branch (0148).

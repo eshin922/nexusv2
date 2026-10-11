@@ -91,7 +91,7 @@ export function CostsM2PreviewBody({
     return `${pathname}?${params.toString()}`;
   };
   const ownerRows = flattenOwners(overview.owners);
-  const hasProductionCosts = ownerRows.some(({ owner }) => owner.productionLines.length > 0);
+  const hasProductionCosts = ownerRows.some(({ owner }) => owner.kind === "item_group" && owner.productionLines.length > 0);
   const needsToolingClassification = ownerRows.some(({ owner }) =>
     owner.charges.some((charge) => charge.chargeKey === "tooling" && charge.toolingClassification === null),
   );
@@ -125,7 +125,7 @@ export function CostsM2PreviewBody({
               <Link className="cm2-ctl" href={editorHref("packaging")}>Classify tooling →</Link>
             )}
             {editMode && quoteEditable && hasProductionCosts && (
-              <Link className="cm2-ctl" href={editorHref("production")}>Edit production costs →</Link>
+              <Link className="cm2-ctl" href={editorHref("production")}>Edit item-group production costs →</Link>
             )}
             <Tag tone="plain">Costs on this quote</Tag>
           </div>

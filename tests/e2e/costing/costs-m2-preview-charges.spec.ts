@@ -373,15 +373,11 @@ test("M2 preview renders one-time charges under grouped AND standalone owners, a
     await expect(
       rowFor(`${TAG} cavity B`).locator(".cm2-tag", { hasText: "needs classification" }),
     ).toHaveCount(1);
-    await expect(
-      rowFor(`${TAG} cavity B`).locator(".cm2-tag", { hasText: "unpriced" }),
-    ).toHaveCount(1);
-    await expect(
-      rowFor(`${TAG} cavity A`).locator(".cm2-tag", { hasText: "partly priced" }),
-    ).toHaveCount(1);
-    await expect(
-      rowFor(`${TAG} four colour`).locator(".cm2-tag", { hasText: "priced" }),
-    ).toHaveCount(1);
+    for (const label of [`${TAG} cavity A`, `${TAG} cavity B`, `${TAG} four colour`]) {
+      await expect(
+        rowFor(label).locator(".cm2-tag", { hasText: /^(?:unpriced|partly priced|priced)$/i }),
+      ).toHaveCount(0);
+    }
 
     await page.screenshot({
       path: testInfo.outputPath("charges-Spreadsheet.png"),

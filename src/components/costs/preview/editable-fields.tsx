@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { updateAssemblyLeafInputLineMeta } from "@/app/actions/assembly-leaf-inputs";
+import { updateDirectServiceProduction } from "@/app/actions/direct-service-production";
 import { useCostingStore } from "@/components/costing-store-provider";
 import { ChargeAmountInput, ChargeBasisField, PackagingTierCell, type LineForUI } from "@/components/costs/packaging-drilldown";
 import type { OverviewCharge, OverviewRecurringLine, OverviewTierFact } from "@/lib/costs/costs-overview-model";
@@ -269,10 +271,65 @@ export type M3EditorFieldProps =
   | { kind: "recurring"; line: OverviewRecurringLine; tier: OverviewTierFact; read: PackagingLineTierRead; disabled: boolean }
   | { kind: "markup"; line: OverviewRecurringLine; resolved: PackagingLineTierRead | null; disabled: boolean }
   | { kind: "charge"; quoteId: string; charge: OverviewCharge; tier: OverviewTierFact; disabled: boolean }
+  | { kind: "service"; quoteLeafId: string; tierId: string; value: string | null; label: string; disabled: boolean }
   | { kind: "charge-basis"; quoteId: string; charge: OverviewCharge; disabled: boolean };
+
+function ServiceAmountField({ quoteLeafId, tierId, value, label, disabled }: {
+  quoteLeafId: string;
+  tierId: string;
+  value: string | null;
+  label: string;
+  disabled: boolean;
+}) {
+  const router = useRouter();
+  const [draft, setDraft] = useState(value ?? "");
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setDraft(value ?? ""); }, [value]);
+
+  function save() {
+    const next = draft.trim();
+    if (disabled || next === (value ?? "")) return;
+    const data = new FormData();
+    data.set("quoteLeafId", quoteLeafId);
+    data.set("tierId", tierId);
+    data.set("amount", next);
+    setError(null);
+    start(async () => {
+      const result = await updateDirectServiceProduction(data);
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <span className="cm2-cell">
+      <input
+        className="cm2-service-input"
+        type="text"
+        inputMode="decimal"
+        aria-label={label}
+        value={draft}
+        placeholder="—"
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
+      />
+      {pending && <span className="cm2-basis">saving…</span>}
+      {error && <span className="cm2-basis" role="alert">{error}</span>}
+    </span>
+  );
+}
 
 /** Single lazy-load boundary: mounting read-only M2 must not pull server actions into its module graph. */
 export default function M3EditorField(props: M3EditorFieldProps) {
+  if (props.kind === "service") {
+    return <ServiceAmountField quoteLeafId={props.quoteLeafId} tierId={props.tierId} value={props.value} label={props.label} disabled={props.disabled} />;
+  }
   if (props.kind === "charge-basis") {
     return <ChargeBasisField quoteId={props.quoteId} chargeInstanceId={props.charge.chargeInstanceId} basis={props.charge.costBasis} hasCosts={props.charge.amounts.size > 0} disabled={props.disabled} />;
   }
