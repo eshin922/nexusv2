@@ -1068,13 +1068,14 @@ test("every drag direction reaches the move primitive, not detach + attach", asy
   assert.doesNotMatch(moveBlock, /detachGroupedMembership|attachGroupedMembership/);
 });
 
-test("an attached service blocks grouping without crashing the Setup page", async () => {
+test("an attached service stays available when its product moves into a group", async () => {
   const action = await code("src/app/actions/assemblies.ts");
   const move = await code("src/lib/product-structure/structural-move.ts");
   const picker = await code("src/components/assembly-tree/quote-product-group-picker.tsx");
-  assert.match(move, /throw new StructuralMoveBlockedError\([\s\S]*?service\$\{/);
+  assert.doesNotMatch(move, /Remove .*service.* before moving it into an Item Group/);
   assert.match(action, /error instanceof StructuralMoveBlockedError[\s\S]*?ActionGuardError\(ERR\.VALIDATION, error\.message\)/);
-  assert.match(picker, /disabled=\{pending \|\| product\.associatedServiceCount > 0\}/);
+  assert.match(picker, /disabled=\{pending\}>Add to group/);
+  assert.match(picker, /associated service.*stay with this product/);
 });
 
 test("the move writer records both structural homes in its audit row", async () => {

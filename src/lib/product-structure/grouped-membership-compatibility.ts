@@ -190,6 +190,17 @@ export async function detachGroupedMembership(
   const membership = await loadMappedMembership(tx, args.assemblyLeafId);
   if (!membership) return null;
 
+  const [associatedService] = await tx
+    .select({ id: quoteLeaves.id })
+    .from(quoteLeaves)
+    .where(eq(quoteLeaves.associatedProductQuoteLeafId, membership.quoteLeafId))
+    .limit(1);
+  if (associatedService) {
+    throw new GroupedMembershipConflictError(
+      "Remove this product's associated services before removing it from the quote.",
+    );
+  }
+
   // Delete legacy first so its existing ON DELETE CASCADE behavior for
   // inputs/overrides/targets is preserved. Then delete the canonical row
   // explicitly; never depend on quote_leaves -> assembly_leaves cascade.

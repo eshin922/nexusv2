@@ -100,7 +100,6 @@ test("each refusal reports its actual cause", () => {
     [{ quoteId: QUOTE, service: filling, product: null }, "product_not_found"],
     [{ quoteId: QUOTE, service: filling, product: { ...directProduct, quoteId: "q-other" } }, "product_on_other_quote"],
     [{ quoteId: QUOTE, service: filling, product: { ...directProduct, commercialKind: "service" } }, "product_not_a_product"],
-    [{ quoteId: QUOTE, service: filling, product: { ...directProduct, assemblyId: "asy-1" } }, "product_not_direct"],
   ];
   for (const [input, reason] of cases) {
     const verdict = evaluateServiceAssociation(input);
@@ -110,6 +109,30 @@ test("each refusal reports its actual cause", () => {
       assert.ok(verdict.message.length > 0);
     }
   }
+});
+
+test("a product inside an Item Group can own a separately priced associated service", () => {
+  assert.deepEqual(
+    evaluateServiceAssociation({
+      quoteId: QUOTE,
+      service: filling,
+      product: { ...directProduct, assemblyId: "asy-1" },
+    }),
+    { associable: true },
+  );
+});
+
+test("0147 permits grouped owners but keeps the same-quote product FK and deletion guard", async () => {
+  const migration = await sql("drizzle/0147_grouped_product_associated_services.sql");
+  assert.match(migration, /DROP CONSTRAINT "quote_leaves_associated_product_fk"/);
+  assert.match(migration, /UNIQUE \("id", "quote_id", "commercial_kind"\)/);
+  assert.match(migration, /FOREIGN KEY \([\s\S]*?"associated_product_quote_leaf_id",[\s\S]*?"quote_id",[\s\S]*?"associated_product_kind"[\s\S]*?\) REFERENCES "quote_leaves" \("id", "quote_id", "commercial_kind"\)/);
+  assert.match(migration, /ON DELETE NO ACTION/);
+  const journal = JSON.parse(await raw("drizzle/meta/_journal.json")) as { entries: Array<{ tag: string; idx: number }> };
+  const prior = journal.entries.find((entry) => entry.tag === "0146_five_decimal_unit_cost");
+  const current = journal.entries.find((entry) => entry.tag === "0147_grouped_product_associated_services");
+  assert.ok(prior && current);
+  assert.equal(current.idx, prior.idx + 1);
 });
 
 test("a cross-quote product is refused even when everything else is valid", () => {
@@ -204,11 +227,20 @@ test("detaching a product with services attached for it is refused, not cascaded
   assert.ok(guardAt > 0 && deleteAt > 0 && guardAt < deleteAt);
 });
 
-test("a product with services attached for it does not move into an Item Group", async () => {
+test("a product with services attached keeps its canonical identity when moved into an Item Group", async () => {
   const src = await code("src/lib/product-structure/structural-move.ts");
-  const guardAt = src.indexOf("eq(quoteLeaves.associatedProductQuoteLeafId, canonical.id)");
-  const firstWriteAt = src.indexOf(".update(assemblyLeaves)");
-  assert.ok(guardAt > 0 && guardAt < firstWriteAt, "the refusal precedes any structural write");
+  assert.doesNotMatch(src, /Remove .*service.* before moving it into an Item Group/);
+  assert.match(src, /quoteLeafId: canonical\.id/);
+  assert.match(src, /\.update\(quoteLeaves\)[\s\S]*?assemblyId: args\.target\.kind === "group"/);
+});
+
+test("detaching a grouped product with an associated service is refused before either row is deleted", async () => {
+  const src = await code("src/lib/product-structure/grouped-membership-compatibility.ts");
+  const body = src.slice(src.indexOf("export async function detachGroupedMembership("), src.indexOf("export async function detachGroupedMembershipsForAssembly("));
+  const guardAt = body.indexOf("eq(quoteLeaves.associatedProductQuoteLeafId, membership.quoteLeafId)");
+  const deleteAt = body.indexOf(".delete(assemblyLeaves)");
+  assert.ok(guardAt > 0 && guardAt < deleteAt);
+  assert.match(body, /Remove this product's associated services before removing it from the quote/);
 });
 
 test("the attach action validates the pair before writing anything", async () => {

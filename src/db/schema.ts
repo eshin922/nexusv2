@@ -3420,11 +3420,11 @@ export const quoteLeaves = pgTable(
       .notNull()
       .default("product"),
     // Migration 0136. GENERATED and never written: `assembly_id IS NULL`.
-    // Exists only so the product-association FK below can require that the
-    // product a service names is top-level.
+    // Retained for the historical association target key; migration 0147 no
+    // longer uses it to constrain associated services to direct products.
     isDirect: boolean("is_direct").generatedAlwaysAs(sql`"assembly_id" IS NULL`),
     /**
-     * Migration 0136. The Direct Product this Direct Service is performed for.
+     * Migrations 0136 and 0147. The product this Direct Service is performed for.
      *
      * NULL = a standalone Direct Service, one per quote per service leaf
      * (`quote_leaves_standalone_service_unique_idx`). Set = this product's own
@@ -3435,17 +3435,16 @@ export const quoteLeaves = pgTable(
      *
      * Database-enforced: only a top-level service row may set it
      * (`quote_leaves_association_owner_is_direct_service`), and it must name a
-     * top-level PRODUCT on the SAME quote (`quote_leaves_associated_product_fk`,
-     * composite over the two generated columns below).
+     * PRODUCT on the SAME quote, whether direct or grouped
+     * (`quote_leaves_associated_product_fk`).
      *
      * Attribution only. The service keeps its own Production row and its own
      * NetSuite line; nothing here moves an amount onto the product.
      * Written only through `attachDirectProduct`.
      */
     associatedProductQuoteLeafId: uuid("associated_product_quote_leaf_id"),
-    // GENERATED constants ('product' / true when an association exists, NULL
-    // otherwise) — the referencing half of the composite FK. Unwritable, so a
-    // wrong value is unrepresentable rather than refused.
+    // GENERATED product discriminator for the association FK. The historical
+    // directness discriminator remains for compatibility with earlier schema.
     associatedProductKind: leafCommercialKind(
       "associated_product_kind",
     ).generatedAlwaysAs(
@@ -3469,6 +3468,11 @@ export const quoteLeaves = pgTable(
       t.commercialKind,
       t.isDirect,
     ),
+    unique("quote_leaves_association_product_key").on(
+      t.id,
+      t.quoteId,
+      t.commercialKind,
+    ),
     check(
       "quote_leaves_association_owner_is_direct_service",
       sql`"associated_product_quote_leaf_id" IS NULL OR ("commercial_kind" = 'service' AND "assembly_id" IS NULL)`,
@@ -3478,9 +3482,8 @@ export const quoteLeaves = pgTable(
         t.associatedProductQuoteLeafId,
         t.quoteId,
         t.associatedProductKind,
-        t.associatedProductIsDirect,
       ],
-      foreignColumns: [t.id, t.quoteId, t.commercialKind, t.isDirect],
+      foreignColumns: [t.id, t.quoteId, t.commercialKind],
       name: "quote_leaves_associated_product_fk",
     }),
     uniqueIndex("quote_leaves_product_service_unique_idx")

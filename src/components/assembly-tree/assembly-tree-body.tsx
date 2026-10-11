@@ -677,7 +677,8 @@ export function AssemblyTreeBody({
             </Fragment>
           ))}
           {groupedProductEntries.map(({ product, groupName }) => {
-            const selectedCount = existingComponentCharges?.filter((charge) => charge.quoteLeafId === product.quoteLeafId).length ?? 0;
+            const selectedCount = (existingComponentCharges?.filter((charge) => charge.quoteLeafId === product.quoteLeafId).length ?? 0)
+              + tree.directProducts.filter((service) => service.associatedProductQuoteLeafId === product.quoteLeafId).length;
             return (
               <div className="setup-wizard-product-card" key={`product:${product.quoteLeafId}`}>
                 <div className="setup-wizard-product-head">
@@ -782,7 +783,7 @@ export function AssemblyTreeBody({
               onMemberDropOnGroup={commitDrop}
               quoteProducts={[
                 ...productEntries.map(({ product }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId: null, groupName: null, associatedServiceCount: tree.directProducts.filter((service) => service.associatedProductQuoteLeafId === product.quoteLeafId).length })),
-                ...groupedProductEntries.map(({ product, groupId, groupName }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId, groupName, associatedServiceCount: 0 })),
+                ...groupedProductEntries.map(({ product, groupId, groupName }) => ({ quoteLeafId: product.quoteLeafId, name: product.name, sku: product.sku, groupId, groupName, associatedServiceCount: tree.directProducts.filter((service) => service.associatedProductQuoteLeafId === product.quoteLeafId).length })),
               ]}
             />
           ))}
@@ -812,7 +813,7 @@ export function AssemblyTreeBody({
               <DirectProductRow
                 product={product}
                 associatedProductName={product.associatedProductQuoteLeafId
-                  ? tree.directProducts.find((candidate) => candidate.quoteLeafId === product.associatedProductQuoteLeafId)?.name ?? "Unknown product"
+                  ? [...productEntries.map(({ product }) => product), ...groupedProductEntries.map(({ product }) => product)].find((candidate) => candidate.quoteLeafId === product.associatedProductQuoteLeafId)?.name ?? "Unknown product"
                   : null}
                 editable={editable}
                 isMoving={movingLeafId === product.quoteLeafId}
@@ -886,10 +887,10 @@ export function AssemblyTreeBody({
               ? suggestedChargesByProductType[chargeSheetLeaf.productType.value] ?? []
               : []
           }
-          associatedServices={tree.directProducts.some((product) => product.quoteLeafId === chargeSheetLeaf.quoteLeafId && product.commercialKind === "product")
+          associatedServices={[...productEntries, ...groupedProductEntries].some(({ product }) => product.quoteLeafId === chargeSheetLeaf.quoteLeafId && product.commercialKind === "product")
             ? associatedServiceLeaves
             : []}
-          enableAssociatedServices={tree.directProducts.some((product) => product.quoteLeafId === chargeSheetLeaf.quoteLeafId && product.commercialKind === "product")}
+          enableAssociatedServices={[...productEntries, ...groupedProductEntries].some(({ product }) => product.quoteLeafId === chargeSheetLeaf.quoteLeafId && product.commercialKind === "product")}
           suggestedServiceIdentities={chargeSheetLeaf.productType
             ? suggestedServicesByProductType[chargeSheetLeaf.productType.value] ?? []
             : []}

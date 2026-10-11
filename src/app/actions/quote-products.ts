@@ -84,7 +84,7 @@ export async function attachQuoteProduct(
 
     // 0136 · the service-for-product pair, refused with the actual cause before
     // anything is written. The database re-enforces same-quote, product-kind
-    // and top-level on its own (quote_leaves_associated_product_fk); this is
+    // on the same quote (quote_leaves_associated_product_fk); this is
     // the sentence, plus the identity restriction the database cannot see.
     if (associatedProductQuoteLeafId) {
       const [product] = await db
