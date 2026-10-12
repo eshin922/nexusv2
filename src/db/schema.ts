@@ -5188,7 +5188,7 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
      */
     ownerKind: recoveryOwnerKind("owner_kind"),
     /**
-     * The durable instance identity — OD-032 P-3.
+     * The durable instance identity — OD-032 P-3, corrected at repeatable freeze.
      *
      * `(charge_key, owner_ref, tier_id)` cannot separate two charges of one
      * type on one component: all three are identical, so the instructions
@@ -5199,15 +5199,12 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
      * instance. NOT NULL for every component-owned charge — asserted in
      * `tests/unit/od-032-freeze-integrity.test.ts`, not left as convention.
      *
-     * ON DELETE SET NULL, never CASCADE. A frozen instruction outlives the
-     * draft-side charge it was projected from: deleting a charge on a later
-     * revision must not delete the record of what a customer was already
-     * billed. The pointer is traceability; the instruction is the fact.
+     * No FK: this is frozen provenance, not a live relationship. With two
+     * same-type instances on one owner, SET NULL would move both instructions
+     * into the legacy uniqueness namespace and make deleting the second live
+     * charge fail. Keep the UUID even after that draft charge is removed.
      */
-    chargeInstanceId: uuid("charge_instance_id").references(
-      () => quoteChargeInstances.id,
-      { onDelete: "set null" },
-    ),
+    chargeInstanceId: uuid("charge_instance_id"),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -5251,12 +5248,12 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
       .defaultNow(),
   },
   (t) => [
-    unique("quote_snapshot_recovery_instructions_unique").on(
-      t.quoteSnapshotId,
-      t.chargeKey,
-      t.ownerRef,
-      t.tierId,
-    ),
+    uniqueIndex("quote_snapshot_recovery_instructions_instance_uq")
+      .on(t.quoteSnapshotId, t.chargeInstanceId, t.tierId)
+      .where(sql`${t.chargeInstanceId} is not null`),
+    uniqueIndex("quote_snapshot_recovery_instructions_legacy_uq")
+      .on(t.quoteSnapshotId, t.chargeKey, t.ownerRef, t.tierId)
+      .where(sql`${t.chargeInstanceId} is null`),
   ],
 );
 

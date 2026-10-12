@@ -2018,7 +2018,7 @@ export async function sendQuote(
       );
     }
 
-    const todayIso = sentAt.toISOString().slice(0, 10);
+    const todayIso = sentAtIso;
 
     // ── OD-023 · one representation, persisted AND rendered ──────────────────
     //
@@ -2075,7 +2075,16 @@ export async function sendQuote(
     let result: { quoteNumber: string; sentAt: Date };
     try {
       const snapshotRepresentation = buildSnapshotRepresentation({
-        view: resolved.view,
+        // The resolver still sees a draft here. Give the frozen document the
+        // same send date and expiry that the transaction persists below.
+        view: {
+          ...resolved.view,
+          quote: {
+            ...resolved.view.quote,
+            sentDate: sentAtIso,
+            validUntil: validUntilIso,
+          },
+        },
         addendumData: resolved.addendumData,
         structure: await loadQuoteProductStructure(quoteId),
         todayIso,

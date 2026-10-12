@@ -350,7 +350,7 @@ export function QuoteHost({
                 {addendumOn ? " · with specification addendum" : ""}
               </span>
               <span className="cv-preview-right">
-                {addendumOn ? 2 : 1} page PDF
+                Customer PDF
               </span>
             </div>
 
@@ -436,7 +436,6 @@ export function QuoteHost({
             detailLevel={detailLevel}
             onDetailLevelChange={setDetailLevel}
             pdfHref={targetSrc}
-            pageCount={addendumOn ? 2 : 1}
             presentation={presentation}
             hasItemGroups={view.skus.some((sku) => sku.itemGroup)}
             tiers={presentationTiers}

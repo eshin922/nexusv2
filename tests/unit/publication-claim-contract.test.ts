@@ -229,3 +229,13 @@ test("the send passes the claimed number into the representation", async () => {
     "and that number came from the claim",
   );
 });
+
+test("the frozen document uses the same local send date and expiry as the quote", async () => {
+  const body = sendQuoteBody(await SEND());
+  const build = body.indexOf("buildSnapshotRepresentation({");
+  const block = body.slice(build, body.indexOf("});", build));
+  assert.match(body, /const todayIso = sentAtIso;/, "the issue date must use the operational date, not UTC");
+  assert.match(block, /sentDate: sentAtIso,/);
+  assert.match(block, /validUntil: validUntilIso,/);
+  assert.match(body, /validUntil: validUntilIso,/, "the persisted quote uses that same expiry");
+});
