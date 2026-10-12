@@ -149,38 +149,53 @@
   border-top: 1px solid var(--cm2-bd);
   min-height: 38px;
 }
-/* Keep each finished item and its member costs in one visual bracket. The
-   rail and branch marks remain visible without tinting the price cells. */
+/* Make the finished item read as the parent of its cost and product rows.
+   Keep the tier inputs neutral so the hierarchy does not imply new totals. */
 .cm2-item-group-cluster {
   width: max-content;
   min-width: 100%;
   box-sizing: border-box;
-  box-shadow: inset 3px 0 color-mix(in oklch, var(--accent) 42%, var(--cm2-bd));
-  border-bottom: 1px solid var(--cm2-bd);
-  margin-bottom: 9px;
+  border-left: 4px solid var(--accent);
+  border-top: 1px solid var(--accent);
+  border-bottom: 1px solid var(--accent);
+  margin: 0 0 12px;
 }
 .cm2-item-group-cluster > .cm2-item-group-head {
-  border-top: 2px solid color-mix(in oklch, var(--accent) 42%, var(--cm2-bd));
+  border-top: 0;
+  background: color-mix(in oklch, var(--cm2-sunk) 70%, var(--cm2-acc-t));
+}
+.cm2-item-group-cluster .cm2-row.cm2-item-group-head .cm2-ident {
+  --cm2-group-row-bg: color-mix(in oklch, var(--cm2-sunk) 70%, var(--cm2-acc-t));
+  background: var(--cm2-group-row-bg);
+  box-shadow: -18px 0 0 var(--cm2-group-row-bg), 12px 0 12px -12px oklch(0.20 0.02 255 / 0.10);
 }
 .cm2-item-group-head .cm2-label {
   font-family: var(--display);
-  font-size: 15px;
+  font-size: 16px;
 }
 .cm2-item-group-cluster .cm2-group-cost {
-  border-bottom: 1px solid var(--cm2-bd);
+  border-bottom: 1px solid var(--accent);
+}
+.cm2-item-group-cluster .cm2-group-member-head {
+  background: color-mix(in oklch, var(--cm2-sunk) 88%, var(--cm2-acc-t));
+}
+.cm2-item-group-cluster .cm2-row.cm2-group-member-head .cm2-ident {
+  --cm2-member-row-bg: color-mix(in oklch, var(--cm2-sunk) 88%, var(--cm2-acc-t));
+  background: var(--cm2-member-row-bg);
+  box-shadow: -18px 0 0 var(--cm2-member-row-bg), 12px 0 12px -12px oklch(0.20 0.02 255 / 0.10);
 }
 .cm2-group-member-head .cm2-ident[data-indent="1"] {
-  padding-left: 32px;
+  padding-left: 42px;
 }
 .cm2-group-member-head .cm2-ident::before {
   content: "";
   position: absolute;
-  left: 16px;
+  left: 18px;
   top: 0;
-  width: 10px;
+  width: 16px;
   height: 50%;
-  border-left: 1px solid var(--cm2-bd);
-  border-bottom: 1px solid var(--cm2-bd);
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
 }
 .cm2-foot {
   align-items: baseline;
