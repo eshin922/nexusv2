@@ -157,9 +157,9 @@ export function LeafContextMenu({
         <div
           className="a1v2-context-menu"
           role="menu"
-          aria-label="Leaf actions"
+          aria-label="Product actions"
         >
-          <div className="header">Leaf actions</div>
+          <div className="header">Product actions</div>
           <Link
             href={editSpecsHref}
             className="item accent"

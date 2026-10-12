@@ -580,10 +580,9 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   const row = await read("src/components/assembly-tree/direct-product-row.tsx");
   assert.match(row, /setup-wizard-direct-charges/);
   assert.match(row, /Edit library specs/);
-  // Item-group MEMBERS are a different component and keep "Leaf actions" — a
-  // member is not a quote line, so the neutral term there would be wrong.
+  // Item-group members are still products, so their menu says what it acts on.
   const member = await code("src/components/assembly-tree/leaf-context-menu.tsx");
-  assert.match(member, /Leaf actions/);
+  assert.match(member, /Product actions/);
 });
 
 test("usage is counted in QUOTES, not attachment rows", async () => {
@@ -646,6 +645,7 @@ test("group actions are named and Add products is directly visible", async () =>
   assert.match(group, />\s*\+ Add products\s*</);
   assert.match(group, /Group options/);
   assert.match(member, /Product actions <span/);
+  assert.match(member, /aria-label="Product actions"/);
   assert.doesNotMatch(group, /aria-disabled="true"/);
 });
 
