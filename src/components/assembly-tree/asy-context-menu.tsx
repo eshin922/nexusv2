@@ -13,14 +13,12 @@ export function AsyContextMenu({
   groupName,
   disabled,
   quoteProducts,
-  position,
 }: {
   assemblyId: string;
   assemblySku: string;
   groupName: string;
   disabled: boolean;
   quoteProducts: readonly QuoteGroupProduct[];
-  position: number;
 }) {
   const [open, setOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -132,7 +130,6 @@ export function AsyContextMenu({
         onClose={() => setPickerOpen(false)}
         groupId={assemblyId}
         groupName={groupName}
-        position={position}
         products={quoteProducts}
       />
     </div>

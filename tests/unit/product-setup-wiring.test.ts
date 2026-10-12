@@ -207,7 +207,8 @@ test("adding products into a group lives on that group's row, not the quote head
   // This action moves a quote attachment, rather than adding another library
   // product. Both source and destination must come from the quote tree.
   const picker = await code("src/components/assembly-tree/quote-product-group-picker.tsx");
-  assert.match(picker, /moveProductMembership\(formData\)/);
+  assert.match(picker, /moveProductsToGroup\(formData\)/);
+  assert.match(picker, /formData\.append\("quoteLeafId", product\.quoteLeafId\)/);
   assert.doesNotMatch(picker, /attachAssemblyLeaf|fetchLibraryBrowse/);
   assert.match(rowScope, /groupId=\{assemblyId\}/);
 
@@ -1078,7 +1079,7 @@ test("an attached service stays available when its product moves into a group", 
   const picker = await code("src/components/assembly-tree/quote-product-group-picker.tsx");
   assert.doesNotMatch(move, /Remove .*service.* before moving it into an Item Group/);
   assert.match(action, /error instanceof StructuralMoveBlockedError[\s\S]*?ActionGuardError\(ERR\.VALIDATION, error\.message\)/);
-  assert.match(picker, /disabled=\{pending\}>Add to group/);
+  assert.match(picker, /disabled=\{pending\s*\|\|\s*selectedIds\.size === 0\}/);
   assert.match(picker, /associated service.*stay with this product/);
 });
 

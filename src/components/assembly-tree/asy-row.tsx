@@ -209,7 +209,6 @@ export function AsyRow({
             groupName={asy.name}
             disabled={!editable}
             quoteProducts={quoteProducts}
-            position={asy.children.length}
           />
         </div>
       </div>
