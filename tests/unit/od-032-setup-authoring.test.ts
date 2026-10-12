@@ -58,7 +58,7 @@ test("no type is ever pre-selected", () => {
   const sheet = codeOnly(read(SHEET));
 
   // The selection starts EMPTY, and suggestions do not seed it.
-  assert.match(sheet, /useState<Set<ComponentChargeKey>>\(new Set\(\)\)/);
+  assert.match(sheet, /useState<Array<\{ id: number; key: ComponentChargeKey; note: string \}>>\(\[\]\)/);
   assert.ok(
     !/new Set\(suggestions\)/.test(sheet),
     "suggestions must not seed the selection",
@@ -95,7 +95,7 @@ test("submitting sends only what was selected", () => {
   // The payload is built FROM the picked set, so a type nobody ticked has no
   // path into the request. One phase now, so it is built directly rather than
   // staged through a drafts array.
-  assert.match(sheet, /charges: \[\.\.\.picked\]\.map\(\(key\) => \(\{/);
+  assert.match(sheet, /charges: picked\.map\(\(charge\) => \(\{/);
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -109,7 +109,7 @@ test("picking an owned type warns, NAMES the labels, and still allows it", () =>
   // the thing the operator actually has to decide.
   assert.match(sheet, /already has \{owned\}/);
   assert.match(sheet, /ownedLabels\(k\)\.join\(", "\)/);
-  assert.match(sheet, /a second needs a distinct label/);
+  assert.match(sheet, /add another with its own note/);
   // ...and NOTHING disables the PICK on account of it. Two dies on one carton
   // is a real thing; the model must not out-argue the shop floor. What is
   // gated is SUBMIT, and only until the second one can be told apart.
@@ -122,17 +122,15 @@ test("picking an owned type warns, NAMES the labels, and still allows it", () =>
 
 test("a second charge of one type requires a distinct label", () => {
   const sheet = codeOnly(read(SHEET));
-  // The label input appears when the type is `other_service` OR the component
-  // already owns one, which is exactly when a label is what tells two charges
-  // apart.
-  assert.match(sheet, /labelRequiredFor\(k\) \|\| ownedCount\(k\) > 0/);
+  // Each added row receives a note, including the first of a type.
+  assert.match(sheet, /selected\.map\(\(charge, chargeIndex\) => \(/);
   // ── AND IT NOW SITS WITH THE TYPE IT NAMES ───────────────────────────
   //
   // It used to live in the economics phase, which is where it fitted rather
   // than where it belongs: a label is part of a charge's IDENTITY, and
   // identity is what this surface owns. With economics gone there was no
   // second phase to hold it, and the right home was the obvious one.
-  assert.match(sheet, /\{on && needsLabel\(k\) && \(/);
+  assert.match(sheet, /Note for \$\{COMPONENT_CHARGE_LABELS\[k\]\}/);
 });
 
 // ══════════════════════════════════════════════════════════════════════

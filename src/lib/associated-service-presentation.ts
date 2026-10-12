@@ -35,9 +35,9 @@ export function includeAssociatedServicesInProductRows(
     const allEqual = tierPrices.every((price) => price !== null && price === tierPrices[0]);
     return {
       ...productSku,
-      includedServices: services.map((service) => service.serviceIdentity
+      includedServices: services.map((service) => service.displayName || (service.serviceIdentity
         ? DIRECT_SERVICE_LABELS[service.serviceIdentity]
-        : service.displayName),
+        : "Service")),
       tierLineTotals,
       tierPrices,
       shape: tierPrices.some((price) => price === null) ? "partial" : allEqual ? "flat" : "step↓",

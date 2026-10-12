@@ -41,17 +41,16 @@
  * is being assumed on their behalf; it is not a control.
  */
 
-import { Fragment, useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   COMPONENT_CHARGE_KEYS,
   COMPONENT_CHARGE_LABELS,
-  labelRequiredFor,
   type ComponentChargeKey,
 } from "@/lib/commercial-recovery/registry";
-import { createComponentCharges } from "@/app/actions/component-charges";
+import { createComponentCharges, deleteComponentCharge } from "@/app/actions/component-charges";
 import { runGoverned, failureMessage } from "@/lib/governed-action";
-import { attachQuoteProduct } from "@/app/actions/quote-products";
+import { attachQuoteProduct, detachQuoteProduct } from "@/app/actions/quote-products";
 import { useRouter } from "next/navigation";
 import { DIRECT_SERVICE_LABELS } from "@/lib/product-structure/direct-service";
 import {
@@ -72,7 +71,7 @@ const HINT: Record<ComponentChargeKey, string> = {
   samples: "pre-production samples of this component",
   project_setup: "one-off set-up or changeover for this product's run",
   rd_formulation: "development or formulation work quoted separately",
-  other_service: "label required · e.g. “foil stamping die spec”",
+  other_service: "e.g. foil stamping die spec",
 };
 
 export function AddComponentChargesSheet({
@@ -85,7 +84,7 @@ export function AddComponentChargesSheet({
   associatedServices = [],
   enableAssociatedServices = false,
   suggestedServiceIdentities = [],
-  existingServiceIdentities = [],
+  existingServices = [],
   existingKeys,
   onClose,
 }: {
@@ -99,7 +98,7 @@ export function AddComponentChargesSheet({
   associatedServices?: ReadonlyArray<{ id: string; serviceIdentity: string }>;
   enableAssociatedServices?: boolean;
   suggestedServiceIdentities?: readonly ProductAssociableServiceIdentity[];
-  existingServiceIdentities?: readonly ProductAssociableServiceIdentity[];
+  existingServices?: ReadonlyArray<{ quoteLeafId: string; serviceIdentity: ProductAssociableServiceIdentity; serviceInstanceLabel: string | null }>;
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -113,13 +112,15 @@ export function AddComponentChargesSheet({
   }[];
   onClose: () => void;
 }) {
-  const [picked, setPicked] = useState<Set<ComponentChargeKey>>(new Set());
-  const [pickedServices, setPickedServices] = useState<Set<ProductAssociableServiceIdentity>>(new Set());
+  const [picked, setPicked] = useState<Array<{ id: number; key: ComponentChargeKey; note: string }>>([]);
+  const [pickedServices, setPickedServices] = useState<Array<{ id: number; identity: ProductAssociableServiceIdentity; note: string }>>([]);
+  const nextId = useRef(0);
   const router = useRouter();
-  /** Per type, as typed. Only read for the types that need one. */
-  const [labels, setLabels] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
+  const [confirmRemoval, setConfirmRemoval] = useState<string | null>(null);
+  const [removedCharges, setRemovedCharges] = useState<Set<string>>(() => new Set());
+  const [removedServices, setRemovedServices] = useState<Set<string>>(() => new Set());
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -131,6 +132,8 @@ export function AddComponentChargesSheet({
   // list, which made a configured association look disconnected from the
   // choices it was meant to guide.
   const suggestedSet = new Set<ComponentChargeKey>(suggestions);
+  const attachedCharges = existingKeys.filter((charge) => !removedCharges.has(charge.chargeInstanceId));
+  const attachedServices = existingServices.filter((service) => !removedServices.has(service.quoteLeafId));
   const chargeRows = COMPONENT_CHARGE_KEYS.map((key) => ({
     key,
     suggested: suggestedSet.has(key),
@@ -139,28 +142,24 @@ export function AddComponentChargesSheet({
   const otherRows = chargeRows.filter((row) => !row.suggested).map((row) => row.key);
 
   const ownedCount = (k: ComponentChargeKey) =>
-    existingKeys.filter((e) => e.chargeKey === k).length;
+    attachedCharges.filter((e) => e.chargeKey === k).length;
   /** Labels already in use for this type — what a second one must differ from. */
   const ownedLabels = (k: ComponentChargeKey) =>
-    existingKeys
+    attachedCharges
       .filter((e) => e.chargeKey === k)
       .map((e) => e.label)
       .filter((l): l is string => !!l);
 
-  /** A label is demanded by the type itself, or by a collision with one the
-   *  component already has. Two charges of a type are told apart by their
-   *  labels, so a second one without one would collapse into the first. */
-  const needsLabel = (k: ComponentChargeKey) =>
-    labelRequiredFor(k) || ownedCount(k) > 0;
-
-  function toggle(k: ComponentChargeKey) {
+  function addCharge(key: ComponentChargeKey) {
     setError(null);
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
+    const id = nextId.current++;
+    setPicked((prev) => [...prev, { id, key, note: "" }]);
+  }
+
+  function addService(identity: ProductAssociableServiceIdentity) {
+    setError(null);
+    const id = nextId.current++;
+    setPickedServices((prev) => [...prev, { id, identity, note: "" }]);
   }
 
   /**
@@ -171,17 +170,27 @@ export function AddComponentChargesSheet({
    * failure afterwards.
    */
   const blocked = (): string | null => {
-    for (const k of picked) {
-      const label = labels[k]?.trim() || null;
-      if (needsLabel(k) && !label) {
-        return labelRequiredFor(k)
-          ? `${COMPONENT_CHARGE_LABELS[k]} needs a label saying what it is for.`
-          : `This component already has a ${COMPONENT_CHARGE_LABELS[k]} charge. ` +
-            "Give the new one a label that tells it apart.";
+    const seen = new Set<string>();
+    for (const charge of picked) {
+      const note = charge.note.trim();
+      if (!note) return `Add a note for ${COMPONENT_CHARGE_LABELS[charge.key]} so this cost can be identified.`;
+      if (note.length > 120) return "Associated cost notes must be 120 characters or fewer.";
+      const key = `${charge.key}\u0000${note.toLowerCase()}`;
+      if (seen.has(key) || ownedLabels(charge.key).some((owned) => owned.trim().toLowerCase() === note.toLowerCase())) {
+        return `${COMPONENT_CHARGE_LABELS[charge.key]} already has the note "${note}". Give each instance a different note.`;
       }
-      if (label && ownedLabels(k).includes(label)) {
-        return `This component already has a ${COMPONENT_CHARGE_LABELS[k]} charge labelled "${label}".`;
+      seen.add(key);
+    }
+    const seenServices = new Set<string>();
+    for (const service of pickedServices) {
+      const note = service.note.trim();
+      if (!note) return `Add a note for ${DIRECT_SERVICE_LABELS[service.identity]} so this service can be identified.`;
+      if (note.length > 120) return "Associated service notes must be 120 characters or fewer.";
+      const key = `${service.identity}\u0000${note.toLowerCase()}`;
+      if (seenServices.has(key) || attachedServices.some((existing) => existing.serviceIdentity === service.identity && existing.serviceInstanceLabel?.trim().toLowerCase() === note.toLowerCase())) {
+        return `${DIRECT_SERVICE_LABELS[service.identity]} already has the note "${note}". Give each instance a different note.`;
       }
+      seenServices.add(key);
     }
     return null;
   };
@@ -189,15 +198,15 @@ export function AddComponentChargesSheet({
   function submit() {
     setError(null);
     startSaving(async () => {
-      if (picked.size > 0) {
+      if (picked.length > 0) {
         const outcome = await runGoverned(() => createComponentCharges({
           quoteId,
           quoteLeafId,
           // TYPE, OWNER, LABEL. No amounts: this surface does not know what
           // DPS pays and is not the place to ask.
-          charges: [...picked].map((key) => ({
-            chargeKey: key,
-            label: labels[key]?.trim() || null,
+          charges: picked.map((charge) => ({
+            chargeKey: charge.key,
+            label: charge.note.trim(),
           })),
         }));
         const failed = failureMessage(outcome);
@@ -205,25 +214,57 @@ export function AddComponentChargesSheet({
           setError(failed);
           return;
         }
+        setPicked([]);
       }
-      for (const identity of pickedServices) {
-        const leaf = associatedServices.find((service) => service.serviceIdentity === identity);
+      for (const service of pickedServices) {
+        const leaf = associatedServices.find((entry) => entry.serviceIdentity === service.identity);
         if (!leaf) {
-          setError(`${DIRECT_SERVICE_LABELS[identity]} is not available in the service library.`);
+          setError(`${DIRECT_SERVICE_LABELS[service.identity]} is not available in the service library.`);
           return;
         }
         const formData = new FormData();
         formData.set("quoteId", quoteId);
         formData.set("leafId", leaf.id);
         formData.set("associatedProductQuoteLeafId", quoteLeafId);
+        formData.set("serviceInstanceLabel", service.note.trim());
         const result = await attachQuoteProduct(formData);
         if (!result.ok) {
           setError(result.error.message);
           router.refresh();
           return;
         }
+        setPickedServices((current) => current.filter((entry) => entry.id !== service.id));
       }
       onClose();
+      router.refresh();
+    });
+  }
+
+  function removeExisting(kind: "charge" | "service", id: string) {
+    const target = `${kind}:${id}`;
+    if (confirmRemoval !== target) {
+      setConfirmRemoval(target);
+      setError(null);
+      return;
+    }
+    startSaving(async () => {
+      setError(null);
+      const serviceData = new FormData();
+      serviceData.set("quoteId", quoteId);
+      serviceData.set("quoteLeafId", id);
+      const outcome = kind === "charge"
+        ? await deleteComponentCharge({ quoteId, chargeInstanceId: id })
+        : await detachQuoteProduct(serviceData);
+      if (!outcome.ok) {
+        setError(outcome.error.message);
+        return;
+      }
+      if (kind === "charge") {
+        setRemovedCharges((current) => new Set(current).add(id));
+      } else {
+        setRemovedServices((current) => new Set(current).add(id));
+      }
+      setConfirmRemoval(null);
       router.refresh();
     });
   }
@@ -251,10 +292,38 @@ export function AddComponentChargesSheet({
           <p className="od032-owner">
             Owned by <span className="mono">{componentSku ?? "—"}</span> · {componentName}
           </p>
-          <p className="od032-owner">Need another charge of the same type? Reopen this picker and give it a different label.</p>
+          <p className="od032-owner">Add as many costs as needed. Give each one a short note to distinguish its costing line.</p>
         </header>
 
         <div className="od032-sheet-body">
+          {attachedCharges.length + attachedServices.length > 0 && (
+            <section className="od032-existing" aria-label="Associated costs already added">
+              <h3>Already added</h3>
+              {[...attachedCharges.map((charge) => ({
+                kind: "charge" as const,
+                id: charge.chargeInstanceId,
+                name: COMPONENT_CHARGE_LABELS[charge.chargeKey as ComponentChargeKey] ?? charge.chargeKey,
+                note: charge.label,
+              })), ...attachedServices.map((service) => ({
+                kind: "service" as const,
+                id: service.quoteLeafId,
+                name: DIRECT_SERVICE_LABELS[service.serviceIdentity],
+                note: service.serviceInstanceLabel,
+              }))].map((entry) => {
+                const target = `${entry.kind}:${entry.id}`;
+                return (
+                  <div className="od032-existing-row" key={target}>
+                    <span className="od032-existing-name">{entry.name}{entry.note ? ` · ${entry.note}` : ""}</span>
+                    {confirmRemoval === target && <span className="od032-existing-warning">Entered costs for this line will be removed from this draft.</span>}
+                    {confirmRemoval === target && <button type="button" className="od032-btn" disabled={saving} onClick={() => setConfirmRemoval(null)}>Keep</button>}
+                    <button type="button" className="od032-btn" disabled={saving} onClick={() => removeExisting(entry.kind, entry.id)} aria-label={`Remove ${entry.name}${entry.note ? ` · ${entry.note}` : ""}`}>
+                      {confirmRemoval === target ? "Confirm remove" : "Remove"}
+                    </button>
+                  </div>
+                );
+              })}
+            </section>
+          )}
           {suggestions.length > 0 ? (
             <div className="od032-suggest">
               <span className="od032-suggest-label">
@@ -290,7 +359,7 @@ export function AddComponentChargesSheet({
             )}
             {[...suggestedRows, ...otherRows].map((k, index) => {
               const owned = ownedCount(k);
-              const on = picked.has(k);
+              const selected = picked.filter((charge) => charge.key === k);
               return (
                 <Fragment key={k}>
                   {index === suggestedRows.length && suggestedRows.length > 0 && (
@@ -302,14 +371,10 @@ export function AddComponentChargesSheet({
                   <button
                     type="button"
                     className="od032-pick"
-                    role="checkbox"
-                    aria-checked={on}
                     data-testid={`pick-${k}`}
-                    onClick={() => toggle(k)}
+                    onClick={() => addCharge(k)}
                   >
-                    <span className="od032-box" data-on={on ? "yes" : undefined}>
-                      {on ? "✓" : ""}
-                    </span>
+                    <span className="od032-add-symbol" aria-hidden="true">+</span>
                     <span className="od032-pick-text">
                       <span className="od032-pick-name">
                         {COMPONENT_CHARGE_LABELS[k]}
@@ -332,38 +397,27 @@ export function AddComponentChargesSheet({
                           {ownedLabels(k).length > 0
                             ? ` (${ownedLabels(k).join(", ")})`
                             : ""}{" "}
-                          — a second needs a distinct label
+                          — add another with its own note
                         </span>
                       )}
                     </span>
                     <span className="od032-basis">one-time</span>
                   </button>
 
-                  {/* ── THE LABEL, WHERE THE TYPE IS ────────────────────────
-                      It used to live in the economics phase, which is where it
-                      happened to fit rather than where it belongs: a label is
-                      part of a charge's IDENTITY, and identity is what this
-                      surface owns. It appears under the type it names, the
-                      moment that type is picked. */}
-                  {on && needsLabel(k) && (
-                    <input
-                      className="od032-label-input"
-                      placeholder={
-                        labelRequiredFor(k)
-                          ? "What is it for? (required)"
-                          : "Distinct label (required — this component already has one)"
-                      }
-                      aria-label={`Label for ${COMPONENT_CHARGE_LABELS[k]}`}
-                      value={labels[k] ?? ""}
-                      // Pattern 47(e): `saving` never reaches an input's
-                      // disabled attribute. Blocking it mid-save drops focus.
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setLabels((p) => ({ ...p, [k]: v }));
-                      }}
-                      data-testid={`label-${k}`}
-                    />
-                  )}
+                  {selected.map((charge, chargeIndex) => (
+                    <div className="od032-instance-row" key={charge.id}>
+                      <input
+                        className="od032-label-input"
+                        placeholder={`Note for ${COMPONENT_CHARGE_LABELS[k]} #${chargeIndex + 1}`}
+                        aria-label={`Note for ${COMPONENT_CHARGE_LABELS[k]} #${chargeIndex + 1}`}
+                        value={charge.note}
+                        maxLength={120}
+                        onChange={(event) => setPicked((current) => current.map((entry) => entry.id === charge.id ? { ...entry, note: event.target.value } : entry))}
+                        data-testid={`label-${k}-${chargeIndex}`}
+                      />
+                      <button type="button" className="od032-btn" aria-label={`Remove ${COMPONENT_CHARGE_LABELS[k]} #${chargeIndex + 1}`} onClick={() => setPicked((current) => current.filter((entry) => entry.id !== charge.id))}>Remove</button>
+                    </div>
+                  ))}
                 </li>
                 </Fragment>
               );
@@ -377,33 +431,37 @@ export function AddComponentChargesSheet({
               </li>
               {PRODUCT_ASSOCIABLE_SERVICE_IDENTITIES.map((identity) => {
                 const available = associatedServices.some((service) => service.serviceIdentity === identity);
-                const existing = existingServiceIdentities.includes(identity);
-                const selected = pickedServices.has(identity);
+                const owned = attachedServices.filter((service) => service.serviceIdentity === identity);
+                const selected = pickedServices.filter((service) => service.identity === identity);
                 return (
                   <li key={identity}>
                     <button
                       type="button"
                       className="od032-pick"
-                      role="checkbox"
-                      aria-checked={selected || existing}
-                      disabled={!available || existing}
-                      onClick={() => setPickedServices((current) => {
-                        const next = new Set(current);
-                        if (next.has(identity)) next.delete(identity);
-                        else next.add(identity);
-                        return next;
-                      })}
+                      disabled={!available}
+                      onClick={() => addService(identity)}
                     >
-                      <span className="od032-box" data-on={selected || existing ? "yes" : undefined}>
-                        {selected || existing ? "✓" : ""}
-                      </span>
+                      <span className="od032-add-symbol" aria-hidden="true">+</span>
                       <span className="od032-pick-text">
                         <span className="od032-pick-name">{DIRECT_SERVICE_LABELS[identity]}</span>
                         {suggestedServiceIdentities.includes(identity) && <span className="od032-pick-suggested">common on this type</span>}
-                        <span className="od032-pick-hint">{existing ? "Already attached to this product" : available ? "Cost and sell price are entered on Costs, per tier" : "Unavailable in the service library"}</span>
+                        <span className="od032-pick-hint">{available ? `${owned.length} already attached · each added service gets its own cost line` : "Unavailable in the service library"}</span>
                       </span>
                       <span className="od032-basis">service line</span>
                     </button>
+                    {selected.map((service, serviceIndex) => (
+                      <div className="od032-instance-row" key={service.id}>
+                        <input
+                          className="od032-label-input"
+                          aria-label={`Note for ${DIRECT_SERVICE_LABELS[identity]} #${serviceIndex + 1}`}
+                          placeholder={`Note for ${DIRECT_SERVICE_LABELS[identity]} #${serviceIndex + 1}`}
+                          value={service.note}
+                          maxLength={120}
+                          onChange={(event) => setPickedServices((current) => current.map((entry) => entry.id === service.id ? { ...entry, note: event.target.value } : entry))}
+                        />
+                        <button type="button" className="od032-btn" aria-label={`Remove ${DIRECT_SERVICE_LABELS[identity]} #${serviceIndex + 1}`} onClick={() => setPickedServices((current) => current.filter((entry) => entry.id !== service.id))}>Remove</button>
+                      </div>
+                    ))}
                   </li>
                 );
               })}
@@ -437,7 +495,7 @@ export function AddComponentChargesSheet({
 
           <footer className="od032-sheet-foot">
             <span className="od032-count">
-              {picked.size + pickedServices.size} selected · cost is entered on Costs
+              {picked.length + pickedServices.length} selected · cost is entered on Costs
             </span>
             <span className="od032-spacer" />
             <button type="button" className="od032-btn" onClick={onClose}>
@@ -447,12 +505,12 @@ export function AddComponentChargesSheet({
               type="button"
               className="od032-btn primary"
               // Pattern 47(f): action-scoped, and it says why it is disabled.
-              disabled={picked.size + pickedServices.size === 0 || saving || blocked() !== null}
+              disabled={picked.length + pickedServices.length === 0 || saving || blocked() !== null}
               aria-busy={saving || undefined}
               title={
                 saving
-                  ? "Adding these charges…"
-                  : picked.size + pickedServices.size === 0
+                  ? "Saving associated costs…"
+                  : picked.length + pickedServices.length === 0
                     ? "Select at least one associated cost."
                     : (blocked() ?? undefined)
               }
@@ -460,8 +518,8 @@ export function AddComponentChargesSheet({
               onClick={submit}
             >
               {saving
-                ? "Adding…"
-                : `Add ${picked.size + pickedServices.size} associated cost${picked.size + pickedServices.size === 1 ? "" : "s"}`}
+                ? "Saving…"
+                : `Add ${picked.length + pickedServices.length} associated cost${picked.length + pickedServices.length === 1 ? "" : "s"}`}
             </button>
           </footer>
         </div>

@@ -626,6 +626,7 @@ export default async function CostBuildPage({
     .select({
       quoteLeafId: quoteLeaves.id,
       name: leaves.name,
+      serviceInstanceLabel: quoteLeaves.serviceInstanceLabel,
       serviceIdentity: leaves.serviceIdentity,
       associatedProductQuoteLeafId: quoteLeaves.associatedProductQuoteLeafId,
       // Already the ORDER BY below; selected so a consumer that re-sorts (the
@@ -666,7 +667,7 @@ export default async function CostBuildPage({
     .filter((r) => r.serviceIdentity !== null)
     .map((r) => ({
       quoteLeafId: r.quoteLeafId,
-      name: r.name,
+      name: r.serviceInstanceLabel ? `${r.name} · ${r.serviceInstanceLabel}` : r.name,
       serviceIdentity: r.serviceIdentity!,
       associatedProduct: r.associatedProductQuoteLeafId
         ? (() => {

@@ -4,30 +4,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteAssembly } from "@/app/actions/assemblies";
 import { QuoteProductGroupPicker, type QuoteGroupProduct } from "./quote-product-group-picker";
 
-// Phase A.1 v2 impl-2 Step 6 — ASY context menu (scenario ③)
-//
-// Canonical structure per docs/design-prototypes/dist/qw_a1v2.jsx
-// AsyContextMenu (lines 245-260). Items: Edit product · Duplicate item group
-// · Move position · [sep] · Edit specs (disabled, "leaves only"
-// caption) · [sep] · Delete ASY · cascade (destructive).
-//
-// Step 6 wires:
-//   - Click ⋯ toggles menu open
-//   - Click outside dismisses menu
-//   - Escape key dismisses
-//   - Delete fires deleteAssembly server action
-//
-// Inert until later phases / steps:
-//   - Edit product → Phase 4 impl-4 (add-product modal mode toggle)
-//   - Duplicate item group → follow-up (design choice: clone leaves or just
-//                     shell; banked for impl-2 polish or v1.1+)
-//   - Move position → Step 9 (drag-to-reorder is the primary path;
-//                     menu keyboard-move can ride that infrastructure)
-//
-// Edit specs (disabled in canonical) renders disabled with the
-// "leaves only" caption per CD designer notes §3.2 ("the disabled
-// Edit specs row stays in the menu so PMs who try to edit specs at
-// the ASY level get explicit feedback rather than missing affordance").
+// The common Add products action is visible on the group header. Group
+// options holds the less frequent, destructive group deletion action.
 
 export function AsyContextMenu({
   assemblyId,
@@ -96,7 +74,15 @@ export function AsyContextMenu({
   }
 
   return (
-    <div ref={containerRef} style={{ position: "relative" }}>
+    <div ref={containerRef} className="setup-wizard-group-menu" style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="setup-wizard-inline-action setup-wizard-add-to-group"
+        onClick={() => { setOpen(false); setPickerOpen(true); }}
+        disabled={disabled || pending}
+      >
+        + Add products
+      </button>
       <button
         type="button"
         className="context-trigger"
@@ -104,9 +90,9 @@ export function AsyContextMenu({
         disabled={disabled || pending}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Item group ${assemblySku} context menu`}
+        aria-label={`Options for item group ${assemblySku}`}
       >
-        ⋯
+        Group options <span aria-hidden="true">⌄</span>
       </button>
       {open && (
         <div
@@ -115,61 +101,6 @@ export function AsyContextMenu({
           aria-label="Item group actions"
         >
           <div className="header">Item group actions</div>
-          {/* The group itself is the destination. Choose an existing quote
-              product and move its attachment, preserving its cost inputs. */}
-          <button type="button" className="item" role="menuitem" onClick={() => { setOpen(false); setPickerOpen(true); }}>
-            Add products…
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Edit product flow lands in impl-4 (Add Product modal)"
-          >
-            Edit product
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Duplicate item group — design TBD (clone products or shell?)"
-          >
-            Duplicate item group
-          </button>
-          <button
-            type="button"
-            className="item"
-            role="menuitem"
-            disabled
-            aria-disabled="true"
-            title="Drag-to-reorder is the primary path (Step 9)"
-          >
-            Move position
-          </button>
-          <div className="sep" />
-          <div
-            className="item disabled"
-            role="menuitem"
-            aria-disabled="true"
-            title="Specs live on library entries, not item groups"
-          >
-            Edit library specs{" "}
-            <span
-              style={{
-                marginLeft: "auto",
-                fontFamily: "var(--mono)",
-                fontSize: 9,
-                color: "var(--ink-4)",
-              }}
-            >
-              leaves only
-            </span>
-          </div>
-          <div className="sep" />
           <button
             type="button"
             className="item bad"
@@ -178,8 +109,8 @@ export function AsyContextMenu({
             disabled={pending}
           >
             {confirmingDelete
-              ? "Confirm delete — cascade"
-              : "Delete item group · cascade"}
+              ? "Confirm — remove group and its products"
+              : "Remove group and its products from quote"}
           </button>
           {error ? (
             <div

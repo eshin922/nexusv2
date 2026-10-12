@@ -61,3 +61,16 @@ test("a grouped product includes only its own associated service in the customer
   assert.deepEqual(result.map((row) => row.id), ["member", "other"]);
   assert.deepEqual(result.map((row) => row.tierLineTotals[0]), [1200, 300]);
 });
+
+test("two named tests for one grouped product contribute exactly once each", () => {
+  const member = line("member", "item_group_member", null, 10);
+  const micro = { ...line("micro", "direct_service", "member", 2), displayName: "Testing / Micros · Micro screening" };
+  const stability = { ...line("stability", "direct_service", "member", 3), displayName: "Testing / Micros · Stability" };
+  const result = includeAssociatedServicesInProductRows(
+    [member, micro, stability],
+    [sku("member", 10), sku("micro", 2), sku("stability", 3)],
+  );
+  assert.deepEqual(result.map((row) => row.id), ["member"]);
+  assert.equal(result[0].tierLineTotals[0], 1500);
+  assert.deepEqual(result[0].includedServices, [micro.displayName, stability.displayName]);
+});

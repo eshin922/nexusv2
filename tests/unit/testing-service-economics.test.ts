@@ -114,6 +114,23 @@ test("a Testing cost produces a priced line — it used to price at nothing", ()
   assert.notEqual(withCost.requiredSellPerUnit, without.requiredSellPerUnit);
 });
 
+test("two named Testing instances on one product keep independent costs and sell lines", () => {
+  const first = input().skus[0];
+  const second = { ...first, id: "test-2", productName: "Testing / Micros · Stability" };
+  const result = computeQuoteCosting(input({
+    skus: [{ ...first, productName: "Testing / Micros · Micro screening" }, second],
+    production: [
+      bare({ testingMicrosTotal: 100, allocateServiceFeesToCost: true }),
+      bare({ quoteSkuId: "test-2", testingMicrosTotal: 200, allocateServiceFeesToCost: true }),
+    ],
+  }));
+  const firstLine = result.skuRollups.find((row) => row.skuId === LEAF)!.perTier[0];
+  const secondLine = result.skuRollups.find((row) => row.skuId === "test-2")!.perTier[0];
+  assert.ok(Math.abs(Number(firstLine.requiredSellPerUnit) - 0.132) < 1e-9);
+  assert.ok(Math.abs(Number(secondLine.requiredSellPerUnit) - 0.264) < 1e-9);
+  assert.equal(result.skuRollups.length, 2);
+});
+
 // ── 2 · the sell is cost × the governed Production markup ────────────────
 
 test("the sell is cost × the governed Production markup, not some other rate", () => {

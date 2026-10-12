@@ -188,6 +188,8 @@ function OwnerRows({
         <ProductionRow
           key={line.field}
           line={line}
+          owner={owner}
+          editMode={editMode}
           indent={depth + 1}
           tiers={tiers}
           activeTierId={activeTierId}
@@ -319,11 +321,15 @@ export function firstAnsweredRead(
 
 function ProductionRow({
   line,
+  owner,
+  editMode,
   indent,
   tiers,
   activeTierId,
 }: {
   line: OverviewProductionLine;
+  owner: OverviewOwner;
+  editMode: boolean;
   indent: number;
   tiers: readonly OverviewTierFact[];
   activeTierId: string | null;
@@ -335,7 +341,9 @@ function ProductionRow({
             are tier totals owned by their module. */}
         <div className="cm2-label cm2-muted">{line.label}</div>
       </div>
-      {tiers.map((t) => (
+      {tiers.map((t) => editMode && owner.kind === "direct_service" && owner.quoteLeafId ? (
+        <M3Editor key={t.id} kind="service" quoteLeafId={owner.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} label={`Service amount for ${owner.name} at ${t.label}`} disabled={false} />
+      ) : (
         <ValueCell
           key={t.id}
           stored={line.amounts.get(t.id) ?? null}
@@ -344,7 +352,7 @@ function ProductionRow({
         />
       ))}
       <TextCell text="—" />
-      <div className="cm2-tail">in module</div>
+      <div className="cm2-tail">{owner.kind === "direct_service" && editMode ? "service cost" : "in module"}</div>
     </div>
   );
 }
@@ -372,7 +380,6 @@ function ChargeRow({
           {charge.ownLabel ? ` · ${charge.ownLabel}` : ""}
         </div>
         <div className="cm2-flags">
-          <Tag tone="accent">{charge.costBasis === "per_unit" ? "Cost per unit" : "One-time cost"}</Tag>
           {editMode ? <M3Editor kind="charge-basis" quoteId={quoteId} charge={charge} disabled={false} /> : null}
           <ChargeStateTag charge={charge} />
         </div>
@@ -401,22 +408,7 @@ function ChargeRow({
 }
 
 export function ChargeStateTag({ charge }: { charge: OverviewCharge }) {
-  return <>
-    {charge.toolingClassification === null && charge.chargeKey === "tooling" && (
-      <Tag tone="amber">needs classification</Tag>
-    )}
-    <ChargePricingStateTag charge={charge} />
-  </>;
-}
-
-function ChargePricingStateTag({ charge }: { charge: OverviewCharge }) {
-  if (charge.state === "complete") return <Tag tone="green">priced</Tag>;
-  if (charge.state === "partial")
-    return (
-      <Tag tone="amber" title={`No cost at ${charge.missingTierLabels.join(", ")}`}>
-        partly priced
-      </Tag>
-    );
-  if (charge.state === "none") return <Tag tone="amber">unpriced</Tag>;
-  return <Tag tone="amber">state unknown</Tag>;
+  return charge.toolingClassification === null && charge.chargeKey === "tooling"
+    ? <Tag tone="amber">needs classification</Tag>
+    : null;
 }
