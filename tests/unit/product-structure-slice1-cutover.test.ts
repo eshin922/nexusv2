@@ -357,9 +357,6 @@ const classifiedIdentityFiles = new Set([
   // master surface names `leafId` because a Library product IS a leaf; it holds
   // no quote identity at all, which is the whole point of the route.
   "src/app/library/leaves/[leafId]/defaults/page.tsx",
-  // CLASSIFIED — read-only global Library modal loader. `leafId` identifies a
-  // Library SKU when showing quote usage; it never resolves quote leaf identity.
-  "src/app/actions/library-index.ts",
   // CLASSIFIED — canonical only, and deliberately quote-free. The stacked
   // Library spec editor names `leafId` because a Library product IS a leaf; it
   // holds no quote identity, which is what makes it Library scope.

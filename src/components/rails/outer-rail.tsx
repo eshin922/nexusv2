@@ -13,6 +13,8 @@ import { NexusMark } from "@/components/brand/nexus-mark";
 import { CommandSearch } from "./command-search";
 import { UserMenu } from "./user-menu";
 import { GlobalLibrary } from "./global-library";
+import { loadProductTypeOptions } from "@/lib/product-type-options";
+import { canEditLibraryProduct } from "@/lib/permissions/library-product";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
 // visible to authenticated users. Composition (top to bottom):
@@ -41,9 +43,10 @@ export async function OuterRail() {
   // ensureUser maps Clerk identity to a row in our users table.
   // Both queries below are keyed on our users.id, not Clerk user ID.
   const user = await ensureUser();
-  const [pinned, recent] = await Promise.all([
+  const [pinned, recent, productTypeOptions] = await Promise.all([
     getPinnedProjects(user.id),
     getRecentProjects(user.id),
+    loadProductTypeOptions(),
   ]);
 
   const initials = (() => {
@@ -87,7 +90,13 @@ export async function OuterRail() {
         </svg>
       </Link>
 
-      <GlobalLibrary />
+      <GlobalLibrary
+        fullLeafTypes={productTypeOptions.leafTypes}
+        permissions={{
+          canCreateLeaves: user.canCreateLeaves,
+          canEditProduct: canEditLibraryProduct(user),
+        }}
+      />
 
       {/* Deal search · ⌘K. Was a disabled "coming soon" stub. */}
       <CommandSearch />
