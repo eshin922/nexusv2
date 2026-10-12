@@ -110,8 +110,8 @@ export function parseUnitMoney(
     field,
     label,
     nullable: true,
-    precision: 10,
-    scale: 4,
+    precision: 11,
+    scale: 5,
     min: 0,
   });
 }

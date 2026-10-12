@@ -3906,7 +3906,7 @@ export const assemblyLeafInputs = pgTable(
     notes: text("notes"),
 
     // Per-tier:
-    unitCost: numeric("unit_cost", { precision: 10, scale: 4 }),
+    unitCost: numeric("unit_cost", { precision: 11, scale: 5 }),
     purchaseQty: numeric("purchase_qty"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -5050,7 +5050,7 @@ export const quoteChargeInstanceTiers = pgTable(
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
     /** What DPS pays. Cost truth: invariant under every recovery election. */
-    costAmount: numeric("cost_amount", { precision: 14, scale: 4 })
+    costAmount: numeric("cost_amount", { precision: 15, scale: 5 })
       .notNull()
       .default("0"),
     /**
