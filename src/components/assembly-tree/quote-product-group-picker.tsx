@@ -84,9 +84,9 @@ export function QuoteProductGroupPicker({
                   <span>
                     <strong>{product.name}</strong>
                     <small>{product.sku ?? "No SKU"}{product.groupName ? ` · in ${product.groupName}` : " · standalone"}</small>
-                    {product.associatedServiceCount > 0 ? <small>Has an associated service. Keep this product standalone or remove the service before grouping.</small> : null}
+                    {product.associatedServiceCount > 0 ? <small>{product.associatedServiceCount} associated service{product.associatedServiceCount === 1 ? "" : "s"} stay with this product.</small> : null}
                   </span>
-                  <button type="button" className="od032-btn" onClick={() => select(product)} disabled={pending || product.associatedServiceCount > 0}>Add to group</button>
+                  <button type="button" className="od032-btn" onClick={() => select(product)} disabled={pending}>Add to group</button>
                 </li>
               ))}
             </ul>

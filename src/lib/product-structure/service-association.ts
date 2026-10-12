@@ -3,7 +3,7 @@ import type { DirectServiceIdentity } from "./direct-service.ts";
 /**
  * Product-associated Direct Services — migration 0136.
  *
- * A Direct Service quote leaf may name the Direct Product it is performed for,
+ * A Direct Service quote leaf may name the product it is performed for,
  * so two products on one quote can each carry their own instance of the same
  * service. The service library leaves stay one per identity; the association is
  * what tells "Product A's filling" from "Product B's filling".
@@ -62,7 +62,6 @@ export type ServiceAssociationVerdict =
         | "identity_not_associable"
         | "product_not_found"
         | "product_on_other_quote"
-        | "product_not_direct"
         | "product_not_a_product";
       /** Operator-facing. Names the actual cause. */
       message: string;
@@ -71,8 +70,9 @@ export type ServiceAssociationVerdict =
 /**
  * Whether `service` may be attached to `quoteId` as the service FOR `product`.
  *
- * The database enforces the same boundary independently (0136: composite FK +
- * CHECK). This exists for the sentence a constraint violation cannot produce,
+ * The database enforces the same-quote product boundary independently (0147:
+ * composite FK, retaining 0136's service-owner CHECK). This exists for the
+ * sentence a constraint violation cannot produce,
  * and for the identity restriction, which the database does not see because
  * `service_identity` lives on `leaves`.
  *
@@ -125,14 +125,6 @@ export function evaluateServiceAssociation(args: {
       reason: "product_not_a_product",
       message:
         "A service can only be attached for a product, not for another service.",
-    };
-  }
-  if (product.assemblyId !== null) {
-    return {
-      associable: false,
-      reason: "product_not_direct",
-      message:
-        "A service can only be attached for a Direct Product. An Item Group's production belongs on the Item Group.",
     };
   }
   return { associable: true };

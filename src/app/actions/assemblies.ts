@@ -232,7 +232,8 @@ export async function deleteAssembly(
       .innerJoin(leaves, eq(leaves.id, assemblyLeaves.leafId))
       .where(eq(assemblyLeaves.assemblyId, assemblyId));
 
-    await db.transaction(async (tx) => {
+    try {
+      await db.transaction(async (tx) => {
       const detached = await detachGroupedMembershipsForAssembly(tx, assemblyId);
       await tx.delete(assemblies).where(eq(assemblies.id, assemblyId));
       await writeAuditEntry({
@@ -264,7 +265,13 @@ export async function deleteAssembly(
           cascaded_junction_count: junctionRows.length,
         },
       }, tx);
-    });
+      });
+    } catch (error) {
+      if (error instanceof GroupedMembershipConflictError) {
+        throw new ActionGuardError(ERR.VALIDATION, error.message);
+      }
+      throw error;
+    }
 
     revalidateQuoteTree(quote.projectId, asm.quoteId);
   });
@@ -552,7 +559,8 @@ export async function detachAssemblyLeaf(
 
     // Compatibility detach explicitly deletes legacy first (preserving its
     // dependent-cost cascades), then canonical. The reusable LEAF remains.
-    await db.transaction(async (tx) => {
+    try {
+      await db.transaction(async (tx) => {
       const detached = await detachGroupedMembership(tx, {
         assemblyLeafId: junctionId,
       });
@@ -575,7 +583,13 @@ export async function detachAssemblyLeaf(
           position: junction.position,
         },
       }, tx);
-    });
+      });
+    } catch (error) {
+      if (error instanceof GroupedMembershipConflictError) {
+        throw new ActionGuardError(ERR.VALIDATION, error.message);
+      }
+      throw error;
+    }
 
     revalidateQuoteTree(quote.projectId, assembly.quoteId);
   });

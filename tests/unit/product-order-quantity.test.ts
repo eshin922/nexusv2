@@ -37,6 +37,16 @@ test("associated service inherits its product and alternative tiers remain indep
   assert.equal(resolveOrderQuantity("filling", { id: "other", qty: 50000 }, skus).quantity, 12000);
 });
 
+test("associated service inherits the ordered quantity of a grouped product member", () => {
+  const skus = new Map<string, QuantitySku>([
+    ["group", product("group", 500)],
+    ["member", { id: "member", parentSkuId: "group", qtyPerParent: 1, orderQuantities: { tier: 200 } }],
+    ["filling", { ...product("filling"), associatedProductQuoteLeafId: "member" }],
+  ]);
+  assert.equal(resolveOrderQuantity("member", tier, skus).quantity, 200);
+  assert.equal(resolveOrderQuantity("filling", tier, skus).quantity, 200);
+});
+
 test("legacy products inherit unchanged and an unspecified tier remains unspecified", () => {
   const skus = new Map([["p", product("p")]]);
   assert.deepEqual(resolveOrderQuantity("p", tier, skus), { quantity: 25000, ownerQuantity: 25000, source: "tier", ownerId: "p" });

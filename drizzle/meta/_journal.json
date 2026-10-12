@@ -1009,6 +1009,13 @@
       "when": 1791570195724,
       "tag": "0146_five_decimal_unit_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1791651600000,
+      "tag": "0147_grouped_product_associated_services",
+      "breakpoints": true
     }
   ]
 }
