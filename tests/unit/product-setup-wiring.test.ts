@@ -611,19 +611,12 @@ test("the usage caption is gone from the quote tree entirely", async () => {
 });
 
 // -------------------------------------------- B-4B · no dead operator commands
-test("the member menu renders no disabled command", async () => {
+test("the member menu renders only actionable move commands", async () => {
   const src = await read("src/components/assembly-tree/leaf-context-menu.tsx");
-  // Move up, Move down, Move to another item group, View library record. None
-  // was a capability; a rendered command that cannot run teaches the operator
-  // that the menu is unreliable, and the doubt transfers to the items that work.
-  for (const gone of [
-    "Move up",
-    "Move down",
-    "Move to another item group",
-    "View library record",
-  ]) {
-    assert.doesNotMatch(src, new RegExp(`>\s*${gone}\s*<`), `${gone} still rendered`);
-  }
+  assert.match(src, /moveWithinGroup\.up !== null/);
+  assert.match(src, /moveWithinGroup\.down !== null/);
+  assert.match(src, /onMove\(quoteLeafId, moveWithinGroup\.groupId/);
+  assert.doesNotMatch(src, />\s*View library record\s*</);
   assert.doesNotMatch(src, /aria-disabled="true"/);
 });
 

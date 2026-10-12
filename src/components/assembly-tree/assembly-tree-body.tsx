@@ -616,7 +616,7 @@ export function AssemblyTreeBody({
                 : "No products yet. A quote can be services only."}
             </p>
           ) : null}
-          {productEntries.map(({ product }) => (
+          {productEntries.map(({ product }, productIndex) => (
             <Fragment key={product.quoteLeafId}>
               {rootLaneIndexBefore.map.has(product.quoteLeafId) ? (
                 <RootLane
@@ -642,6 +642,12 @@ export function AssemblyTreeBody({
               }
               onRowDrop={commitDrop}
               onMoveStart={product.commercialKind === "product" ? (e) => beginMove(e, product.quoteLeafId, product.name, product.sku) : undefined}
+              onMoveUp={editable && productIndex > 0
+                ? () => moveViaMenu(product.quoteLeafId, "direct", productEntries[productIndex - 1].index)
+                : undefined}
+              onMoveDown={editable && productIndex < productEntries.length - 1
+                ? () => moveViaMenu(product.quoteLeafId, "direct", productEntries[productIndex + 1].index)
+                : undefined}
               // ── A DIRECT PRODUCT AUTHORS CHARGES; A DIRECT SERVICE DOES NOT
               //
               // Both render through this row. `commercialKind` is the governed

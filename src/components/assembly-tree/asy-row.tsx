@@ -238,13 +238,18 @@ export function AsyRow({
         }
         onDrop={(e) => (movingLeafId ? onMemberDropOnGroup?.(e) : undefined)}
       >
-        {orderedChildren.map((leaf) => (
+        {orderedChildren.map((leaf, index) => (
           <LeafRow
             key={leaf.junctionId}
             leaf={leaf}
             editable={editable}
             moveDestinations={memberMoveDestinations}
             onMove={onMemberMove}
+            moveWithinGroup={onMemberMove ? {
+              groupId: asy.id,
+              up: index > 0 ? index - 1 : null,
+              down: index < orderedChildren.length - 1 ? index + 1 : null,
+            } : undefined}
             onAddCharges={onAddCharges}
             editSpecsHref={`/projects/${projectId}/quotes/${quoteId}/leaves/${leaf.leafId}/specs`}
             isDragging={leafDragId === leaf.junctionId}
@@ -425,6 +430,7 @@ function LeafRow({
   onMoveStart,
   moveDestinations,
   onMove,
+  moveWithinGroup,
   onAddCharges,
 }: {
   leaf: AssemblyLeafNode;
@@ -439,6 +445,7 @@ function LeafRow({
     position: number;
   }>;
   onMove?: (quoteLeafId: string, target: string, position: number) => void;
+  moveWithinGroup?: { groupId: string; up: number | null; down: number | null };
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -530,6 +537,7 @@ function LeafRow({
           disabled={!editable}
           moveDestinations={moveDestinations}
           onMove={onMove}
+          moveWithinGroup={moveWithinGroup}
           onAddCharges={onAddCharges ? () => onAddCharges(leaf) : undefined}
         />
       </div>
