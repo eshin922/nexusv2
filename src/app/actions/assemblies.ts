@@ -890,3 +890,79 @@ export async function moveProductMembership(
     };
   });
 }
+
+/** Move several existing quote products into one Item Group as one operation. */
+export async function moveProductsToGroup(
+  formData: FormData,
+): Promise<ActionResult<{ movedCount: number }>> {
+  return runAction(async () => {
+    const groupId = String(formData.get("groupId") ?? "").trim();
+    const quoteLeafIds = formData.getAll("quoteLeafId").map((value) => String(value).trim());
+    if (!groupId || quoteLeafIds.length === 0 || quoteLeafIds.some((id) => !id)) {
+      throw new ActionGuardError(ERR.VALIDATION, "Select at least one product and an item group.");
+    }
+    if (new Set(quoteLeafIds).size !== quoteLeafIds.length) {
+      throw new ActionGuardError(ERR.VALIDATION, "Each product may be selected only once.");
+    }
+
+    const user = await ensureUser();
+    const [group] = await db.select({ quoteId: assemblies.quoteId })
+      .from(assemblies).where(eq(assemblies.id, groupId)).limit(1);
+    if (!group) throw new ActionGuardError(ERR.NOT_FOUND, "Item group not found.");
+
+    let projectId: string;
+    try {
+      projectId = await db.transaction(async (tx) => {
+        // Serialize all membership edits on this quote, then validate every
+        // selected attachment before moving any of them.
+        const [quote] = await tx.select().from(quotes)
+          .where(eq(quotes.id, group.quoteId)).for("update").limit(1);
+        if (!quote) throw new ActionGuardError(ERR.NOT_FOUND, "Quote not found.");
+        assertDraft(quote);
+        const [currentGroup] = await tx.select({ id: assemblies.id }).from(assemblies)
+          .where(and(eq(assemblies.id, groupId), eq(assemblies.quoteId, quote.id))).limit(1);
+        if (!currentGroup) throw new ActionGuardError(ERR.NOT_FOUND, "Item group not found.");
+        const selected = await tx.select({ id: quoteLeaves.id, quoteId: quoteLeaves.quoteId, assemblyId: quoteLeaves.assemblyId })
+          .from(quoteLeaves).where(inArray(quoteLeaves.id, quoteLeafIds));
+        if (selected.length !== quoteLeafIds.length || selected.some((row) => row.quoteId !== quote.id || row.assemblyId === groupId)) {
+          throw new ActionGuardError(ERR.VALIDATION, "The product list changed. Reopen the picker and try again.");
+        }
+
+        const [{ count: existingCount }] = await tx.select({ count: sql<number>`count(*)::int` })
+          .from(quoteLeaves).where(and(eq(quoteLeaves.quoteId, quote.id), eq(quoteLeaves.assemblyId, groupId)));
+        for (const [index, quoteLeafId] of quoteLeafIds.entries()) {
+          const evidence = await moveStructuralMembership(tx as never, {
+            quoteLeafId,
+            target: { kind: "group", assemblyId: groupId, position: existingCount + index },
+          });
+          await writeAuditEntry({
+            userId: user.id,
+            entityType: "quote_leaf",
+            entityId: evidence.quoteLeafId,
+            action: "product_membership_moved",
+            diffJson: {
+              quote_id: evidence.quoteId,
+              leaf_id: evidence.leafId,
+              from: evidence.from,
+              to: evidence.to,
+              position: evidence.position,
+              dependents_repointed: evidence.dependentsRepointed,
+            },
+          }, tx);
+        }
+        return quote.projectId;
+      });
+    } catch (error) {
+      if (error instanceof StructuralMoveBlockedError) {
+        throw new ActionGuardError(ERR.VALIDATION, error.message);
+      }
+      if (error instanceof StructuralMoveError) {
+        throw new ActionGuardError(ERR.DATA_INTEGRITY, error.message);
+      }
+      throw error;
+    }
+
+    revalidateQuoteTree(projectId, group.quoteId);
+    return { movedCount: quoteLeafIds.length };
+  });
+}

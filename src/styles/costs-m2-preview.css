@@ -149,6 +149,39 @@
   border-top: 1px solid var(--cm2-bd);
   min-height: 38px;
 }
+/* Keep each finished item and its member costs in one visual bracket. The
+   rail and branch marks remain visible without tinting the price cells. */
+.cm2-item-group-cluster {
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  box-shadow: inset 3px 0 color-mix(in oklch, var(--accent) 42%, var(--cm2-bd));
+  border-bottom: 1px solid var(--cm2-bd);
+  margin-bottom: 9px;
+}
+.cm2-item-group-cluster > .cm2-item-group-head {
+  border-top: 2px solid color-mix(in oklch, var(--accent) 42%, var(--cm2-bd));
+}
+.cm2-item-group-head .cm2-label {
+  font-family: var(--display);
+  font-size: 15px;
+}
+.cm2-item-group-cluster .cm2-group-cost {
+  border-bottom: 1px solid var(--cm2-bd);
+}
+.cm2-group-member-head .cm2-ident[data-indent="1"] {
+  padding-left: 32px;
+}
+.cm2-group-member-head .cm2-ident::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 0;
+  width: 10px;
+  height: 50%;
+  border-left: 1px solid var(--cm2-bd);
+  border-bottom: 1px solid var(--cm2-bd);
+}
 .cm2-foot {
   align-items: baseline;
   padding: 11px 16px 20px; /* 20px clears the horizontal scrollbar */

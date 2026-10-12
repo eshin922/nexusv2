@@ -585,7 +585,7 @@
   right: 13px;
   opacity: 0.75;
 }
-.quote-group-picker { width: min(540px, 100%); }
+.quote-group-picker { width: min(600px, 100%); }
 .quote-group-picker-close {
   border: 0;
   background: none;
@@ -593,7 +593,7 @@
   font-size: 22px;
   cursor: pointer;
 }
-.quote-group-picker-list { list-style: none; margin: 0; padding: 0; }
+.quote-group-picker-list { list-style: none; margin: 0; padding: 0; max-height: min(50vh, 360px); overflow-y: auto; }
 .quote-group-picker-list li {
   display: flex;
   align-items: center;
@@ -603,10 +603,13 @@
   border-bottom: 1px solid var(--rule);
 }
 .quote-group-picker-list li:last-child { border-bottom: 0; }
+.quote-group-picker-choice { display: flex; align-items: flex-start; gap: 12px; width: 100%; cursor: pointer; }
+.quote-group-picker-choice input { margin: 3px 0 0; flex: none; accent-color: var(--accent); }
 .quote-group-picker-list strong { display: block; font-size: 13px; font-weight: 500; }
 .quote-group-picker-list small { display: block; margin-top: 3px; color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
 .quote-group-picker-empty, .quote-group-picker-error { margin: 4px 0; font-size: 12px; }
 .quote-group-picker-error { color: var(--bad); }
+.quote-group-picker-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-3); }
 .setup-wizard-quote-items .a1v2-direct-row > .name-cell > .name {
   padding-right: 22px;
 }
