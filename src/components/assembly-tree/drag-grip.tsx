@@ -14,9 +14,11 @@ import type React from "react";
 export function DragGrip({
   onDragStart,
   title = "Drag to move or reorder",
+  showLabel = false,
 }: {
   onDragStart: (e: React.DragEvent) => void;
   title?: string;
+  showLabel?: boolean;
 }) {
   return (
     <span
@@ -35,6 +37,7 @@ export function DragGrip({
           )),
         )}
       </svg>
+      {showLabel ? <span className="a1v2-grip-label">Drag</span> : null}
     </span>
   );
 }

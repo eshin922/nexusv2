@@ -149,9 +149,9 @@ export function LeafContextMenu({
         disabled={disabled || pending}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`LEAF ${leafName} context menu`}
+        aria-label={`Actions for ${leafName}`}
       >
-        ⋯
+        Product actions <span aria-hidden="true">⌄</span>
       </button>
       {open && (
         <div

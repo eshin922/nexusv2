@@ -193,32 +193,25 @@ export function AsyRow({
           ) : null}
           {asy.packLabel ? <div className="meta"><span>{asy.packLabel}</span></div> : null}
         </div>
-        <AsyNotesTrigger
-          assemblyId={asy.id}
-          hasNote={
-            asy.internalNotes !== null && asy.internalNotes.trim().length > 0
-          }
-          open={notesOpen}
-          onToggle={() => setNotesOpen((v) => !v)}
-        />
-        {quantityControl ? <button type="button" className="setup-wizard-inline-action" disabled={!editable} aria-expanded={quantityOpen} onClick={() => setQuantityOpen((open) => !open)}>Add sub-quantity</button> : null}
-        {/* §1 presentation closeout · the "+ Add products" BUTTON is gone from
-            this control band; the ACTION moved into the menu below, where the
-            destination is still this group. One affordance repeated on every
-            group read as a dense band and made the surface-level entry stop
-            looking like the way to add a product.
-
-            The route itself is preserved deliberately: B-1's repair is that
-            adding into a group lives on that group's row, and the
-            surface-level trigger is direct-only. */}
-        <AsyContextMenu
-          assemblyId={asy.id}
-          assemblySku={displaySku ?? asy.name}
-          groupName={asy.name}
-          disabled={!editable}
-          quoteProducts={quoteProducts}
-          position={asy.children.length}
-        />
+        <div className="setup-wizard-group-actions">
+          <AsyNotesTrigger
+            assemblyId={asy.id}
+            hasNote={
+              asy.internalNotes !== null && asy.internalNotes.trim().length > 0
+            }
+            open={notesOpen}
+            onToggle={() => setNotesOpen((v) => !v)}
+          />
+          {quantityControl ? <button type="button" className="setup-wizard-inline-action" disabled={!editable} aria-expanded={quantityOpen} onClick={() => setQuantityOpen((open) => !open)}>Add sub-quantity</button> : null}
+          <AsyContextMenu
+            assemblyId={asy.id}
+            assemblySku={displaySku ?? asy.name}
+            groupName={asy.name}
+            disabled={!editable}
+            quoteProducts={quoteProducts}
+            position={asy.children.length}
+          />
+        </div>
       </div>
       {notesOpen ? (
         <AsyNotesDrawerPanel
@@ -481,7 +474,7 @@ function LeafRow({
           Dragging it starts a STRUCTURAL move (which may cross groups); the
           row itself remains the same-group reorder drop target it was. */}
       {editable && onMoveStart ? (
-        <DragGrip onDragStart={onMoveStart} />
+        <DragGrip onDragStart={onMoveStart} showLabel />
       ) : (
         <span className="leaf-icon" aria-hidden="true">
           ◦

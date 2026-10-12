@@ -531,8 +531,6 @@ test("the spec action names the authority it edits", async () => {
   for (const f of [
     "src/components/assembly-tree/leaf-context-menu.tsx",
     "src/components/assembly-tree/direct-product-row.tsx",
-    // The item-group menu's disabled row is the same act, so the same label.
-    "src/components/assembly-tree/asy-context-menu.tsx",
   ]) {
     const src = await read(f);
     assert.match(src, /Edit library specs/, `${f} does not name the authority`);
@@ -627,15 +625,28 @@ test("both surviving member actions are wired", async () => {
 });
 
 // ------------------------------------------------ B-4A · restoration to the DA
-test("the Item Group row declares one column per rendered cell", async () => {
+test("the Setup Item Group header keeps its controls together", async () => {
   const css = await read("src/styles/r-a1v2-overrides.css");
-  // Eight cells rendered: the canonical six plus notes trigger and
-  // + Add products. Implicit-row wrapping is what broke the seal between the
-  // group header and .a1v2-leaves.
+  // The legacy tree remains grid-based outside Setup. Setup groups their
+  // controls in one action cluster, so narrow widths wrap that cluster as a
+  // unit rather than leaving the last control alone below the title.
   assert.match(
     css,
     /\.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*grid-template-columns:\s*24px 90px 1fr auto auto auto auto auto/,
   );
+  assert.match(css, /\.setup-wizard-quote-items \.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*display:\s*flex/);
+  assert.match(css, /\.setup-wizard-group-actions\s*\{[^}]*flex-wrap:\s*wrap/);
+  const row = await read("src/components/assembly-tree/asy-row.tsx");
+  assert.match(row, /className="setup-wizard-group-actions"/);
+});
+
+test("group actions are named and Add products is directly visible", async () => {
+  const group = await read("src/components/assembly-tree/asy-context-menu.tsx");
+  const member = await read("src/components/assembly-tree/leaf-context-menu.tsx");
+  assert.match(group, />\s*\+ Add products\s*</);
+  assert.match(group, /Group options/);
+  assert.match(member, /Product actions <span/);
+  assert.doesNotMatch(group, /aria-disabled="true"/);
 });
 
 test("Item Group identity does not depend on being populated", async () => {

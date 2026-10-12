@@ -18,6 +18,8 @@ The training report that an associated cost could not be removed without deletin
 
 The training report also found the drag grip unreliable for product ordering. Setup now offers Move up/down on direct product rows and in each item-group member menu. These call the existing governed structural move writer and omit impossible directions. In the isolated quote, moving grouped Leaf 1 down produced Leaf 2 / Leaf 1 / Leaf 3; moving two products to quote level and moving Leaf 2 up changed their order from Leaf 3 / Leaf 2 to Leaf 2 / Leaf 3. The actions retain each product's quote-leaf identity and existing associated costs. This provides a click and keyboard-accessible path while the drag gesture remains available.
 
+Follow-up operator review found the Item Group header's ellipsis stranded on its own line and the member grip/menu too cryptic. The Setup header now keeps the name and actions in two flex clusters. Add products is a visible button; less common deletion lives under a labeled Group options control, without inert placeholder actions. Member menus say Product actions, and the drag grip has a visible Drag label. The same local Setup page was visually reviewed, and the Add products picker and Group options menu both opened from the new controls.
+
 ## Validation and remaining proof
 
 An isolated local PostgreSQL container (`nexus-validation-db-repeatable`, port 55437) was migrated through 0148 and seeded with the validation fixture. In the current Setup view, one product accepted two Print plates charges (Front plate and Back plate) and two Filling / Blending services (Primary blend and Secondary blend). Database read-back confirmed four independent records and their notes. In the current Costs view, the charges were independently costed at 45/60 and 25/35 across the two tiers. Direct service amounts were edited inline at 130/300 and 240/600; the Price build production contribution changed when the first service changed. The current Costs grid now owns direct-service editing and no longer sends those rows to the legacy Production editor. The redundant charge pricing-state and cost-basis badges were removed; the cost-basis selector and actionable tooling-classification warning remain.
@@ -30,6 +32,6 @@ The downloaded v2 customer PDF was inspected as a two-page document. Both named 
 
 The quote was accepted in the isolated fixture. Sales Order review correctly refused to show a postable structure because the fixture has no NetSuite item mappings for these service/charge lines and the validation server has no NetSuite credentials. No NetSuite order was sent. Sandbox NetSuite read-back remains outstanding; do not treat this as full send-to-order certification. The isolated database and fake HubSpot provider are separate from shared services; no shared migration or production NetSuite change was made. Production NetSuite remains unchanged until cutover.
 
-After these changes, type checking, all 3,530 unit tests, and `verify:ci` pass.
+After these changes, type checking, all 3,531 unit tests, and `verify:ci` pass.
 
 Migration order: #636 (0146) → #637 (0147) → this branch (0148, 0149).
