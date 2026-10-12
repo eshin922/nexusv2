@@ -56,6 +56,7 @@ export function CostsM2PreviewBody({
   quoteId = "",
   editMode = false,
   reads,
+  groupedCostByTier = new Map(),
   quoteEditable,
   pathname,
   baseParams,
@@ -69,6 +70,7 @@ export function CostsM2PreviewBody({
   quoteId?: string;
   editMode?: boolean;
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier?: ReadonlyMap<string, ReadonlyMap<string, number>>;
   quoteEditable: boolean;
   pathname: string;
   /** The current query WITHOUT the preview switch. */
@@ -152,6 +154,7 @@ export function CostsM2PreviewBody({
             <SpreadsheetView
               overview={overview}
               reads={reads}
+              groupedCostByTier={groupedCostByTier}
               activeTierId={activeTierId}
               onSelectTier={onSelectTier}
               quoteId={quoteId}
@@ -162,6 +165,7 @@ export function CostsM2PreviewBody({
             <ByProductView
               overview={overview}
               reads={reads}
+              groupedCostByTier={groupedCostByTier}
               activeTierId={activeTierId}
               onSelectTier={onSelectTier}
               quoteId={quoteId}

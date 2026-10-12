@@ -518,3 +518,19 @@ input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .section-head h2 em { font-style: italic; color: var(--ink-3); font-weight: 400; }
 }
+.r2-pricing-recovery-notice {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.r2-pricing-recovery-notice a {
+  color: var(--blue, #12539b);
+  font-weight: 600;
+  text-decoration: underline;
+}

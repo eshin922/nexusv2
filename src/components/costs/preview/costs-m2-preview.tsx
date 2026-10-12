@@ -7,8 +7,10 @@ import { useCostingStore } from "@/components/costing-store-provider";
 import {
   selectActiveTierId,
   selectGraph,
+  selectSkuRollups,
   selectSetActiveTier,
 } from "@/lib/costing-store";
+import { priceBuildKey, readNodeValue } from "@/lib/costing-nodes";
 import {
   buildCostsOverview,
   type CostsOverviewFacts,
@@ -58,12 +60,33 @@ export function CostsM2Preview({ facts, quoteEditable, freight, freightEditor, f
   const router = useRouter();
   const searchParams = useSearchParams();
   const graph = useCostingStore(selectGraph);
+  const skuRollups = useCostingStore(selectSkuRollups);
   // THE SAME active tier the Cost Stack above shows, from the same store.
   // `ActiveTierUrlSync` owns URL -> store; this reads the result.
   const activeTierId = useCostingStore(selectActiveTierId);
   const setActiveTier = useCostingStore(selectSetActiveTier);
 
   const overview = useMemo(() => buildCostsOverview(facts), [facts]);
+
+  // The group rollup already includes its members and group-owned production.
+  // Read that governed value once; summing the displayed member rows here would
+  // double count them and would miss freight and other contribution costs.
+  const groupedCostByTier = useMemo(() => {
+    const values = new Map<string, ReadonlyMap<string, number>>();
+    for (const owner of overview.owners) {
+      if (owner.kind !== "item_group" || owner.assemblyId === null) continue;
+      const rollup = skuRollups.find((row) => row.skuId === owner.assemblyId);
+      const byTier = new Map<string, number>();
+      for (const tier of overview.tiers) {
+        const result = rollup?.perTier.find((row) => row.tierId === tier.id);
+        if (!result || result.marginStatus === "UNAVAILABLE") continue;
+        const cost = readNodeValue(graph, priceBuildKey(owner.assemblyId, tier.id, "cost"));
+        if (cost !== null) byTier.set(tier.id, cost);
+      }
+      values.set(owner.key, byTier);
+    }
+    return values;
+  }, [graph, overview, skuRollups]);
 
   // One traversal for the whole preview, through the same read the Packaging
   // drawer uses. Every line of every owner, against every tier.
@@ -116,6 +139,7 @@ export function CostsM2Preview({ facts, quoteEditable, freight, freightEditor, f
       freight={freight}
       overview={overview}
       reads={reads}
+      groupedCostByTier={groupedCostByTier}
       quoteEditable={quoteEditable}
       pathname={pathname}
       baseParams={baseParams}
