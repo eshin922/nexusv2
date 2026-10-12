@@ -48,9 +48,9 @@ import {
   COMPONENT_CHARGE_LABELS,
   type ComponentChargeKey,
 } from "@/lib/commercial-recovery/registry";
-import { createComponentCharges } from "@/app/actions/component-charges";
+import { createComponentCharges, deleteComponentCharge } from "@/app/actions/component-charges";
 import { runGoverned, failureMessage } from "@/lib/governed-action";
-import { attachQuoteProduct } from "@/app/actions/quote-products";
+import { attachQuoteProduct, detachQuoteProduct } from "@/app/actions/quote-products";
 import { useRouter } from "next/navigation";
 import { DIRECT_SERVICE_LABELS } from "@/lib/product-structure/direct-service";
 import {
@@ -98,7 +98,7 @@ export function AddComponentChargesSheet({
   associatedServices?: ReadonlyArray<{ id: string; serviceIdentity: string }>;
   enableAssociatedServices?: boolean;
   suggestedServiceIdentities?: readonly ProductAssociableServiceIdentity[];
-  existingServices?: ReadonlyArray<{ serviceIdentity: ProductAssociableServiceIdentity; serviceInstanceLabel: string | null }>;
+  existingServices?: ReadonlyArray<{ quoteLeafId: string; serviceIdentity: ProductAssociableServiceIdentity; serviceInstanceLabel: string | null }>;
   /**
    * Types this component ALREADY owns, with their labels.
    *
@@ -118,6 +118,9 @@ export function AddComponentChargesSheet({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
+  const [confirmRemoval, setConfirmRemoval] = useState<string | null>(null);
+  const [removedCharges, setRemovedCharges] = useState<Set<string>>(() => new Set());
+  const [removedServices, setRemovedServices] = useState<Set<string>>(() => new Set());
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -129,6 +132,8 @@ export function AddComponentChargesSheet({
   // list, which made a configured association look disconnected from the
   // choices it was meant to guide.
   const suggestedSet = new Set<ComponentChargeKey>(suggestions);
+  const attachedCharges = existingKeys.filter((charge) => !removedCharges.has(charge.chargeInstanceId));
+  const attachedServices = existingServices.filter((service) => !removedServices.has(service.quoteLeafId));
   const chargeRows = COMPONENT_CHARGE_KEYS.map((key) => ({
     key,
     suggested: suggestedSet.has(key),
@@ -137,10 +142,10 @@ export function AddComponentChargesSheet({
   const otherRows = chargeRows.filter((row) => !row.suggested).map((row) => row.key);
 
   const ownedCount = (k: ComponentChargeKey) =>
-    existingKeys.filter((e) => e.chargeKey === k).length;
+    attachedCharges.filter((e) => e.chargeKey === k).length;
   /** Labels already in use for this type — what a second one must differ from. */
   const ownedLabels = (k: ComponentChargeKey) =>
-    existingKeys
+    attachedCharges
       .filter((e) => e.chargeKey === k)
       .map((e) => e.label)
       .filter((l): l is string => !!l);
@@ -182,7 +187,7 @@ export function AddComponentChargesSheet({
       if (!note) return `Add a note for ${DIRECT_SERVICE_LABELS[service.identity]} so this service can be identified.`;
       if (note.length > 120) return "Associated service notes must be 120 characters or fewer.";
       const key = `${service.identity}\u0000${note.toLowerCase()}`;
-      if (seenServices.has(key) || existingServices.some((existing) => existing.serviceIdentity === service.identity && existing.serviceInstanceLabel?.trim().toLowerCase() === note.toLowerCase())) {
+      if (seenServices.has(key) || attachedServices.some((existing) => existing.serviceIdentity === service.identity && existing.serviceInstanceLabel?.trim().toLowerCase() === note.toLowerCase())) {
         return `${DIRECT_SERVICE_LABELS[service.identity]} already has the note "${note}". Give each instance a different note.`;
       }
       seenServices.add(key);
@@ -235,6 +240,35 @@ export function AddComponentChargesSheet({
     });
   }
 
+  function removeExisting(kind: "charge" | "service", id: string) {
+    const target = `${kind}:${id}`;
+    if (confirmRemoval !== target) {
+      setConfirmRemoval(target);
+      setError(null);
+      return;
+    }
+    startSaving(async () => {
+      setError(null);
+      const serviceData = new FormData();
+      serviceData.set("quoteId", quoteId);
+      serviceData.set("quoteLeafId", id);
+      const outcome = kind === "charge"
+        ? await deleteComponentCharge({ quoteId, chargeInstanceId: id })
+        : await detachQuoteProduct(serviceData);
+      if (!outcome.ok) {
+        setError(outcome.error.message);
+        return;
+      }
+      if (kind === "charge") {
+        setRemovedCharges((current) => new Set(current).add(id));
+      } else {
+        setRemovedServices((current) => new Set(current).add(id));
+      }
+      setConfirmRemoval(null);
+      router.refresh();
+    });
+  }
+
   if (!mounted) return null;
 
   const sheet = (
@@ -262,6 +296,34 @@ export function AddComponentChargesSheet({
         </header>
 
         <div className="od032-sheet-body">
+          {attachedCharges.length + attachedServices.length > 0 && (
+            <section className="od032-existing" aria-label="Associated costs already added">
+              <h3>Already added</h3>
+              {[...attachedCharges.map((charge) => ({
+                kind: "charge" as const,
+                id: charge.chargeInstanceId,
+                name: COMPONENT_CHARGE_LABELS[charge.chargeKey as ComponentChargeKey] ?? charge.chargeKey,
+                note: charge.label,
+              })), ...attachedServices.map((service) => ({
+                kind: "service" as const,
+                id: service.quoteLeafId,
+                name: DIRECT_SERVICE_LABELS[service.serviceIdentity],
+                note: service.serviceInstanceLabel,
+              }))].map((entry) => {
+                const target = `${entry.kind}:${entry.id}`;
+                return (
+                  <div className="od032-existing-row" key={target}>
+                    <span className="od032-existing-name">{entry.name}{entry.note ? ` · ${entry.note}` : ""}</span>
+                    {confirmRemoval === target && <span className="od032-existing-warning">Entered costs for this line will be removed from this draft.</span>}
+                    {confirmRemoval === target && <button type="button" className="od032-btn" disabled={saving} onClick={() => setConfirmRemoval(null)}>Keep</button>}
+                    <button type="button" className="od032-btn" disabled={saving} onClick={() => removeExisting(entry.kind, entry.id)} aria-label={`Remove ${entry.name}${entry.note ? ` · ${entry.note}` : ""}`}>
+                      {confirmRemoval === target ? "Confirm remove" : "Remove"}
+                    </button>
+                  </div>
+                );
+              })}
+            </section>
+          )}
           {suggestions.length > 0 ? (
             <div className="od032-suggest">
               <span className="od032-suggest-label">
@@ -369,7 +431,7 @@ export function AddComponentChargesSheet({
               </li>
               {PRODUCT_ASSOCIABLE_SERVICE_IDENTITIES.map((identity) => {
                 const available = associatedServices.some((service) => service.serviceIdentity === identity);
-                const owned = existingServices.filter((service) => service.serviceIdentity === identity);
+                const owned = attachedServices.filter((service) => service.serviceIdentity === identity);
                 const selected = pickedServices.filter((service) => service.identity === identity);
                 return (
                   <li key={identity}>
@@ -447,7 +509,7 @@ export function AddComponentChargesSheet({
               aria-busy={saving || undefined}
               title={
                 saving
-                  ? "Adding these charges…"
+                  ? "Saving associated costs…"
                   : picked.length + pickedServices.length === 0
                     ? "Select at least one associated cost."
                     : (blocked() ?? undefined)
@@ -456,7 +518,7 @@ export function AddComponentChargesSheet({
               onClick={submit}
             >
               {saving
-                ? "Adding…"
+                ? "Saving…"
                 : `Add ${picked.length + pickedServices.length} associated cost${picked.length + pickedServices.length === 1 ? "" : "s"}`}
             </button>
           </footer>

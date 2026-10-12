@@ -898,7 +898,7 @@ export function AssemblyTreeBody({
             .filter((service) => service.associatedProductQuoteLeafId === chargeSheetLeaf.quoteLeafId)
             .filter((service): service is typeof service & { serviceIdentity: ProductAssociableServiceIdentity } =>
               service.serviceIdentity === "filling_blending" || service.serviceIdentity === "packout_assembly" || service.serviceIdentity === "testing_micros")
-            .map((service) => ({ serviceIdentity: service.serviceIdentity, serviceInstanceLabel: service.serviceInstanceLabel ?? null }))}
+            .map((service) => ({ quoteLeafId: service.quoteLeafId, serviceIdentity: service.serviceIdentity, serviceInstanceLabel: service.serviceInstanceLabel ?? null }))}
           existingKeys={
             existingComponentCharges?.filter(
               (c) => c.quoteLeafId === chargeSheetLeaf.quoteLeafId,

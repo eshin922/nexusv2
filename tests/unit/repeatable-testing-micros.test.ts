@@ -19,7 +19,9 @@ test("the picker supports repeated instances with notes for every charge and ass
   assert.match(picker, /charges: picked\.map\(\(charge\) => \(\{/);
   assert.match(picker, /label: charge\.note\.trim\(\)/);
   assert.match(picker, /formData\.set\("serviceInstanceLabel", service\.note\.trim\(\)\)/);
-  assert.match(picker, /existingServices\.some/);
+  assert.match(picker, /attachedServices\.some/);
+  assert.match(picker, /deleteComponentCharge\(\{ quoteId, chargeInstanceId: id \}\)/);
+  assert.match(picker, /detachQuoteProduct\(serviceData\)/);
   assert.doesNotMatch(picker, /role="checkbox"/);
   assert.doesNotMatch(picker, /existing && !repeatable/);
   const action = await read("src/app/actions/quote-products.ts");
