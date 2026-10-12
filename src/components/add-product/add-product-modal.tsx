@@ -42,8 +42,8 @@ export function AddProductModal({
   stacked = false,
   leafTypes,
 }: {
-  quoteId: string;
-  projectId: string;
+  quoteId: string | null;
+  projectId: string | null;
   /** Injected; absent means the Auto-generate affordance does not render. */
   skuServices?: SkuServices;
   open: boolean;
@@ -119,7 +119,7 @@ export function AddProductModal({
     if (open) setIntentId(crypto.randomUUID());
   }, [open]);
   const skuAttemptKey = useMemo(
-    () => `create-leaf:${quoteId}:${intentId}`,
+    () => `create-leaf:${quoteId ?? "library"}:${intentId}`,
     [quoteId, intentId],
   );
   const [leafUnitCost, setLeafUnitCost] = useState("");
@@ -254,9 +254,9 @@ export function AddProductModal({
       onSuccess?.({ kind: "leaf", id: result.data.leafId, name: created });
       onClose();
       if (option === "continue") {
-        router.push(
-          `/projects/${projectId}/quotes/${quoteId}/leaves/${result.data.leafId}/specs`,
-        );
+        router.push(projectId && quoteId
+          ? `/projects/${projectId}/quotes/${quoteId}/leaves/${result.data.leafId}/specs`
+          : `/library/leaves/${result.data.leafId}/defaults`);
       } else {
         setToast(`Added "${created}" to the library · specs deferred.`);
         router.refresh();

@@ -71,7 +71,7 @@ const ZERO_TOTALS: PullTotals = {
 };
 
 export function usePullFromHubSpot(opts: {
-  projectId: string;
+  projectId: string | null;
   // Optional hook called after the pull completes successfully
   // (router.refresh fires regardless; this is for consumer-specific
   // side effects like refreshing the library browse rows).

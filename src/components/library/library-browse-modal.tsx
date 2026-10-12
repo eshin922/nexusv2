@@ -148,7 +148,7 @@ export function LibraryBrowseModal({
    * top-level by definition, and an item group is not a legal destination for
    * it at all.
    */
-  mode?: "direct" | "group" | "service";
+  mode?: "direct" | "group" | "service" | "browse";
   /**
    * Preselected destination for `group` mode.
    *
@@ -160,12 +160,12 @@ export function LibraryBrowseModal({
   initialTargetAssemblyId?: string;
   open: boolean;
   onClose: () => void;
-  quoteId: string;
+  quoteId: string | null;
   // slice-library-first-creation-flow Step 3 — projectId threaded
   // for the nested AddProductModal launched from "+ Create new
   // product" (its LEAF-Continue path navigates to
   // /projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs).
-  projectId: string;
+  projectId: string | null;
   assemblies: AssemblyTarget[];
   // Type-filter dropdown options (id + name + placeholder).
   // slice-library-first-creation-flow Step 3 — AddProductModal
@@ -489,6 +489,7 @@ export function LibraryBrowseModal({
   const attachReady = isTopLevel || Boolean(targetAssemblyId);
 
   function handleAttach(row: LibraryBrowseRow) {
+    if (mode === "browse" || !quoteId) return;
     const direct = isTopLevel;
     if (!direct && !targetAssemblyId) {
       setError("Pick a target item group at the top of the modal first.");
@@ -649,7 +650,7 @@ export function LibraryBrowseModal({
                   uses friendly 6-char SKU-like ids; production UUIDs
                   truncated to comparable density). Banked as v1.1+
                   polish if PMs prefer scenarioLabel/version instead. */}
-              {clientName ?? "—"} · {quoteId.slice(0, 8)}
+              {mode === "browse" ? "Reusable product library" : `${clientName ?? "—"} · ${quoteId?.slice(0, 8) ?? ""}`}
             </span>
           </div>
           <div className="head-actions">
@@ -854,7 +855,7 @@ export function LibraryBrowseModal({
               selected ASY is the implicit object of every row's
               Attach action; the bar is the single source of the
               attach destination (row buttons just say "Attach"). */}
-          <div className="lib-target-bar">
+          {mode !== "browse" && <div className="lib-target-bar">
             <span className="eyebrow">Adding to</span>
             {isTopLevel ? (
               // No picker: the destination is the quote. For `direct` a control
@@ -985,7 +986,7 @@ export function LibraryBrowseModal({
                   ? "Each product you add becomes its own quote line"
                   : "Products you add land in this item group"}
             </span>
-          </div>
+          </div>}
 
           {/* slice-library-modal-polish Step 5 — filter row
               consolidation per CD designer notes §8. Three control
@@ -1398,7 +1399,7 @@ export function LibraryBrowseModal({
                               ? "Restoring…"
                               : "Restore"}
                           </button>
-                        ) : (
+                        ) : mode === "browse" ? null : (
                           <button
                             type="button"
                             className="lib-attach-btn lib-icon-btn"

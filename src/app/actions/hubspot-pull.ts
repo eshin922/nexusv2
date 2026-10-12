@@ -33,7 +33,7 @@ import { revalidatePath } from "next/cache";
 //     for cross-referencing audit-log queries from the UI
 
 export type PullFromHubSpotInput = {
-  projectId: string;
+  projectId: string | null;
   after?: string;
   batchNumber: number;
   includeArchived: boolean;
@@ -61,8 +61,6 @@ export async function pullFromHubSpot(
   return runAction(async () => {
     const actionStartedAt = performance.now();
     const { projectId, after, batchNumber, includeArchived } = input;
-    if (!projectId)
-      throw new ActionGuardError(ERR.VALIDATION, "projectId required");
     if (typeof batchNumber !== "number" || batchNumber < 1)
       throw new ActionGuardError(ERR.VALIDATION, "batchNumber required (>= 1)");
 

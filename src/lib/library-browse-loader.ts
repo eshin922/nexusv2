@@ -71,7 +71,8 @@ export type LibraryBrowseFilters = {
    * means no restriction, which is what every pre-existing caller gets.
    */
   commercialKindFilter?: "product" | "service";
-  targetQuoteId: string;
+  /** Null when browsing Library master data outside an order. */
+  targetQuoteId: string | null;
   /**
    * The DESTINATION currently selected in the modal, when it is an item group.
    *
@@ -247,15 +248,16 @@ export async function loadLibraryBrowse(
   // The loader's own note anticipated this ("cheap because v1 has <100 leaves
   // total ... if the library grows past a few hundred, push this into a CTE").
   // The library is 1,082. The premise expired; this is the push.
+  const targetQuoteId = filters.targetQuoteId;
   const attachedToTarget = (leafId: typeof leaves.id) =>
-    exists(
+    targetQuoteId === null ? sql`false` : exists(
       db
         .select({ one: sql`1` })
         .from(quoteLeaves)
         .where(
           and(
             eq(quoteLeaves.leafId, leafId),
-            eq(quoteLeaves.quoteId, filters.targetQuoteId),
+            eq(quoteLeaves.quoteId, targetQuoteId),
           ),
         ),
     );
@@ -267,7 +269,7 @@ export async function loadLibraryBrowse(
         .where(
           and(
             eq(quoteLeaves.leafId, leafId),
-            ne(quoteLeaves.quoteId, filters.targetQuoteId),
+            ...(targetQuoteId === null ? [] : [ne(quoteLeaves.quoteId, targetQuoteId)]),
           ),
         ),
     );
@@ -294,14 +296,14 @@ export async function loadLibraryBrowse(
    * has to answer.
    */
   const attachedToDestination = (leafId: typeof leaves.id) =>
-    exists(
+    targetQuoteId === null ? sql`false` : exists(
       db
         .select({ one: sql`1` })
         .from(quoteLeaves)
         .where(
           and(
             eq(quoteLeaves.leafId, leafId),
-            eq(quoteLeaves.quoteId, filters.targetQuoteId),
+            eq(quoteLeaves.quoteId, targetQuoteId),
             ...(filters.targetAssemblyId
               ? [eq(quoteLeaves.assemblyId, filters.targetAssemblyId)]
               : []),
@@ -362,14 +364,14 @@ export async function loadLibraryBrowse(
       .select({ n: count() })
       .from(leaves)
       .where(eq(leaves.archived, false)),
-    db
+    targetQuoteId === null ? Promise.resolve([]) : db
       .select({
         scenarioLabel: quotes.scenarioLabel,
         clientName: projects.clientName,
       })
       .from(quotes)
       .innerJoin(projects, eq(projects.id, quotes.projectId))
-      .where(eq(quotes.id, filters.targetQuoteId))
+      .where(eq(quotes.id, targetQuoteId))
       .limit(1),
   ]);
 

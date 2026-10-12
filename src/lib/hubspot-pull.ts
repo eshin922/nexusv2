@@ -29,7 +29,7 @@ import {
 
 export type PullBatchOptions = {
   userId: string; // PM running the pull (audit user_id)
-  projectId: string; // context for the root audit row
+  projectId: string | null; // context for the root audit row, null from global Library
   after?: string;
   batchNumber: number;
   includeArchived: boolean;
@@ -133,8 +133,8 @@ export async function pullProductsBatch(
     const databaseStartedAt = performance.now();
     const rootAudit = await writeAuditEntryReturningId({
         userId: opts.userId,
-        entityType: "project",
-        entityId: opts.projectId,
+        entityType: opts.projectId ? "project" : "user",
+        entityId: opts.projectId ?? opts.userId,
         action: "hubspot_pull_batch",
         diffJson: {
           batch_number: opts.batchNumber,
@@ -231,8 +231,8 @@ export async function pullProductsBatch(
   await db.transaction(async (tx) => {
     const rootAudit = await writeAuditEntryReturningId({
         userId: opts.userId,
-        entityType: "project",
-        entityId: opts.projectId,
+        entityType: opts.projectId ? "project" : "user",
+        entityId: opts.projectId ?? opts.userId,
         action: "hubspot_pull_batch",
         diffJson: {
           batch_number: opts.batchNumber,
