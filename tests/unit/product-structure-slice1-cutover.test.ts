@@ -1038,6 +1038,9 @@ const classifiedIdentityFiles = new Set([
   // the existing line-cell editor and scopes markup writes by lineGroupId; it
   // performs no canonical-to-legacy lookup itself.
   "src/components/costs/preview/editable-fields.tsx",
+  // CLASSIFIED — the current Costs grid passes a direct service's canonical
+  // quoteLeafId to its inline per-tier cost editor; no legacy junction lookup.
+  "src/components/costs/preview/spreadsheet-view.tsx",
   // CLASSIFIED — canonical identity only, read from the FROZEN snapshot. The
   // ordered-spec export (Stage 5) reads `quote_snapshot_lines.quote_leaf_id`
   // and `quote_snapshot_leaf_specs.quote_leaf_id`, matches them to posted

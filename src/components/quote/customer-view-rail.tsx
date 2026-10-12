@@ -93,7 +93,6 @@ export function CustomerViewRail({
   detailLevel,
   onDetailLevelChange,
   pdfHref,
-  pageCount,
   presentation,
   hasItemGroups,
   tiers,
@@ -127,7 +126,6 @@ export function CustomerViewRail({
   detailLevel: CustomerViewDetailLevel;
   onDetailLevelChange: (next: CustomerViewDetailLevel) => void;
   pdfHref: string;
-  pageCount: number;
   /**
    * Card 2 renders this as controls; Card 3 renders it as prose. ONE record,
    * read once upstream — the two cards cannot disagree about what the document
@@ -467,7 +465,7 @@ export function CustomerViewRail({
             {!isDraft ? "frozen" : blocked ? "blocked" : "draft"}
           </span>
           <span className="cv-send-line">
-            {pageCount} page PDF · delivery is manual
+            PDF · delivery is manual
           </span>
         </div>
 

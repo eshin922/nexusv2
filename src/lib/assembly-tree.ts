@@ -174,8 +174,9 @@ export type AssemblyCompletenessRollup =
 // the legacy junction is what makes something a group member, so a type that
 // cannot carry one cannot accidentally be treated as grouped.
 export type DirectProductNode = Omit<AssemblyLeafNode, "junctionId"> & {
-  /** Null for a standalone line; otherwise the direct product this service belongs to. */
+  /** Null for a standalone line; otherwise the product this service belongs to. */
   associatedProductQuoteLeafId?: string | null;
+  serviceInstanceLabel?: string | null;
 };
 
 export type AssemblyTree = {
@@ -514,6 +515,8 @@ function assembleTree(
       quantity: row.quantity,
       associatedProductQuoteLeafId: row.associatedProductQuoteLeafId,
       ...describeLeaf(leaf),
+      name: row.serviceInstanceLabel ? `${leaf.name} · ${row.serviceInstanceLabel}` : leaf.name,
+      serviceInstanceLabel: row.serviceInstanceLabel,
     } satisfies DirectProductNode;
   });
 

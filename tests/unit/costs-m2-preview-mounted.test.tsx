@@ -256,7 +256,7 @@ test("the costs workspace does not render the retired preview banner", async () 
   await m.unmount();
 });
 
-test("editable costs expose the production editor for associated services", async () => {
+test("editable direct services stay in the current Costs view", async () => {
   const m = await mount(
     <CostsM2PreviewBody
       overview={OVERVIEW}
@@ -270,9 +270,10 @@ test("editable costs expose the production editor for associated services", asyn
       onSelectTier={() => {}}
     />,
   );
-  const link = m.findAll(".cm2-costs-head-actions a").find((a) => a.textContent?.includes("Edit production costs"));
-  assert.ok(link, "associated service costs need a visible route to their editor");
-  assert.equal(link.getAttribute("href"), "/projects/p/quotes/q/costs?tier=tier-1&preview=legacy&section=production");
+  assert.ok(labels(m).some((label) => label.includes("Testing / Micros")));
+  const productionLinks = m.findAll('.cm2-costs-head-actions a[href*="section=production"]');
+  assert.equal(productionLinks.length, 1, "the item group still needs its production editor");
+  assert.match(productionLinks[0].textContent ?? "", /item-group production/);
   await m.unmount();
 });
 test("internal markup category keys render as operator labels", () => {
@@ -386,8 +387,8 @@ test("a charge keeps its per-tier amounts and never becomes one shared amount", 
   assert.ok(chargeRow, "the charge row is not rendered");
   const cells = [...chargeRow!.querySelectorAll(".cm2-value")].map((c) => c.textContent);
   assert.deepEqual(cells, ["1000.00", "1400.00", "unpriced"]);
-  assert.match(chargeRow!.textContent ?? "", /partly priced/);
-  assert.match(chargeRow!.textContent ?? "", /One-time cost/);
+  assert.doesNotMatch(chargeRow!.textContent ?? "", /\b(?:partly priced|unpriced|priced)\b/);
+  assert.doesNotMatch(chargeRow!.textContent ?? "", /One-time cost/);
   await m.unmount();
 });
 

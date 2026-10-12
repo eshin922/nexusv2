@@ -148,7 +148,7 @@ export function CardCustomerPresentation({
     ...(hasItemGroups && detailLevel === "itemized" ? [{
       field: "showItemGroupMembers" as const,
       label: "Show group subitems",
-      meta: "Off shows each group total without its product breakdown; separate items still appear.",
+      meta: "On shows the group total and its products. Off shows the group total only. Separate products and quote totals stay the same.",
     }] : []),
     { field: "includeTerms", label: "Commercial terms block", meta: "Valid until, payment, lead time, Incoterms." },
     { field: "includeAddendum", label: "Specification addendum", meta: "Adds a second page when there is spec data." },

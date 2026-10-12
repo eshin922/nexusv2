@@ -531,8 +531,6 @@ test("the spec action names the authority it edits", async () => {
   for (const f of [
     "src/components/assembly-tree/leaf-context-menu.tsx",
     "src/components/assembly-tree/direct-product-row.tsx",
-    // The item-group menu's disabled row is the same act, so the same label.
-    "src/components/assembly-tree/asy-context-menu.tsx",
   ]) {
     const src = await read(f);
     assert.match(src, /Edit library specs/, `${f} does not name the authority`);
@@ -582,10 +580,9 @@ test("top-level rows describe themselves without a sellable-unit noun", async ()
   const row = await read("src/components/assembly-tree/direct-product-row.tsx");
   assert.match(row, /setup-wizard-direct-charges/);
   assert.match(row, /Edit library specs/);
-  // Item-group MEMBERS are a different component and keep "Leaf actions" — a
-  // member is not a quote line, so the neutral term there would be wrong.
+  // Item-group members are still products, so their menu says what it acts on.
   const member = await code("src/components/assembly-tree/leaf-context-menu.tsx");
-  assert.match(member, /Leaf actions/);
+  assert.match(member, /Product actions/);
 });
 
 test("usage is counted in QUOTES, not attachment rows", async () => {
@@ -611,19 +608,12 @@ test("the usage caption is gone from the quote tree entirely", async () => {
 });
 
 // -------------------------------------------- B-4B · no dead operator commands
-test("the member menu renders no disabled command", async () => {
+test("the member menu renders only actionable move commands", async () => {
   const src = await read("src/components/assembly-tree/leaf-context-menu.tsx");
-  // Move up, Move down, Move to another item group, View library record. None
-  // was a capability; a rendered command that cannot run teaches the operator
-  // that the menu is unreliable, and the doubt transfers to the items that work.
-  for (const gone of [
-    "Move up",
-    "Move down",
-    "Move to another item group",
-    "View library record",
-  ]) {
-    assert.doesNotMatch(src, new RegExp(`>\s*${gone}\s*<`), `${gone} still rendered`);
-  }
+  assert.match(src, /moveWithinGroup\.up !== null/);
+  assert.match(src, /moveWithinGroup\.down !== null/);
+  assert.match(src, /onMove\(quoteLeafId, moveWithinGroup\.groupId/);
+  assert.doesNotMatch(src, />\s*View library record\s*</);
   assert.doesNotMatch(src, /aria-disabled="true"/);
 });
 
@@ -634,15 +624,29 @@ test("both surviving member actions are wired", async () => {
 });
 
 // ------------------------------------------------ B-4A · restoration to the DA
-test("the Item Group row declares one column per rendered cell", async () => {
+test("the Setup Item Group header keeps its controls together", async () => {
   const css = await read("src/styles/r-a1v2-overrides.css");
-  // Eight cells rendered: the canonical six plus notes trigger and
-  // + Add products. Implicit-row wrapping is what broke the seal between the
-  // group header and .a1v2-leaves.
+  // The legacy tree remains grid-based outside Setup. Setup groups their
+  // controls in one action cluster, so narrow widths wrap that cluster as a
+  // unit rather than leaving the last control alone below the title.
   assert.match(
     css,
     /\.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*grid-template-columns:\s*24px 90px 1fr auto auto auto auto auto/,
   );
+  assert.match(css, /\.setup-wizard-quote-items \.a1v2-asy-row:not\(\.a1v2-direct-row\)\s*\{[^}]*display:\s*flex/);
+  assert.match(css, /\.setup-wizard-group-actions\s*\{[^}]*flex-wrap:\s*wrap/);
+  const row = await read("src/components/assembly-tree/asy-row.tsx");
+  assert.match(row, /className="setup-wizard-group-actions"/);
+});
+
+test("group actions are named and Add products is directly visible", async () => {
+  const group = await read("src/components/assembly-tree/asy-context-menu.tsx");
+  const member = await read("src/components/assembly-tree/leaf-context-menu.tsx");
+  assert.match(group, />\s*\+ Add products\s*</);
+  assert.match(group, /Group options/);
+  assert.match(member, /Product actions <span/);
+  assert.match(member, /aria-label="Product actions"/);
+  assert.doesNotMatch(group, /aria-disabled="true"/);
 });
 
 test("Item Group identity does not depend on being populated", async () => {
@@ -1068,13 +1072,14 @@ test("every drag direction reaches the move primitive, not detach + attach", asy
   assert.doesNotMatch(moveBlock, /detachGroupedMembership|attachGroupedMembership/);
 });
 
-test("an attached service blocks grouping without crashing the Setup page", async () => {
+test("an attached service stays available when its product moves into a group", async () => {
   const action = await code("src/app/actions/assemblies.ts");
   const move = await code("src/lib/product-structure/structural-move.ts");
   const picker = await code("src/components/assembly-tree/quote-product-group-picker.tsx");
-  assert.match(move, /throw new StructuralMoveBlockedError\([\s\S]*?service\$\{/);
+  assert.doesNotMatch(move, /Remove .*service.* before moving it into an Item Group/);
   assert.match(action, /error instanceof StructuralMoveBlockedError[\s\S]*?ActionGuardError\(ERR\.VALIDATION, error\.message\)/);
-  assert.match(picker, /disabled=\{pending \|\| product\.associatedServiceCount > 0\}/);
+  assert.match(picker, /disabled=\{pending\}>Add to group/);
+  assert.match(picker, /associated service.*stay with this product/);
 });
 
 test("the move writer records both structural homes in its audit row", async () => {

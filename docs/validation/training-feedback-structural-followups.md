@@ -1,6 +1,6 @@
 # Training feedback: structural follow-ups
 
-These items are confirmed gaps but are not part of PR #634. Each crosses persisted quote structure or the frozen Sales Order contract. Keep the sandbox NetSuite changes separate from production cutover.
+This records the original structural requirements. Sections 2 and 3 were implemented separately in #638 and #637; their remaining sandbox verification belongs to production cutover. They are not part of #634.
 
 ## 1. Repair historical Item Group duplication — completed for Smart Press Alt 1
 
@@ -12,18 +12,18 @@ Smart Pressed Juice Alt 1 had eight library SKUs represented by two separate quo
 4. Remove the redundant quote row and recompute Costs, Pricing, PDF, and the NetSuite projection for every tier. Assert one economic owner and one customer-visible placement per SKU. Save before/after evidence and a reversible repair record.
 5. Add a regression for the current Setup picker: moving an existing quote product into a group preserves its quote-leaf ID, tier quantities, costs, specs, and dependents; it must not attach the same library SKU a second time.
 
-## 2. Repeatable Testing / Micros instances
+## 2. Repeatable Testing / Micros instances — implemented in #638
 
-The current checkbox is keyed by one service identity. `attachDirectProduct` refuses a second service/product pair, and `quote_leaves_product_service_unique_idx` enforces that in the database. This is why several tests cannot be represented by clicking the checkbox again.
+The former checkbox was keyed by one service identity. The requirements below drove the repeatable service-instance implementation in #638.
 
 1. Define each ordered test as its own service instance with a required, distinct label and optional test quantity. The label must distinguish, for example, micro screening from stability testing; the service SKU stays the governed Testing / Micros SKU unless Accounting chooses separate SKUs.
 2. Replace the pair-level uniqueness rule with instance-level identity. Preserve one standalone service per quote if that remains the intended direct-service behavior; do not silently permit duplicate product lines.
 3. Let Setup add and remove labeled test instances. Give every instance its own per-tier cost in Production, its own recovery choice and customer presentation, and a separate NetSuite service line linked by stable product and instance IDs.
 4. Extend quote copy, revision, frozen snapshot, acceptance, retry, and NetSuite read-back tests. Include two tests on one product, the same test on two products, and an existing single-test quote.
 
-## 3. Services owned by grouped products
+## 3. Services owned by grouped products — implemented in #637
 
-The current composite foreign key requires an associated service's target product to be direct. The picker correctly blocks a grouped product under that rule. A UI-only unlock would fail at the database and could misattribute costs.
+The former composite foreign key required an associated service's target product to be direct. The requirements below drove the grouped-product service implementation in #637.
 
 1. Change the target constraint to require a same-quote product without requiring `is_direct=true`; keep services as separate top-level commercial and NetSuite lines.
 2. Update Setup's associated-service picker, owner labels, delete/reorder behavior, and group member counts. The service must follow its product when the product moves between Direct and a group.

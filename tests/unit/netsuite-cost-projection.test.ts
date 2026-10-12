@@ -49,6 +49,17 @@ test("Direct CREATE emits CUSTOM + governed rate", () => {
   assert.equal(l.custcol_dps_unit_cost, 0.625);
 });
 
+test("a five-decimal vendor unit cost reaches both NetSuite cost fields unchanged", () => {
+  const body = buildSalesOrderPayload({
+    ...BASE,
+    lines: [line({ quantity: 1000, unitCost: 0.12405 })],
+  } as never);
+  const product = items(body)[0];
+  assert.equal(product.costEstimateRate, 0.12405);
+  assert.equal(product.custcol_dps_unit_cost, 0.12405);
+  assert.equal(product.rate, 1.25);
+});
+
 // ---------------------------------------------------------------- 2
 test("null governed cost preserves NetSuite's default — no zero asserted", () => {
   const body = buildSalesOrderPayload({

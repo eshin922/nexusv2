@@ -22,13 +22,8 @@ import { describeAttachmentRemoval } from "@/app/actions/quote-products";
 //   - Delete fires detachAssemblyLeaf server action (junction-only;
 //     library leaf untouched)
 //
-// Inert until later phases / steps:
-//   - Edit specs → impl-3 (Phase 3 Spec entry surface; brief §5.3)
-//   - Move up/down → Step 9 (drag-to-reorder primary path; menu can
-//                   ride keyboard-arrow accessibility on top)
-//   - Move to another item group → follow-up (cross-ASY junction-move
-//                            workflow design TBD)
-//   - View library record → impl-5 (Phase 5 library browse + reps)
+// Move commands now call the same governed structural writer as drag/drop.
+// Boundary rows omit impossible directions; no inert action is shown.
 
 export function LeafContextMenu({
   junctionId,
@@ -38,6 +33,7 @@ export function LeafContextMenu({
   disabled,
   moveDestinations,
   onMove,
+  moveWithinGroup,
   onAddCharges,
 }: {
   junctionId: string;
@@ -55,6 +51,7 @@ export function LeafContextMenu({
     position: number;
   }>;
   onMove?: (quoteLeafId: string, target: string, position: number) => void;
+  moveWithinGroup?: { groupId: string; up: number | null; down: number | null };
   /**
    * Open the one-time charges sheet for this component — OD-032 phase 4.
    *
@@ -152,17 +149,17 @@ export function LeafContextMenu({
         disabled={disabled || pending}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`LEAF ${leafName} context menu`}
+        aria-label={`Actions for ${leafName}`}
       >
-        ⋯
+        Product actions <span aria-hidden="true">⌄</span>
       </button>
       {open && (
         <div
           className="a1v2-context-menu"
           role="menu"
-          aria-label="Leaf actions"
+          aria-label="Product actions"
         >
-          <div className="header">Leaf actions</div>
+          <div className="header">Product actions</div>
           <Link
             href={editSpecsHref}
             className="item accent"
@@ -197,6 +194,23 @@ export function LeafContextMenu({
               Add associated costs
             </button>
           )}
+          {!disabled && onMove && moveWithinGroup && (moveWithinGroup.up !== null || moveWithinGroup.down !== null) ? (
+            <>
+              <div className="sep" />
+              {moveWithinGroup.up !== null ? (
+                <button type="button" className="item" role="menuitem" onClick={() => {
+                  setOpen(false);
+                  onMove(quoteLeafId, moveWithinGroup.groupId, moveWithinGroup.up!);
+                }}>Move up</button>
+              ) : null}
+              {moveWithinGroup.down !== null ? (
+                <button type="button" className="item" role="menuitem" onClick={() => {
+                  setOpen(false);
+                  onMove(quoteLeafId, moveWithinGroup.groupId, moveWithinGroup.down!);
+                }}>Move down</button>
+              ) : null}
+            </>
+          ) : null}
           {/* B-4B removed four disabled items, correctly: none was a
               capability, and "Move to another item group had no writer
               anywhere in the action layer" was TRUE WHEN WRITTEN.

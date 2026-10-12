@@ -139,6 +139,10 @@ import { readFile } from "node:fs/promises";
 import ts from "typescript";
 
 export async function load(url, context, nextLoad) {
+  // Mounted document tests exercise markup, not the bundler's CSS side effect.
+  if (url.startsWith("file:") && url.endsWith(".css")) {
+    return { format: "module", source: "export {};", shortCircuit: true };
+  }
   if (!url.startsWith("file:") || !url.endsWith(".tsx")) {
     return nextLoad(url, context);
   }

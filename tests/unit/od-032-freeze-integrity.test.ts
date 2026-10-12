@@ -265,9 +265,9 @@ test("the migration is additive and backfills nothing", () => {
 });
 
 test("the frozen pointer does not cascade", () => {
-  // ON DELETE SET NULL, never CASCADE. A frozen instruction outlives the
-  // draft-side charge it was projected from: deleting a charge on a later
-  // revision must not delete the record of what a customer was already billed.
+  // Historical 0111 used SET NULL rather than CASCADE. Migration 0149 removes
+  // this FK entirely so a later draft deletion cannot erase the frozen UUID;
+  // the current-schema test below guards that final state.
   const sql = migration();
   assert.match(sql, /REFERENCES "quote_charge_instances"\("id"\) ON DELETE SET NULL/);
   assert.doesNotMatch(sql, /ON DELETE CASCADE/);
@@ -312,15 +312,24 @@ test("the snapshot table declares the column the freeze writer names", () => {
   assert.match(writer, /chargeInstanceId: i\.chargeInstanceId,/);
 });
 
-test("the frozen pointer does not cascade in the schema either", () => {
-  // The migration says SET NULL. If the Drizzle declaration said CASCADE, the
-  // two would disagree and the next generated migration would follow the
-  // declaration rather than the applied database.
+test("the frozen instruction keeps instance provenance and its own uniqueness grain", () => {
+  // Two same-type instances on one product/tier must both freeze. Later
+  // deletion of either draft instance must not rewrite the frozen identity.
   const schema = readFileSync("src/db/schema.ts", "utf8");
   const start = schema.lastIndexOf('"quote_snapshot_recovery_instructions"');
   const end = schema.indexOf("pgTable(", start);
   const table = schema.slice(start, end === -1 ? schema.length : end);
-  const decl = table.slice(table.indexOf("chargeInstanceId:"));
-  assert.match(decl.slice(0, 200), /onDelete: "set null"/);
+  const decl = table.slice(table.indexOf("chargeInstanceId:"), table.indexOf("tierId:"));
+  assert.match(decl, /chargeInstanceId: uuid\("charge_instance_id"\)/);
+  assert.doesNotMatch(decl, /\.references\(/);
+  assert.match(table, /quote_snapshot_recovery_instructions_instance_uq/);
+  assert.match(table, /\.on\(t\.quoteSnapshotId, t\.chargeInstanceId, t\.tierId\)/);
+  assert.match(table, /quote_snapshot_recovery_instructions_legacy_uq/);
+
+  const migration = readFileSync("drizzle/0149_repeatable_frozen_recovery.sql", "utf8");
+  assert.match(migration, /DROP CONSTRAINT "quote_snapshot_recovery_instructions_unique"/);
+  assert.match(migration, /DROP CONSTRAINT "quote_snapshot_recovery_instructions_charge_instance_id_fkey"/);
+  assert.match(migration, /WHERE "charge_instance_id" IS NOT NULL/);
+  assert.match(migration, /WHERE "charge_instance_id" IS NULL/);
 });
 

@@ -312,7 +312,6 @@ export function ByProductView({
                   {charge.typeLabel}
                   {charge.ownLabel ? ` · ${charge.ownLabel}` : ""}
                 </span>
-                <Tag tone="accent">{charge.costBasis === "per_unit" ? "Cost per unit" : "One-time cost"}</Tag>
                 {editMode ? <M3Editor kind="charge-basis" quoteId={quoteId} charge={charge} disabled={false} /> : null}
                 <ChargeStateTag charge={charge} />
               </div>

@@ -3420,32 +3420,33 @@ export const quoteLeaves = pgTable(
       .notNull()
       .default("product"),
     // Migration 0136. GENERATED and never written: `assembly_id IS NULL`.
-    // Exists only so the product-association FK below can require that the
-    // product a service names is top-level.
+    // Retained for the historical association target key; migration 0147 no
+    // longer uses it to constrain associated services to direct products.
     isDirect: boolean("is_direct").generatedAlwaysAs(sql`"assembly_id" IS NULL`),
     /**
-     * Migration 0136. The Direct Product this Direct Service is performed for.
+     * Migrations 0136 and 0147. The product this Direct Service is performed for.
      *
      * NULL = a standalone Direct Service, one per quote per service leaf
      * (`quote_leaves_standalone_service_unique_idx`). Set = this product's own
-     * instance of the service; one per (product, service leaf)
-     * (`quote_leaves_product_service_unique_idx`). The five service library
+     * instance of the service; named Testing / Micros instances are distinct
+     * (`quote_leaves_product_service_instance_unique_idx`). The five service library
      * leaves stay unique, so this column is what lets two products on one
      * quote each carry their own Filling / Blending.
      *
      * Database-enforced: only a top-level service row may set it
      * (`quote_leaves_association_owner_is_direct_service`), and it must name a
-     * top-level PRODUCT on the SAME quote (`quote_leaves_associated_product_fk`,
-     * composite over the two generated columns below).
+     * PRODUCT on the SAME quote, whether direct or grouped
+     * (`quote_leaves_associated_product_fk`).
      *
      * Attribution only. The service keeps its own Production row and its own
      * NetSuite line; nothing here moves an amount onto the product.
      * Written only through `attachDirectProduct`.
      */
     associatedProductQuoteLeafId: uuid("associated_product_quote_leaf_id"),
-    // GENERATED constants ('product' / true when an association exists, NULL
-    // otherwise) — the referencing half of the composite FK. Unwritable, so a
-    // wrong value is unrepresentable rather than refused.
+    /** Quote-owned name distinguishing independently priced Testing / Micros instances. */
+    serviceInstanceLabel: text("service_instance_label"),
+    // GENERATED product discriminator for the association FK. The historical
+    // directness discriminator remains for compatibility with earlier schema.
     associatedProductKind: leafCommercialKind(
       "associated_product_kind",
     ).generatedAlwaysAs(
@@ -3469,22 +3470,30 @@ export const quoteLeaves = pgTable(
       t.commercialKind,
       t.isDirect,
     ),
+    unique("quote_leaves_association_product_key").on(
+      t.id,
+      t.quoteId,
+      t.commercialKind,
+    ),
     check(
       "quote_leaves_association_owner_is_direct_service",
       sql`"associated_product_quote_leaf_id" IS NULL OR ("commercial_kind" = 'service' AND "assembly_id" IS NULL)`,
+    ),
+    check(
+      "quote_leaves_service_instance_label_check",
+      sql`"service_instance_label" IS NULL OR ("commercial_kind" = 'service' AND "associated_product_quote_leaf_id" IS NOT NULL AND btrim("service_instance_label") <> '')`,
     ),
     foreignKey({
       columns: [
         t.associatedProductQuoteLeafId,
         t.quoteId,
         t.associatedProductKind,
-        t.associatedProductIsDirect,
       ],
-      foreignColumns: [t.id, t.quoteId, t.commercialKind, t.isDirect],
+      foreignColumns: [t.id, t.quoteId, t.commercialKind],
       name: "quote_leaves_associated_product_fk",
     }),
-    uniqueIndex("quote_leaves_product_service_unique_idx")
-      .on(t.associatedProductQuoteLeafId, t.leafId)
+    uniqueIndex("quote_leaves_product_service_instance_unique_idx")
+      .on(t.associatedProductQuoteLeafId, t.leafId, sql`coalesce(lower(btrim(${t.serviceInstanceLabel})), '')`)
       .where(sql`"associated_product_quote_leaf_id" IS NOT NULL`),
     uniqueIndex("quote_leaves_standalone_service_unique_idx")
       .on(t.quoteId, t.leafId)
@@ -3906,7 +3915,7 @@ export const assemblyLeafInputs = pgTable(
     notes: text("notes"),
 
     // Per-tier:
-    unitCost: numeric("unit_cost", { precision: 10, scale: 4 }),
+    unitCost: numeric("unit_cost", { precision: 11, scale: 5 }),
     purchaseQty: numeric("purchase_qty"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -5050,7 +5059,7 @@ export const quoteChargeInstanceTiers = pgTable(
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
     /** What DPS pays. Cost truth: invariant under every recovery election. */
-    costAmount: numeric("cost_amount", { precision: 14, scale: 4 })
+    costAmount: numeric("cost_amount", { precision: 15, scale: 5 })
       .notNull()
       .default("0"),
     /**
@@ -5179,7 +5188,7 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
      */
     ownerKind: recoveryOwnerKind("owner_kind"),
     /**
-     * The durable instance identity — OD-032 P-3.
+     * The durable instance identity — OD-032 P-3, corrected at repeatable freeze.
      *
      * `(charge_key, owner_ref, tier_id)` cannot separate two charges of one
      * type on one component: all three are identical, so the instructions
@@ -5190,15 +5199,12 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
      * instance. NOT NULL for every component-owned charge — asserted in
      * `tests/unit/od-032-freeze-integrity.test.ts`, not left as convention.
      *
-     * ON DELETE SET NULL, never CASCADE. A frozen instruction outlives the
-     * draft-side charge it was projected from: deleting a charge on a later
-     * revision must not delete the record of what a customer was already
-     * billed. The pointer is traceability; the instruction is the fact.
+     * No FK: this is frozen provenance, not a live relationship. With two
+     * same-type instances on one owner, SET NULL would move both instructions
+     * into the legacy uniqueness namespace and make deleting the second live
+     * charge fail. Keep the UUID even after that draft charge is removed.
      */
-    chargeInstanceId: uuid("charge_instance_id").references(
-      () => quoteChargeInstances.id,
-      { onDelete: "set null" },
-    ),
+    chargeInstanceId: uuid("charge_instance_id"),
     tierId: uuid("tier_id")
       .notNull()
       .references(() => quoteTiers.id, { onDelete: "cascade" }),
@@ -5242,12 +5248,12 @@ export const quoteSnapshotRecoveryInstructions = pgTable(
       .defaultNow(),
   },
   (t) => [
-    unique("quote_snapshot_recovery_instructions_unique").on(
-      t.quoteSnapshotId,
-      t.chargeKey,
-      t.ownerRef,
-      t.tierId,
-    ),
+    uniqueIndex("quote_snapshot_recovery_instructions_instance_uq")
+      .on(t.quoteSnapshotId, t.chargeInstanceId, t.tierId)
+      .where(sql`${t.chargeInstanceId} is not null`),
+    uniqueIndex("quote_snapshot_recovery_instructions_legacy_uq")
+      .on(t.quoteSnapshotId, t.chargeKey, t.ownerRef, t.tierId)
+      .where(sql`${t.chargeInstanceId} is null`),
   ],
 );
 

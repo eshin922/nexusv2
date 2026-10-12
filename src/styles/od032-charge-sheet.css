@@ -76,6 +76,37 @@
   padding: 14px 16px 16px;
 }
 
+.od032-existing {
+  margin-bottom: 12px;
+  border: 1px solid oklch(0.88 0.012 85);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.od032-existing h3 {
+  margin: 0;
+  padding: 9px 12px;
+  background: oklch(0.975 0.01 85);
+  border-bottom: 1px solid oklch(0.92 0.01 85);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.42 0.14 255);
+}
+.od032-existing-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid oklch(0.94 0.008 85);
+}
+.od032-existing-row:first-of-type { border-top: 0; }
+.od032-existing-name { flex: 1; min-width: 160px; font-size: 12.5px; }
+.od032-existing-warning { flex-basis: 100%; color: oklch(0.38 0.14 25); font-size: 11px; }
+.od032-existing-row .od032-btn { padding: 5px 9px; font-size: 11px; }
+
 /* ── phase 1 · suggestions ─────────────────────────────────────────────── */
 
 .od032-suggest {
@@ -142,41 +173,6 @@
   margin-top: 5px;
   color: oklch(0.68 0.012 255);
 }
-.od032-existing {
-  margin-top: 14px;
-}
-.od032-existing-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 4px;
-  border-bottom: 1px solid oklch(0.94 0.008 85);
-  font-size: 12px;
-}
-.od032-existing-row .od032-btn {
-  flex: none;
-}
-.od032-service-remove {
-  margin: 0 0 8px 30px;
-}
-.od032-repeat-charges {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  margin: 7px 0 12px 30px;
-}
-.od032-repeat-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.od032-repeat-row .od032-label-input {
-  flex: 1;
-  min-width: 0;
-}
 .od032-pick {
   width: 100%;
   display: flex;
@@ -213,6 +209,24 @@
 .od032-box[data-on="yes"] {
   background: oklch(0.42 0.14 255);
   border-color: oklch(0.42 0.14 255);
+}
+.od032-add-symbol {
+  width: 15px;
+  flex: none;
+  color: oklch(0.42 0.14 255);
+  font-weight: 700;
+  text-align: center;
+}
+.od032-instance-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 9px 30px;
+}
+.od032-instance-row .od032-label-input {
+  margin-top: 0;
+  min-width: 0;
+  flex: 1;
 }
 .od032-pick-text {
   flex: 1;

@@ -340,8 +340,8 @@ export async function createComponentChargesAs(
  *
  * Its per-tier economics cascade; any recovery election on it cascades through
  * the instance's own foreign key. The frozen record does NOT — a sent quote's
- * instruction is what Accounting was told, and its pointer is `ON DELETE SET
- * NULL` precisely so removing a draft charge cannot rewrite history.
+ * instruction is what Accounting was told, and its instance UUID is preserved
+ * independently of this live draft row (migration 0149).
  */
 export async function deleteComponentChargeAs(
   userId: string,

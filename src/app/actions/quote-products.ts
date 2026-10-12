@@ -25,7 +25,7 @@ import {
   DirectAttachmentConflictError,
 } from "@/lib/product-structure/direct-attachment";
 import { quoteByIdDraft } from "@/lib/quote-guards";
-import { evaluateServiceAssociation } from "@/lib/product-structure/service-association";
+import { evaluateServiceAssociation, isProductAssociableServiceIdentity } from "@/lib/product-structure/service-association";
 
 /**
  * Quote → Add Product. Attaches a library product DIRECTLY to the quote, with
@@ -54,6 +54,7 @@ export async function attachQuoteProduct(
     const quantityRaw = String(formData.get("quantity") ?? "1").trim();
     const associatedProductQuoteLeafId =
       String(formData.get("associatedProductQuoteLeafId") ?? "").trim() || null;
+    const serviceInstanceLabel = String(formData.get("serviceInstanceLabel") ?? "").trim() || null;
 
     if (!quoteId)
       throw new ActionGuardError(ERR.VALIDATION, "quoteId required");
@@ -72,6 +73,12 @@ export async function attachQuoteProduct(
       .limit(1);
     if (leafRows.length === 0)
       throw new ActionGuardError(ERR.NOT_FOUND, "Product not found");
+    if (serviceInstanceLabel && (!associatedProductQuoteLeafId || !isProductAssociableServiceIdentity(leafRows[0].serviceIdentity))) {
+      throw new ActionGuardError(ERR.VALIDATION, "Only product-associated services may have an instance note.");
+    }
+    if (serviceInstanceLabel && serviceInstanceLabel.length > 120) {
+      throw new ActionGuardError(ERR.VALIDATION, "Service note must be 120 characters or fewer.");
+    }
 
     // Same predicate the grouped path uses. One gate, so the two attachment
     // routes cannot diverge on what is attachable. The destination is passed
@@ -84,7 +91,7 @@ export async function attachQuoteProduct(
 
     // 0136 · the service-for-product pair, refused with the actual cause before
     // anything is written. The database re-enforces same-quote, product-kind
-    // and top-level on its own (quote_leaves_associated_product_fk); this is
+    // on the same quote (quote_leaves_associated_product_fk); this is
     // the sentence, plus the identity restriction the database cannot see.
     if (associatedProductQuoteLeafId) {
       const [product] = await db
@@ -127,6 +134,7 @@ export async function attachQuoteProduct(
           quantity: quantityRaw === "" ? "1" : quantityRaw,
           position: nextPosition,
           associatedProductQuoteLeafId,
+          serviceInstanceLabel,
         });
         await writeAuditEntry(
           {
@@ -147,6 +155,7 @@ export async function attachQuoteProduct(
                 ? "direct_service_for_product"
                 : "direct",
               associated_product_quote_leaf_id: row.associatedProductQuoteLeafId,
+              service_instance_label: row.serviceInstanceLabel,
             },
           },
           tx,
