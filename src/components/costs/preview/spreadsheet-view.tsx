@@ -1,6 +1,5 @@
 "use client";
 
-import { Fragment } from "react";
 import { BlankCell, costCategoryLabel, fmtUsd4, Tag, TextCell, TierHeadCell, ValueCell, toolingLabel } from "./shared";
 import {
   flattenOwners,
@@ -51,13 +50,9 @@ export function SpreadsheetView({
   editMode: boolean;
 }) {
   const tiers = overview.tiers;
+  const rows = flattenOwners(overview.owners);
   // Tier tracks + the MARKUP % track — prototype `NC = TIERS.length + 1`.
   const cols = tiers.length + 1;
-  const renderOwnerRows = (root: OverviewOwner) => flattenOwners([root]).map(({ owner, depth }) => (
-    <OwnerRows key={owner.key} owner={owner} depth={depth} tiers={tiers} reads={reads}
-      groupedCostByTier={groupedCostByTier} activeTierId={activeTierId}
-      quoteId={quoteId} editMode={editMode} />
-  ));
 
   return (
     <div className="cm2-group" style={{ ["--cm2-cols" as string]: String(cols) }}>
@@ -85,12 +80,18 @@ export function SpreadsheetView({
         <div className="cm2-tail cm2-eyebrow">markup category · item</div>
       </div>
 
-      {overview.owners.map((owner) => owner.kind === "item_group" ? (
-        <div className="cm2-item-group-cluster" role="group" aria-label={`${owner.name} and its products`} key={owner.key}>
-          {renderOwnerRows(owner)}
-        </div>
-      ) : (
-        <Fragment key={owner.key}>{renderOwnerRows(owner)}</Fragment>
+      {rows.map(({ owner, depth }) => (
+        <OwnerRows
+          key={owner.key}
+          owner={owner}
+          depth={depth}
+          tiers={tiers}
+          reads={reads}
+          groupedCostByTier={groupedCostByTier}
+          activeTierId={activeTierId}
+          quoteId={quoteId}
+          editMode={editMode}
+        />
       ))}
 
       {overview.unplacedCharges.length > 0 && (
@@ -159,7 +160,7 @@ function OwnerRows({
   const many = owner.recurringLines.length > 1;
   return (
     <>
-      <div className={`cm2-row cm2-parent${owner.kind === "item_group" ? " cm2-item-group-head" : owner.kind === "group_member" ? " cm2-group-member-head" : ""}`}>
+      <div className="cm2-row cm2-parent">
         <div className="cm2-ident" data-indent={depth || undefined}>
           <div className="cm2-label cm2-strong">{owner.name}</div>
           <div className="cm2-meta">{ownerMeta(owner)}</div>
@@ -231,7 +232,6 @@ function OwnerRows({
 
 function OwnerKindTag({ owner }: { owner: OverviewOwner }) {
   if (owner.kind === "item_group") return <Tag tone="accent">item group</Tag>;
-  if (owner.kind === "group_member") return <Tag tone="plain">in group</Tag>;
   if (owner.kind === "direct_service") return <Tag tone="purple">service</Tag>;
   return <Tag tone="plain">product</Tag>;
 }
