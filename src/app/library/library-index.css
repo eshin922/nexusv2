@@ -1,0 +1,83 @@
+.library-index {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 34px 28px 60px;
+  color: var(--ink, #17212b);
+}
+.library-index-header {
+  border-bottom: 1px solid var(--rule, #d9d6cf);
+  padding-bottom: 22px;
+}
+.library-index-back,
+.library-index-table a,
+.library-index-pages a {
+  color: #0753a3;
+  text-decoration: none;
+}
+.library-index-back:hover,
+.library-index-table a:hover,
+.library-index-pages a:hover { text-decoration: underline; }
+.library-index-eyebrow,
+.library-index-result-count,
+.library-index-table th,
+.library-index-mono,
+.library-index-pages {
+  font-family: "JetBrains Mono", monospace;
+}
+.library-index-eyebrow {
+  margin: 28px 0 5px;
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #6f7982;
+}
+.library-index h1 {
+  font-family: Georgia, serif;
+  font-size: 32px;
+  font-weight: 400;
+  margin: 0 0 7px;
+}
+.library-index-header p:last-child { color: #5e6870; margin: 0; }
+.library-index-search { margin: 28px 0 16px; max-width: 560px; }
+.library-index-search label { display: block; font-size: 12px; margin-bottom: 7px; }
+.library-index-search > div { display: flex; gap: 8px; }
+.library-index-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #cdcac2;
+  border-radius: 5px;
+  background: #faf9f6;
+  font: inherit;
+}
+.library-index-search button {
+  padding: 9px 17px;
+  border: 1px solid #0753a3;
+  border-radius: 5px;
+  background: #0753a3;
+  color: white;
+  cursor: pointer;
+}
+.library-index-result-count { color: #6f7982; font-size: 11px; margin-bottom: 12px; }
+.library-index-table-wrap { overflow-x: auto; border: 1px solid #dedbd4; border-radius: 6px; }
+.library-index-table { width: 100%; border-collapse: collapse; text-align: left; }
+.library-index-table th {
+  background: #f3f0ea;
+  color: #68737d;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.library-index-table th,
+.library-index-table td { padding: 12px 14px; border-bottom: 1px solid #e7e3dc; vertical-align: top; }
+.library-index-table tr:last-child td { border-bottom: 0; }
+.library-index-table td { font-size: 13px; }
+.library-index-table td small { display: block; margin-top: 3px; color: #7b858c; }
+.library-index-mono { font-size: 11px !important; }
+.library-index-empty { padding: 24px; border: 1px solid #dedbd4; border-radius: 6px; }
+.library-index-pages { display: flex; justify-content: space-between; margin-top: 17px; font-size: 11px; }
+@media (max-width: 700px) {
+  .library-index { padding: 22px 14px 40px; }
+  .library-index-table { min-width: 800px; }
+}
