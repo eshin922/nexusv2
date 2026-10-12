@@ -1900,10 +1900,58 @@
   background: var(--paper);
 }
 .setup-wizard-quote-items .a1v2-asy-row:not(.a1v2-direct-row) {
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
 }
 .setup-wizard-quote-items .a1v2-asy-row:not(.a1v2-direct-row) > .name-cell {
   min-width: 0;
+  flex: 1 1 220px;
+}
+.setup-wizard-group-actions,
+.setup-wizard-group-menu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.setup-wizard-group-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+.setup-wizard-quote-items .context-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.setup-wizard-quote-items .context-trigger:hover {
+  border-color: var(--accent);
+  background: var(--paper-2);
+}
+.setup-wizard-quote-items .a1v2-leaf-row {
+  grid-template-columns: 60px minmax(120px, 190px) minmax(0, 1fr) auto auto auto;
+}
+.setup-wizard-quote-items .a1v2-leaf-row > .a1v2-grip {
+  width: auto;
+  gap: 4px;
+  color: var(--ink-3);
+  opacity: 1;
+  font-family: var(--sans);
+  font-size: 10px;
+}
+.setup-wizard-quote-items .a1v2-grip-label {
+  white-space: nowrap;
 }
 .setup-wizard-assembly-sku {
   margin-top: 3px;

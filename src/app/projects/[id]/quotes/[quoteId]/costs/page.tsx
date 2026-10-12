@@ -626,6 +626,7 @@ export default async function CostBuildPage({
     .select({
       quoteLeafId: quoteLeaves.id,
       name: leaves.name,
+      serviceInstanceLabel: quoteLeaves.serviceInstanceLabel,
       serviceIdentity: leaves.serviceIdentity,
       associatedProductQuoteLeafId: quoteLeaves.associatedProductQuoteLeafId,
       // Already the ORDER BY below; selected so a consumer that re-sorts (the
@@ -666,13 +667,15 @@ export default async function CostBuildPage({
     .filter((r) => r.serviceIdentity !== null)
     .map((r) => ({
       quoteLeafId: r.quoteLeafId,
-      name: r.name,
+      name: r.serviceInstanceLabel ? `${r.name} · ${r.serviceInstanceLabel}` : r.name,
       serviceIdentity: r.serviceIdentity!,
       associatedProduct: r.associatedProductQuoteLeafId
         ? (() => {
-            const owner = newDirectProductRows.find((row) => row.quote_leaves.id === r.associatedProductQuoteLeafId);
-            if (!owner) throw new Error(`Associated service ${r.quoteLeafId} has no direct product ${r.associatedProductQuoteLeafId}`);
-            return { name: owner.leaves.name, sku: owner.leaves.sku ?? "" };
+            const directOwner = newDirectProductRows.find((row) => row.quote_leaves.id === r.associatedProductQuoteLeafId);
+            const groupedOwner = newAssemblyLeafJoinRows.find((row) => row.assembly_leaves.quoteLeafId === r.associatedProductQuoteLeafId);
+            const owner = directOwner?.leaves ?? groupedOwner?.leaves;
+            if (!owner) throw new Error(`Associated service ${r.quoteLeafId} has no product ${r.associatedProductQuoteLeafId}`);
+            return { name: owner.name, sku: owner.sku ?? "" };
           })()
         : null,
       position: r.position,

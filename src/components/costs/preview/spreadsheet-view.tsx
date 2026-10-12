@@ -1,6 +1,6 @@
 "use client";
 
-import { BlankCell, costCategoryLabel, Tag, TextCell, TierHeadCell, ValueCell, toolingLabel } from "./shared";
+import { BlankCell, costCategoryLabel, fmtUsd4, Tag, TextCell, TierHeadCell, ValueCell, toolingLabel } from "./shared";
 import {
   flattenOwners,
   type CostsOverview,
@@ -35,6 +35,7 @@ import { OrderQuantity } from "./order-quantity";
 export function SpreadsheetView({
   overview,
   reads,
+  groupedCostByTier = new Map(),
   activeTierId,
   onSelectTier,
   quoteId,
@@ -42,6 +43,7 @@ export function SpreadsheetView({
 }: {
   overview: CostsOverview;
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier?: ReadonlyMap<string, ReadonlyMap<string, number>>;
   activeTierId: string | null;
   onSelectTier: (tierId: string) => void;
   quoteId: string;
@@ -85,6 +87,7 @@ export function SpreadsheetView({
           depth={depth}
           tiers={tiers}
           reads={reads}
+          groupedCostByTier={groupedCostByTier}
           activeTierId={activeTierId}
           quoteId={quoteId}
           editMode={editMode}
@@ -137,6 +140,7 @@ function OwnerRows({
   depth,
   tiers,
   reads,
+  groupedCostByTier,
   activeTierId,
   quoteId,
   editMode,
@@ -145,6 +149,7 @@ function OwnerRows({
   depth: number;
   tiers: readonly OverviewTierFact[];
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier: ReadonlyMap<string, ReadonlyMap<string, number>>;
   activeTierId: string | null;
   quoteId: string;
   editMode: boolean;
@@ -170,6 +175,21 @@ function OwnerRows({
         </div>
       </div>
 
+      {owner.kind === "item_group" && (
+        <div className="cm2-row cm2-parent cm2-group-cost">
+          <div className="cm2-ident" data-indent={depth + 1}>
+            <div className="cm2-label cm2-strong">Grouped cost</div>
+            <div className="cm2-meta">Includes member products and group production · shown once</div>
+          </div>
+          {tiers.map((tier) => {
+            const cost = groupedCostByTier.get(owner.key)?.get(tier.id);
+            return <ValueCell key={tier.id} stored={cost === undefined ? null : fmtUsd4(cost)} basis="per finished unit" highlighted={tier.id === activeTierId} />;
+          })}
+          <BlankCell />
+          <div className="cm2-tail">Separately billed charges remain separate</div>
+        </div>
+      )}
+
       {owner.recurringLines.map((line) => (
         <RecurringRow
           key={line.lineGroupId}
@@ -188,6 +208,8 @@ function OwnerRows({
         <ProductionRow
           key={line.field}
           line={line}
+          owner={owner}
+          editMode={editMode}
           indent={depth + 1}
           tiers={tiers}
           activeTierId={activeTierId}
@@ -319,11 +341,15 @@ export function firstAnsweredRead(
 
 function ProductionRow({
   line,
+  owner,
+  editMode,
   indent,
   tiers,
   activeTierId,
 }: {
   line: OverviewProductionLine;
+  owner: OverviewOwner;
+  editMode: boolean;
   indent: number;
   tiers: readonly OverviewTierFact[];
   activeTierId: string | null;
@@ -335,7 +361,9 @@ function ProductionRow({
             are tier totals owned by their module. */}
         <div className="cm2-label cm2-muted">{line.label}</div>
       </div>
-      {tiers.map((t) => (
+      {tiers.map((t) => editMode && owner.kind === "direct_service" && owner.quoteLeafId ? (
+        <M3Editor key={t.id} kind="service" quoteLeafId={owner.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} label={`Service amount for ${owner.name} at ${t.label}`} disabled={false} />
+      ) : (
         <ValueCell
           key={t.id}
           stored={line.amounts.get(t.id) ?? null}
@@ -344,7 +372,7 @@ function ProductionRow({
         />
       ))}
       <TextCell text="—" />
-      <div className="cm2-tail">in module</div>
+      <div className="cm2-tail">{owner.kind === "direct_service" && editMode ? "service cost" : "in module"}</div>
     </div>
   );
 }
@@ -372,7 +400,6 @@ function ChargeRow({
           {charge.ownLabel ? ` · ${charge.ownLabel}` : ""}
         </div>
         <div className="cm2-flags">
-          <Tag tone="accent">{charge.costBasis === "per_unit" ? "Cost per unit" : "One-time cost"}</Tag>
           {editMode ? <M3Editor kind="charge-basis" quoteId={quoteId} charge={charge} disabled={false} /> : null}
           <ChargeStateTag charge={charge} />
         </div>
@@ -401,22 +428,7 @@ function ChargeRow({
 }
 
 export function ChargeStateTag({ charge }: { charge: OverviewCharge }) {
-  return <>
-    {charge.toolingClassification === null && charge.chargeKey === "tooling" && (
-      <Tag tone="amber">needs classification</Tag>
-    )}
-    <ChargePricingStateTag charge={charge} />
-  </>;
-}
-
-function ChargePricingStateTag({ charge }: { charge: OverviewCharge }) {
-  if (charge.state === "complete") return <Tag tone="green">priced</Tag>;
-  if (charge.state === "partial")
-    return (
-      <Tag tone="amber" title={`No cost at ${charge.missingTierLabels.join(", ")}`}>
-        partly priced
-      </Tag>
-    );
-  if (charge.state === "none") return <Tag tone="amber">unpriced</Tag>;
-  return <Tag tone="amber">state unknown</Tag>;
+  return charge.toolingClassification === null && charge.chargeKey === "tooling"
+    ? <Tag tone="amber">needs classification</Tag>
+    : null;
 }

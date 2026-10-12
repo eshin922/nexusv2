@@ -390,9 +390,9 @@ export function buildSalesOrderPayload(
       // zero is a claim that the product is free; silence is not.
       ...(line.unitCost !== null
         ? {
-            custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(4)),
+            custcol_dps_unit_cost: parseFloat(line.unitCost.toFixed(5)),
             costEstimateType: { id: "CUSTOM" },
-            costEstimateRate: parseFloat(line.unitCost.toFixed(4)),
+            costEstimateRate: parseFloat(line.unitCost.toFixed(5)),
           }
         : {}),
   }));

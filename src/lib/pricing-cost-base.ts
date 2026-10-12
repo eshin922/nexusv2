@@ -34,6 +34,17 @@
 
 import type { QuoteCostingInput } from "./costing";
 
+/** Read-only Pricing notice; the costing engine remains the recovery authority. */
+export function undecidedCostedChargeCount(input: {
+  componentCharges?: readonly { chargeInstanceId: string; cost: number }[];
+  chargeElections?: readonly { chargeInstanceId?: string }[];
+}): number {
+  const elected = new Set((input.chargeElections ?? []).map((row) => row.chargeInstanceId).filter(Boolean));
+  return new Set((input.componentCharges ?? [])
+    .filter((row) => row.cost > 0 && !elected.has(row.chargeInstanceId))
+    .map((row) => row.chargeInstanceId)).size;
+}
+
 /** Six decimals: far below a cent, far above float noise at this depth. */
 const q = (n: number | null | undefined): number | null =>
   n === null || n === undefined ? null : Math.round(n * 1e6) / 1e6;

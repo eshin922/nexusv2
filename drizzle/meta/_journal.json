@@ -1002,6 +1002,34 @@
       "when": 1791504000000,
       "tag": "0145_component_charge_unit_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1791570195724,
+      "tag": "0146_five_decimal_unit_cost",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1791651600000,
+      "tag": "0147_grouped_product_associated_services",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1791738000000,
+      "tag": "0148_repeatable_associated_services",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1791824400000,
+      "tag": "0149_repeatable_frozen_recovery",
+      "breakpoints": true
     }
   ]
 }

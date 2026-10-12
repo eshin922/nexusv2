@@ -61,10 +61,10 @@ function money(raw: string | null | undefined, what: string, basis: "one_time" |
   if (raw === null || raw === undefined) return null;
   const t = raw.trim().replace(/,/g, "");
   if (t === "") return null;
-  if (!(basis === "per_unit" ? /^\d+(\.\d{1,4})?$/ : /^\d+(\.\d{1,2})?$/).test(t)) {
+  if (!(basis === "per_unit" ? /^\d+(\.\d{1,5})?$/ : /^\d+(\.\d{1,2})?$/).test(t)) {
     throw new ActionGuardError(
       ERR.VALIDATION,
-      `${what} must be a positive amount with at most ${basis === "per_unit" ? "four" : "two"} decimals — received "${raw}".`,
+      `${what} must be a positive amount with at most ${basis === "per_unit" ? "five" : "two"} decimals — received "${raw}".`,
     );
   }
   return t;

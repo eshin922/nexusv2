@@ -7,6 +7,7 @@ import {
   parseMarginPercent,
   parseMoneyTotal,
   parsePositivePrice,
+  parseUnitMoney,
 } from "../../src/lib/numeric-input.ts";
 
 function validationFailure(fn: () => unknown, field: string): ActionGuardError {
@@ -43,6 +44,13 @@ test("money totals reject negative, malformed, non-finite and excess precision",
       "bulkRawCost",
     );
   }
+});
+
+test("vendor unit costs preserve a fifth decimal without widening sell-price precision", () => {
+  assert.equal(parseUnitMoney("0.12405", "unitCost", "Packaging unit cost"), "0.12405");
+  assert.equal(parseUnitMoney("999999.99999", "unitCost", "Packaging unit cost"), "999999.99999");
+  validationFailure(() => parseUnitMoney("0.124051", "unitCost", "Packaging unit cost"), "unitCost");
+  validationFailure(() => parsePositivePrice("0.12405"), "sellPriceOverride");
 });
 
 test("positive prices reject zero and preserve four-place precision", () => {

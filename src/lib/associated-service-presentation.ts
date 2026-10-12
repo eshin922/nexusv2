@@ -11,7 +11,7 @@ export function includeAssociatedServicesInProductRows(
   const groupedServiceIds = new Set<string>();
   const combined = skus.map((productSku, productIndex) => {
     const productLine = unitLines[productIndex];
-    if (productLine.kind !== "direct_product" || !productLine.quoteLeafId) return productSku;
+    if ((productLine.kind !== "direct_product" && productLine.kind !== "item_group_member") || !productLine.quoteLeafId) return productSku;
     const services = unitLines.filter((line) =>
       line.kind === "direct_service" &&
       line.associatedProductQuoteLeafId === productLine.quoteLeafId &&
@@ -35,9 +35,9 @@ export function includeAssociatedServicesInProductRows(
     const allEqual = tierPrices.every((price) => price !== null && price === tierPrices[0]);
     return {
       ...productSku,
-      includedServices: services.map((service) => service.serviceIdentity
+      includedServices: services.map((service) => service.displayName || (service.serviceIdentity
         ? DIRECT_SERVICE_LABELS[service.serviceIdentity]
-        : service.displayName),
+        : "Service")),
       tierLineTotals,
       tierPrices,
       shape: tierPrices.some((price) => price === null) ? "partial" : allEqual ? "flat" : "step↓",

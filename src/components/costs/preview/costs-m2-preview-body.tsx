@@ -56,6 +56,7 @@ export function CostsM2PreviewBody({
   quoteId = "",
   editMode = false,
   reads,
+  groupedCostByTier = new Map(),
   quoteEditable,
   pathname,
   baseParams,
@@ -69,6 +70,7 @@ export function CostsM2PreviewBody({
   quoteId?: string;
   editMode?: boolean;
   reads: ReadonlyMap<string, PackagingLineTierRead>;
+  groupedCostByTier?: ReadonlyMap<string, ReadonlyMap<string, number>>;
   quoteEditable: boolean;
   pathname: string;
   /** The current query WITHOUT the preview switch. */
@@ -91,7 +93,7 @@ export function CostsM2PreviewBody({
     return `${pathname}?${params.toString()}`;
   };
   const ownerRows = flattenOwners(overview.owners);
-  const hasProductionCosts = ownerRows.some(({ owner }) => owner.productionLines.length > 0);
+  const hasProductionCosts = ownerRows.some(({ owner }) => owner.kind === "item_group" && owner.productionLines.length > 0);
   const needsToolingClassification = ownerRows.some(({ owner }) =>
     owner.charges.some((charge) => charge.chargeKey === "tooling" && charge.toolingClassification === null),
   );
@@ -125,7 +127,7 @@ export function CostsM2PreviewBody({
               <Link className="cm2-ctl" href={editorHref("packaging")}>Classify tooling →</Link>
             )}
             {editMode && quoteEditable && hasProductionCosts && (
-              <Link className="cm2-ctl" href={editorHref("production")}>Edit production costs →</Link>
+              <Link className="cm2-ctl" href={editorHref("production")}>Edit item-group production costs →</Link>
             )}
             <Tag tone="plain">Costs on this quote</Tag>
           </div>
@@ -152,6 +154,7 @@ export function CostsM2PreviewBody({
             <SpreadsheetView
               overview={overview}
               reads={reads}
+              groupedCostByTier={groupedCostByTier}
               activeTierId={activeTierId}
               onSelectTier={onSelectTier}
               quoteId={quoteId}
@@ -162,6 +165,7 @@ export function CostsM2PreviewBody({
             <ByProductView
               overview={overview}
               reads={reads}
+              groupedCostByTier={groupedCostByTier}
               activeTierId={activeTierId}
               onSelectTier={onSelectTier}
               quoteId={quoteId}

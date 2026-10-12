@@ -100,20 +100,20 @@ test("the warning names the labels already in use", () => {
   const sheet = read(SHEET);
   assert.match(sheet, /already has \{owned\}/);
   assert.match(sheet, /ownedLabels\(k\)\.join\(", "\)/);
-  assert.match(sheet, /a second needs a distinct label/);
+  assert.match(sheet, /add another with its own note/);
 });
 
 test("SUBMIT is gated, and says why on the surface", () => {
   const sheet = codeOnly(read(SHEET));
   // Gated on the reason, not merely on emptiness.
-  assert.match(sheet, /disabled=\{picked\.size \+ pickedServices\.size === 0 \|\| saving \|\| blocked\(\) !== null\}/);
+  assert.match(sheet, /disabled=\{picked\.length \+ pickedServices\.length === 0 \|\| saving \|\| blocked\(\) !== null\}/);
   // Pattern 47(f): a disabled control communicates why — and in VISIBLE TEXT,
   // because hover-to-discover is a navigation pattern, not a presentation one.
   assert.match(sheet, /data-testid="sheet-blocked"/);
-  assert.match(read(SHEET), /Give the new one a label that tells it apart/);
+  assert.match(read(SHEET), /Give each instance a different note/);
   // A duplicate label is refused too — two charges labelled the same are not
   // told apart by their labels.
-  assert.match(sheet, /ownedLabels\(k\)\.includes\(label\)/);
+  assert.match(sheet, /ownedLabels\(charge\.key\)\.some/);
 });
 
 test("the PICK is never disabled — the warning is not a refusal", () => {

@@ -109,7 +109,7 @@ test("maps the verified required and optional Sales Order accounting fields", ()
           taxCode: { id: "-8" },
           price: { id: "-1" },
           custcol_dps_sku: "SKU-EXACT-123",
-          custcol_dps_unit_cost: 0.9877,
+          custcol_dps_unit_cost: 0.98765,
           // Governed product cost reaches NetSuite's STANDARD cost basis, not
           // only the custom column. The custom column is retained alongside —
           // added, never substituted — because it has carried this value since
@@ -118,7 +118,7 @@ test("maps the verified required and optional Sales Order accounting fields", ()
           // quantity × rate, and sending it would create a second authority for
           // the same number.
           costEstimateType: { id: "CUSTOM" },
-          costEstimateRate: 0.9877,
+          costEstimateRate: 0.98765,
         },
       ],
     },

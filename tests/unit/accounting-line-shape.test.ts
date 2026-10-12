@@ -77,6 +77,17 @@ test("Direct Service preserves qty x rate = amount, from the frozen row", () => 
   );
 });
 
+test("two named Testing instances emit two independently priced NetSuite lines", () => {
+  const rows = emitAccountingLines([
+    { ...CERT303, sourceLineId: "micro", displayName: "Testing / Micros · Micro screening", amountCents: 100_00, quantity: 1000, unitRate: "0.1000" },
+    { ...CERT303, sourceLineId: "stability", displayName: "Testing / Micros · Stability", amountCents: 200_00, quantity: 1000, unitRate: "0.2000" },
+  ]);
+  assert.deepEqual(rows.map((row) => row.sourceLineId), ["micro", "stability"]);
+  assert.deepEqual(rows.map((row) => row.description), ["Testing / Micros · Micro screening", "Testing / Micros · Stability"]);
+  assert.deepEqual(rows.map((row) => row.amountCents), [100_00, 200_00]);
+  assert.deepEqual(rows.map((row) => row.quantity), [1000, 1000]);
+});
+
 test("a sub-cent unit rate survives — a cents round trip would lose it", () => {
   // 0.1234 has no cent representation, so routing the rate through cents would
   // silently post 0.12. The rate now carries EIGHT decimals rather than four,
