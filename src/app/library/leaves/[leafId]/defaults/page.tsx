@@ -38,9 +38,9 @@ export default async function LibraryDefaultsPage({
       <main className="a1v2-page">
         <div className="a1v2-head">
           <div className="eyebrow">
-            <Link href="/">← All deals</Link>
+            <Link href="/?openLibrary=1">← Product Library</Link>
             <span className="sep">·</span>
-            <span>Product Library</span>
+            <span>Library defaults</span>
           </div>
           <h1>
             Library defaults <em>· {data.leaf.name}</em>

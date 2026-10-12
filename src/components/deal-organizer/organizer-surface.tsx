@@ -205,9 +205,9 @@ export function OrganizerSurface({
           <div className="r14-greeting">Good morning, {userName}.</div>
         </div>
         <div className="r14-spacer" />
-        <Link href="/library" className="r14-btn" style={{ textDecoration: "none" }}>
+        <button type="button" className="r14-btn" onClick={() => window.dispatchEvent(new Event("nexus:open-product-library"))}>
           Product Library
-        </Link>
+        </button>
         <Link href="/import" className="r14-btn" style={{ textDecoration: "none" }}>
           Import from HubSpot
         </Link>
