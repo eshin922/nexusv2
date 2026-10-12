@@ -12,6 +12,7 @@ import { ThemeToggle } from "../theme-toggle";
 import { NexusMark } from "@/components/brand/nexus-mark";
 import { CommandSearch } from "./command-search";
 import { UserMenu } from "./user-menu";
+import { GlobalLibrary } from "./global-library";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
 // visible to authenticated users. Composition (top to bottom):
@@ -86,17 +87,7 @@ export async function OuterRail() {
         </svg>
       </Link>
 
-      <Link
-        href="/library"
-        title="Product Library"
-        className="flex h-7 w-7 items-center justify-center rounded text-ink-3 hover:bg-paper-3 hover:text-ink"
-        aria-label="Product Library"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M2.5 2.5h4v11h-4zM6.5 3.5h3.5v10H6.5zM10 2.5h3.5v11H10z" />
-          <path d="M3.5 10.5h2M7.25 10.5h2M10.75 10.5h2" />
-        </svg>
-      </Link>
+      <GlobalLibrary />
 
       {/* Deal search · ⌘K. Was a disabled "coming soon" stub. */}
       <CommandSearch />

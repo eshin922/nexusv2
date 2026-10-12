@@ -1,0 +1,23 @@
+.lib-index-modal { width: min(1040px, 100%); max-height: calc(100vh - 80px); }
+.lib-index-search { padding: 18px 22px 14px; border-bottom: 1px solid var(--rule); }
+.lib-index-search label { display: block; margin-bottom: 7px; color: var(--ink-3); font-size: 12px; }
+.lib-index-search > div { display: flex; gap: 8px; }
+.lib-index-search input { flex: 1; min-width: 0; padding: 9px 11px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper-2); color: var(--ink); font: inherit; }
+.lib-index-search button { padding: 8px 15px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
+.lib-index-results { min-height: 160px; overflow: auto; padding: 0 22px 16px; }
+.lib-index-count { color: var(--ink-4); font: 11px var(--mono); margin: 14px 0 10px; }
+.lib-index-message { padding: 24px 4px; color: var(--ink-3); }
+.lib-index-table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+.lib-index-table { width: 100%; border-collapse: collapse; text-align: left; }
+.lib-index-table th { background: var(--paper-2); color: var(--ink-4); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.lib-index-table th, .lib-index-table td { padding: 11px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.lib-index-table tr:last-child td { border-bottom: 0; }
+.lib-index-table td { font-size: 13px; }
+.lib-index-table td small { display: block; margin-top: 3px; color: var(--ink-4); }
+.lib-index-table a { color: var(--accent); text-decoration: none; }
+.lib-index-table a:hover { text-decoration: underline; }
+.lib-index-mono { font: 11px var(--mono) !important; }
+.lib-index-footer { display: flex; justify-content: space-between; align-items: center; padding: 13px 22px; border-top: 1px solid var(--rule); font: 11px var(--mono); color: var(--ink-4); }
+.lib-index-footer button { border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; }
+.lib-index-footer button:disabled { color: var(--ink-4); cursor: default; }
+@media (max-width: 700px) { .lib-index-modal { max-height: calc(100vh - 24px); } .lib-index-table { min-width: 760px; } }
