@@ -70,7 +70,11 @@ loopback database, while a deployed Next.js process uses production Node mode.
 2. Obtain the **new project's** publishable and server-only secret keys. Set
    the existing `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
    `SUPABASE_SERVICE_ROLE_KEY` variables from those keys. Verify the project
-   ref, URL, and database username agree before the first database write.
+   ref, URL, and database username agree before the first database write. Run
+   `node --env-file=.env.local --experimental-strip-types
+   scripts/validation/shared-sandbox-preflight.ts`; it only reads the pinned
+   database, validates both keys against the project endpoint, and confirms
+   the PDF bucket is private. It must pass before migrations.
 3. Apply the repository's migration journal to the empty sandbox database.
    Verify schema version and required Realtime publications. Create the
    private `quote-attachments` bucket and its policies, and confirm the
