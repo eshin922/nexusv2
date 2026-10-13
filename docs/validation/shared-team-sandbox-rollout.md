@@ -29,13 +29,19 @@ local disposable validation harness and not the production cutover.
   that cap rather than charging automatically. Netlify's Next.js adapter
   supports App Router, server actions, route handlers, and SSR. Platform
   compatibility still needs a real build and browser smoke test.
+- Clerk's Hobby plan is free and includes development instances. A development
+  instance is appropriate for this test environment, but Clerk describes its
+  security posture as unsuitable for production workloads. Keep this site
+  restricted to test data and team testing.
 - No paid plan, add-on, or auto-recharge is authorized by this plan.
 
 Sources: [Supabase Free](https://supabase.com/pricing),
 [Supabase free-project billing](https://supabase.com/docs/guides/platform/billing-on-supabase),
 [Vercel Hobby terms](https://vercel.com/docs/limits/fair-use-guidelines),
 [Netlify Free](https://www.netlify.com/pricing/),
-[Netlify Next.js support](https://docs.netlify.com/build/frameworks/framework-setup-guides/nextjs/overview/).
+[Netlify Next.js support](https://docs.netlify.com/build/frameworks/framework-setup-guides/nextjs/overview/),
+[Clerk pricing](https://clerk.com/pricing), and
+[Clerk instance guidance](https://clerk.com/docs/guides/development/managing-environments).
 
 ## Isolation contract
 
