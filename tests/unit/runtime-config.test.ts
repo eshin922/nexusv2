@@ -170,6 +170,9 @@ test("refuses production Supabase project even when sandbox mode is requested", 
   assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
     DATABASE_URL: "postgresql://postgres.production-ref:example@aws-1-us-west-2.pooler.supabase.com:5432/postgres",
   })), /dedicated session pooler/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    DIRECT_URL: "postgresql://postgres.production-ref:example@aws-1-us-west-2.pooler.supabase.com:5432/postgres",
+  })), /DIRECT_URL must target the dedicated session pooler/);
 });
 
 test("refuses transaction pooling and production integrations in the shared sandbox", () => {
@@ -196,6 +199,9 @@ test("requires a separate Clerk instance for the shared sandbox", () => {
 
 test("Netlify cannot deploy without the sandbox guard", () => {
   assert.throws(() => assertRuntimeSafety({ NODE_ENV: "production", NETLIFY: "true" }), /requires NEXUS_SHARED_SANDBOX=1/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    NEXUS_ISOLATED_TEST: "1",
+  })), /mutually exclusive/);
 });
 
 test("sandbox rejects partial NetSuite credentials and missing Supabase keys", () => {
