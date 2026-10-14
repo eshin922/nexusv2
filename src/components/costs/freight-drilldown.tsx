@@ -130,8 +130,9 @@ export function FreightDrilldown(props: {
   // the canonical graph, resolved once here and passed down as data.
   const graph = useCostingStore(selectGraph);
   const quantityRollups = useCostingStore((state) => state.costing.skuRollups);
-  const shipReads = useMemo(() => readShipmentNodes(graph.nodes), [graph]);
   const { quoteId, tiers, editable, workbook, products, components } = props;
+  const tierUnitsById = useMemo(() => new Map(tiers.map((tier) => [tier.id, Number(tier.qty ?? 0)])), [tiers]);
+  const shipReads = useMemo(() => readShipmentNodes(graph.nodes, tierUnitsById), [graph, tierUnitsById]);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -244,7 +245,7 @@ export function FreightDrilldown(props: {
     <div className="fr-completion" style={{ display: "flex", justifyContent: "flex-end", padding: "0 0 10px" }}>
       <FreightCompletion />
     </div>
-    <div className="fr-grid fr-tierhead"><div className="lab">Freight · sell per unit{allDestinationIds.length > 0 && <button className={`fr-edit${allDetailOpen ? " on" : ""}`} onClick={() => setOpenDestinations(allDetailOpen ? [] : allDestinationIds)}>{allDetailOpen ? "hide all detail" : `show type + description · all ${allDestinationIds.length}`}</button>}</div>{tiers.map((tier) => <div className="fr-cell" key={tier.id}><span className="v">{tier.label}{tier.recommended && <span className="rec"> ★</span>}</span><span className="s">{tier.qty?.toLocaleString()} units</span></div>)}</div>
+    <div className="fr-grid fr-tierhead"><div className="lab">Freight · sell per quote unit{allDestinationIds.length > 0 && <button className={`fr-edit${allDetailOpen ? " on" : ""}`} onClick={() => setOpenDestinations(allDetailOpen ? [] : allDestinationIds)}>{allDetailOpen ? "hide all detail" : `show type + description · all ${allDestinationIds.length}`}</button>}</div>{tiers.map((tier) => <div className="fr-cell" key={tier.id}><span className="v">{tier.label}{tier.recommended && <span className="rec"> ★</span>}</span><span className="s">{tier.qty?.toLocaleString()} base units</span></div>)}</div>
     {message && <div className="fr-lost" role="alert"><span className="mk">!</span><span>{message}</span></div>}
 
     {products.map((product) => {
@@ -274,7 +275,7 @@ export function FreightDrilldown(props: {
         {shipments.length === 0 && <div className="fr-empty"><div className="t">Nothing ships yet</div><div className="s">Record the Logistics decision for this Setup product. Its components, SKU hierarchy and quantity tiers are already established.</div></div>}
         {shipments.map((shipment, index) => <ShipmentLedger
           key={shipment.id} shipment={shipment} index={index} count={shipments.length}
-          tiers={tiers} workbook={workbook} components={components} editable={editable} busy={busy}
+          tiers={tiers} workbook={workbook} components={components} quantityRollups={quantityRollups} editable={editable} busy={busy}
           shipReads={shipReads}
           openDestinations={openDestinations} setOpenDestinations={setOpenDestinations}
           supportOpen={openSupport.includes(shipment.id)} setSupportOpen={(open: boolean) => setOpenSupport((rows) => open ? [...new Set([...rows, shipment.id])] : rows.filter((id) => id !== shipment.id))}
@@ -304,7 +305,7 @@ export function FreightDrilldown(props: {
   </div>;
 }
 
-function ShipmentLedger({ shipment, index, count, tiers, workbook, components, editable, busy, openDestinations, setOpenDestinations, supportOpen, setSupportOpen, submit, shipReads }: any) {
+function ShipmentLedger({ shipment, index, count, tiers, workbook, components, quantityRollups, editable, busy, openDestinations, setOpenDestinations, supportOpen, setSupportOpen, submit, shipReads }: any) {
   const destinations = workbook.destinations.filter((row: any) => row.freightSubcategoryId === shipment.id);
   const memberships = workbook.memberships.filter((row: any) => row.freightSubcategoryId === shipment.id);
   const selected = destinations.find((row: any) => row.id === shipment.selectedDestinationId);
@@ -315,12 +316,21 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, e
   const forcedSupport = destinations.length > 1 && (!!selected && !shipment.selectionReason || !!staleTracking);
   const shownSupport = supportOpen || forcedSupport;
   const coversProduct = memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length;
+  const memberQuantities = tiers.map((tier: Tier) => {
+    const units = memberships.map((membership: { quoteLeafId: string }) =>
+      quantityRollups.find((row: { canonicalQuoteLeafId: string | null }) => row.canonicalQuoteLeafId === membership.quoteLeafId)
+        ?.perTier.find((row: { tierId: string }) => row.tierId === tier.id)?.orderQuantity,
+    );
+    return !shipment.splitPlan && units.length > 0 && units.every((value: number | null | undefined) => value != null)
+      ? `${tier.label}: ${units.map((value: number) => value.toLocaleString()).join(" + ")} = ${units.reduce((sum: number, value: number) => sum + value, 0).toLocaleString()} SKU units`
+      : null;
+  }).filter(Boolean);
   return <div className={`fr-sc${destinations.length === 1 ? " solo" : ""}${shipment.crossesInternationalBorder ? " import" : ""}`}>
     <div className="fr-schead">
       <div className="fr-eyebrow"><span className="num">{index + 1} of {count}</span><span>what ships</span><span className={shipment.crossesInternationalBorder ? "kind" : undefined}>· {shipment.crossesInternationalBorder ? "import · clears customs" : "domestic · no border"}</span></div>
       <div className="fr-scname"><span className="ships">{shipment.label}</span><span className="from">from {shipment.origin || "not set"}</span>{destinations.length > 1 && <span className={`count${shipment.selectedDestinationId ? "" : " undecided"}`}>{destinations.length} destinations priced</span>}</div>
       {shipment.splitPlan && <div className="fr-split-summary"><strong>{shipment.splitPlan.percentage}% shipment</strong>{shipment.splitPlan.quantities.map((quantity: any) => <span key={quantity.tierId}>{quantity.units.toLocaleString("en-US")} of {quantity.total.toLocaleString("en-US")} units</span>)}</div>}
-      <div className="fr-shipment-meta"><div className="fr-skus">{coversProduct ? <span className="fr-chip all">all {memberships.length} SKUs</span> : <>{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</>}</div>
+      <div className="fr-shipment-meta"><div className="fr-skus">{coversProduct ? <span className="fr-chip all">all {memberships.length} SKUs</span> : <>{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</>}{memberQuantities.length > 0 && <span className="fr-quantity-summary">{memberQuantities.join(" · ")}</span>}</div>
       <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/>{shipment.treatment === "pass_through" && <Fact label="treatment" value="pass-through"/>}</div>
       </div>
       {!selected && destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
@@ -795,19 +805,16 @@ function Comparison({ destinations, selected, tiers, workbook }: any) {
 function SelectionReason({ shipment, selected, editable, submit }: any) { const formId = `selection-reason-${shipment.id}`; return <form id={formId} className="fr-reason" action={submit}><input type="hidden" name="freightSubcategoryId" value={shipment.id}/><input type="hidden" name="destinationId" value={selected?.id ?? ""}/><span className="k">why · {shipment.selectionReason ? "Logistics" : "unrecorded"}</span><input className="t" name="selectionReason" defaultValue={shipment.selectionReason ?? ""} placeholder="the deltas above are the system's; the reason is yours — add what the numbers don't say" disabled={!editable || !selected} onBlur={autosave(formId)}/></form>; }
 function DecisionSummary({ selected, destinations, tiers, workbook }: any) { const tier: Tier | undefined = tiers.find((item: Tier) => item.recommended) ?? tiers[tiers.length - 1] ?? tiers[0]; const selectedValue = selected && tier ? sellPerUnit(selected, tier, workbook) : null; return <div className="fr-decision">{selected ? <><span className="chose">{selected.destination} chosen</span><span className="sep">·</span><span>{destinations.length - 1} comparison option{destinations.length === 2 ? "" : "s"} retained</span>{selectedValue !== null && <span className="sep">· {money4(selectedValue)}/unit at {tier?.label}</span>}</> : <span className="fr-vs worse">no destination selected</span>}</div>; }
 function TotalStrip({ tiers, workbook, graph }: any) {
-  // The category's contribution to the Cost Stack, read rather than summed.
-  //
-  // `quote/{tier}/cost-stack/frt-total` is model-agnostic by construction: it
-  // sums the per-SKU freight SECTION, so it covers whichever of the two freight
-  // models is authoritative for the quote. Summing worksheet shipments here —
-  // which is what this did — reads zero on a legacy-leg quote while the Cost
-  // Stack shows real freight, and a total that contradicts the stack fails the
-  // contract it exists to state.
+  // These graph nodes extend each SKU contribution by its ordered quantity
+  // before dividing by the quote tier's base units. Simply summing per-SKU
+  // rates overstates a mixed-quantity shipment (30k + 30k + 5k in one tier).
   const totals = useMemo(
     () =>
-      tiers.map((tier: Tier) =>
-        readNodeValue(graph, quoteScopeKey(tier.id, "cost-stack/frt-total")),
-      ),
+      tiers.map((tier: Tier) => {
+        const freight = readNodeValue(graph, quoteScopeKey(tier.id, "per-unit/frt"));
+        const customs = readNodeValue(graph, quoteScopeKey(tier.id, "per-unit/dt"));
+        return freight === null || customs === null ? null : freight + customs;
+      }),
     [tiers, graph],
   );
   // Conditional meta line per the bundle's `TotalStrip`. An unselected
@@ -822,5 +829,5 @@ function TotalStrip({ tiers, workbook, graph }: any) {
   const meta = undecided
     ? `${undecided} shipment${undecided > 1 ? "s have" : " has"} no selection`
     : `sum of the selected destination in each of ${count} shipment${count > 1 ? "s" : ""}`;
-  return <><div className="fr-grid fr-total"><div className="lab"><span className="n">Freight sell per unit</span><span className="m">{meta}</span></div>{totals.map((total: number | null, index: number) => <div className="fr-cell" key={tiers[index].id}><span className="v">{total === null ? "—" : money4(total)}</span><span className="s">freight + duty/tariff</span></div>)}</div><div className="fr-assert"><span className="mk">✓</span><span>Candidate destinations are internal — they reach neither the quote nor the PDF. Freight, duty and tariff stay separate rows into Pricing&apos;s cost stack.</span></div></>;
+  return <><div className="fr-grid fr-total"><div className="lab"><span className="n">Freight sell per unit</span><span className="m">{meta} · quote base unit</span></div>{totals.map((total: number | null, index: number) => <div className="fr-cell" key={tiers[index].id}><span className="v">{total === null ? "—" : money4(total)}</span><span className="s">freight + duty/tariff · per base unit</span></div>)}</div><div className="fr-assert"><span className="mk">✓</span><span>Candidate destinations are internal — they reach neither the quote nor the PDF. Freight, duty and tariff stay separate rows into Pricing&apos;s cost stack.</span></div></>;
 }

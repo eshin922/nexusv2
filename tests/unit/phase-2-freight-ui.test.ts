@@ -13,6 +13,11 @@ test("Costs exposes selected worksheet breaks and derived freight sell per unit"
   assert.match(drilldown, /Another destination/);
   assert.match(drilldown, /total cost/);
   assert.match(drilldown, /Freight sell per unit/);
+  assert.match(drilldown, /quoteScopeKey\(tier\.id, "per-unit\/frt"\)/);
+  assert.match(drilldown, /quoteScopeKey\(tier\.id, "per-unit\/dt"\)/);
+  assert.doesNotMatch(drilldown, /quoteScopeKey\(tier\.id, "cost-stack\/frt-total"\)/);
+  assert.match(drilldown, /base units/);
+  assert.match(drilldown, /SKU units/);
   assert.match(drilldown, /updateFreightDestinationBreakGroup/);
   assert.doesNotMatch(drilldown, /updateFreightComponentTierCost/);
   assert.doesNotMatch(drilldown, /updateQuoteFreightMarkup/);

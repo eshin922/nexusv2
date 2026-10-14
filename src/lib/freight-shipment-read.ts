@@ -30,7 +30,10 @@ export function shipKey(subcategoryId: string, tierId: string): string {
 }
 
 /**
- * A shipment's per-unit charges, SUMMED ACROSS ITS MEMBERS.
+ * A shipment's sell per quote-tier unit. Each member's graph charge is per
+ * ordered unit of that member, so first extend by that member's own quantity,
+ * then divide the total by the quote tier's display quantity. Adding bare
+ * per-member rates is only valid when all member quantities are equal.
  *
  * FRT-UI-1. This kept one node per `(shipment, tier)` and failed closed the
  * moment a second appeared. That was right under single-owner attribution,
@@ -43,16 +46,18 @@ export function shipKey(subcategoryId: string, tierId: string): string {
  * different member leaves and are distinct nodes that happen to concern the
  * same shipment. The guard conflated "same shipment" with "same node".
  *
- * Summing is what the shipment's per-unit freight IS: each member carries its
- * share, and the shipment contributes all of them. Verified against the
- * engine's own assembly rollup — 0.65 + 0.65 = 1.30, which is exactly the
- * assembly's freight sell per unit.
+ * The earlier equal-quantity fixture gave 0.65 + 0.65 = 1.30. With unequal
+ * ordered quantities, the rates have different denominators: each share must
+ * be extended to dollars before normalizing to the quote-tier unit basis.
  *
  * The real duplicate guard survives, moved to where duplication would actually
  * be a defect: the same node KEY reached twice, which is a graph violation
  * rather than a distribution.
  */
-export function readShipmentNodes(nodes: readonly CostingNode[]): Map<string, ShipmentRead> {
+export function readShipmentNodes(
+  nodes: readonly CostingNode[],
+  tierUnitsById: ReadonlyMap<string, number>,
+): Map<string, ShipmentRead> {
   const contributors = new Map<string, CostingNode[]>();
   const seenKeys = new Set<string>();
   const duplicatedKeys = new Set<string>();
@@ -74,18 +79,30 @@ export function readShipmentNodes(nodes: readonly CostingNode[]): Map<string, Sh
   for (const [k, members] of contributors) {
     // Fail closed on a genuinely duplicated node, not on a distributed one.
     if (members.some((n) => duplicatedKeys.has(n.key))) continue;
-    const charge = (node: CostingNode, name: string) => {
+    const tierId = k.slice(k.indexOf("\u0000") + 1);
+    const tierUnits = tierUnitsById.get(tierId);
+    if (!tierUnits || tierUnits <= 0) continue;
+    const charge = (node: CostingNode, name: string): number | null => {
       const hit = (node.operands ?? []).find((o) => {
         const a = parseNodeKey(o.key);
         return a?.path.length === 4 && a.path[3] === name;
       });
-      return hit ? hit.value : 0;
+      if (!hit) return null;
+      const allocation = hit.operands?.find((o) => o.kind === "allocation");
+      if (!allocation?.divisor || allocation.divisor <= 0) return null;
+      return hit.value * allocation.divisor;
     };
+    const portions = members.map((node) => ["freight", "duty", "tariff"].map((name) => charge(node, name)));
+    if (portions.some((row) => row.some((amount) => amount === null))) continue;
+    const total = (index: number) => portions.reduce((sum, row) => sum + (row[index] ?? 0), 0) / tierUnits;
+    const freightPerUnit = total(0);
+    const dutyPerUnit = total(1);
+    const tariffPerUnit = total(2);
     out.set(k, {
-      freightPerUnit: members.reduce((acc, n) => acc + charge(n, "freight"), 0),
-      dutyPerUnit: members.reduce((acc, n) => acc + charge(n, "duty"), 0),
-      tariffPerUnit: members.reduce((acc, n) => acc + charge(n, "tariff"), 0),
-      totalPerUnit: members.reduce((acc, n) => acc + n.value, 0),
+      freightPerUnit,
+      dutyPerUnit,
+      tariffPerUnit,
+      totalPerUnit: freightPerUnit + dutyPerUnit + tariffPerUnit,
     });
   }
   return out;

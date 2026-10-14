@@ -33,8 +33,16 @@ const SHIP = "ship-1";
 const TIER = "tier-1";
 
 /** One member leaf's share of a shipment, shaped as the engine emits it. */
-function memberNode(skuId: string, freight: number, duty = 0, tariff = 0): CostingNode {
+function memberNode(skuId: string, freight: number, duty = 0, tariff = 0, units = 1000): CostingNode {
   const base = `${skuId}/${TIER}/frt/shipment/${SHIP}`;
+  const charge = (name: string, value: number): CostingNode => ({
+    key: `${base}/${name}`, kind: "markup", label: name, value, unit: "usd",
+    op: "cost x (1 + markup)", operands: [{
+      key: `${base}/${name}/cost`, kind: "allocation", label: "Per unit",
+      value, unit: "usd", divisor: units, op: "share / units",
+      operands: [],
+    }],
+  });
   return {
     key: base,
     kind: "sum",
@@ -43,17 +51,17 @@ function memberNode(skuId: string, freight: number, duty = 0, tariff = 0): Costi
     unit: "usd",
     op: "freight + duty + tariff",
     operands: [
-      { key: `${base}/freight`, kind: "origin", label: "Freight", value: freight, unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
-      { key: `${base}/duty`, kind: "origin", label: "Duty", value: duty, unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
-      { key: `${base}/tariff`, kind: "origin", label: "Tariff", value: tariff, unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
+      charge("freight", freight), charge("duty", duty), charge("tariff", tariff),
     ],
   };
 }
 
+const tierUnits = new Map([[TIER, 1000]]);
+
 test("THE ASSERTION · a non-zero governed sell can never read as zero", () => {
   // The one that would have caught the defect. Two members, each carrying half
   // of a $1,000 shipment over 1,000 units at 30% — 0.65 apiece.
-  const read = readShipmentNodes([memberNode("leaf-a", 0.65), memberNode("leaf-b", 0.65)])
+  const read = readShipmentNodes([memberNode("leaf-a", 0.65), memberNode("leaf-b", 0.65)], tierUnits)
     .get(shipKey(SHIP, TIER));
   assert.ok(read, "a priced shipment must produce a read at all");
   assert.notEqual(read.freightPerUnit, 0, "a priced shipment must never read zero");
@@ -67,16 +75,32 @@ test("the shipment's per-unit freight is the SUM of its members' shares", () => 
   // the member count.
   const three = readShipmentNodes([
     memberNode("a", 0.3), memberNode("b", 0.3), memberNode("c", 0.3),
-  ]).get(shipKey(SHIP, TIER))!;
+  ], tierUnits).get(shipKey(SHIP, TIER))!;
   assert.ok(Math.abs(three.freightPerUnit - 0.9) < 1e-12);
   assert.ok(Math.abs(three.totalPerUnit - 0.9) < 1e-12);
+});
+
+test("unequal SKU quantities extend each share before quote-unit normalization", () => {
+  // Dr. Squatch: one shipment contains 30k + 30k + 5k units, but the quote
+  // tier's display basis is 30k. Each SKU receives a third of the shipment.
+  const units = new Map([[TIER, 30_000]]);
+  const read = readShipmentNodes([
+    memberNode("bottle", 4_920.5 / 30_000, 7_671.625 / 30_000, 3_980.47 / 30_000, 30_000),
+    memberNode("box", 4_920.5 / 30_000, 7_671.625 / 30_000, 3_980.47 / 30_000, 30_000),
+    memberNode("eu-box", 4_920.5 / 5_000, 7_671.625 / 5_000, 3_980.47 / 5_000, 5_000),
+  ], units).get(shipKey(SHIP, TIER))!;
+  assert.ok(Math.abs(read.freightPerUnit - 14_761.5 / 30_000) < 1e-12);
+  assert.ok(Math.abs(read.dutyPerUnit - 23_014.875 / 30_000) < 1e-12);
+  assert.ok(Math.abs(read.tariffPerUnit - 11_941.41 / 30_000) < 1e-12);
+  assert.ok(Math.abs(read.totalPerUnit - 49_717.785 / 30_000) < 1e-12);
+  assert.notEqual(read.freightPerUnit, 1.3121, "must not add rates with unequal denominators");
 });
 
 test("duty and tariff aggregate the same way, and stay separate charges", () => {
   const read = readShipmentNodes([
     memberNode("a", 0.65, 0.1, 0.05),
     memberNode("b", 0.65, 0.1, 0.05),
-  ]).get(shipKey(SHIP, TIER))!;
+  ], tierUnits).get(shipKey(SHIP, TIER))!;
   assert.equal(read.freightPerUnit, 1.3);
   assert.ok(Math.abs(read.dutyPerUnit - 0.2) < 1e-12);
   assert.ok(Math.abs(read.tariffPerUnit - 0.1) < 1e-12);
@@ -85,7 +109,7 @@ test("duty and tariff aggregate the same way, and stay separate charges", () => 
 });
 
 test("a single-member shipment is unchanged — the repair is not a rescale", () => {
-  const read = readShipmentNodes([memberNode("only", 1.3)]).get(shipKey(SHIP, TIER))!;
+  const read = readShipmentNodes([memberNode("only", 1.3)], tierUnits).get(shipKey(SHIP, TIER))!;
   assert.equal(read.freightPerUnit, 1.3);
 });
 
@@ -94,14 +118,14 @@ test("a genuinely duplicated NODE still fails closed", () => {
   // defect: the same key reached twice is a graph violation. Dropping the read
   // is right there — a doubled node would silently double the figure.
   const dupe = memberNode("leaf-a", 0.65);
-  assert.equal(readShipmentNodes([dupe, dupe]).get(shipKey(SHIP, TIER)), undefined);
+  assert.equal(readShipmentNodes([dupe, dupe], tierUnits).get(shipKey(SHIP, TIER)), undefined);
 });
 
 test("an absent shipment reads as absent, and the fallback is explicit zero", () => {
   // The fallback still exists and must stay obviously zero — this test exists
   // so that if someone makes NO_SHIPMENT_READ non-zero to "fix" a display, the
   // decision is visible rather than incidental.
-  assert.equal(readShipmentNodes([]).get(shipKey(SHIP, TIER)), undefined);
+  assert.equal(readShipmentNodes([], tierUnits).get(shipKey(SHIP, TIER)), undefined);
   assert.equal(NO_SHIPMENT_READ.freightPerUnit, 0);
 });
 
@@ -113,7 +137,7 @@ test("only shipment nodes are read — quote-scope and price-build keys are igno
     { key: `quote/${TIER}/frt`, kind: "origin", label: "q", value: 99, unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
     { key: `unit/asy/${TIER}/frt`, kind: "origin", label: "u", value: 99, unit: "usd", origin: { grade: "thin", actor: null, when: null, doc: null } },
   ];
-  const map = readShipmentNodes([...foreign, memberNode("a", 0.65)]);
+  const map = readShipmentNodes([...foreign, memberNode("a", 0.65)], tierUnits);
   assert.equal(map.size, 1);
   assert.equal(map.get(shipKey(SHIP, TIER))!.freightPerUnit, 0.65);
 });
