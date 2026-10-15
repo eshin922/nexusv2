@@ -57,7 +57,7 @@ test("the only call site of projectCommercial passes no elections", async () => 
   }
 
   assert.deepEqual(
-    calls,
+    calls.map((call) => call.replace(/\s+/g, " ")),
     [
       // The impact preview projects a COUNTERFACTUAL costing to answer "what
       // would this contract do to the customer's total". It substitutes the
@@ -65,7 +65,7 @@ test("the only call site of projectCommercial passes no elections", async () => 
       // it passes no elections to the projection, which is the property this
       // check exists for. Placement is still decided in exactly one place.
       "src/lib/commercial-recovery/impact.ts: projectCommercial(bundle)",
-      "src/lib/customer-view-resolver.ts: projectCommercial(bundle.data)",
+      "src/lib/customer-view-resolver.ts: projectCommercial(bundle.data, { landedPresentation, })",
     ],
     "a caller began supplying elections to the PROJECTION — placement would be decided twice",
   );

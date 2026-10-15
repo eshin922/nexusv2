@@ -196,6 +196,12 @@ export type CpdfData = {
   showItemGroupMembers?: boolean;
   serviceFees: ReadonlyArray<CpdfServiceFee>;
   freightLines: ReadonlyArray<CpdfFreightLine>;
+  landedPresentation?: "amortized" | "separate";
+  landedLines?: ReadonlyArray<{
+    sku: string;
+    name: string;
+    tierAmounts: ReadonlyArray<number | null>;
+  }>;
   /**
    * Governed: the unit prices carry freight, duty and tariff.
    *

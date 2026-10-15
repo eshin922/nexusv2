@@ -89,8 +89,8 @@ test("5 · FALSIFICATION — hasCharges cannot gate freight copy", () => {
   // And the binding is gone from the source — no freight prop may read
   // `hasCharges` again.
   assert.doesNotMatch(doc, /freightAtCost=\{hasCharges\}/);
-  assert.match(doc, /freightAtCost=\{hasSeparateFreight\}/);
-  assert.match(doc, /const hasSeparateFreight = freightLines\.length > 0/);
+  assert.match(doc, /freightAtCost=\{freightLines\.length > 0\}/);
+  assert.match(doc, /const hasSeparateFreight = \(data\.landedPresentation === "separate"/);
 });
 
 test("6 · every freight-specific clause is evidence-gated, not just one", () => {
@@ -136,8 +136,8 @@ test("6b · the charges block's own title and subtitle are freight statements to
 test("7 · the one-time-charges clause survives independently of freight", () => {
   // Splitting the sentence must not silently drop the fee disclosure, which is
   // separately true and separately governed.
-  assert.match(doc, /One-time charges are itemized below/);
-  assert.match(doc, /hasCharges && " One-time charges are itemized below\."/);
+  assert.match(doc, /Additional charges are itemized below/);
+  assert.match(doc, /hasCharges && " Additional charges are itemized below\."/);
 });
 
 test("8 · untouched — arithmetic, totals, markup, duty/tariff, charges block", () => {

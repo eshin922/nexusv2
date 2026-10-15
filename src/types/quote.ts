@@ -204,6 +204,8 @@ export type CustomerViewTierMoney = {
   goodsTotal: number;
   /** Σ one-time fees billed AT THIS TIER. A fee null at a tier is not billed there. */
   feesTotal: number;
+  /** Separately billed freight, duty and tariff. Zero when amortized. */
+  landedTotal: number;
   /** `goodsTotal + feesTotal` — the all-in figure, fees folded. */
   turnkeyTotal: number;
   /**
@@ -319,6 +321,12 @@ export type CustomerView = {
   skus: ReadonlyArray<CustomerViewSku>;
   serviceFees: ReadonlyArray<CustomerViewServiceFee>;
   freightLines: ReadonlyArray<CustomerViewFreightLine>;
+  landedPresentation?: "amortized" | "separate";
+  landedLines?: ReadonlyArray<{
+    sku: string;
+    name: string;
+    tierAmounts: ReadonlyArray<number | null>;
+  }>;
   /** Index into `tiers` of the recommended tier (visual ★). */
   recommendedTierIdx: number | null;
   /**

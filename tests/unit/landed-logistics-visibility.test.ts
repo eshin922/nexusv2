@@ -238,7 +238,7 @@ test("separate freight gets the non-inclusion state, not this sentence", async (
     const src = await readFile(path, "utf8");
     assert.match(
       src,
-      /Outbound freight is billed separately at cost/,
+      /Freight, duty and tariff are itemized by SKU below/,
       `${label} must carry the non-inclusion sentence`,
     );
     assert.match(src, /hasSeparateFreight/, `${label} gates it on the separate-line count`);

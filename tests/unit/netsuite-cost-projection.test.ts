@@ -60,6 +60,32 @@ test("a five-decimal vendor unit cost reaches both NetSuite cost fields unchange
   assert.equal(product.rate, 1.25);
 });
 
+test("separate landed logistics posts one SKU-identified NetSuite charge with its own cost", () => {
+  const body = buildSalesOrderPayload({
+    ...BASE,
+    lines: [
+      line({ netsuiteItemId: "101", sku: "BOTTLE-30", description: "Bottle", quantity: 30000, rate: 1, unitCost: 0.4 }),
+      line({
+        netsuiteItemId: "21447",
+        sku: "BOTTLE-30",
+        description: "Freight, duty & tariff — Bottle (BOTTLE-30)",
+        quantity: 1,
+        rate: 3750,
+        unitCost: 2500,
+      }),
+    ],
+  } as never);
+  const [product, landed] = items(body);
+  assert.equal(product.costEstimateRate, 0.4);
+  assert.equal(landed.item && (landed.item as { id: string }).id, "21447");
+  assert.equal(landed.custcol_dps_sku, "BOTTLE-30");
+  assert.match(String(landed.description), /BOTTLE-30/);
+  assert.equal(landed.quantity, 1);
+  assert.equal(landed.rate, 3750);
+  assert.equal(landed.costEstimateRate, 2500);
+  assert.deepEqual(landed.costEstimateType, { id: "CUSTOM" });
+});
+
 // ---------------------------------------------------------------- 2
 test("null governed cost preserves NetSuite's default — no zero asserted", () => {
   const body = buildSalesOrderPayload({

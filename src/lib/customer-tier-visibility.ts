@@ -85,6 +85,10 @@ export function applyTierVisibility(
       ...f,
       tierAmounts: pick(f.tierAmounts),
     })),
+    landedLines: view.landedLines?.map((line) => ({
+      ...line,
+      tierAmounts: pick(line.tierAmounts),
+    })),
     recommendedTierIdx,
     feeBasisTierIdx,
   };

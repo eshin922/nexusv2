@@ -103,11 +103,13 @@ test("6 · freight economics untouched", () => {
   }
 });
 
-test("7 · the §2c-certified customer presentation is unchanged", () => {
-  // freightLines stays empty and freight copy stays evidence-gated (422cc7e).
+test("7 · the customer presentation uses the quote-level landed decision", () => {
+  // The obsolete per-shipment treatment control remains hidden. The new
+  // customer choice is quote-level and its separate claim needs priced lines.
   assert.match(resolver, /const freightLines: \[\] = \[\]/);
   const doc = read("../../src/components/pdf/customer-pdf-document.tsx");
-  assert.match(doc, /const hasSeparateFreight = freightLines\.length > 0/);
+  assert.match(doc, /data\.landedPresentation === "separate"/);
+  assert.match(doc, /data\.landedLines\?\.length/);
   assert.doesNotMatch(doc, /freightAtCost=\{hasCharges\}/);
 });
 

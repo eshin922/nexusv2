@@ -431,6 +431,7 @@ export function QuoteHost({
             rollups={quoteRollup}
             governed={governed}
             landedLogistics={view.landedLogistics ?? null}
+            landedPresentation={view.landedPresentation}
             pdfLayout={pdfLayout}
             onPdfLayoutChange={setPdfLayout}
             detailLevel={detailLevel}

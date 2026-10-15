@@ -94,7 +94,12 @@ export function GrandTotalRow({
         <View>
           {[
             { key: "Unit-price subtotal", pick: (m: CpdfTier["money"]) => m.goodsTotal },
-            { key: "One-time fees", pick: (m: CpdfTier["money"]) => m.feesTotal },
+            ...(tiers.some((tier) => tier.money.landedTotal > 0)
+              ? [{ key: "Freight, duty & tariff", pick: (m: CpdfTier["money"]) => m.landedTotal }]
+              : []),
+            ...(tiers.some((tier) => tier.money.feesTotal > 0)
+              ? [{ key: "One-time fees", pick: (m: CpdfTier["money"]) => m.feesTotal }]
+              : []),
           ].map((row) => (
             <View key={row.key} style={styles.componentRow}>
               <View style={styles.cProd}>

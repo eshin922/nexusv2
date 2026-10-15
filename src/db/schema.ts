@@ -137,6 +137,12 @@ export const quoteFreightIntent = pgEnum("quote_freight_intent", [
 ]);
 export type QuoteFreightIntent = (typeof quoteFreightIntent.enumValues)[number];
 
+export const quoteLandedPresentation = pgEnum("quote_landed_presentation", [
+  "amortized",
+  "separate",
+]);
+export type QuoteLandedPresentation = (typeof quoteLandedPresentation.enumValues)[number];
+
 
 // Slice 12 Step 3 — Client Review feed event types (v3 brief §5.1
 // Round 3 amendment 1). pgEnum, not text, so bad values fail at the
@@ -571,6 +577,9 @@ export const quotes = pgTable(
     freightIntent: quoteFreightIntent("freight_intent")
       .notNull()
       .default("undecided"),
+    landedPresentation: quoteLandedPresentation("landed_presentation")
+      .notNull()
+      .default("amortized"),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     acceptedByUserId: uuid("accepted_by_user_id").references(() => users.id, {

@@ -72,6 +72,9 @@ const classifiedIdentityFiles = new Set([
   // removed shipment members must never contribute to duty or tariff totals.
   "src/lib/costs/customs-sku-selection.ts",
   "src/lib/costs/freight-summary.ts",
+  // Landed cost transfer keys frozen charges and product cost by the same
+  // canonical quote leaf; it neither resolves nor writes a legacy junction.
+  "src/lib/netsuite/landed-cost-transfer.ts",
   "src/lib/netsuite/line-accounting-note-transfer.ts",
   "src/app/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs/page.tsx",
   "src/app/projects/[id]/quotes/[quoteId]/page.tsx", "src/components/add-product/add-product-modal.tsx",

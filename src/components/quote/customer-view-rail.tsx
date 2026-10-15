@@ -24,6 +24,7 @@
 
 import type { BelowFloorProjection } from "@/lib/below-floor-projection";
 import { AccountingInstruction } from "./accounting-instruction";
+import { LandedPresentationControl } from "./landed-presentation-control";
 import { FinalizeQuoteButton } from "./finalize-quote-button";
 import { CardCommercialRecovery } from "./card-commercial-recovery";
 import type { AuthoritativeProjection } from "./authoritative-projection";
@@ -88,6 +89,7 @@ export function CustomerViewRail({
   rollups,
   governed,
   landedLogistics,
+  landedPresentation,
   pdfLayout,
   onPdfLayoutChange,
   detailLevel,
@@ -122,6 +124,7 @@ export function CustomerViewRail({
     total: number;
     included: boolean;
   } | null;
+  landedPresentation?: "amortized" | "separate";
   pdfLayout: CustomerViewPdfLayout;
   onPdfLayoutChange: (next: CustomerViewPdfLayout) => void;
   detailLevel: CustomerViewDetailLevel;
@@ -356,6 +359,11 @@ export function CustomerViewRail({
                 <span className="cv-gov-src" />
               </div>
             </>
+          )}
+          {landedLogistics && landedLogistics.total > 0 && (
+            <LandedPresentationControl quoteId={quoteId}
+              initialValue={landedPresentation ?? "amortized"}
+              disabled={quoteStatus !== "draft"} />
           )}
 
           <div className="cv-gov-row">

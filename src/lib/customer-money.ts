@@ -44,6 +44,8 @@ export function composeTierMoney(input: {
    * NULL = not billed at this tier.
    */
   feeAmounts: ReadonlyArray<number | null>;
+  /** Separate landed charges, already priced by the commercial projection. */
+  landedAmounts?: ReadonlyArray<number | null>;
   /**
    * In-unit-price recovery already embedded in these line totals, summed from
    * the costing ladder's own report. NULL where attribution is unavailable.
@@ -69,7 +71,8 @@ export function composeTierMoney(input: {
   }
 
   const feesTotal = input.feeAmounts.reduce<number>((a, f) => a + (f ?? 0), 0);
-  const turnkeyTotal = goodsTotal + feesTotal;
+  const landedTotal = (input.landedAmounts ?? []).reduce<number>((a, f) => a + (f ?? 0), 0);
+  const turnkeyTotal = goodsTotal + feesTotal + landedTotal;
 
   // `pricedCount` is the "nothing priced here" signal, NOT a divisor.
   //
@@ -86,6 +89,7 @@ export function composeTierMoney(input: {
     embeddedRecovery: input.embeddedRecovery,
     goodsTotal,
     feesTotal,
+    landedTotal,
     turnkeyTotal,
     perUnitGoods,
     perUnitTurnkey,

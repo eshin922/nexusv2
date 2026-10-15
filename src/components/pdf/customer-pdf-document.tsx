@@ -58,6 +58,7 @@ import { FREIGHT_INCLUDED_SENTENCE } from "@/lib/landed-logistics";
 import { ChargesBlock } from "./customer-pdf-charges-block";
 import { PageFooter, PageRunHead } from "./customer-pdf-chrome";
 import { GrandTotalRow } from "./customer-pdf-grand-total-row";
+import { money } from "./customer-pdf-helpers";
 import { Masthead } from "./customer-pdf-masthead";
 import { Parties } from "./customer-pdf-parties";
 import { PricingFoot } from "./customer-pdf-pricing-foot";
@@ -153,8 +154,8 @@ function ItemizedHead({
             is false whenever a separate freight line exists. */}
         {freightIncluded && ` ${FREIGHT_INCLUDED_SENTENCE}`}
         {hasSeparateFreight &&
-          " Outbound freight is billed separately at cost."}
-        {hasCharges && " One-time charges are itemized below."}
+          " Freight, duty and tariff are itemized by SKU below."}
+        {hasCharges && " Additional charges are itemized below."}
         {hasUnpriced &&
           " One or more items are pending finalization — a quote is available on request once sourcing is locked."}
         {showRecommendedNote &&
@@ -233,7 +234,8 @@ export function CustomerPdfDocument({
   // shown; this only stops the document asserting freight facts it cannot
   // demonstrate. If a future state genuinely projects freight lines, the copy
   // returns on its own — gated on the evidence, not on a sibling charge.
-  const hasSeparateFreight = freightLines.length > 0;
+  const hasSeparateFreight = (data.landedPresentation === "separate" &&
+    (data.landedLines?.length ?? 0) > 0) || freightLines.length > 0;
   // Governed, from `landed-logistics.ts` via the adapter. Absent on fixtures
   // that predate it, which correctly render no sentence.
   const freightIncluded = data.freightIncludedInUnitPrice === true;
@@ -248,8 +250,8 @@ export function CustomerPdfDocument({
   // total; without-fees is landed & all-in).
   const turnkeyLedeBase = hasCharges
     ? hasSeparateFreight
-      ? "The all-in turnkey total per tier — one-time fees folded in. Outbound freight is billed separately at cost."
-      : "The all-in turnkey total per tier — one-time fees folded in."
+      ? "The all-in turnkey total per tier includes separately itemized freight, duty and tariff."
+      : "The all-in turnkey total per tier — additional charges folded in."
     : hasUnpriced
       ? "All-in turnkey total per tier. One tier is still pending a final line price, noted below."
       : "Pricing is landed and all-in — one number per volume tier, freight and duty included.";
@@ -297,7 +299,7 @@ export function CustomerPdfDocument({
                 serviceFees={serviceFees}
                 layout={layout}
                 foldFees={hasCharges}
-                freightAtCost={hasSeparateFreight}
+                freightAtCost={freightLines.length > 0}
                 allInUnit={!hasCharges}
                 partial={hasUnpriced}
                 lede={turnkeyLede}
@@ -338,7 +340,7 @@ export function CustomerPdfDocument({
                   serviceFees={serviceFees}
                   layout={layout}
                   foldFees={hasCharges}
-                  freightAtCost={hasSeparateFreight}
+                  freightAtCost={freightLines.length > 0}
                   allInUnit={!hasCharges}
                 />
                 <PricingFoot
@@ -351,7 +353,7 @@ export function CustomerPdfDocument({
                   }
                 />
               </View>
-              {hasCharges && (
+              {serviceFees.length > 0 && (
                 <View style={styles.section}>
                   <ChargesBlock
                     includeFeeLines={quote.include_fee_lines}
@@ -364,6 +366,32 @@ export function CustomerPdfDocument({
                 </View>
               )}
             </>
+          )}
+
+          {(data.landedLines?.length ?? 0) > 0 && (
+            <View style={styles.section}>
+              <View style={styles.charges}>
+                <Text style={styles.eyebrow}>{"Landed logistics".toUpperCase()}</Text>
+                <Text style={styles.h2}>Freight, duty &amp; tariff</Text>
+                <Text style={styles.chargeSub}>
+                  {data.landedPresentation === "separate"
+                    ? "One combined charge per SKU, billed separately and included in the turnkey total."
+                    : "One combined amount per SKU, already included in unit prices; these are not additional charges."}
+                  {` Amounts shown for Tier ${(feeBasisTierIdx ?? 0) + 1}.`}
+                </Text>
+                {data.landedLines!.map((line) => {
+                  const amount = line.tierAmounts[feeBasisTierIdx ?? 0];
+                  if (amount === null || amount === undefined) return null;
+                  return <View key={line.sku} style={styles.chargeRow}>
+                    <View style={styles.cLabel}>
+                      <Text style={styles.cLabelT}>{line.name}</Text>
+                      <Text style={styles.cLabelS}>{line.sku}</Text>
+                    </View>
+                    <Text style={styles.cAmt}>{money(amount)}</Text>
+                  </View>;
+                })}
+              </View>
+            </View>
           )}
 
           {/* Let the commercial details, note, conditions, and acceptance copy

@@ -175,7 +175,8 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
   // never from `hasCharges` — the Proof-5 repair. A service fee satisfies
   // `hasCharges`, and gating freight prose on it told the customer freight was
   // billed separately at cost when there was no freight line at all.
-  const hasSeparateFreight = freightLines.length > 0;
+  const hasSeparateFreight = (view.landedPresentation === "separate" &&
+    (view.landedLines?.length ?? 0) > 0) || freightLines.length > 0;
   // Governed, from the projection. NOT derived here — `verify:boundaries`
   // forbids arithmetic in a renderer, and inclusion is a commercial fact
   // rather than a display choice.
@@ -298,8 +299,8 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                     freight line exists. */}
                 {freightIncluded && ` ${FREIGHT_INCLUDED_SENTENCE}`}
                 {hasSeparateFreight &&
-                  " Outbound freight is billed separately at cost."}
-                {hasCharges && " One-time charges are itemized below."}
+                  " Freight, duty and tariff are itemized by SKU below."}
+                {serviceFees.length > 0 && " One-time charges are itemized below."}
                 {hasUnpriced &&
                   " One or more items are pending finalization — a quote is available on request once sourcing is locked."}
                 {showRecommendedNote &&
@@ -488,8 +489,18 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                       </div>
                     ))}
                   </div>
+                  {view.landedPresentation === "separate" && (
+                    <div className="pp-component-row" role="row">
+                      <div className="pp-c-prod" role="rowheader"><span className="pp-component-k">Freight, duty &amp; tariff</span></div>
+                      {cols.map(({ ti, tier, rec }) => (
+                        <div key={tier.id} role="cell" className={"pp-c-num" + (rec ? " pp-c-rec" : "")}>
+                          <span className="pp-component-num">{money(tiers[ti].money.landedTotal)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                  <div className="pp-component-row" role="row">
+                  {serviceFees.length > 0 && <div className="pp-component-row" role="row">
                     <div className="pp-c-prod" role="rowheader">
                       <span className="pp-component-k">One-time fees</span>
                     </div>
@@ -506,7 +517,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                         </span>
                       </div>
                     ))}
-                  </div>
+                  </div>}
                 </div>
               )}
 
@@ -564,9 +575,9 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                   )}
                   {hasSeparateFreight && (
                     <div className="pp-grand-note freight">
-                      <span className="k">Plus</span>
-                      Outbound freight — billed separately at cost (itemized
-                      below); not included in the turnkey total.
+                      <span className="k">Itemized</span>
+                      Freight, duty &amp; tariff are shown below by SKU and
+                      included in the turnkey total.
                     </div>
                   )}
                 </div>
@@ -587,22 +598,37 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
               </div>
             </div>
 
+            {(view.landedLines?.length ?? 0) > 0 && (
+              <div className="pp-section" data-testid="customer-landed-section">
+                <div className="pp-eyebrow">Landed logistics</div>
+                <div className="pp-h2">Freight, duty &amp; tariff</div>
+                <p className="pp-lede">
+                  {view.landedPresentation === "separate"
+                    ? "One combined charge per SKU, billed separately and included in the turnkey total."
+                    : "One combined amount per SKU, already included in the unit prices above; these are not additional charges."}
+                  {basisTier && ` Amounts shown for ${fullLabel(feeBasis)} (${qtyLabel(basisTier.quantity)}).`}
+                </p>
+                <div className="pp-charges">
+                  {view.landedLines!.map((line) => {
+                    const amount = line.tierAmounts[feeBasis];
+                    if (amount === null || amount === undefined) return null;
+                    return <div key={line.sku} className="pp-charge-row">
+                      <div className="c-label"><span className="t">{line.name}</span><span className="s">{line.sku}</span></div>
+                      <div className="c-amt">{money(amount)}</div>
+                    </div>;
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ── Additional charges ───────────────────────────────── */}
-            {hasCharges && (
+            {serviceFees.length > 0 && (
               <div className="pp-section">
                 <div className="pp-charges">
                   <div className="pp-eyebrow">Additional charges</div>
                   <div className="pp-h2">
                     One-time fees
-                    {hasSeparateFreight ? " & pass-through freight" : ""}
                   </div>
-                  {hasSeparateFreight && basisTier && (
-                    <div className="pp-charge-sub">
-                      Freight amounts shown landed per unit for{" "}
-                      {fullLabel(feeBasis)} ({qtyLabel(basisTier.quantity)}).
-                      Per-tier amounts available on request.
-                    </div>
-                  )}
 
                   {/* ── C1 · collapsing the itemization never removes the
                       charge ────────────────────────────────────────────────
@@ -654,7 +680,7 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                     </>
                   )}
 
-                  {view.includeFeeLines && hasSeparateFreight && (
+                  {view.includeFeeLines && freightLines.length > 0 && (
                     <>
                       <div className="pp-charge-group-label">
                         Pass-through freight · billed at cost

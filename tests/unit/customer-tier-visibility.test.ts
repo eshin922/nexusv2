@@ -21,6 +21,7 @@ const tier = (id: string, quantity: number, goods: number) => ({
   money: {
     goodsTotal: goods,
     feesTotal: 100,
+    landedTotal: 0,
     turnkeyTotal: goods + 100,
     perUnitGoods: goods / quantity,
     perUnitTurnkey: (goods + 100) / quantity,

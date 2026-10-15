@@ -795,6 +795,44 @@ export async function updateQuoteFreightIntent(
   });
 }
 
+/** Quote-level placement for freight, duty and tariff as one landed charge. */
+export async function updateQuoteLandedPresentation(
+  formData: FormData,
+): Promise<ActionResult<{ landedPresentation: "amortized" | "separate" }>> {
+  return runAction(async () => {
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    const next = String(formData.get("landedPresentation") ?? "").trim();
+    if (!quoteId || (next !== "amortized" && next !== "separate")) {
+      throw new ActionGuardError(ERR.VALIDATION, "Choose how freight, duty and tariff appear on the quote.");
+    }
+    const user = await ensureUser();
+    const quote = await loadQuoteOrThrow(quoteId);
+    assertDraft(quote);
+    if (quote.landedPresentation === next) return { landedPresentation: next };
+    if (next === "separate") {
+      try {
+        const candidate = await resolveCustomerView({ quoteId, proposedLandedPresentation: next });
+        if (!candidate.ok) throw new Error(candidate.kind === "bundle_error" ? candidate.message : "quote unavailable");
+      } catch (error) {
+        throw new ActionGuardError(ERR.VALIDATION,
+          `Cannot bill landed logistics separately yet: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    await db.update(quotes)
+      .set({ landedPresentation: next, updatedAt: new Date() })
+      .where(eq(quotes.id, quoteId));
+    await logAudit({
+      userId: user.id,
+      entityType: "quote",
+      entityId: quoteId,
+      action: "landed_presentation_updated",
+      diffJson: diffOf({ landed_presentation: quote.landedPresentation }, { landed_presentation: next }),
+    });
+    revalidateQuoteTree(quote.projectId, quoteId);
+    return { landedPresentation: next };
+  });
+}
+
 // ---------- SKU actions ----------
 
 /**
@@ -3898,6 +3936,7 @@ export async function cloneQuoteGraph(
       globalPriceAdjPct: source.globalPriceAdjPct,
       targetMarginPct: source.targetMarginPct,
       freightMarkupPct: source.freightMarkupPct,
+      landedPresentation: source.landedPresentation,
       // Slice 11 Step 4 PDF-render-axis columns (added to Cloneable
       // 2026-07-15 per Edward's disposition after copy-audit diff).
       // These are PM display preferences (single vs tier, itemized
