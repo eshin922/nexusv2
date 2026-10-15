@@ -14,7 +14,10 @@ import { CommandSearch } from "./command-search";
 import { UserMenu } from "./user-menu";
 import { GlobalLibrary } from "./global-library";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
-import { canEditLibraryProduct } from "@/lib/permissions/library-product";
+import {
+  canEditLibraryProduct,
+  canManageLibraryCatalog,
+} from "@/lib/permissions/library-product";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
 // visible to authenticated users. Composition (top to bottom):
@@ -93,7 +96,7 @@ export async function OuterRail() {
       <GlobalLibrary
         fullLeafTypes={productTypeOptions.leafTypes}
         permissions={{
-          canCreateLeaves: user.canCreateLeaves,
+          canCreateLeaves: canManageLibraryCatalog(user),
           canEditProduct: canEditLibraryProduct(user),
         }}
       />

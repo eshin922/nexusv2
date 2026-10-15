@@ -70,6 +70,11 @@ export type LibraryProductActor = {
   canCreateLeaves: boolean;
 };
 
+/** HubSpot catalog refresh and archived-product restore share this grant. */
+export function canManageLibraryCatalog(actor: LibraryProductActor): boolean {
+  return actor.role === "admin" || actor.canCreateLeaves === true;
+}
+
 export function canEditLibraryProduct(actor: LibraryProductActor): boolean {
   if (actor.role === "admin") return true;
   // PMs author quotes, and a product with no SKU cannot be attached to one

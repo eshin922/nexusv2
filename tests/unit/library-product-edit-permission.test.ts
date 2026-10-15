@@ -33,6 +33,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import {
   canEditLibraryProduct,
+  canManageLibraryCatalog,
   type LibraryProductActor,
 } from "../../src/lib/permissions/library-product.ts";
 
@@ -45,6 +46,24 @@ const modal = () =>
   readFileSync("src/components/library/library-browse-modal.tsx", "utf8");
 const leaves = () => readFileSync("src/app/actions/leaves.ts", "utf8");
 const guard = () => readFileSync("src/lib/spec-permission-guard.ts", "utf8");
+
+test("admin can refresh the HubSpot catalog even without an explicit grant", () => {
+  assert.equal(canManageLibraryCatalog(actor("admin", false)), true);
+  assert.equal(canManageLibraryCatalog(actor("pm", false)), false);
+  assert.equal(canManageLibraryCatalog(actor("pm", true)), true);
+
+  for (const file of [
+    "src/components/rails/outer-rail.tsx",
+    "src/app/projects/[id]/quotes/[quoteId]/page.tsx",
+    "src/lib/spec-permission-guard.ts",
+  ]) {
+    assert.match(
+      readFileSync(file, "utf8"),
+      /canManageLibraryCatalog\(user\)/,
+      `${file} must use the same permission rule`,
+    );
+  }
+});
 
 function body(src: string, name: string): string {
   const start = src.indexOf(`export async function ${name}`);

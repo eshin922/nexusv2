@@ -1,7 +1,10 @@
 import "server-only";
 import { ensureUser, type AppUser } from "@/lib/auth/ensure-user";
 import { ActionGuardError, ERR } from "@/lib/action-result";
-import { canEditLibraryProduct } from "@/lib/permissions/library-product";
+import {
+  canEditLibraryProduct,
+  canManageLibraryCatalog,
+} from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 — action-layer permission guards for the ASY/LEAF/
 // library model.
@@ -38,8 +41,7 @@ export async function assertCanEditSpecs(): Promise<AppUser> {
 
 export async function assertCanCreateLeaves(): Promise<AppUser> {
   const user = await ensureUser();
-  if (user.role === "admin") return user;
-  if (!user.canCreateLeaves) {
+  if (!canManageLibraryCatalog(user)) {
     throw new ActionGuardError(
       ERR.FORBIDDEN,
       "You don't have permission to create library leaves.",
