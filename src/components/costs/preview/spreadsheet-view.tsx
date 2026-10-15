@@ -242,13 +242,13 @@ function OwnerRows({
 
 function OwnerKindTag({ owner }: { owner: OverviewOwner }) {
   if (owner.kind === "item_group") return <Tag tone="accent">item group</Tag>;
-  if (owner.kind === "direct_service") return <Tag tone="purple">service</Tag>;
+  if (owner.kind === "direct_service") return <Tag tone="purple">{owner.associatedProductQuoteLeafId ? "associated service" : "service"}</Tag>;
   return <Tag tone="plain">product</Tag>;
 }
 
 /** Prototype `parentFld().meta` — the SKU, or what stands in for it. */
 function ownerMeta(owner: OverviewOwner): string {
-  if (owner.kind === "direct_service") return "direct service";
+  if (owner.kind === "direct_service") return owner.associatedProductQuoteLeafId ? "associated cost" : "direct service";
   if (owner.kind === "item_group") return owner.sku ? `SKU ${owner.sku}` : "item group";
   return owner.sku ? `SKU ${owner.sku}` : "SKU unresolved";
 }

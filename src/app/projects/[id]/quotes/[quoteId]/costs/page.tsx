@@ -689,7 +689,7 @@ export default async function CostBuildPage({
             const groupedOwner = newAssemblyLeafJoinRows.find((row) => row.assembly_leaves.quoteLeafId === r.associatedProductQuoteLeafId);
             const owner = directOwner?.leaves ?? groupedOwner?.leaves;
             if (!owner) throw new Error(`Associated service ${r.quoteLeafId} has no product ${r.associatedProductQuoteLeafId}`);
-            return { name: owner.name, sku: owner.sku ?? "" };
+            return { quoteLeafId: r.associatedProductQuoteLeafId, name: owner.name, sku: owner.sku ?? "" };
           })()
         : null,
       position: r.position,

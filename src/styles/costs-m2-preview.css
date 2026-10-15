@@ -198,6 +198,13 @@
     12px 0 12px -12px oklch(0.20 0.02 255 / 0.10),
     inset 1px 0 0 0 var(--cm2-bd);
 }
+.cm2-ident[data-indent="3"] {
+  padding-left: 54px;
+  box-shadow:
+    -18px 0 0 0 var(--cm2-surf),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10),
+    inset 1px 0 0 0 var(--cm2-bd);
+}
 
 .cm2-label { font-size: 13px; color: var(--ink); }
 .cm2-label.cm2-strong { font-weight: 500; }

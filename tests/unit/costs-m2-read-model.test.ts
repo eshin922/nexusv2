@@ -148,6 +148,29 @@ test("every supported owner kind crosses with its canonical identity", () => {
   assert.equal(group.members[0].productType, "Turnkey", "recorded type is source data");
 });
 
+test("associated service costs stay beneath their product, including an item-group member", () => {
+  const overview = buildCostsOverview({
+    ...emptyFacts(),
+    assemblies: [{ id: "group", sku: "G", name: "Kit", position: 0 }],
+    members: [{ assemblyLeafId: "junction", assemblyId: "group", quoteLeafId: "member", name: "Bottle", sku: "B", quantity: "1", position: 0, productType: null }],
+    directProducts: [{ quoteLeafId: "direct", name: "Carton", sku: "C", quantity: "1", position: 1, productType: null }],
+    directServices: [
+      { quoteLeafId: "service-member", name: "Micro testing", serviceIdentity: "testing_micros", associatedProduct: { quoteLeafId: "member", name: "Bottle", sku: "B" }, position: 2, amountsByTier: { [T1]: "125.00", [T2]: null } },
+      { quoteLeafId: "service-direct", name: "Compatibility", serviceIdentity: "testing_micros", associatedProduct: { quoteLeafId: "direct", name: "Carton", sku: "C" }, position: 3, amountsByTier: { [T1]: "75.00", [T2]: null } },
+      { quoteLeafId: "standalone", name: "Consulting", serviceIdentity: "testing_micros", position: 4, amountsByTier: { [T1]: "50.00", [T2]: null } },
+    ],
+  });
+
+  assert.deepEqual(flattenOwners(overview.owners).map(({ owner, depth }) => [owner.quoteLeafId, depth]), [
+    [null, 0], ["member", 1], ["service-member", 2],
+    ["direct", 0], ["service-direct", 1], ["standalone", 0],
+  ]);
+  assert.equal(overview.owners[0].members[0].members[0].productionLines[0].amounts.get(T1), "125.00");
+  assert.equal(overview.owners[1].members[0].productionLines[0].amounts.get(T1), "75.00");
+  assert.equal(flattenOwners(overview.owners).filter(({ owner }) => owner.kind === "direct_service").length, 3, "each service appears once");
+  assert.deepEqual(focusableOwners(overview.owners).map((owner) => owner.quoteLeafId), ["member", "direct", "standalone"], "attached services are accessed through their product in By product");
+});
+
 test("a packaging line binds to the owner that carries its quote_leaf_id", () => {
   const overview = buildCostsOverview({
     ...emptyFacts(),

@@ -63,6 +63,7 @@ export function ByProductView({
   const tier =
     overview.tiers.find((t) => t.id === activeTierId) ?? overview.tiers[0] ?? null;
   const groupedCost = owner && tier ? groupedCostByTier.get(owner.key)?.get(tier.id) : undefined;
+  const associatedServices = owner?.members.filter((member) => member.kind === "direct_service") ?? [];
 
   if (!owner || !tier) {
     return (
@@ -303,6 +304,30 @@ export function ByProductView({
             </article>
           ))}
         </section>
+
+        {associatedServices.length > 0 && (
+          <section className="cm2-section">
+            <div className="cm2-section-head">
+              <span className="cm2-section-title">Associated service costs</span>
+              <span className="cm2-section-note">{associatedServices.length} attached to {owner.name}</span>
+            </div>
+            {associatedServices.flatMap((service) => service.productionLines.map((line) => (
+              <article className="cm2-edcard" key={service.key + line.field}>
+                <div className="cm2-edtitle"><span className="cm2-edtitle-text">{service.name}</span><Tag tone="purple">associated service</Tag></div>
+                <div className="cm2-edgrid">
+                  {overview.tiers.map((t) => (
+                    editMode && service.quoteLeafId ? (
+                      <div className="cm2-edfield" key={t.id}>
+                        <span className="cm2-edlabel">{`Cost · ${t.label}`}</span>
+                        <M3Editor kind="service" quoteLeafId={service.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} basis={line.basisByTier?.get(t.id) ?? "total"} quantity={t.qty} label={`Service amount for ${service.name} at ${t.label}`} disabled={false} />
+                      </div>
+                    ) : <EdField key={t.id} label={`Cost · ${t.label}`} value={line.amounts.get(t.id) ?? null} hint={line.basisByTier?.get(t.id) === "per_unit" ? "service cost per unit" : "service total for this product"} mono />
+                  ))}
+                </div>
+              </article>
+            )))}
+          </section>
+        )}
 
         <section className="cm2-section">
           <div className="cm2-section-head">
