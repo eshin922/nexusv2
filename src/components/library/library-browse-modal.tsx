@@ -174,12 +174,8 @@ export function LibraryBrowseModal({
   // type-filter shape; same source (loadProductTypeOptions) on
   // the page.
   fullLeafTypes: LeafSpecEntryProductType[];
-  // slice-library-first-creation-flow Step 3 — per locked Q6, this gated
-  // "+ Create new product" AND "↗ Refresh from HubSpot" on canCreateLeaves.
-  //
-  // AMENDED 2026-08-27 (Edward): creation is open to every authenticated user
-  // for beta and no longer reads this. The flag is still consulted for the
-  // catalog REFRESH and for Restore, which is why it remains on the prop.
+  // Creation and HubSpot refresh are open to every authenticated user.
+  // The legacy grant is still consulted for Restore.
   //
   // AMENDED AGAIN: `canEditProduct` is a SECOND capability, computed by the
   // same predicate the server guard calls. It governs the product-edit pencil.
@@ -665,9 +661,7 @@ export function LibraryBrowseModal({
                 the server and disabled in the UI, and the tooltip told an
                 admin to "ask an admin".
 
-                Now neither layer consults the grant for creation, so they
-                cannot disagree. The Refresh button below still does, and is
-                deliberately untouched: it is a catalog pull, not creation. */}
+                Now neither layer consults the grant for creation. */}
             {offersCreate && (
             <button
               type="button"
@@ -678,27 +672,18 @@ export function LibraryBrowseModal({
               + Create new product
             </button>
             )}
-            {/* Subtle refresh — forensic affordance per CD §5. Same
-                permission gate + click handler as the Step 5
-                (predecessor slice) inline pull entry point; the
-                inline progress band lives inside the modal body. */}
+            {/* The inline progress band lives inside the modal body. */}
             <button
               type="button"
               className="lib-refresh"
               onClick={pull.start}
               disabled={
-                !permissions.canCreateLeaves ||
                 pull.pending ||
                 pull.isPulling ||
                 pending ||
                 !!attaching
               }
-              aria-disabled={!permissions.canCreateLeaves}
-              title={
-                permissions.canCreateLeaves
-                  ? "Pull HubSpot products into the library"
-                  : "You don't have permission to refresh the library catalog. Ask an admin."
-              }
+              title="Pull HubSpot products into the library"
             >
               <span className="glyph">↗</span>
               Refresh from HubSpot
@@ -1156,20 +1141,13 @@ export function LibraryBrowseModal({
                       className="lib-empty-cta secondary"
                       onClick={pull.start}
                       disabled={
-                        !permissions.canCreateLeaves ||
                         pull.pending ||
                         pull.isPulling
                       }
-                      aria-disabled={!permissions.canCreateLeaves}
                     >
                       ↗ Refresh from HubSpot
                     </button>
                   </div>
-                  {/* The note that used to sit here said the operator could not
-                      CREATE products. Creation in this block is ungated; the
-                      only gated control is Refresh, which carries its own
-                      explanation in its title. So the note was describing a
-                      restriction that was not the one in force. */}
                 </div>
             ) : rows.length === 0 && !pending ? (
               /* slice-library-modal-polish Step 6 — filtered-to-

@@ -26,7 +26,7 @@
  * only" — which is why a PM asked to complete a SKU could not, and why
  * granting the column would have been both a production data edit and a wider
  * grant than the need (the same column also governs un-archiving a library
- * item and pulling the HubSpot catalog).
+ * item).
  *
  * The explicit grant is still honoured, so the one row that carries it does
  * not regress.
@@ -55,7 +55,7 @@
 
 /** The shape both layers pass around. One object, so a new capability is one edit. */
 export type LibraryPermissions = {
-  /** Un-archiving a library item and pulling the HubSpot catalog. The old grant. */
+  /** Effective permission to restore an archived library item. */
   canCreateLeaves: boolean;
   /** Opening a product edit — including completing a missing SKU. */
   canEditProduct: boolean;
@@ -69,6 +69,11 @@ export type LibraryProductActor = {
   role: string;
   canCreateLeaves: boolean;
 };
+
+/** Restoring archived library items keeps the admin-or-explicit-grant rule. */
+export function canRestoreLibraryItem(actor: LibraryProductActor): boolean {
+  return actor.role === "admin" || actor.canCreateLeaves === true;
+}
 
 export function canEditLibraryProduct(actor: LibraryProductActor): boolean {
   if (actor.role === "admin") return true;

@@ -61,7 +61,7 @@ export function AssemblyTreeView({
   // slice-library-first-creation-flow Step 3 — threaded through to
   // LibraryBrowseTrigger → LibraryBrowseModal for the gated
   // "+ Create new product" + "↗ Refresh from HubSpot" affordances.
-  // Page-level fetcher reads user.canCreateLeaves via ensureUser.
+  // The page passes the effective restore permission separately.
   permissions: LibraryPermissions;
   /**
    * Charges each component already owns — OD-032.

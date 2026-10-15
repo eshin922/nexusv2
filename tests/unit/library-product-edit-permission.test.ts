@@ -33,6 +33,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import {
   canEditLibraryProduct,
+  canRestoreLibraryItem,
   type LibraryProductActor,
 } from "../../src/lib/permissions/library-product.ts";
 
@@ -45,6 +46,24 @@ const modal = () =>
   readFileSync("src/components/library/library-browse-modal.tsx", "utf8");
 const leaves = () => readFileSync("src/app/actions/leaves.ts", "utf8");
 const guard = () => readFileSync("src/lib/spec-permission-guard.ts", "utf8");
+
+test("admin can restore an archived item even without an explicit grant", () => {
+  assert.equal(canRestoreLibraryItem(actor("admin", false)), true);
+  assert.equal(canRestoreLibraryItem(actor("pm", false)), false);
+  assert.equal(canRestoreLibraryItem(actor("pm", true)), true);
+
+  for (const file of [
+    "src/components/rails/outer-rail.tsx",
+    "src/app/projects/[id]/quotes/[quoteId]/page.tsx",
+    "src/lib/spec-permission-guard.ts",
+  ]) {
+    assert.match(
+      readFileSync(file, "utf8"),
+      /canRestoreLibraryItem\(user\)/,
+      `${file} must use the same permission rule`,
+    );
+  }
+});
 
 function body(src: string, name: string): string {
   const start = src.indexOf(`export async function ${name}`);
@@ -147,7 +166,7 @@ test("the server guard and the UI read the SAME predicate", () => {
   );
 });
 
-test("editing uses the new guard; creation, restore and pull are untouched", () => {
+test("editing uses its guard; creation and refresh stay open, restore stays gated", () => {
   const src = leaves();
   for (const fn of ["updateLeaf", "retryLeafEdit"]) {
     const b = code(body(src, fn));
@@ -157,7 +176,7 @@ test("editing uses the new guard; creation, restore and pull are untouched", () 
       `${fn} must not still gate on the creation grant`,
     );
   }
-  // The 2026-08-27 disposition and the two deliberate holdouts survive intact.
+  // Creation stays open to all; archived-item restore keeps its grant.
   assert.ok(
     !/assertCanCreateLeaves\(/.test(code(body(src, "createLeaf"))),
     "creation stays open to every authenticated user",
@@ -166,11 +185,6 @@ test("editing uses the new guard; creation, restore and pull are untouched", () 
     body(src, "restoreLeaf"),
     /assertCanCreateLeaves/,
     "un-archiving keeps the old gate",
-  );
-  assert.match(
-    readFileSync("src/app/actions/hubspot-pull.ts", "utf8"),
-    /assertCanCreateLeaves/,
-    "the catalog pull keeps the old gate",
   );
 });
 
@@ -212,12 +226,22 @@ test("no refusal copy claims the operator cannot create products", () => {
   );
 });
 
-test("Refresh and Restore deliberately still read the creation grant", () => {
-  // The repair must not have swept these along. Refresh pulls the HubSpot
-  // catalog and Restore un-archives; neither is a product edit.
-  const m = modal();
-  assert.match(m, /permission to refresh the library catalog/);
+test("Restore still reads the grant; Refresh does not", () => {
+  const m = jsx(modal());
   assert.match(m, /permission to restore library items/);
+  assert.doesNotMatch(m, /permission to refresh the library catalog/);
+  let refreshButtons = 0;
+  for (const hit of m.matchAll(/Refresh from HubSpot/g)) {
+    const open = m.lastIndexOf("<button", hit.index);
+    assert.ok(open >= 0);
+    const button = m.slice(open, hit.index);
+    assert.doesNotMatch(button, /permissions\.canCreateLeaves/);
+    refreshButtons++;
+  }
+  assert.equal(refreshButtons, 2);
+  const pull = readFileSync("src/app/actions/hubspot-pull.ts", "utf8");
+  assert.match(pull, /await ensureUser\(\)/);
+  assert.doesNotMatch(pull, /assertCanCreateLeaves/);
 });
 
 // ── what the fix must NOT have relaxed ───────────────────────────────────
