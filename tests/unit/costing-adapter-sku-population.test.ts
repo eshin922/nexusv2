@@ -659,3 +659,35 @@ test("the departure label names the quantity, not its commonest cause", () => {
   assert.doesNotMatch(d.label, /^Adjustment|^Override/);
   assert.match(d.label, /quoted price less/i);
 });
+
+test("a direct service per-unit cost scales with tier quantity while total cost does not", () => {
+  const service: AdapterQuoteLeafAttachmentRow = {
+    quoteLeafId: "service-1", assemblyLeafId: null, assemblyId: null,
+    leafId: "library-service", quantity: "1", position: 0,
+    leafName: "Filling / Blending", leafSku: "FILL-1",
+    serviceIdentity: "filling_blending",
+  };
+  const base = {
+    assemblyId: null, quoteLeafId: service.quoteLeafId, tierId: TIER_A,
+    allocateServiceFeesToCost: true, fillingBlendingCost: null,
+    cmAssemblyTotal: null, setupFeeTotal: null, toolingArtworkTotal: null,
+    toolingTotal: null, artworkTotal: null, rdTotal: null,
+    testingMicrosTotal: null, otherServiceTotal: null, bulkRawCost: null,
+    actualUnitsProduced: null,
+  };
+  const withService = (qty: number, costBasis: "total" | "per_unit") =>
+    buildQuoteCostingInputFromNewModel(args({
+      assemblies: [], quoteLeafAttachments: [service],
+      tiers: [{ id: TIER_A, label: "T1", qty, sortOrder: 0, tierPriceAdjPct: null }],
+      assemblyProductionInputs: [{ ...base,
+        directServiceCostBasis: costBasis,
+        directServiceUnitCost: costBasis === "per_unit" ? "0.12405" : null,
+        fillingBlendingCost: costBasis === "total" ? "124.05" : null,
+      }],
+    })).production[0].fillingBlendingCost;
+
+  assert.equal(withService(1000, "per_unit"), 124.05);
+  assert.equal(withService(2000, "per_unit"), 248.1);
+  assert.equal(withService(1000, "total"), 124.05);
+  assert.equal(withService(2000, "total"), 124.05);
+});

@@ -17,6 +17,7 @@ import {
 import { fmtPct1 } from "@/lib/money-display";
 import { M3Editor } from "./m3-editor-boundary";
 import { OrderQuantity } from "./order-quantity";
+import { SkuAccountingNote } from "./sku-accounting-note";
 
 /**
  * SPREADSHEET — prototype `sheetBlock()`.
@@ -164,6 +165,15 @@ function OwnerRows({
         <div className="cm2-ident" data-indent={depth || undefined}>
           <div className="cm2-label cm2-strong">{owner.name}</div>
           <div className="cm2-meta">{ownerMeta(owner)}</div>
+          {owner.quoteLeafId && (owner.kind === "group_member" || owner.kind === "direct_product") && (
+            <SkuAccountingNote
+              quoteId={quoteId}
+              quoteLeafId={owner.quoteLeafId}
+              sku={owner.sku}
+              value={owner.accountingNote}
+              editable={editMode}
+            />
+          )}
         </div>
         {tiers.map((t) => <OrderQuantity key={t.id} owner={owner} tierId={t.id} />)}
         <BlankCell />
@@ -362,12 +372,12 @@ function ProductionRow({
         <div className="cm2-label cm2-muted">{line.label}</div>
       </div>
       {tiers.map((t) => editMode && owner.kind === "direct_service" && owner.quoteLeafId ? (
-        <M3Editor key={t.id} kind="service" quoteLeafId={owner.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} label={`Service amount for ${owner.name} at ${t.label}`} disabled={false} />
+        <M3Editor key={t.id} kind="service" quoteLeafId={owner.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} basis={line.basisByTier?.get(t.id) ?? "total"} quantity={t.qty} label={`Service amount for ${owner.name} at ${t.label}`} disabled={false} />
       ) : (
         <ValueCell
           key={t.id}
           stored={line.amounts.get(t.id) ?? null}
-          tierLabel={`${t.label} · tier total as recorded`}
+          tierLabel={`${t.label} · ${line.basisByTier?.get(t.id) === "per_unit" ? "cost per unit" : "total cost"}`}
           highlighted={t.id === activeTierId}
         />
       ))}

@@ -18,6 +18,20 @@ test("customer rows retain every priced line while keeping each Item Group conti
   assert.equal(new Set(ordered).size, rows.length);
 });
 
+test("direct services render after the finished product without changing the total", () => {
+  const group = { id: "spray", name: "After Gym Spray", sku: "SPRAY" };
+  const rows = [
+    { id: "filling", itemGroup: null, amount: 46662 },
+    { id: "bottle", itemGroup: group, amount: 6890.4 },
+    { id: "pump", itemGroup: group, amount: 2009.7 },
+    { id: "standalone", itemGroup: null, amount: 300 },
+  ];
+  const ordered = orderCustomerItemGroupRows(rows, new Set(["filling"]));
+  assert.deepEqual(ordered.map((row) => row.id), ["bottle", "pump", "standalone", "filling"]);
+  assert.equal(ordered.reduce((total, row) => total + row.amount, 0),
+    rows.reduce((total, row) => total + row.amount, 0));
+});
+
 test("group totals sum member amounts once and use the group's own ordered quantity", () => {
   const group = { id: "g" };
   const rows = [

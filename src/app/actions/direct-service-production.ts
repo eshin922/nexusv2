@@ -113,7 +113,7 @@ async function requireDirectServiceLeaf(
   };
 }
 
-function parseAmount(raw: FormDataEntryValue | null): string | null {
+function parseAmount(raw: FormDataEntryValue | null, basis: "total" | "per_unit"): string | null {
   const text = String(raw ?? "").trim();
   if (text === "") return null;
   const n = Number(text);
@@ -123,7 +123,10 @@ function parseAmount(raw: FormDataEntryValue | null): string | null {
   if (n < 0) {
     throw new ActionGuardError(ERR.VALIDATION, "Amount cannot be negative.", "amount");
   }
-  return n.toFixed(2);
+  if (n >= 1000000000) {
+    throw new ActionGuardError(ERR.VALIDATION, "Amount is too large.", "amount");
+  }
+  return n.toFixed(basis === "per_unit" ? 5 : 2);
 }
 
 export async function updateDirectServiceProduction(
@@ -150,7 +153,12 @@ export async function updateDirectServiceProduction(
       throw new ActionGuardError(ERR.NOT_FOUND, "Tier not found on this quote.");
     }
 
-    const amount = parseAmount(formData.get("amount"));
+    const basisRaw = String(formData.get("basis") ?? "total");
+    if (basisRaw !== "total" && basisRaw !== "per_unit") {
+      throw new ActionGuardError(ERR.VALIDATION, "Choose per-unit or total cost.", "basis");
+    }
+    const basis = basisRaw;
+    const amount = parseAmount(formData.get("amount"), basis);
     const column = DIRECT_SERVICE_PRODUCTION_INPUT[ctx.serviceIdentity];
 
     const [existing] = await db
@@ -164,20 +172,28 @@ export async function updateDirectServiceProduction(
       )
       .limit(1);
 
-    const before = existing
-      ? (existing[column as keyof typeof existing] as string | null)
-      : null;
+    const before = existing?.directServiceCostBasis === "per_unit"
+      ? existing.directServiceUnitCost
+      : existing
+        ? (existing[column as keyof typeof existing] as string | null)
+        : null;
+
+    const values = {
+      directServiceCostBasis: basis,
+      directServiceUnitCost: basis === "per_unit" ? amount : null,
+      [column]: basis === "total" ? amount : null,
+    };
 
     if (existing) {
       await db
         .update(assemblyProductionInputs)
-        .set({ [column]: amount })
+        .set(values)
         .where(eq(assemblyProductionInputs.id, existing.id));
     } else {
       await db.insert(assemblyProductionInputs).values({
         quoteLeafId,
         tierId,
-        [column]: amount,
+        ...values,
       });
     }
 
@@ -195,6 +211,8 @@ export async function updateDirectServiceProduction(
         service_identity: ctx.serviceIdentity,
         input: DIRECT_SERVICE_PRODUCTION_LABEL[ctx.serviceIdentity],
         column,
+        basis_from: existing?.directServiceCostBasis ?? "total",
+        basis_to: basis,
         from: before,
         to: amount,
       },

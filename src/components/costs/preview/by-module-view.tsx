@@ -7,6 +7,7 @@ import { ChargeStateTag, firstAnsweredRead } from "./spreadsheet-view";
 import { packagingReadKey, type PackagingLineTierRead } from "@/lib/costs/packaging-line-graph-read";
 import { fmtPct1 } from "@/lib/money-display";
 import { M3Editor } from "./m3-editor-boundary";
+import { SkuAccountingNote } from "./sku-accounting-note";
 import {
   flattenOwners,
   type CostsOverview,
@@ -172,6 +173,15 @@ function OwnerAccordion({
 
       {open && (
         <div className="cm2-owner-body">
+          {owner.quoteLeafId && (owner.kind === "group_member" || owner.kind === "direct_product") && (
+            <SkuAccountingNote
+              quoteId={quoteId}
+              quoteLeafId={owner.quoteLeafId}
+              sku={owner.sku}
+              value={owner.accountingNote}
+              editable={editMode}
+            />
+          )}
           {owner.kind === "direct_service" ? (
             <ServiceGroup owner={owner} tiers={tiers} tier={tierCtx} />
           ) : (
@@ -410,7 +420,7 @@ function ServiceGroup({
       <GroupHead
         title="Service cost"
         chip="own quote line"
-        sub="line total per tier"
+        sub="per-unit or total cost for each tier"
         itemLabel="line"
         tailLabel="accounting item"
         tiers={tiers}
@@ -425,12 +435,12 @@ function ServiceGroup({
             <ValueCell
               key={t.id}
               stored={line.amounts.get(t.id) ?? null}
-              tierLabel={`${t.label} · line total as recorded`}
+              tierLabel={`${t.label} · ${line.basisByTier?.get(t.id) === "per_unit" ? "cost per unit" : "total cost"}`}
               highlighted={t.id === tier.activeTierId}
             />
           ))}
           <TextCell text="—" />
-          <div className="cm2-tail">line total</div>
+          <div className="cm2-tail">service cost</div>
         </div>
       ))}
     </div>

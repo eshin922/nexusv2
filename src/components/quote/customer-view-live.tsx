@@ -342,6 +342,22 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                   ))}
                 </div>
 
+                {turnkey && skus.length > 0 && (
+                  <div className="pp-tbody" role="rowgroup">
+                    {skus.map((s, index) => <Fragment key={s.id ?? `${s.label}:${s.name}`}>
+                      {s.itemGroup && (index === 0 || skus[index - 1]?.itemGroup?.id !== s.itemGroup.id) && (
+                        <div className="pp-tr pp-tr-name-only" role="row">
+                          <div className="pp-c-prod" role="rowheader"><div className="pp-prod-name">{s.itemGroup.name}</div></div>
+                        </div>
+                      )}
+                      {!s.itemGroup && (
+                        <div className="pp-tr pp-tr-name-only" role="row">
+                          <div className="pp-c-prod" role="rowheader"><div className="pp-prod-name">{s.name}</div></div>
+                        </div>
+                      )}
+                    </Fragment>)}
+                  </div>
+                )}
                 {!turnkey && (
                   <div className="pp-tbody" role="rowgroup">
                     {skus.map((s, index) => (
@@ -497,8 +513,8 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
               {/* ── Turnkey total ─────────────────────────────────── */}
               <div className="pp-grand" role="row">
                 <div className="pp-c-prod" role="rowheader">
-                  <div className="g-label">Turnkey total</div>
-                  <div className="g-sub">all-in for this tier&rsquo;s order</div>
+                  <div className="g-label">Turnkey price</div>
+                  <div className="g-sub">all-in per unit</div>
                 </div>
                 {cols.map(({ ti, tier, rec }) => {
                   const m = tiers[ti].money;
@@ -520,12 +536,10 @@ export function CustomerViewLive({ view }: { view: CustomerView }) {
                             {m.hasUnpricedLine && (
                               <span className="from">from </span>
                             )}
-                            {money(total)}
+                            {unit(per)}<span className="per"> /unit</span>
                           </span>
                           <div className="pp-grand-unit">
-                            {m.hasUnpricedLine ? "from " : ""}
-                            {unit(per)}
-                            <span className="per"> /unit</span>
+                            Order total {m.hasUnpricedLine ? "from " : ""}{money(total)}
                           </div>
                         </>
                       )}

@@ -129,12 +129,13 @@ test("the bulk CTA counts and stages only lift-ELIGIBLE cells", () => {
   assert.match(need, /const need = outstanding\.filter\([\s\S]{0,120}?!c\.lift_blocked/,
     "blocked cells must be excluded from the set the button counts AND mutates");
   assert.match(need, /const blocked = outstanding\.filter\(\(c\) => c\.lift_blocked\)/);
-  // And the section's own visibility uses the same predicate, so a tier whose
-  // only breaches are direct-priced does not render an actionable CTA at all.
+  // The tier action section is always visible now because it also offers
+  // target and custom-margin actions. The floor CTA itself remains gated by
+  // the exact set it counts and stages.
   assert.match(
     grid,
-    /state\.cells\.some\(\(c\) =>[\s\S]{0,120}?!c\.lift_blocked/,
-    "the section gate must use the same eligibility test as the button",
+    /need\.length > 0 \? \([\s\S]{0,1800}?Lift all \{need\.length\} to floor/,
+    "the floor action must render only when the eligible set is nonempty",
   );
 });
 

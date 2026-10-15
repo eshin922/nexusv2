@@ -86,6 +86,7 @@ export type OverviewMemberFact = {
   quoteLeafId: string;
   name: string;
   sku: string;
+  accountingNote?: string | null;
   /** Membership quantity, as stored. A real structural quantity, never display. */
   quantity: string | null;
   position: number;
@@ -97,6 +98,7 @@ export type OverviewDirectProductFact = {
   quoteLeafId: string;
   name: string;
   sku: string;
+  accountingNote?: string | null;
   quantity: string | null;
   position: number;
   productType: string | null;
@@ -110,6 +112,7 @@ export type OverviewDirectServiceFact = {
   position: number;
   /** tierId → the amount stored in this service's ONE governed column. */
   amountsByTier: Record<string, string | null>;
+  basisByTier?: Record<string, "total" | "per_unit">;
 };
 
 /** One `assembly_leaf_inputs` row, as stored. */
@@ -243,6 +246,7 @@ export type OverviewProductionLine = {
   label: string;
   /** tierId → amount as stored. Absent key means no row for that tier. */
   amounts: ReadonlyMap<string, string | null>;
+  basisByTier?: ReadonlyMap<string, "total" | "per_unit">;
 };
 
 /**
@@ -288,6 +292,8 @@ export type OverviewOwner = {
   assemblyId: string | null;
   name: string;
   sku: string;
+  /** Internal instruction on this quote's product attachment. */
+  accountingNote: string | null;
   /** Recorded catalogue Product Type, raw stored value. NULL where unclassified. */
   productType: string | null;
   /** Membership / attachment quantity, as stored. */
@@ -562,6 +568,7 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
           assemblyId: m.assemblyId,
           name: m.name,
           sku: m.sku,
+          accountingNote: m.accountingNote ?? null,
           productType: m.productType,
           quantity: m.quantity,
           serviceIdentity: null,
@@ -580,6 +587,7 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
       assemblyId: assembly.id,
       name: assembly.name,
       sku: assembly.sku,
+      accountingNote: null,
       productType: null,
       quantity: null,
       serviceIdentity: null,
@@ -599,6 +607,7 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
       assemblyId: null,
       name: p.name,
       sku: p.sku,
+      accountingNote: p.accountingNote ?? null,
       productType: p.productType,
       quantity: p.quantity,
       serviceIdentity: null,
@@ -623,6 +632,7 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
       assemblyId: null,
       name: s.associatedProduct ? `${s.name} · for ${s.associatedProduct.name}` : s.name,
       sku: s.associatedProduct?.sku ?? "",
+      accountingNote: null,
       productType: null,
       quantity: null,
       serviceIdentity: s.serviceIdentity,
@@ -639,8 +649,9 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
           // identity — never from whichever column happens to hold a value,
           // which would accept an amount this service may not author.
           field: DIRECT_SERVICE_PRODUCTION_INPUT[s.serviceIdentity],
-          label: `${DIRECT_SERVICE_LABELS[s.serviceIdentity]} · service line total`,
+          label: DIRECT_SERVICE_LABELS[s.serviceIdentity],
           amounts,
+          basisByTier: new Map(Object.entries(s.basisByTier ?? {})),
         },
       ],
       charges: chargesByOwner.get(s.quoteLeafId) ?? [],

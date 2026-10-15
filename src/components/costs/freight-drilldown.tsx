@@ -10,7 +10,7 @@ import {
   deleteFreightDestination,
   deleteFreightSubcategory,
   selectFreightDestination,
-  updateFreightCustomsBreak,
+  updateFreightCustomsSkuBreak,
   updateFreightCustomsEntry,
   updateFreightDestination,
   updateFreightDestinationBreakGroup,
@@ -40,6 +40,7 @@ import { FREIGHT_LEG_MODES, enumLabel } from "@/lib/enum-labels";
 import { alignBreaksToTiers } from "@/lib/freight-tier-cells";
 import { useCostingStore, useCostingStoreApi } from "@/components/costing-store-provider";
 import { FreightCompletion } from "@/components/costs/module-completion";
+import { activeCustomsChargeRows } from "@/lib/costs/customs-sku-selection";
 import type { FreightSelectableComponent } from "@/lib/freight-selectable-components";
 
 type Tier = { id: string; label: string; qty: number | null; recommended?: boolean };
@@ -316,21 +317,22 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, q
   const forcedSupport = destinations.length > 1 && (!!selected && !shipment.selectionReason || !!staleTracking);
   const shownSupport = supportOpen || forcedSupport;
   const coversProduct = memberships.length === components.filter((item: Component) => item.assemblyId === shipment.assemblyId).length;
-  const memberQuantities = tiers.map((tier: Tier) => {
+  const memberQuantities = (tiers as Tier[]).map((tier) => {
     const units = memberships.map((membership: { quoteLeafId: string }) =>
       quantityRollups.find((row: { canonicalQuoteLeafId: string | null }) => row.canonicalQuoteLeafId === membership.quoteLeafId)
         ?.perTier.find((row: { tierId: string }) => row.tierId === tier.id)?.orderQuantity,
     );
     return !shipment.splitPlan && units.length > 0 && units.every((value: number | null | undefined) => value != null)
-      ? `${tier.label}: ${units.map((value: number) => value.toLocaleString()).join(" + ")} = ${units.reduce((sum: number, value: number) => sum + value, 0).toLocaleString()} SKU units`
+      ? { tierId: tier.id, label: `${tier.label}: ${units.reduce((sum: number, value: number) => sum + value, 0).toLocaleString()} units across ${units.length} ${units.length === 1 ? "SKU" : "SKUs"}`,
+          detail: units.map((value: number) => value.toLocaleString()).join(" + ") }
       : null;
-  }).filter(Boolean);
+  }).filter((value): value is { tierId: string; label: string; detail: string } => value !== null);
   return <div className={`fr-sc${destinations.length === 1 ? " solo" : ""}${shipment.crossesInternationalBorder ? " import" : ""}`}>
     <div className="fr-schead">
       <div className="fr-eyebrow"><span className="num">{index + 1} of {count}</span><span>what ships</span><span className={shipment.crossesInternationalBorder ? "kind" : undefined}>· {shipment.crossesInternationalBorder ? "import · clears customs" : "domestic · no border"}</span></div>
       <div className="fr-scname"><span className="ships">{shipment.label}</span><span className="from">from {shipment.origin || "not set"}</span>{destinations.length > 1 && <span className={`count${shipment.selectedDestinationId ? "" : " undecided"}`}>{destinations.length} destinations priced</span>}</div>
       {shipment.splitPlan && <div className="fr-split-summary"><strong>{shipment.splitPlan.percentage}% shipment</strong>{shipment.splitPlan.quantities.map((quantity: any) => <span key={quantity.tierId}>{quantity.units.toLocaleString("en-US")} of {quantity.total.toLocaleString("en-US")} units</span>)}</div>}
-      <div className="fr-shipment-meta"><div className="fr-skus">{coversProduct ? <span className="fr-chip all">all {memberships.length} SKUs</span> : <>{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</>}{memberQuantities.length > 0 && <span className="fr-quantity-summary">{memberQuantities.join(" · ")}</span>}</div>
+      <div className="fr-shipment-meta"><div className="fr-skus">{coversProduct ? <span className="fr-chip all">all {memberships.length} SKUs</span> : <>{memberships.map((membership: any) => { const item = components.find((component: Component) => component.quoteLeafId === membership.quoteLeafId); return item ? <span className="fr-chip on" key={item.quoteLeafId} title={item.label}>{item.sku || item.label}</span> : null; })}</>}{memberQuantities.map((summary) => <span className="fr-quantity-summary" key={summary.tierId} title={summary.detail}>{summary.label}</span>)}</div>
       <div className="fr-fields"><Fact label="carrier" value={shipment.carrierForwarder}/><Fact label="incoterm" value={shipment.incoterm}/><Fact label="journey" value={shipment.journeyLabel}/><Fact label="cargo ready" value={shipment.cargoReadyDate}/>{shipment.treatment === "pass_through" && <Fact label="treatment" value="pass-through"/>}</div>
       </div>
       {!selected && destinations.length > 1 && <DecisionSummary shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>}
@@ -340,7 +342,7 @@ function ShipmentLedger({ shipment, index, count, tiers, workbook, components, q
     {destinations.map((destination: any) => <DestinationRow shipReads={shipReads} key={destination.id} destination={destination} shipment={shipment} destinations={destinations} selected={selected} tiers={tiers} workbook={workbook} editable={editable} busy={busy} open={openDestinations.includes(destination.id)} toggle={() => setOpenDestinations((rows: string[]) => rows.includes(destination.id) ? rows.filter((id) => id !== destination.id) : [...rows, destination.id])} submit={submit}/>)}
 
     {editable && <InlineDestination shipmentId={shipment.id} pending={busy(`addDestination:${shipment.id}`)} makeSubmit={(onSuccess: () => void) => submit(addFreightDestination, `addDestination:${shipment.id}`, onSuccess)}/>}
-    {shipment.crossesInternationalBorder && <CustomsLedger shipReads={shipReads} shipment={shipment} tiers={tiers} entry={customsEntry} workbook={workbook} editable={editable} pending={busy(`customsBreak:${shipment.id}`) || busy(`customsEntry:${shipment.id}`)} submitBreak={submit(updateFreightCustomsBreak, `customsBreak:${shipment.id}`)} submitEntry={submit(updateFreightCustomsEntry, `customsEntry:${shipment.id}`)}/>}
+    {shipment.crossesInternationalBorder && <CustomsLedger shipReads={shipReads} shipment={shipment} tiers={tiers} entry={customsEntry} workbook={workbook} components={components} editable={editable} pending={busy(`customsBreak:${shipment.id}`) || busy(`customsEntry:${shipment.id}`)} submitBreak={submit(updateFreightCustomsSkuBreak, `customsBreak:${shipment.id}`)} submitEntry={submit(updateFreightCustomsEntry, `customsEntry:${shipment.id}`)}/>}
     <div className="fr-fold"><button className={`fr-foldbtn${shownSupport ? " on" : ""}`} onClick={() => setSupportOpen(!shownSupport)} disabled={forcedSupport}><span className="cv">{shownSupport ? "▾" : "▸"}</span>{shownSupport ? "Hide supporting detail" : "Supporting detail"}</button><span className="fr-chips">{supportChips(shipment, destinations, tracking, staleTracking).map((chip) => <span className={`fr-fchip${chip.warn ? " warn" : ""}`} key={chip.t}>{chip.t}</span>)}</span>{forcedSupport && <span className="fr-forced">kept open — needs attention</span>}</div>
     {shownSupport && <><Comparison destinations={destinations} selected={selected} tiers={tiers} workbook={workbook}/>{destinations.length > 1 && <SelectionReason shipment={shipment} selected={selected} editable={editable} pending={busy(`selectDestination:${shipment.id}`)} submit={submit(selectFreightDestination, `selectDestination:${shipment.id}`)}/>}<TrackingStrip selected={selected} tracking={displayedTracking} stale={staleTracking} pending={busy(`tracking:${shipment.id}`)} submit={submit(updateFreightTracking, `tracking:${shipment.id}`)}/></>}
   </div>;
@@ -413,7 +415,7 @@ function InlineDestination({ shipmentId, pending, makeSubmit }: any) {
   const submit = makeSubmit(() => setIdempotencyKey(crypto.randomUUID()));
   return <div className="fr-add">{!open ? <button className="fr-addbtn" onClick={openForm}><span className="pl">+</span> Another destination</button> : <form action={submit} className="fr-dest-draft"><input type="hidden" name="freightSubcategoryId" value={shipmentId}/><input type="hidden" name="idempotencyKey" value={idempotencyKey}/><input className="fr-din" autoFocus required name="destination" placeholder="destination — e.g. Aurora, OH"/><input className="fr-din" name="transitDays" placeholder="transit days"/><input className="fr-din" name="consignee" placeholder="consignee — optional"/><input className="fr-note" name="internalNotes" placeholder="note — optional"/><button className="btn primary" disabled={pending} title={pending ? "Adding this destination…" : undefined}>{pending ? "Adding…" : "Add destination"}</button><button className="btn ghost" type="button" onClick={() => setOpen(false)}>Cancel</button></form>}<span className="fr-addnote">A second destination makes this a choice: one goes in the price, the rest stay as the comparison that justified it.</span></div>; }
 
-function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, submitBreak, submitEntry, shipReads }: any) {
+function CustomsLedger({ shipment, tiers, entry, workbook, components, editable, pending, submitBreak, submitEntry, shipReads }: any) {
   // Keep customs columns on the same rails as the destination freight grid
   // above: one shipment-detail column, then one column per quote tier.
   const columns = `minmax(300px, 1.8fr) repeat(${tiers.length}, minmax(128px, 1fr))`;
@@ -427,15 +429,18 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
       entryDescription: root.querySelector<HTMLInputElement>('[name="entryDescription"]')?.value,
     }));
   };
-  const saveBreak = (chargeType: string, tierId: string) => {
+  const members = workbook.memberships.filter((row: any) => row.freightSubcategoryId === shipment.id);
+  const saveBreak = (chargeType: string, tierId: string, quoteLeafId: string) => {
     const root = customsRef.current;
     if (!root) return;
+    const key = `${chargeType}:${tierId}:${quoteLeafId}`;
     submitBreak(fields({
       freightSubcategoryId: shipment.id,
       tierId,
       chargeType,
-      amount: root.querySelector<HTMLInputElement>(`[data-customs-amount="${chargeType}:${tierId}"]`)?.value,
-      markupPct: root.querySelector<HTMLInputElement>(`[data-customs-markup="${chargeType}:${tierId}"]`)?.value,
+      quoteLeafId,
+      amount: root.querySelector<HTMLInputElement>(`[data-customs-amount="${key}"]`)?.value,
+      markupPct: root.querySelector<HTMLInputElement>(`[data-customs-markup="${key}"]`)?.value,
     }));
   };
   return <div className="fr-customs" ref={customsRef}>
@@ -446,38 +451,39 @@ function CustomsLedger({ shipment, tiers, entry, workbook, editable, pending, su
         <input className="fr-note" name="entryDescription" defaultValue={entry?.entryDescription ?? ""} placeholder="entry note" disabled={!editable} onBlur={saveEntry}/>
       </span>
     </div>
+    <div className="fr-customs-guidance">Enter the total Duty and Tariff cost for each SKU in the shipment. Each total is assigned only to that SKU. Existing pooled amounts remain in the price until every SKU is filled for that charge and tier.</div>
     <div className="fr-cgrid fr-chd" style={{ gridTemplateColumns: columns }}>
-      <div>charge · entered per tier</div>
+      <div>Duty and tariff · total cost per SKU</div>
       {tiers.map((tier: Tier) => <div className="n" key={tier.id}>{tier.label} · {tier.qty?.toLocaleString()} units</div>)}
     </div>
-    {(["duty", "tariff"] as const).map((chargeType) => {
-      const label = chargeType === "duty" ? "Duty" : "Tariff";
-      return <div className="fr-cgrid fr-crow" style={{ gridTemplateColumns: columns }} key={chargeType}>
-        <div className="lb"><span className="n">{label}</span></div>
-        {tiers.map((tier: Tier) => {
-          const current = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType);
+    {members.map((member: any) => {
+      const component = components.find((row: Component) => row.quoteLeafId === member.quoteLeafId);
+      return <div className="fr-cgrid fr-crow fr-customs-sku-row" style={{ gridTemplateColumns: columns }} key={member.quoteLeafId}>
+        <div className="lb"><span className="n">{component?.sku || component?.label || "SKU"}</span><span className="d">{component?.label}</span></div>
+        {tiers.map((tier: Tier) => <div className="fr-customs-sku-cell" key={tier.id}>{(["duty", "tariff"] as const).map((chargeType) => {
+          const label = chargeType === "duty" ? "Duty" : "Tariff";
+          const current = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType && row.quoteLeafId === member.quoteLeafId);
+          const legacy = entry && workbook.customsBreaks.find((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id && row.chargeType === chargeType && !row.quoteLeafId);
           const amount = Number(current?.amount ?? 0);
-          const markup = Number(current?.markupPct ?? 0);
-          return <div className="n fr-customs-fields" key={tier.id}>
-            <input className="fr-in" data-customs-amount={`${chargeType}:${tier.id}`} type="number" min="0" step="0.01" aria-label={`${label} amount for ${tier.label}`} defaultValue={current?.amount ?? ""} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)}/>
-            <div className="mrow"><span className="x" aria-hidden="true">×</span><input className="fr-in pct" data-customs-markup={`${chargeType}:${tier.id}`} type="number" min="0" max="999" step="1" placeholder="0" aria-label={`${label} markup for ${tier.label}, whole percent`} title="Enter whole percent — 10 means 10%" defaultValue={current?.markupPct === null || current?.markupPct === undefined ? "" : Number(current.markupPct) * 100} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id)}/><span className="pct-symbol" aria-hidden="true">%</span><span className="arr" aria-hidden="true">→</span><span className="sell">{money2(amount * (1 + markup))}</span></div>
-            {/* DELIBERATELY NOT routed through computeShipmentContribution.
-                This is a marked-up TOTAL for one charge line, not a per-unit
-                contribution, and the engine function always divides by tier
-                units. Reconstructing the total as `billablePerUnit x units`
-                would render 0 whenever tier.qty is 0 or null, where this
-                correctly still shows the entered amount plus its markup.
-                Converting it would trade a duplicate for a defect. */}
-            <span className="s">sell total</span>
+          const markup = Number(current?.markupPct ?? legacy?.markupPct ?? 0);
+          const key = `${chargeType}:${tier.id}:${member.quoteLeafId}`;
+          return <div className="fr-customs-charge" key={chargeType}>
+            <label className="fr-customs-charge-label" htmlFor={`customs-${key}`}>{label}</label>
+            <input id={`customs-${key}`} className="fr-in" data-customs-amount={key} type="number" min="0" step="0.01" aria-label={`${label} total cost for ${component?.sku || component?.label || "SKU"}, ${tier.label}`} defaultValue={current?.amount ?? ""} placeholder="total cost" disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id, member.quoteLeafId)}/>
+            <input className="fr-in pct" data-customs-markup={key} type="number" min="0" max="999" step="1" placeholder="0" aria-label={`${label} markup for ${component?.sku || component?.label || "SKU"}, ${tier.label}, whole percent`} title="Enter whole percent — 10 means 10%" defaultValue={current?.markupPct === null || current?.markupPct === undefined ? legacy?.markupPct == null ? "" : Number(legacy.markupPct) * 100 : Number(current.markupPct) * 100} disabled={!editable} onBlur={() => saveBreak(chargeType, tier.id, member.quoteLeafId)}/><span className="pct-symbol" aria-hidden="true">%</span><span className="sell">{current?.amount == null ? "—" : money2(amount * (1 + markup))}</span>
           </div>;
-        })}
+        })}</div>)}
       </div>;
     })}
     <div className="fr-cgrid fr-crow tot" style={{ gridTemplateColumns: columns }}>
       <div className="lb"><span className="n">Carried to every destination</span></div>
       {tiers.map((tier: Tier) => {
         const rows = entry ? workbook.customsBreaks.filter((row: any) => row.freightCustomsEntryId === entry.id && row.tierId === tier.id) : [];
-        const amount = rows.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0), 0);
+        const amount = (["duty", "tariff"] as const).reduce((sum, chargeType) => {
+          const chargeRows = rows.filter((row: any) => row.chargeType === chargeType);
+          const active = activeCustomsChargeRows(chargeRows, members.map((member: any) => member.quoteLeafId));
+          return sum + active.reduce((chargeSum: number, row: any) => chargeSum + Number(row.amount ?? 0), 0);
+        }, 0);
         // Per-unit customs sell now comes from the engine: duty + tariff
         // billable per unit. The cost total above is a plain sum of entered
         // amounts and carries no markup, so it stays as it is.

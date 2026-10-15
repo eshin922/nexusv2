@@ -1,9 +1,10 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import {
   quoteSnapshotLineTiers,
   quoteSnapshotLines,
   quoteSnapshotTierTotals,
+  quoteLeaves,
   quoteSnapshots,
   quotes,
 } from "@/db/schema";
@@ -79,6 +80,21 @@ export async function freezeCommercialLineSet(
     });
   }
 
+  // Internal SKU instructions are quote-scoped, never taken from the Library.
+  // Freeze them on the same commercial lines Accounting will later receive.
+  const productLeafIds = [...new Set(
+    projection.lines
+      .filter((line) => line.kind === "direct_product" || line.kind === "item_group_member")
+      .map((line) => line.quoteLeafId)
+      .filter((id): id is string => id !== null),
+  )];
+  const productNotes = productLeafIds.length > 0
+    ? await tx.select({ id: quoteLeaves.id, note: quoteLeaves.accountingNote })
+        .from(quoteLeaves)
+        .where(inArray(quoteLeaves.id, productLeafIds))
+    : [];
+  const accountingNoteByLeafId = new Map(productNotes.map((row) => [row.id, row.note]));
+
   for (const [position, line] of projection.lines.entries()) {
     const [row] = await tx
       .insert(quoteSnapshotLines)
@@ -89,6 +105,9 @@ export async function freezeCommercialLineSet(
         quoteLeafId: line.quoteLeafId,
         displayName: line.displayName,
         displaySku: line.displaySku,
+        accountingNote: line.quoteLeafId && (line.kind === "direct_product" || line.kind === "item_group_member")
+          ? accountingNoteByLeafId.get(line.quoteLeafId) ?? null
+          : null,
         serviceIdentity: line.serviceIdentity,
         // Persisted so the frozen row is self-describing. Re-deriving it at
         // push time would mean string-matching `displayName`, and a copy

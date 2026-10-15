@@ -1117,8 +1117,17 @@ export async function setTierRecommended(
     const quote = await loadQuoteOrThrow(tier.quoteId);
     assertDraft(quote);
 
+    const [profile] = await db.select({
+      layout: presentationProfile.layout,
+    }).from(presentationProfile).where(and(
+      eq(presentationProfile.quoteId, tier.quoteId),
+      eq(presentationProfile.quoteVersion, quote.versionNumber),
+    )).limit(1);
     if (tier.recommended === recommended) {
       return { tierId, recommended };
+    }
+    if (profile?.layout === "single_tier") {
+      throw new ActionGuardError(ERR.VALIDATION, "Switch to the tier table before changing the recommendation.");
     }
 
     if (recommended) {
@@ -1168,6 +1177,15 @@ export async function deleteTier(formData: FormData): Promise<ActionResult<void>
 
   const quote = await loadQuoteOrThrow(tier.quoteId);
   assertDraft(quote);
+
+  const [displayed] = await db.select({ id: presentationProfile.id })
+    .from(presentationProfile).where(and(
+      eq(presentationProfile.quoteId, tier.quoteId),
+      eq(presentationProfile.quoteVersion, quote.versionNumber),
+      eq(presentationProfile.layout, "single_tier"),
+      eq(presentationProfile.presentedTierId, tierId),
+    )).limit(1);
+  if (displayed) throw new ActionGuardError(ERR.VALIDATION, "Switch to the tier table before deleting the displayed tier.");
 
   await db.delete(quoteTiers).where(eq(quoteTiers.id, tierId));
 
@@ -3831,8 +3849,10 @@ async function cloneFreightWorksheet(
     const freightCustomsEntryId = customsEntryIdMap.get(row.freightCustomsEntryId);
     const tierId = tierIdMap.get(row.tierId);
     if (!freightCustomsEntryId || !tierId) throw new Error("clone: customs break has unmapped identity");
+    const quoteLeafId = row.quoteLeafId ? quoteLeafIdMap.get(row.quoteLeafId) : null;
+    if (row.quoteLeafId && !quoteLeafId) throw new Error("clone: customs SKU has unmapped identity");
     await tx.insert(freightCustomsBreaks).values({
-      freightCustomsEntryId, tierId, chargeType: row.chargeType,
+      freightCustomsEntryId, tierId, chargeType: row.chargeType, quoteLeafId,
       amount: row.amount, markupPct: row.markupPct, rateBase: row.rateBase,
       ratePct: row.ratePct, detail: row.detail,
       source: row.source, fieldProvenance: row.fieldProvenance,
@@ -4115,6 +4135,24 @@ export async function cloneQuoteGraph(
     quoteLeafIdMap.set(direct.id, attached.quoteLeafId);
   }
 
+  // Product instructions belong to the quote attachment, not the Library.
+  // Carry them to the copy's own leaf ids after both grouped and direct
+  // attachments have been remapped.
+  const sourceAccountingNotes = await tx
+    .select({ id: quoteLeaves.id, note: quoteLeaves.accountingNote })
+    .from(quoteLeaves)
+    .where(eq(quoteLeaves.quoteId, args.sourceQuoteId));
+  for (const source of sourceAccountingNotes) {
+    if (source.note === null) continue;
+    const copiedId = quoteLeafIdMap.get(source.id);
+    if (!copiedId) {
+      throw new Error(`clone: accounting note has unmapped quote leaf ${source.id}`);
+    }
+    await tx.update(quoteLeaves)
+      .set({ accountingNote: source.note })
+      .where(eq(quoteLeaves.id, copiedId));
+  }
+
   // ── assembly_production_inputs — BOTH owner branches ────────────────────
   //
   // Stage 3 A gave this table a second owner, and moving the clone here is the
@@ -4171,6 +4209,8 @@ export async function cloneQuoteGraph(
           tierId: newTierId,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
           notes: r.notes,
+          directServiceCostBasis: r.directServiceCostBasis,
+          directServiceUnitCost: r.directServiceUnitCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
           setupFeeTotal: r.setupFeeTotal,
@@ -5385,6 +5425,7 @@ export async function markComplete(
       // Reported separately: a spec transfer outcome never changes the
       // commercial result above.
       specTransferStatus: result.specTransfer.status,
+      lineAccountingNoteStatus: result.lineAccountingNotes.status,
     };
   });
 }
@@ -5416,6 +5457,26 @@ export async function retryOrderedSpecTransfer(
       exceptions: out.exceptionCount ?? 0,
       failed: out.failedCount ?? 0,
     };
+  });
+}
+
+/** Retry frozen SKU instructions without changing the commercial order. */
+export async function retryLineAccountingNoteTransfer(
+  formData: FormData,
+): Promise<ActionResult<{ status: string; expected: number; verified: number }>> {
+  return runAction(async () => {
+    await ensureUser();
+    const quoteId = String(formData.get("quoteId") ?? "").trim();
+    if (!quoteId) throw new ActionGuardError(ERR.VALIDATION, "quoteId is required.");
+    const { runLineAccountingNoteTransfer } = await import(
+      "@/lib/netsuite/line-accounting-note-transfer"
+    );
+    const out = await runLineAccountingNoteTransfer({ quoteId });
+    if ("reason" in out) throw new ActionGuardError(ERR.VALIDATION, out.reason);
+    if (out.status === "failed") {
+      throw new ActionGuardError(ERR.VALIDATION, out.errors.join("; "));
+    }
+    return { status: out.status, expected: out.expected, verified: out.verified };
   });
 }
 

@@ -16,6 +16,7 @@ import { fmtPct1 } from "@/lib/money-display";
 import { M3Editor } from "./m3-editor-boundary";
 import { firstAnsweredRead } from "./spreadsheet-view";
 import { OrderQuantity } from "./order-quantity";
+import { SkuAccountingNote } from "./sku-accounting-note";
 
 /**
  * BY PRODUCT — prototype `editor()` / `edSection()` / `edCard()` / `edField()`.
@@ -133,6 +134,16 @@ export function ByProductView({
             ))}
           </span>
         </div>
+
+        {owner.quoteLeafId && (owner.kind === "group_member" || owner.kind === "direct_product") && (
+          <SkuAccountingNote
+            quoteId={quoteId}
+            quoteLeafId={owner.quoteLeafId}
+            sku={owner.sku}
+            value={owner.accountingNote}
+            editable={editMode}
+          />
+        )}
 
         {owner.kind === "item_group" && (
           <div className="cm2-group-foot">
@@ -262,17 +273,17 @@ export function ByProductView({
             <article className="cm2-edcard" key={line.field}>
               <div className="cm2-edtitle">
                 <span className="cm2-edtitle-text">{line.label}</span>
-                <Tag>tier total</Tag>
+                <Tag>{owner.kind === "direct_service" ? "service cost" : "tier total"}</Tag>
               </div>
               <div className="cm2-edgrid">
                 {overview.tiers.map((t) => (
                   <EdField
                     key={t.id}
-                    label={`Tier total · ${t.label}`}
+                    label={`${line.basisByTier?.get(t.id) === "per_unit" ? "Cost per unit" : "Total cost"} · ${t.label}`}
                     value={line.amounts.get(t.id) ?? null}
                     hint={
                       t.qty === null
-                        ? "never multiplied by unit quantity"
+                        ? "quantity needed for per-unit total"
                         : `${t.qty.toLocaleString("en-US")} unit alternative`
                     }
                     mono
@@ -285,7 +296,7 @@ export function ByProductView({
                       ? "this service's own Production input"
                       : "the group's Production module"
                   }
-                  hint="a total for the tier"
+                  hint={owner.kind === "direct_service" ? "per-unit costs scale with tier quantity" : "a total for the tier"}
                   span
                 />
               </div>

@@ -26,7 +26,7 @@
 //     interacted with the toggles. Acceptable v1; if it matters
 //     later, we can add a debounced URL push.
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type {
   CustomerViewDetailLevel,
   CustomerViewPdfLayout,
@@ -61,6 +61,13 @@ export function QuoteAxisProvider({
   const [includeSpecAddendum, setIncludeSpecAddendum] = useState<boolean>(
     initialIncludeSpecAddendum,
   );
+
+  // A server revalidation can change the saved presentation profile while
+  // this provider stays mounted. Keep the download/send axes aligned with the
+  // customer document the server has just resolved.
+  useEffect(() => { setPdfLayout(initialPdfLayout); }, [initialPdfLayout]);
+  useEffect(() => { setDetailLevel(initialDetailLevel); }, [initialDetailLevel]);
+  useEffect(() => { setIncludeSpecAddendum(initialIncludeSpecAddendum); }, [initialIncludeSpecAddendum]);
 
   return (
     <Ctx.Provider

@@ -270,6 +270,7 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
     const allowed = new Set(allowedRows.map((row) => row.id));
     if (memberIds.some((memberId) => !allowed.has(memberId))) throw new ActionGuardError(ERR.VALIDATION, "Shipment membership must belong to its Quote");
     const beforeMembers = await db.select({ id: freightSubcategoryItems.quoteLeafId }).from(freightSubcategoryItems).where(eq(freightSubcategoryItems.freightSubcategoryId, id));
+    const removedMemberIds = beforeMembers.map((row) => row.id).filter((memberId) => !memberIds.includes(memberId));
     const fields = ["label", "origin", "carrierForwarder", "incoterm", "cargoReadyDate", "journeyLabel", "treatment", "crossesInternationalBorder"];
     await db.transaction(async (tx) => {
       await tx.update(freightSubcategories).set({
@@ -284,6 +285,16 @@ export async function updateFreightSubcategory(fd: FormData): Promise<ActionResu
         freightSubcategoryId: id, quoteLeafId, source: correctedSource(subcategory.source),
         fieldProvenance: provenance(["assemblyLeafId"], correctedSource(subcategory.source)),
       })));
+      if (removedMemberIds.length > 0) {
+        const customsEntries = await tx.select({ id: freightCustomsEntries.id }).from(freightCustomsEntries)
+          .where(eq(freightCustomsEntries.freightSubcategoryId, id));
+        if (customsEntries.length > 0) {
+          await tx.delete(freightCustomsBreaks).where(and(
+            inArray(freightCustomsBreaks.freightCustomsEntryId, customsEntries.map((entry) => entry.id)),
+            inArray(freightCustomsBreaks.quoteLeafId, removedMemberIds),
+          ));
+        }
+      }
       await writeAuditEntry({ userId: user.id, entityType: "freight_subcategory", entityId: id, action: "freight_subcategory_updated", diffJson: { fields, membership: { from: beforeMembers.map((row) => row.id), to: memberIds } } }, tx);
     });
     const revision = await committedRevision();
@@ -721,7 +732,7 @@ export async function updateFreightCustomsBreak(fd: FormData): Promise<ActionRes
       const [row] = await db.insert(freightCustomsBreaks).values({
         freightCustomsEntryId: entry.id, tierId: nextTierId, chargeType, amount: numberOrNull(fd, "amount"), markupPct: markupOrNull(fd, "markupPct"),
         detail: nullable(fd, "detail"), fieldProvenance: provenance(["amount", "markupPct", "detail"]),
-      }).onConflictDoUpdate({ target: [freightCustomsBreaks.freightCustomsEntryId, freightCustomsBreaks.chargeType, freightCustomsBreaks.tierId], set: {
+      }).onConflictDoUpdate({ target: [freightCustomsBreaks.freightCustomsEntryId, freightCustomsBreaks.chargeType, freightCustomsBreaks.tierId], targetWhere: sql`quote_leaf_id IS NULL`, set: {
         amount: numberOrNull(fd, "amount"), markupPct: markupOrNull(fd, "markupPct"), detail: nullable(fd, "detail"), updatedAt: new Date(),
         source: correctedSource(currentBreak?.source ?? "manual"), fieldProvenance: mergeProvenance(currentBreak?.fieldProvenance, ["amount", "markupPct", "detail"], currentBreak?.source ?? "manual"),
       }}).returning({ id: freightCustomsBreaks.id });
@@ -731,6 +742,48 @@ export async function updateFreightCustomsBreak(fd: FormData): Promise<ActionRes
     const revision = await committedRevision();
     revalidateQuoteTree(quote.projectId, quote.id);
     return { ...saved[0], revision };
+  });
+}
+
+/** Record an invoice-entered total against one member SKU, not the shipment. */
+export async function updateFreightCustomsSkuBreak(fd: FormData): Promise<ActionResult<{ id: string; revision: string | null }>> {
+  return runAction(async () => {
+    const subcategoryId = str(fd, "freightSubcategoryId");
+    const tierId = str(fd, "tierId");
+    const quoteLeafId = str(fd, "quoteLeafId");
+    const chargeType = str(fd, "chargeType") as "duty" | "tariff";
+    if (!tierId || !quoteLeafId || !["duty", "tariff"].includes(chargeType)) {
+      throw new ActionGuardError(ERR.VALIDATION, "SKU, tier and customs charge type are required");
+    }
+    const user = await ensureUser();
+    const { quote } = await draftSubcategory(subcategoryId);
+    const [member] = await db.select({ id: freightSubcategoryItems.id }).from(freightSubcategoryItems)
+      .where(and(eq(freightSubcategoryItems.freightSubcategoryId, subcategoryId), eq(freightSubcategoryItems.quoteLeafId, quoteLeafId))).limit(1);
+    const [tier] = await db.select({ id: quoteTiers.id }).from(quoteTiers)
+      .where(and(eq(quoteTiers.id, tierId), eq(quoteTiers.quoteId, quote.id))).limit(1);
+    if (!member || !tier) throw new ActionGuardError(ERR.VALIDATION, "SKU or tier is not part of this shipment");
+    const [entry] = await db.insert(freightCustomsEntries).values({
+      freightSubcategoryId: subcategoryId, fieldProvenance: provenance([]),
+    }).onConflictDoUpdate({ target: freightCustomsEntries.freightSubcategoryId, set: { updatedAt: new Date() } }).returning({ id: freightCustomsEntries.id });
+    const [current] = await db.select().from(freightCustomsBreaks).where(and(
+      eq(freightCustomsBreaks.freightCustomsEntryId, entry.id), eq(freightCustomsBreaks.tierId, tierId),
+      eq(freightCustomsBreaks.chargeType, chargeType), eq(freightCustomsBreaks.quoteLeafId, quoteLeafId),
+    )).limit(1);
+    const amount = numberOrNull(fd, "amount");
+    const markupPct = markupOrNull(fd, "markupPct");
+    const [saved] = await db.insert(freightCustomsBreaks).values({
+      freightCustomsEntryId: entry.id, tierId, quoteLeafId, chargeType, amount, markupPct,
+      fieldProvenance: provenance(["amount", "markupPct"]),
+    }).onConflictDoUpdate({
+      target: [freightCustomsBreaks.freightCustomsEntryId, freightCustomsBreaks.chargeType, freightCustomsBreaks.tierId, freightCustomsBreaks.quoteLeafId],
+      targetWhere: sql`quote_leaf_id IS NOT NULL`,
+      set: { amount, markupPct, updatedAt: new Date(), source: correctedSource(current?.source ?? "manual"),
+        fieldProvenance: mergeProvenance(current?.fieldProvenance, ["amount", "markupPct"], current?.source ?? "manual") },
+    }).returning({ id: freightCustomsBreaks.id });
+    await audit(user.id, "freight_customs_break", saved.id, "freight_customs_sku_break_updated", { chargeType, tierId, quoteLeafId });
+    const revision = await committedRevision();
+    revalidateQuoteTree(quote.projectId, quote.id);
+    return { ...saved, revision };
   });
 }
 

@@ -78,8 +78,9 @@ test("customs duty and tariff updates persist only to the selected tier", () => 
   assert.match(customs, /eq\(quoteTiers\.id, tierId\).*eq\(quoteTiers\.quoteId, quote\.id\)/s);
   assert.match(customs, /const tierIds = \[requestedTier\.id\]/);
   assert.doesNotMatch(customs, /applyToAllTiers/);
-  assert.match(component, /data-customs-amount=\{`\$\{chargeType\}:\$\{tier\.id\}`\}/);
-  assert.match(component, /data-customs-markup=\{`\$\{chargeType\}:\$\{tier\.id\}`\}/);
+  assert.match(component, /data-customs-amount=\{key\}/);
+  assert.match(component, /data-customs-markup=\{key\}/);
+  assert.match(component, /const key = `\$\{chargeType\}:\$\{tier\.id\}:\$\{member\.quoteLeafId\}`/);
 });
 
 test("tracking is the only post-send editable worksheet fact", () => {

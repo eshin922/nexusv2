@@ -69,6 +69,13 @@ export function applyTierVisibility(
       ...s,
       tierPrices: pick(s.tierPrices),
       tierLineTotals: pick(s.tierLineTotals),
+      tierQuantities: s.tierQuantities ? pick(s.tierQuantities) : undefined,
+      itemGroup: s.itemGroup ? {
+        ...s.itemGroup,
+        tierSummaries: s.itemGroup.tierSummaries
+          ? pick(s.itemGroup.tierSummaries)
+          : undefined,
+      } : s.itemGroup,
     })),
     serviceFees: view.serviceFees.map((f) => ({
       ...f,

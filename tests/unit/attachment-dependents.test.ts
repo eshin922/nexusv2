@@ -113,6 +113,7 @@ test("every uncounted cascade carries a stated reason", () => {
     "quote_product_tier_quantities",
     "quote_leaf_lifts",
     "freight_subcategory_items",
+    "freight_customs_breaks",
     "freight_leg_component_tier_costs",
     "quote_other_service_items",
   ]);

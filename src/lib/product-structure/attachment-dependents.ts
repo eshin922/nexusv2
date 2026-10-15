@@ -79,6 +79,8 @@ export async function loadAttachmentDependents(
         WHERE quote_leaf_id = ${quoteLeafId})                          AS lifts,
       (SELECT count(*) FROM freight_subcategory_items
         WHERE quote_leaf_id = ${quoteLeafId})                          AS freight_memberships,
+      (SELECT count(*) FROM freight_customs_breaks
+        WHERE quote_leaf_id = ${quoteLeafId})                          AS customs_costs,
       (SELECT count(*) FROM freight_leg_component_tier_costs
         WHERE quote_leaf_id = ${quoteLeafId})                          AS freight_component_costs,
       (SELECT count(*) FROM quote_other_service_items
@@ -104,6 +106,7 @@ export async function loadAttachmentDependents(
       plural: "freight memberships",
       count: n(r.freight_memberships) + n(r.freight_component_costs),
     },
+    { singular: "customs cost", plural: "customs costs", count: n(r.customs_costs) },
     { singular: "service item", plural: "service items", count: n(r.service_items) },
   ];
 

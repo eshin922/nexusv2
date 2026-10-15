@@ -226,6 +226,7 @@ export default async function CostBuildPage({
     viewer,
     freightHandoffResult,
     productionCompletionResult,
+    skuAccountingNoteRows,
   ] = await Promise.all([
     db
       .select()
@@ -344,7 +345,14 @@ export default async function CostBuildPage({
     // handed over, because it had been handed over and finished.
     getLatestFreightHandoff(quote.id),
     getProductionCompletion(quote.id),
+    db.select({ id: quoteLeaves.id, accountingNote: quoteLeaves.accountingNote })
+      .from(quoteLeaves)
+      .where(eq(quoteLeaves.quoteId, quote.id)),
   ]);
+
+  const skuAccountingNoteById = new Map(
+    skuAccountingNoteRows.map((row) => [row.id, row.accountingNote] as const),
+  );
 
   // Completion state that could not be read is reported as absent rather than
   // failing the page: it is one line inside a module on a surface whose job is
@@ -645,6 +653,7 @@ export default async function CostBuildPage({
     .orderBy(asc(quoteLeaves.position));
 
   const serviceAmounts = new Map<string, Map<string, string | null>>();
+  const serviceBasis = new Map<string, Map<string, "total" | "per_unit">>();
   for (const r of newProdInputRows) {
     const api = r.assembly_production_inputs;
     if (api.quoteLeafId === null) continue;
@@ -656,11 +665,16 @@ export default async function CostBuildPage({
     const col = svc?.serviceIdentity
       ? DIRECT_SERVICE_PRODUCTION_INPUT[svc.serviceIdentity]
       : null;
-    byTier.set(
-      api.tierId,
-      col ? ((api[col as keyof typeof api] as string | null) ?? null) : null,
+    const basis = api.directServiceCostBasis === "per_unit" ? "per_unit" : "total";
+    byTier.set(api.tierId,
+      basis === "per_unit"
+        ? api.directServiceUnitCost
+        : col ? ((api[col as keyof typeof api] as string | null) ?? null) : null,
     );
     serviceAmounts.set(api.quoteLeafId, byTier);
+    const byTierBasis = serviceBasis.get(api.quoteLeafId) ?? new Map();
+    byTierBasis.set(api.tierId, basis);
+    serviceBasis.set(api.quoteLeafId, byTierBasis);
   }
 
   const directServices = serviceLeafRows
@@ -680,6 +694,7 @@ export default async function CostBuildPage({
         : null,
       position: r.position,
       amountsByTier: Object.fromEntries(serviceAmounts.get(r.quoteLeafId) ?? []),
+      basisByTier: Object.fromEntries(serviceBasis.get(r.quoteLeafId) ?? []),
     }));
 
   const prodRows: SyntheticProductionRow[] = [];
@@ -751,6 +766,7 @@ export default async function CostBuildPage({
       quoteLeafId: al.quoteLeafId,
       name: leaf.name,
       sku: leaf.sku ?? "",
+      accountingNote: skuAccountingNoteById.get(al.quoteLeafId) ?? null,
       quantity: al.quantity,
       position: al.position,
       // Source data, as recorded. The raw HubSpot internal value — this page
@@ -766,6 +782,7 @@ export default async function CostBuildPage({
         quoteLeafId: ql.id,
         name: leaf.name,
         sku: leaf.sku ?? "",
+        accountingNote: ql.accountingNote,
         quantity: ql.quantity,
         position: ql.position,
         productType: leaf.hubspotProductType,

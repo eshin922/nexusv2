@@ -520,6 +520,28 @@ export async function patchSalesOrderLineSpecLink(
   });
 }
 
+/** Internal instruction on exactly one Sales Order product line. */
+export async function patchSalesOrderLineAccountingNote(
+  soId: string,
+  lineIdx: number,
+  note: string,
+  config?: NetsuiteConfig,
+): Promise<void> {
+  if (!Number.isInteger(lineIdx) || lineIdx < 0) {
+    throw new Error("[netsuite] accounting-note line index must be non-negative");
+  }
+  if (!note.trim() || note.length > 4000) {
+    throw new Error("[netsuite] accounting note must contain 1–4000 characters");
+  }
+  await nsRequest({
+    method: "PATCH",
+    path: `/record/v1/salesOrder/${encodeURIComponent(soId)}/item/${lineIdx}`,
+    body: { custcol_nx_accounting_note: note },
+    config,
+    maxRetries: 2,
+  });
+}
+
 export async function createRecord(args: {
   recordType: string;
   body: Record<string, unknown>;

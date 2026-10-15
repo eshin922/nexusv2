@@ -1,6 +1,7 @@
 /** Keep the customer's priced Item Group members together without changing their economics. */
-export function orderCustomerItemGroupRows<T extends { itemGroup?: { id: string } | null }>(
+export function orderCustomerItemGroupRows<T extends { id?: string; itemGroup?: { id: string } | null }>(
   rows: readonly T[],
+  directServiceIds: ReadonlySet<string> = new Set(),
 ): T[] {
   const byGroup = new Map<string, T[]>();
   for (const row of rows) {
@@ -22,7 +23,13 @@ export function orderCustomerItemGroupRows<T extends { itemGroup?: { id: string 
       emitted.add(id);
     }
   }
-  return ordered;
+  // Direct services are still priced unit lines, but the customer should read
+  // the main products first. A stable partition puts services after all
+  // products while retaining their amounts and their relative order.
+  return [
+    ...ordered.filter((row) => !directServiceIds.has(row.id ?? "")),
+    ...ordered.filter((row) => directServiceIds.has(row.id ?? "")),
+  ];
 }
 
 /** Presentation-only subtotals over the already-priced member lines. */

@@ -63,3 +63,20 @@ test("Freight summary exposes one aligned markup track and preserves tier-specif
   domestic.subcategories[0].crossesInternationalBorder = false;
   assert.equal(freightSummaryShipments(domestic, ["a"])[0].rows[1].markupSummary, "Not applicable");
 });
+
+test("different SKU markups remain priced and removed SKUs stay out of customs totals", () => {
+  const w = workbook();
+  w.memberships = [
+    { freightSubcategoryId: "s", quoteLeafId: "bottle" },
+    { freightSubcategoryId: "s", quoteLeafId: "carton" },
+  ] as FreightWorkbook["memberships"];
+  w.customsBreaks = [
+    { freightCustomsEntryId: "customs", tierId: "a", chargeType: "duty", quoteLeafId: "bottle", amount: "100", markupPct: "0.1" },
+    { freightCustomsEntryId: "customs", tierId: "a", chargeType: "duty", quoteLeafId: "carton", amount: "200", markupPct: "0.2" },
+    { freightCustomsEntryId: "customs", tierId: "a", chargeType: "duty", quoteLeafId: "removed", amount: "900", markupPct: "0.3" },
+  ] as FreightWorkbook["customsBreaks"];
+  const duty = freightSummaryShipments(w, ["a"])[0].rows[1];
+  assert.equal(duty.cells[0].amount, "300");
+  assert.equal(duty.cells[0].state, "priced");
+  assert.equal(duty.markupSummary, "Mixed by SKU");
+});

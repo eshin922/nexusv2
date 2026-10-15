@@ -3445,6 +3445,8 @@ export const quoteLeaves = pgTable(
     associatedProductQuoteLeafId: uuid("associated_product_quote_leaf_id"),
     /** Quote-owned name distinguishing independently priced Testing / Micros instances. */
     serviceInstanceLabel: text("service_instance_label"),
+    /** Internal, quote-specific instruction for Accounting on this product line. */
+    accountingNote: text("accounting_note"),
     // GENERATED product discriminator for the association FK. The historical
     // directness discriminator remains for compatibility with earlier schema.
     associatedProductKind: leafCommercialKind(
@@ -3732,6 +3734,9 @@ export const freightCustomsBreaks = pgTable(
     freightCustomsEntryId: uuid("freight_customs_entry_id").notNull().references(() => freightCustomsEntries.id, { onDelete: "cascade" }),
     tierId: uuid("tier_id").notNull().references(() => quoteTiers.id, { onDelete: "cascade" }),
     chargeType: freightCustomsChargeType("charge_type").notNull(),
+    // NULL preserves a historical pooled shipment charge. New customs entries
+    // target a specific product occurrence in the shipment.
+    quoteLeafId: uuid("quote_leaf_id").references((): AnyPgColumn => quoteLeaves.id, { onDelete: "cascade" }),
     amount: numeric("amount", { precision: 12, scale: 2 }),
     markupPct: numeric("markup_pct", { precision: 5, scale: 4 }),
     rateBase: numeric("rate_base", { precision: 12, scale: 2 }),
@@ -3743,7 +3748,8 @@ export const freightCustomsBreaks = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("freight_customs_breaks_identity_idx").on(t.freightCustomsEntryId, t.chargeType, t.tierId),
+    uniqueIndex("freight_customs_breaks_legacy_identity_idx").on(t.freightCustomsEntryId, t.chargeType, t.tierId).where(sql`quote_leaf_id IS NULL`),
+    uniqueIndex("freight_customs_breaks_sku_identity_idx").on(t.freightCustomsEntryId, t.chargeType, t.tierId, t.quoteLeafId).where(sql`quote_leaf_id IS NOT NULL`),
     index("freight_customs_breaks_tier_idx").on(t.tierId),
     check("freight_customs_breaks_amount_nonnegative", sql`${t.amount} IS NULL OR ${t.amount} >= 0`),
   ],
@@ -3994,6 +4000,15 @@ export const assemblyProductionInputs = pgTable(
       .notNull()
       .default(true),
     notes: text("notes"),
+    /** Direct Service only. Existing rows remain tier-total costs. */
+    directServiceCostBasis: text("direct_service_cost_basis")
+      .notNull()
+      .default("total"),
+    /** Direct Service per-unit input; production columns keep tier totals. */
+    directServiceUnitCost: numeric("direct_service_unit_cost", {
+      precision: 14,
+      scale: 5,
+    }),
 
     // Per-tier cost inputs (PM-edited).
     fillingBlendingCost: numeric("filling_blending_cost", {
@@ -4673,6 +4688,8 @@ export const quoteSnapshotLines = pgTable(
     /** AS PRINTED. A library rename must not change what a sent quote says. */
     displayName: text("display_name").notNull(),
     displaySku: text("display_sku"),
+    /** Frozen internal instruction for Accounting; never customer document copy. */
+    accountingNote: text("accounting_note"),
     serviceIdentity: directServiceIdentity("service_identity"),
     /**
      * The governed BV-011 destination for this line, fixed by the input it came
@@ -5460,5 +5477,23 @@ export const presentationProfileTier = pgTable(
       t.quoteVersion,
       t.tierId,
     ),
+  ],
+);
+
+// Ephemeral, server-owned collaboration leases. Never published through the
+// anonymous Realtime stream; presence is returned only by authenticated actions.
+export const quotePagePresence = pgTable(
+  "quote_page_presence",
+  {
+    quoteId: uuid("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull(),
+    pageKey: text("page_key").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.quoteId, t.userId, t.sessionId] }),
+    index("quote_page_presence_page_expiry_idx").on(t.quoteId, t.pageKey, t.expiresAt),
   ],
 );

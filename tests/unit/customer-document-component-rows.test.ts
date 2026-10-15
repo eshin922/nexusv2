@@ -50,7 +50,7 @@ test("both components are present, and in commercial order", async () => {
   const src = codeOnly(await read(DOC));
   const subtotal = src.indexOf("Unit-price subtotal");
   const separate = src.indexOf("One-time fees");
-  const grand = src.indexOf("Turnkey total");
+  const grand = src.indexOf("Turnkey price");
   assert.ok(subtotal > 0 && separate > 0, "both component rows render");
   assert.ok(subtotal < separate, "the subtotal precedes the separate charges");
   assert.ok(separate < grand, "and both precede the total");

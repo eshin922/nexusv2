@@ -104,6 +104,12 @@ export default async function OrderPacketPage({
             {item.selectedNetsuiteItemCode ? ` (${item.selectedNetsuiteItemCode})` : ""}
           </div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>{dispositionNote(item)}</div>
+          {item.accountingNote && (
+            <div style={{ fontSize: 12.5, marginTop: 9, padding: "8px 10px", background: "#f5f3ef" }}>
+              <strong>Instruction to Accounting</strong>
+              <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{item.accountingNote}</div>
+            </div>
+          )}
 
           {item.spec ? (
             <>

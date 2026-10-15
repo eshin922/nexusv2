@@ -34,6 +34,7 @@ export const CASCADING_DEPENDENT_TABLES = [
   "quote_product_tier_quantities",
   "quote_leaf_lifts",
   "freight_subcategory_items",
+  "freight_customs_breaks",
   "freight_leg_component_tier_costs",
   "quote_other_service_items",
   // Structural rather than economic: the grouped-membership junction itself.

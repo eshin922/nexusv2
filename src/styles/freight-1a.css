@@ -549,6 +549,16 @@
    tiers, plus the constrained customs-entry cell layout below. These rules
    adapt only dispositioned conflicts and narrow-width input visibility; the
    bundled freight hierarchy and visual grammar above remain authoritative. */
+.fr-quantity-summary { margin-left: 5px; color: var(--ink-3); font: 10px var(--mono); white-space: nowrap; }
+.fr-customs-guidance { padding: 8px 16px; font-size: 11px; line-height: 1.45; color: var(--ink-3); border-top: 1px solid var(--rule); }
+.fr-customs-sku-row .lb { align-items: flex-start; }
+.fr-customs-sku-cell { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.fr-customs-charge { display: grid; grid-template-columns: 42px minmax(60px, 1fr) 38px 9px auto; align-items: center; gap: 4px; width: 100%; }
+.fr-customs-charge + .fr-customs-charge { padding-top: 6px; border-top: 1px solid var(--rule); }
+.fr-customs-charge-label { font-family: var(--mono); font-size: 9px; color: var(--ink-3); text-transform: uppercase; }
+.fr-customs-charge .fr-in { width: 100%; min-width: 0; padding: 4px 5px; font-size: 10px; }
+.fr-customs-charge .pct-symbol { font-size: 9px; color: var(--ink-3); }
+.fr-customs-charge .sell { min-width: 37px; text-align: right; white-space: nowrap; font-family: var(--mono); font-size: 10px; color: var(--accent-ink); }
 .freight-authority { --freight-tier-count: 3; }
 .fr-product-group { border-top: 1px solid var(--rule); background: var(--paper-2); }
 .fr-customs .fr-customs-fields { min-width: 0; }

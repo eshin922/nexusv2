@@ -175,6 +175,11 @@
 }
 .pp-c-rec .pp-component-num { color: var(--pp-ink); }
 
+/* The quote's decision figure is the all-in unit price; the extended order
+   total remains directly underneath for reconciliation. */
+.pp-grand-num { font-size: 18px; }
+.pp-grand-num .per { font-size: 10px; font-weight: 400; color: var(--pp-muted); }
+
 /* Show the Item Group that owns the following priced member rows. This adds
    structure to the customer document without adding a priced line. */
 .pp-item-group {

@@ -41,7 +41,8 @@ test("the grid never compares a margin against the floor or the target", () => {
   // one for as long as nobody changed either.
   for (const token of ["floorPct", "targetPct"]) {
     const uses = CODE.match(new RegExp(token, "g")) ?? [];
-    // Destructure, prop type, and the caption — three each.
+    // The target is additionally passed to the pure target-lift planner and
+    // printed on that action; the grid still makes no margin comparison.
     //
     // `floorPct` used to have a fourth: the grid handed it to `CellAction`,
     // which spliced in below the pressed row. That panel is the cell drawer
@@ -50,8 +51,8 @@ test("the grid never compares a margin against the floor or the target", () => {
     // ceiling left slack after the use it allowed for went away is a ceiling
     // that permits the next unexplained appearance for free.
     assert.ok(
-      uses.length <= 4,
-      `${token} appears ${uses.length} times — more than the caption needs`,
+      uses.length <= (token === "targetPct" ? 6 : 4),
+      `${token} appears ${uses.length} times — more than the actions need`,
     );
   }
   assert.ok(

@@ -435,6 +435,7 @@ export function QuoteHost({
             onPdfLayoutChange={setPdfLayout}
             detailLevel={detailLevel}
             onDetailLevelChange={setDetailLevel}
+            onIncludeAddendumChange={setAddendumOn}
             pdfHref={targetSrc}
             presentation={presentation}
             hasItemGroups={view.skus.some((sku) => sku.itemGroup)}

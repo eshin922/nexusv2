@@ -81,6 +81,7 @@ export function CardCustomerPresentation({
   onDetailLevelChange,
   pdfLayout,
   onPdfLayoutChange,
+  onIncludeAddendumChange,
 }: {
   quoteId: string;
   editable: boolean;
@@ -91,6 +92,7 @@ export function CardCustomerPresentation({
   onDetailLevelChange: (next: CustomerViewDetailLevel) => void;
   pdfLayout: CustomerViewPdfLayout;
   onPdfLayoutChange: (next: CustomerViewPdfLayout) => void;
+  onIncludeAddendumChange: (next: boolean) => void;
 }) {
   // One key, naming the control in flight. Keyed rather than boolean so a
   // pending toggle disables itself and nothing else.
@@ -113,6 +115,7 @@ export function CardCustomerPresentation({
     key: string,
     fd: FormData,
     fn: (f: FormData) => Promise<ActionResult<T>>,
+    handlers?: { onSuccess?: (value: T) => void; onFailure?: () => void },
   ) => {
     setBusy(key);
     setError(null);
@@ -121,7 +124,12 @@ export function CardCustomerPresentation({
       // Clears on every path, including the rejection that used to escape past
       // the old `finally` — a control left permanently busy is its own defect.
       setBusy(null);
-      if (r.kind !== "ok") setError(r.message);
+      if (r.kind !== "ok") {
+        setError(r.message);
+        handlers?.onFailure?.();
+      } else {
+        handlers?.onSuccess?.(r.data);
+      }
     });
   };
 
@@ -199,7 +207,9 @@ export function CardCustomerPresentation({
                   // Context first so the document moves on this frame; the
                   // write follows and is what makes it survive a reload.
                   onDetailLevelChange(value);
-                  run("detail", form({ detailLevel: value }), updatePresentationDetail);
+                  run("detail", form({ detailLevel: value }), updatePresentationDetail, {
+                    onFailure: () => onDetailLevelChange(detailLevel),
+                  });
                 }}
               >
                 {label}
@@ -248,6 +258,7 @@ export function CardCustomerPresentation({
                       presentedTierId: value === "single_tier" ? (recommendedId ?? "") : "",
                     }),
                     updatePresentationLayout,
+                    { onFailure: () => onPdfLayoutChange(pdfLayout) },
                   );
                 }}
               >
@@ -268,6 +279,7 @@ export function CardCustomerPresentation({
           // no priced column is not a quote. The action refuses it too; this
           // is so the operator sees why before clicking.
           const isLastVisible = shown && tiers.filter((x) => !hidden.has(x.id)).length === 1;
+          const isDisplayedSingleTier = shown && pdfLayout === "single_tier" && presentation.presentedTierId === t.id;
           return (
             <div className="cv-toggle-row" key={t.id}>
               <button
@@ -275,9 +287,11 @@ export function CardCustomerPresentation({
                 role="switch"
                 aria-checked={shown}
                 aria-busy={busy === key || undefined}
-                disabled={!editable || busy === key || isLastVisible}
+                disabled={!editable || busy === key || isLastVisible || isDisplayedSingleTier}
                 title={
-                  isLastVisible
+                  isDisplayedSingleTier
+                    ? "Switch to the tier table before hiding the displayed tier."
+                    : isLastVisible
                     ? "At least one tier has to stay on the customer document."
                     : !editable
                       ? "This quote is no longer a draft."
@@ -318,7 +332,8 @@ export function CardCustomerPresentation({
                 type="button"
                 aria-pressed={t.recommended}
                 aria-busy={busy === `rec:${t.id}` || undefined}
-                disabled={!editable || busy === `rec:${t.id}`}
+                disabled={!editable || busy === `rec:${t.id}` || pdfLayout === "single_tier"}
+                title={pdfLayout === "single_tier" ? "Switch to the tier table before changing the recommendation." : undefined}
                 data-testid={`cv-recommended-${t.id}`}
                 onClick={() =>
                   run(
@@ -356,6 +371,9 @@ export function CardCustomerPresentation({
                     key,
                     form({ field: row.field, value: String(!on) }),
                     updatePresentationInclude,
+                    row.field === "includeAddendum"
+                      ? { onSuccess: (result) => onIncludeAddendumChange(result.value) }
+                      : undefined,
                   )
                 }
               />
