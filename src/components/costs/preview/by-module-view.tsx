@@ -50,11 +50,11 @@ export function ByModuleView({
   quoteId: string;
   editMode: boolean;
 }) {
-  // EVERY owner gets a card, members included. The group's "Members" section
-  // says they are "costed on their own lines"; that line is this card. Rendering
-  // only top-level owners would leave a member's costs reachable from no view,
-  // which is the omission a parity preview exists to make impossible.
-  const owners = flattenOwners(overview.owners).map((e) => e.owner);
+  // Product owners get cards, including Item Group members. Associated service
+  // rows live inside their product's card; standalone services keep their own.
+  const owners = flattenOwners(overview.owners)
+    .map((e) => e.owner)
+    .filter((owner) => !owner.associatedProductQuoteLeafId || owner.recurringLines.length > 0 || owner.charges.length > 0);
   const [openKey, setOpenKey] = useState<string | null>(owners[0]?.key ?? null);
 
   const moduleHref = (section: string) => {
@@ -136,7 +136,7 @@ function OwnerAccordion({
           <span className="cm2-owner-title">{owner.name}</span>
           <span className="cm2-flags">
             {owner.kind === "item_group" && <Tag tone="accent">item group</Tag>}
-            {owner.kind === "direct_service" && <Tag tone="purple">direct service</Tag>}
+            {owner.kind === "direct_service" && <Tag tone="purple">{owner.associatedProductQuoteLeafId ? "associated service" : "direct service"}</Tag>}
             {owner.kind === "group_member" && <Tag tone="plain">product</Tag>}
             {owner.kind === "direct_product" && <Tag tone="plain">product</Tag>}
             {owner.sku ? (
@@ -149,7 +149,7 @@ function OwnerAccordion({
           </span>
           <span className="cm2-owner-sub">
             {owner.kind === "direct_service"
-              ? "a service on its own quote line"
+              ? owner.associatedProductQuoteLeafId ? "cost associated with the product above" : "a service on its own quote line"
               : `all ${tiers.length} tier${tiers.length === 1 ? "" : "s"} shown below`}
           </span>
         </span>
@@ -173,7 +173,7 @@ function OwnerAccordion({
       {open && (
         <div className="cm2-owner-body">
           {owner.kind === "direct_service" ? (
-            <ServiceGroup owner={owner} tiers={tiers} tier={tierCtx} />
+            <ServiceGroup owner={owner} tiers={tiers} tier={tierCtx} editMode={editMode} />
           ) : (
             <>
               <RecurringGroup owner={owner} reads={reads} tiers={tiers} tier={tierCtx} quoteId={quoteId} editMode={editMode} />
@@ -188,7 +188,10 @@ function OwnerAccordion({
               href={moduleHref("production")}
             />
           )}
-          {owner.members.length > 0 && <MembersGroup owner={owner} />}
+          {owner.members.filter((member) => member.kind === "direct_service").map((service) => (
+            <ServiceGroup key={service.key} owner={service} tiers={tiers} tier={tierCtx} editMode={editMode} />
+          ))}
+          {owner.members.some((member) => member.kind !== "direct_service") && <MembersGroup owner={owner} />}
         </div>
       )}
     </section>
@@ -400,16 +403,18 @@ function ServiceGroup({
   owner,
   tiers,
   tier,
+  editMode,
 }: {
   owner: OverviewOwner;
   tiers: readonly OverviewTierFact[];
   tier: TierContext;
+  editMode: boolean;
 }) {
   return (
     <div className="cm2-group">
       <GroupHead
-        title="Service cost"
-        chip="own quote line"
+        title={owner.associatedProductQuoteLeafId ? `Associated service · ${owner.name}` : "Service cost"}
+        chip={owner.associatedProductQuoteLeafId ? "with this product" : "own quote line"}
         sub="line total per tier"
         itemLabel="line"
         tailLabel="accounting item"
@@ -421,7 +426,9 @@ function ServiceGroup({
           <div className="cm2-ident">
             <div className="cm2-label">{line.label}</div>
           </div>
-          {tiers.map((t) => (
+          {tiers.map((t) => editMode && owner.quoteLeafId ? (
+            <M3Editor key={t.id} kind="service" quoteLeafId={owner.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} label={`Service amount for ${owner.name} at ${t.label}`} disabled={false} />
+          ) : (
             <ValueCell
               key={t.id}
               stored={line.amounts.get(t.id) ?? null}
@@ -507,7 +514,7 @@ function MembersGroup({ owner }: { owner: OverviewOwner }) {
         <Tag>same records</Tag>
         <span className="cm2-group-sub">costed on their own lines</span>
       </div>
-      {owner.members.map((m) => (
+      {owner.members.filter((member) => member.kind !== "direct_service").map((m) => (
         <div className="cm2-row" key={m.key} style={{ gridTemplateColumns: "1fr auto" }}>
           <div className="cm2-label cm2-muted">
             {m.name}

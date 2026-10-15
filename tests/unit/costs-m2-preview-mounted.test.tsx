@@ -212,6 +212,34 @@ test("an item group shows its governed cost once, with member costs beneath it",
   await m.unmount();
 });
 
+test("associated testing stays visually beneath its product instead of becoming another quote item", async () => {
+  const overview = buildCostsOverview({
+    ...FACTS,
+    directServices: [
+      { quoteLeafId: "micro-jar", name: "Micro testing · Jar", serviceIdentity: "testing_micros", associatedProduct: { quoteLeafId: "ql-member", name: "Gummy jar", sku: "DPS-MISTR-1007" }, position: 1, amountsByTier: { [T1]: "125", [T2]: null, [T3]: null } },
+      { quoteLeafId: "micro-direct", name: "Micro testing · Lubricant", serviceIdentity: "testing_micros", associatedProduct: { quoteLeafId: "ql-direct", name: "Silicone lubricant 2oz", sku: "DPS-MISTR-1003" }, position: 2, amountsByTier: { [T1]: "75", [T2]: null, [T3]: null } },
+    ],
+  });
+  const m = await mount(<CostsM2PreviewBody overview={overview} reads={READS} quoteEditable pathname="/projects/p/quotes/q/costs" baseParams="" activeTierId={T1} onSelectTier={() => {}} />);
+  const parents = m.findAll(".cm2-row.cm2-parent");
+  const names = parents.map((row) => row.querySelector(".cm2-label")?.textContent ?? "");
+  assert.ok(names.indexOf("Gummy jar") < names.indexOf("Micro testing · Jar"));
+  assert.ok(names.indexOf("Silicone lubricant 2oz") < names.indexOf("Micro testing · Lubricant"));
+  assert.equal(parents[names.indexOf("Micro testing · Jar")].querySelector(".cm2-ident")?.getAttribute("data-indent"), "2");
+  assert.equal(parents[names.indexOf("Micro testing · Lubricant")].querySelector(".cm2-ident")?.getAttribute("data-indent"), "1");
+  assert.equal(m.findAll('.cm2-row.cm2-parent .cm2-label').filter((row) => row.textContent?.startsWith("Micro testing")).length, 2);
+
+  await switchTo(m, "By product");
+  await m.click(".cm2-picker .cm2-pick:nth-of-type(2)");
+  assert.match(m.find(".cm2-product-panel")?.textContent ?? "", /Associated service costs.*Micro testing · Jar/s);
+  assert.equal(m.findAll(".cm2-picker .cm2-pick").length, 3, "associated services stay inside their two product choices");
+  await switchTo(m, "By module");
+  assert.equal(m.findAll(".cm2-owner").length, 3, "group, member, direct product, and no separate associated-service cards");
+  await m.click(".cm2-owner:nth-of-type(2) .cm2-owner-head");
+  assert.match(m.findAll(".cm2-owner-body")[0]?.textContent ?? "", /Associated service · Micro testing · Jar/);
+  await m.unmount();
+});
+
 const labels = (m: Awaited<ReturnType<typeof mount>>, sel = ".cm2-label") =>
   m.findAll(sel).map((n) => n.textContent ?? "");
 
