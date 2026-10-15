@@ -101,10 +101,8 @@ test("no new permission system was introduced", () => {
   }
 });
 
-test("restore and catalog refresh are deliberately UNCHANGED", () => {
-  // The disposition covers creation only. `restoreLeaf` un-archives a library
-  // item and `pullProductsBatch` pulls the HubSpot catalog; neither is
-  // creation, so widening the shared guard would have carried both along.
+test("restore remains gated and catalog refresh is open to signed-in users", () => {
+  // Restore un-archives a library item; refresh re-pulls HubSpot products.
   const src = leaves();
   const restore = src.slice(src.indexOf("export async function restoreLeaf"));
   assert.ok(
@@ -113,10 +111,10 @@ test("restore and catalog refresh are deliberately UNCHANGED", () => {
   );
 
   const pull = readFileSync("src/app/actions/hubspot-pull.ts", "utf8");
-  assert.ok(pull.includes("assertCanCreateLeaves"), "the catalog pull keeps its gate");
+  assert.ok(pull.includes("await ensureUser()"), "catalog pull requires a signed-in user");
+  assert.ok(!pull.includes("assertCanCreateLeaves"), "catalog pull does not require a grant");
 
-  // The Refresh control in the modal likewise still reads the flag.
-  assert.match(modal(), /permission to refresh the library catalog/);
+  assert.doesNotMatch(modal(), /permission to refresh the library catalog/);
 });
 
 test("creation's own validation and HubSpot semantics survive", () => {

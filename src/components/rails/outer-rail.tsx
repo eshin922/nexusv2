@@ -16,7 +16,7 @@ import { GlobalLibrary } from "./global-library";
 import { loadProductTypeOptions } from "@/lib/product-type-options";
 import {
   canEditLibraryProduct,
-  canManageLibraryCatalog,
+  canRestoreLibraryItem,
 } from "@/lib/permissions/library-product";
 
 // Slice RI.2 — Round 4 outer rail (56px wide, fixed left). Always
@@ -96,7 +96,7 @@ export async function OuterRail() {
       <GlobalLibrary
         fullLeafTypes={productTypeOptions.leafTypes}
         permissions={{
-          canCreateLeaves: canManageLibraryCatalog(user),
+          canCreateLeaves: canRestoreLibraryItem(user),
           canEditProduct: canEditLibraryProduct(user),
         }}
       />

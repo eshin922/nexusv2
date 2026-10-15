@@ -6,7 +6,7 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
-import { assertCanCreateLeaves } from "@/lib/spec-permission-guard";
+import { ensureUser } from "@/lib/auth/ensure-user";
 import { pullProductsBatch } from "@/lib/hubspot-pull";
 import { revalidatePath } from "next/cache";
 
@@ -18,9 +18,8 @@ import { revalidatePath } from "next/cache";
 // returned `nextAfter` cursor and runs the double-pull
 // (active products then archived sweep).
 //
-// Permission: gated by `assertCanCreateLeaves` (Path B per
-// Architect Gate 5) — same gate as `createLeaf`. Admin implicit-
-// passes. Library leaves are globally scoped; pull writes
+// Every authenticated Nexus user may refresh the library. Library leaves are
+// globally scoped; pull writes
 // project-agnostic rows but the projectId is captured on the
 // `hubspot_pull_batch` audit row as the surface-of-origin
 // (which project's Setup tree triggered the pull).
@@ -64,7 +63,7 @@ export async function pullFromHubSpot(
     if (typeof batchNumber !== "number" || batchNumber < 1)
       throw new ActionGuardError(ERR.VALIDATION, "batchNumber required (>= 1)");
 
-    const user = await assertCanCreateLeaves();
+    const user = await ensureUser();
 
     let result;
     try {

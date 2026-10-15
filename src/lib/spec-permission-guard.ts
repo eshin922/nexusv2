@@ -3,7 +3,7 @@ import { ensureUser, type AppUser } from "@/lib/auth/ensure-user";
 import { ActionGuardError, ERR } from "@/lib/action-result";
 import {
   canEditLibraryProduct,
-  canManageLibraryCatalog,
+  canRestoreLibraryItem,
 } from "@/lib/permissions/library-product";
 
 // Phase A.1 v2 — action-layer permission guards for the ASY/LEAF/
@@ -41,7 +41,7 @@ export async function assertCanEditSpecs(): Promise<AppUser> {
 
 export async function assertCanCreateLeaves(): Promise<AppUser> {
   const user = await ensureUser();
-  if (!canManageLibraryCatalog(user)) {
+  if (!canRestoreLibraryItem(user)) {
     throw new ActionGuardError(
       ERR.FORBIDDEN,
       "You don't have permission to create library leaves.",
@@ -58,9 +58,8 @@ export async function assertCanCreateLeaves(): Promise<AppUser> {
  * surface can set — so it resolved to "admins only" and a PM asked to complete
  * a SKU was refused at save, after the form had let her type it.
  *
- * Widening the shared guard would have carried `restoreLeaf` and
- * `pullProductsBatch` along with it. Un-archiving a library item and pulling
- * the HubSpot catalog are not product edits, and they keep the old gate.
+ * Widening the shared guard would have carried `restoreLeaf` along with it.
+ * Un-archiving a library item is not a product edit and keeps the old gate.
  *
  * The rule itself lives in `@/lib/permissions/library-product` because the UI
  * has to ask the same question, and the last defect here was two layers

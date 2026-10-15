@@ -41,7 +41,7 @@ import { NotesEditor } from "./notes-editor";
 import { FreightIntentControl } from "./freight-intent-control";
 import {
   canEditLibraryProduct,
-  canManageLibraryCatalog,
+  canRestoreLibraryItem,
 } from "@/lib/permissions/library-product";
 import { COSTS_M3_PREVIEW_VALUE } from "@/lib/costs/m2-preview-switch";
 
@@ -279,7 +279,7 @@ export default async function QuoteBuilderPage({
           // call, so the affordance and the action cannot disagree about who
           // may do what. Computing either one inline here is how they drifted.
           permissions={{
-            canCreateLeaves: canManageLibraryCatalog(user),
+            canCreateLeaves: canRestoreLibraryItem(user),
             canEditProduct: canEditLibraryProduct(user),
           }}
           // OD-032 · what each component ALREADY owns, with full identity.
