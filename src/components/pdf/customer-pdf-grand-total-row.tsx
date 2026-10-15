@@ -128,8 +128,8 @@ export function GrandTotalRow({
       <View style={styles.grand}>
         {/* label column (CD `pdf-render.jsx:159`) */}
         <View style={styles.cProd}>
-          <Text style={styles.gLabel}>Turnkey total</Text>
-          <Text style={styles.gSub}>all-in for this tier{"’"}s order</Text>
+          <Text style={styles.gLabel}>Turnkey price</Text>
+          <Text style={styles.gSub}>all-in per unit</Text>
         </View>
         {/* per-tier figures */}
         {colData.map(({ tier, total, hasUnpriced, perUnit, rec, fullyUnpriced }) => {
@@ -155,13 +155,15 @@ export function GrandTotalRow({
             >
               {fullyUnpriced ? (
                 <Text style={styles.grandNum}>total on request</Text>
+              ) : perUnit == null ? (
+                <Text style={styles.grandNum}>total on request</Text>
               ) : hasUnpriced ? (
                 <Text style={styles.grandNum}>
                   <Text style={styles.grandNumFrom}>{"from "}</Text>
-                  {money(total)}
+                  {unit(perUnit)}<Text style={styles.grandUnitPer}> /unit</Text>
                 </Text>
               ) : (
-                <Text style={styles.grandNum}>{money(total)}</Text>
+                <Text style={styles.grandNum}>{unit(perUnit)}<Text style={styles.grandUnitPer}> /unit</Text></Text>
               )}
               {perUnit != null && (
                 <Text
@@ -170,9 +172,7 @@ export function GrandTotalRow({
                     rec ? styles.grandUnitRec : {},
                   ]}
                 >
-                  {hasUnpriced ? "from " : ""}
-                  {unit(perUnit)}
-                  <Text style={styles.grandUnitPer}> /unit</Text>
+                  Order total {hasUnpriced ? "from " : ""}{money(total)}
                 </Text>
               )}
             </View>

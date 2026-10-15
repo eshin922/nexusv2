@@ -38,6 +38,7 @@ import type { Cell } from "@/lib/pricing-classifier";
 import type { CellRef } from "@/lib/pricing-staging";
 import { formatMoney } from "@/lib/money-display";
 import { QuoteTargetMarginPopover } from "@/components/quote-target-margin-popover";
+import { tierExactMarginPrices, tierTargetLifts } from "@/lib/pricing-tier-margin-actions";
 
 // ── formatting ────────────────────────────────────────────────────────────
 //
@@ -220,7 +221,9 @@ export function ComplianceGrid({
   onSelect,
 }: ComplianceGridProps) {
   const { state } = usePricingClassifier();
-  const { stageLift } = usePricingStaging();
+  const { stageLift, stageOverride } = usePricingStaging();
+  const [customMargins, setCustomMargins] = useState<Record<number, string>>({});
+  const [marginError, setMarginError] = useState<Record<number, string>>({});
 
   // One lookup over the one evaluation. Not a second pass, not a re-partition
   // — an index into `state.cells` so a row can find its cell in constant time.
@@ -481,7 +484,7 @@ export function ComplianceGrid({
         Nothing is written. These land in the working set with everything else
         and wait for the one Apply that governs the page.
       */}
-      {state.cells.some((c) => c.outstanding && c.lift_offer_pct !== null && !c.lift_blocked) && (
+      {editable && state.tiers.length > 0 && (
         <div className="r11-brow">
           <div className="r11-slab">
             <span className="n" style={{ fontSize: 12, color: "var(--ink-3)" }}>
@@ -508,6 +511,12 @@ export function ComplianceGrid({
             );
             const need = outstanding.filter((c) => c.lift_offer_pct !== null && !c.lift_blocked);
             const blocked = outstanding.filter((c) => c.lift_blocked);
+            const toTarget = tierTargetLifts(state.cells, t.id, targetPct)
+              .filter(({ cell }) => resolveCell?.(cell.sku_id, cell.tier_id) != null);
+            const directPricesBelowTarget = state.cells.filter((cell) =>
+              cell.tier_id === t.id && cell.override_applied &&
+              (cell.status === "below_target" || cell.status === "below_floor"),
+            ).length;
             return (
               <div className="r11-scell flat" key={t.id}>
                 {need.length > 0 ? (
@@ -543,8 +552,56 @@ export function ComplianceGrid({
                   // point at the cell that owns it.
                   <ManualPriceRemains cells={blocked} onSelect={onSelect} />
                 ) : (
-                  <span className="cost">—</span>
+                  null
                 )}
+                {toTarget.length > 0 && (
+                  <button type="button" className="btn sm" style={{ width: "100%", marginTop: 6 }}
+                    onClick={() => {
+                      for (const { cell, value } of toTarget) {
+                        const ref = resolveCell?.(cell.sku_id, cell.tier_id);
+                        if (ref) stageLift(ref, value);
+                      }
+                    }}>
+                    Lift all {toTarget.length} to target ({fmtPct(targetPct)})
+                  </button>
+                )}
+                {directPricesBelowTarget > 0 && (
+                  <span className="cost">{directPricesBelowTarget} direct price{directPricesBelowTarget === 1 ? "" : "s"} excluded from lifts</span>
+                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 6 }}>
+                  <input aria-label={`Custom margin for ${tierMeta.get(t.id)?.label ?? `tier ${t.id}`}`}
+                    type="number" min="0" max="99.99" step="0.01" placeholder="Margin %"
+                    value={customMargins[t.id] ?? ""}
+                    onChange={(event) => {
+                      setCustomMargins((prev) => ({ ...prev, [t.id]: event.target.value }));
+                      setMarginError((prev) => ({ ...prev, [t.id]: "" }));
+                    }}
+                    style={{ width: 92 }} />
+                  <button type="button" className="btn sm" title="Stage direct prices for every priced line in this tier; review the preview, then Apply." onClick={() => {
+                    const raw = customMargins[t.id]?.trim() ?? "";
+                    const percent = Number(raw);
+                    if (!raw || !Number.isFinite(percent) || percent < 0 || percent >= 100) {
+                      setMarginError((prev) => ({ ...prev, [t.id]: "Enter a margin from 0 to below 100%." }));
+                      return;
+                    }
+                    const tierCells = state.cells.filter((cell) => cell.tier_id === t.id);
+                    const eligible = tierCells.filter((cell) => cell.cost_unit != null && cell.cost_unit > 0 && cell.sell_unit != null);
+                    const plan = tierExactMarginPrices(eligible, t.id, percent / 100);
+                    if (eligible.length === 0 || eligible.length !== tierCells.length || plan.length !== eligible.length || plan.some(({ cell }) => resolveCell?.(cell.sku_id, cell.tier_id) == null)) {
+                      setMarginError((prev) => ({ ...prev, [t.id]: "Some prices cannot be set at this margin; no changes were staged." }));
+                      return;
+                    }
+                    for (const { cell, value } of plan) {
+                      const ref = resolveCell?.(cell.sku_id, cell.tier_id);
+                      if (ref) {
+                        stageLift(ref, null);
+                        stageOverride(ref, value);
+                      }
+                    }
+                    setMarginError((prev) => ({ ...prev, [t.id]: "" }));
+                  }}>Set all</button>
+                </div>
+                {marginError[t.id] && <span role="alert" className="cost">{marginError[t.id]}</span>}
               </div>
             );
           })}

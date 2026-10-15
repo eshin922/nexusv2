@@ -44,6 +44,10 @@ import {
   runOrderedSpecTransfer,
   type OrderedSpecTransferOutcome,
 } from "./ordered-spec-transfer-runtime";
+import {
+  runLineAccountingNoteTransfer,
+  type LineAccountingNoteOutcome,
+} from "./line-accounting-note-transfer";
 import { patchSalesOrderLine } from "./client";
 import { enforceNonTaxableLines } from "./tax-policy";
 import { reconcileBeforeCreate } from "./create-reconciliation";
@@ -147,6 +151,7 @@ export interface MarkCompleteResult {
   retryOutcome: "fresh" | "converged_from_prior_success";
   /** Separate from commercial success by construction. See STEP 11. */
   specTransfer: OrderedSpecTransferOutcome;
+  lineAccountingNotes: LineAccountingNoteOutcome;
 }
 
 export interface MarkCompleteInput {
@@ -2076,9 +2081,11 @@ export async function runMarkComplete(
   // `runOrderedSpecTransfer` never throws; a failure is retried through the
   // same function (`retryOrderedSpecTransfer`).
   const specTransfer = await runOrderedSpecTransfer({ quoteId });
+  const lineAccountingNotes = await runLineAccountingNoteTransfer({ quoteId });
 
   return {
     specTransfer,
+    lineAccountingNotes,
     completedAt,
     netsuite: {
       salesOrderId: salesOrderInternalId,

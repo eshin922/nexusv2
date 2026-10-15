@@ -78,6 +78,8 @@ export type FrozenSalesOrderLine = Reg4Line & {
   sku: string | null;
   /** The governed commercial identity. Null on a fee line, which owns no leaf. */
   quoteLeafId: string | null;
+  /** Internal instruction frozen with the accepted product line. */
+  accountingNote: string | null;
   /** OD-006 — the owning Item Group, or null for a top-level line. */
   owningAssemblyId: string | null;
   /**
@@ -150,6 +152,7 @@ export async function buildFrozenSalesOrder(
       sourceLineId: quoteSnapshotLines.id,
       kind: quoteSnapshotLines.lineKind,
       quoteLeafId: quoteSnapshotLines.quoteLeafId,
+      accountingNote: quoteSnapshotLines.accountingNote,
       description: quoteSnapshotLines.displayName,
       sku: quoteSnapshotLines.displaySku,
       owningAssemblyId: quoteSnapshotLines.owningAssemblyId,
@@ -249,6 +252,7 @@ export async function buildFrozenSalesOrder(
       description: row.description,
       sku,
       quoteLeafId: row.quoteLeafId,
+      accountingNote: row.accountingNote,
       owningAssemblyId: row.owningAssemblyId,
       // A product has no destination by construction — it resolves by SKU.
       destination: null,
@@ -277,6 +281,7 @@ export async function buildFrozenSalesOrder(
       description: l.description,
       sku: byId.get(l.sourceLineId)?.sku ?? null,
       quoteLeafId: byId.get(l.sourceLineId)?.quoteLeafId ?? null,
+      accountingNote: byId.get(l.sourceLineId)?.accountingNote ?? null,
       owningAssemblyId: l.owningAssemblyId,
       destination: byId.get(l.sourceLineId)?.destination ?? null,
       netsuiteItemId: l.netsuiteItemId,

@@ -759,7 +759,7 @@ export const styles = StyleSheet.create({
   },
   grandNum: {
     fontFamily: PDF_FONT_FAMILY.mono,
-    fontSize: 10.5,
+    fontSize: 13.5,
     fontWeight: 600,
     color: PP_INK,
     ...PDF_TABULAR_NUMS,

@@ -271,29 +271,33 @@ export type M3EditorFieldProps =
   | { kind: "recurring"; line: OverviewRecurringLine; tier: OverviewTierFact; read: PackagingLineTierRead; disabled: boolean }
   | { kind: "markup"; line: OverviewRecurringLine; resolved: PackagingLineTierRead | null; disabled: boolean }
   | { kind: "charge"; quoteId: string; charge: OverviewCharge; tier: OverviewTierFact; disabled: boolean }
-  | { kind: "service"; quoteLeafId: string; tierId: string; value: string | null; label: string; disabled: boolean }
+  | { kind: "service"; quoteLeafId: string; tierId: string; value: string | null; basis: "total" | "per_unit"; quantity: number | null; label: string; disabled: boolean }
   | { kind: "charge-basis"; quoteId: string; charge: OverviewCharge; disabled: boolean };
 
-function ServiceAmountField({ quoteLeafId, tierId, value, label, disabled }: {
+function ServiceAmountField({ quoteLeafId, tierId, value, basis, quantity, label, disabled }: {
   quoteLeafId: string;
   tierId: string;
   value: string | null;
+  basis: "total" | "per_unit";
+  quantity: number | null;
   label: string;
   disabled: boolean;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(value ?? "");
+  const [selectedBasis, setSelectedBasis] = useState(basis);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setDraft(value ?? ""); }, [value]);
+  useEffect(() => { setSelectedBasis(basis); }, [basis]);
 
-  function save() {
-    const next = draft.trim();
-    if (disabled || next === (value ?? "")) return;
+  function save(next = draft.trim(), nextBasis = selectedBasis) {
+    if (disabled || (next === (value ?? "") && nextBasis === basis)) return;
     const data = new FormData();
     data.set("quoteLeafId", quoteLeafId);
     data.set("tierId", tierId);
     data.set("amount", next);
+    data.set("basis", nextBasis);
     setError(null);
     start(async () => {
       const result = await updateDirectServiceProduction(data);
@@ -303,6 +307,21 @@ function ServiceAmountField({ quoteLeafId, tierId, value, label, disabled }: {
       }
       router.refresh();
     });
+  }
+
+  function changeBasis(nextBasis: "total" | "per_unit") {
+    if (nextBasis === selectedBasis) return;
+    const current = Number(draft);
+    if (draft.trim() && (!quantity || quantity <= 0 || !Number.isFinite(current))) {
+      setError("Set the tier quantity and a valid cost before changing basis.");
+      return;
+    }
+    const next = !draft.trim() ? "" : nextBasis === "per_unit"
+      ? (current / quantity!).toFixed(5)
+      : (current * quantity!).toFixed(2);
+    setSelectedBasis(nextBasis);
+    setDraft(next);
+    save(next, nextBasis);
   }
 
   return (
@@ -316,9 +335,22 @@ function ServiceAmountField({ quoteLeafId, tierId, value, label, disabled }: {
         placeholder="—"
         disabled={disabled}
         onChange={(event) => setDraft(event.target.value)}
-        onBlur={save}
+        onBlur={(event) => {
+          if ((event.relatedTarget as HTMLElement | null)?.classList.contains("cm2-service-basis")) return;
+          save();
+        }}
         onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
       />
+      <select
+        className="cm2-service-basis"
+        aria-label={`${label} cost basis`}
+        value={selectedBasis}
+        disabled={disabled}
+        onChange={(event) => changeBasis(event.target.value as "total" | "per_unit")}
+      >
+        <option value="total">Total cost</option>
+        <option value="per_unit">Cost per unit</option>
+      </select>
       {pending && <span className="cm2-basis">saving…</span>}
       {error && <span className="cm2-basis" role="alert">{error}</span>}
     </span>
@@ -328,7 +360,7 @@ function ServiceAmountField({ quoteLeafId, tierId, value, label, disabled }: {
 /** Single lazy-load boundary: mounting read-only M2 must not pull server actions into its module graph. */
 export default function M3EditorField(props: M3EditorFieldProps) {
   if (props.kind === "service") {
-    return <ServiceAmountField quoteLeafId={props.quoteLeafId} tierId={props.tierId} value={props.value} label={props.label} disabled={props.disabled} />;
+    return <ServiceAmountField quoteLeafId={props.quoteLeafId} tierId={props.tierId} value={props.value} basis={props.basis} quantity={props.quantity} label={props.label} disabled={props.disabled} />;
   }
   if (props.kind === "charge-basis") {
     return <ChargeBasisField quoteId={props.quoteId} chargeInstanceId={props.charge.chargeInstanceId} basis={props.charge.costBasis} hasCosts={props.charge.amounts.size > 0} disabled={props.disabled} />;

@@ -60,7 +60,19 @@ const classifiedIdentityFiles = new Set([
   "src/app/actions/pricing-lifts.ts",
   "src/app/actions/leaf-specs.ts", "src/app/actions/leaves.ts",
   "src/app/actions/markup-defaults.ts", "src/app/actions/quotes.ts",
+  // Accounting instructions attach to the canonical quote occurrence, then
+  // follow that identity into the frozen product line and NetSuite matcher.
+  "src/app/actions/sku-accounting-note.ts",
   "src/app/projects/[id]/quotes/[quoteId]/costs/page.tsx",
+  "src/components/costs/preview/by-module-view.tsx",
+  "src/components/costs/preview/by-product-view.tsx",
+  "src/components/costs/preview/sku-accounting-note.tsx",
+  "src/components/costs/preview/sku-accounting-note-editor.tsx",
+  // Customs selection and its summary use canonical quote-leaf membership;
+  // removed shipment members must never contribute to duty or tariff totals.
+  "src/lib/costs/customs-sku-selection.ts",
+  "src/lib/costs/freight-summary.ts",
+  "src/lib/netsuite/line-accounting-note-transfer.ts",
   "src/app/projects/[id]/quotes/[quoteId]/leaves/[leafId]/specs/page.tsx",
   "src/app/projects/[id]/quotes/[quoteId]/page.tsx", "src/components/add-product/add-product-modal.tsx",
   "src/components/assembly-tree/asy-row.tsx", "src/components/assembly-tree/leaf-context-menu.tsx",

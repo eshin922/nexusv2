@@ -92,11 +92,21 @@ export async function loadUnresolvedQuoteCosts(quoteId: string): Promise<Unresol
       }
       if (!subcategory.crossesInternationalBorder) continue;
       const entries = workbook.customsEntries.filter((row) => row.freightSubcategoryId === subcategory.id);
+      const memberIds = workbook.memberships.filter((row) => row.freightSubcategoryId === subcategory.id).map((row) => row.quoteLeafId);
       for (const chargeType of ["duty", "tariff"] as const) {
         const charges = entries.length === 1
           ? workbook.customsBreaks.filter((row) => row.freightCustomsEntryId === entries[0].id && row.tierId === tier.id && row.chargeType === chargeType)
           : [];
-        if (charges.length !== 1 || charges[0].amount === null || charges[0].markupPct === null) {
+        const skuCharges = charges.filter((row) => row.quoteLeafId !== null);
+        if (skuCharges.length > 0) {
+          for (const memberId of memberIds) {
+            const row = skuCharges.find((charge) => charge.quoteLeafId === memberId);
+            if (!row || row.amount === null || row.markupPct === null) {
+              unresolved(subcategory.id, subcategory.label, tier.id, tier.label, `${subcategory.label} / ${tier.label}: enter ${chargeType === "duty" ? "Duty" : "Tariff"} total and markup for every SKU.`);
+              break;
+            }
+          }
+        } else if (charges.length !== 1 || charges[0].amount === null || charges[0].markupPct === null) {
           unresolved(subcategory.id, subcategory.label, tier.id, tier.label, `${subcategory.label} / ${tier.label}: enter ${chargeType === "duty" ? "Duty" : "Tariff"} and markup.`);
         }
       }

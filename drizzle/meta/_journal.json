@@ -1030,6 +1030,34 @@
       "when": 1791824400000,
       "tag": "0149_repeatable_frozen_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1792083600000,
+      "tag": "0150_sku_accounting_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792087200000,
+      "tag": "0151_direct_service_cost_basis",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1792090800000,
+      "tag": "0152_quote_page_presence",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1792094400000,
+      "tag": "0153_customs_per_sku",
+      "breakpoints": true
     }
   ]
 }

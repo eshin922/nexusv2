@@ -9,6 +9,7 @@ import {
   freightSubcategories,
   freightSubcategoryItems,
   quoteLeaves,
+  quoteProductTierQuantities,
   quoteTiers,
 } from "@/db/schema";
 
@@ -35,6 +36,8 @@ export type FreightWorkbook = {
      * S-7 disposition, not a side effect of making the column nullable.
      */
     ownerSkuBySubcategory: Record<string, string>;
+    /** Frozen ordered units for customs charged to one shipment member. */
+    memberUnitsByTier?: Record<string, number>;
     tierUnitsByTier: Record<string, number>;
   };
 };
@@ -117,6 +120,16 @@ export async function loadFreightWorkbook(
   // reads, because a cache, a realtime patch, or an optimistic insert can
   // reintroduce an arbitrary one. See src/lib/freight-tier-cells.ts.
   const memberAnchors = await loadShipmentMemberAnchors(subIds, executor);
+  const memberIds = [...new Set(memberships.map((row) => row.quoteLeafId))];
+  const [memberLeaves, productQuantities] = await Promise.all([
+    memberIds.length ? executor.select({ id: quoteLeaves.id, assemblyId: quoteLeaves.assemblyId, quantity: quoteLeaves.quantity }).from(quoteLeaves).where(inArray(quoteLeaves.id, memberIds)) : [],
+    executor.select().from(quoteProductTierQuantities).where(eq(quoteProductTierQuantities.quoteId, quoteId)),
+  ]);
+  const memberUnitsByTier = Object.fromEntries(memberLeaves.flatMap((leaf) => tiers.map((tier) => {
+    const override = productQuantities.find((row) => row.tierId === tier.id && (row.quoteLeafId === leaf.id || (leaf.assemblyId && row.assemblyId === leaf.assemblyId)));
+    const ownerUnits = override?.quantity ?? tier.qty ?? 0;
+    return [`${leaf.id}:${tier.id}`, leaf.assemblyId && override?.quoteLeafId !== leaf.id ? ownerUnits * Number(leaf.quantity) : ownerUnits] as const;
+  })));
 
   const [breaks, customsBreaks, tracking] = await Promise.all([
     destIds.length ? executor.select().from(freightDestinationBreaks).where(inArray(freightDestinationBreaks.freightDestinationId, destIds)).orderBy(asc(freightDestinationBreaks.freightDestinationId), asc(freightDestinationBreaks.tierId)) : [],
@@ -140,6 +153,7 @@ export async function loadFreightWorkbook(
         }, []),
       ),
       ownerSkuBySubcategory: Object.fromEntries(memberAnchors),
+      memberUnitsByTier,
       tierUnitsByTier: Object.fromEntries(tiers.map((row) => [row.id, row.qty ?? 0])),
     },
   };

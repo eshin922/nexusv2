@@ -96,6 +96,8 @@ export type PacketItem = {
   quoteLeafId: string | null;
   displaySku: string | null;
   displayName: string;
+  /** Internal instruction frozen for this SKU when the quote was sent. */
+  accountingNote: string | null;
   lineKind: string;
   netsuiteItemId: string | null;
   selectedNetsuiteItemCode: string | null;
@@ -196,6 +198,7 @@ export async function readOrderPacket(
         netsuiteItemId: l.netsuiteItemId,
         selectedNetsuiteItemCode: l.selectedNetsuiteItemCode,
         disposition: "not_spec_bearing",
+        accountingNote: null,
         spec: null,
       };
     }
@@ -206,6 +209,7 @@ export async function readOrderPacket(
         quoteLeafId: l.quoteLeafId,
         displaySku: l.displaySku,
         displayName: l.displayName,
+        accountingNote: l.accountingNote,
         lineKind: l.lineKind,
         netsuiteItemId: l.netsuiteItemId,
         selectedNetsuiteItemCode: l.selectedNetsuiteItemCode,
@@ -218,6 +222,7 @@ export async function readOrderPacket(
       quoteLeafId: l.quoteLeafId,
       displaySku: l.displaySku,
       displayName: l.displayName,
+      accountingNote: l.accountingNote,
       lineKind: l.lineKind,
       netsuiteItemId: l.netsuiteItemId,
       selectedNetsuiteItemCode: l.selectedNetsuiteItemCode,

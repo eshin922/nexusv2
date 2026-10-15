@@ -208,7 +208,7 @@ export async function updatePresentationLayout(
     // name another quote's row — the FK alone does not say whose.
     if (presentedTierId !== null) {
       const [tier] = await db
-        .select({ id: quoteTiers.id })
+        .select({ id: quoteTiers.id, rec: quoteTiers.recommended })
         .from(quoteTiers)
         .where(
           and(eq(quoteTiers.id, presentedTierId), eq(quoteTiers.quoteId, quoteId)),
@@ -219,6 +219,22 @@ export async function updatePresentationLayout(
           ERR.VALIDATION,
           "That tier does not belong to this quote.",
         );
+      }
+      if (layout === "single_tier" && !tier.rec) {
+        throw new ActionGuardError(ERR.VALIDATION, "Select a recommended tier before using the single-tier layout.");
+      }
+      if (layout === "single_tier") {
+        const [hidden] = await db
+          .select({ tierId: presentationProfileTier.tierId })
+          .from(presentationProfileTier)
+          .where(and(
+            eq(presentationProfileTier.quoteId, quoteId),
+            eq(presentationProfileTier.quoteVersion, quote.versionNumber),
+            eq(presentationProfileTier.tierId, presentedTierId!),
+            eq(presentationProfileTier.shown, false),
+          ))
+          .limit(1);
+        if (hidden) throw new ActionGuardError(ERR.VALIDATION, "Show the recommended tier before using the single-tier layout.");
       }
     }
 
@@ -334,6 +350,11 @@ export async function updatePresentationTierShown(
         ERR.VALIDATION,
         "That tier does not belong to this quote.",
       );
+    }
+
+    const profile = await currentProfile(db, quoteId, quote.versionNumber);
+    if (!shown && profile.layout === "single_tier" && profile.presentedTierId === tierId) {
+      throw new ActionGuardError(ERR.VALIDATION, "Switch to the tier table before hiding the displayed tier.");
     }
 
     // The last visible tier cannot be hidden. A customer document with no

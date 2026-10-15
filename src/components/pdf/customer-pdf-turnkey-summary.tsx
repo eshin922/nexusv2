@@ -60,13 +60,17 @@ export function TurnkeySummary({
       <Text style={styles.tkIncludedLabel}>
         {"What this turnkey price includes".toUpperCase()}
       </Text>
-      <Text style={styles.tkScope}>
-        Covers {skuSet.length} finished products —{" "}
-        <Text style={styles.tkScopeCode}>
-          {skuSet.map((s) => s.code).join(" · ")}
-        </Text>
-        .
-      </Text>
+      <Text style={styles.tkScope}>Products in this quote:</Text>
+      <View style={styles.tkInclList}>
+        {skuSet.map((sku, index) => <View key={sku.id}>
+          {sku.item_group && (index === 0 || skuSet[index - 1]?.item_group?.id !== sku.item_group.id) && (
+            <Text style={styles.tkIncl}>{sku.item_group.name}</Text>
+          )}
+          {!sku.item_group && (
+            <Text style={styles.tkIncl}>{sku.name}</Text>
+          )}
+        </View>)}
+      </View>
       <View style={styles.tkInclList}>
         {allInUnit && (
           <Text style={styles.tkIncl}>
@@ -134,7 +138,7 @@ export function TurnkeySummary({
         <Text style={styles.eyebrow}>
           {"Turnkey pricing · all-in".toUpperCase()}
         </Text>
-        <Text style={styles.h2}>Your turnkey total</Text>
+        <Text style={styles.h2}>Your turnkey price</Text>
         {lede && <Text style={[styles.lede, styles.turnkeyLede]}>{lede}</Text>}
         {/* hero figure (CD `pdf-render.jsx:212`) */}
         <View style={styles.tkHero}>
@@ -149,16 +153,15 @@ export function TurnkeySummary({
               {t.quantity.toLocaleString("en-US")} units
             </Text>
           </View>
-          {hasUnpriced ? (
+          {perUnit == null ? (
             <Text style={[styles.hNum, styles.hNumReq]}>total on request</Text>
           ) : (
-            <Text style={styles.hNum}>{money(total)}</Text>
+            <Text style={styles.hNum}>{hasUnpriced ? "from " : ""}{unit(perUnit)} /unit</Text>
           )}
         </View>
         {perUnit != null && (
           <Text style={styles.tkHeroUnit}>
-            {unit(perUnit)}{" "}
-            <Text style={styles.tkHeroUnitPer}>/ unit · blended all-in</Text>
+            Order total {hasUnpriced ? "from " : ""}{money(total)}
           </Text>
         )}
         {Included}
@@ -175,7 +178,7 @@ export function TurnkeySummary({
       <Text style={styles.eyebrow}>
         {"Turnkey pricing · all-in".toUpperCase()}
       </Text>
-      <Text style={styles.h2}>Turnkey total by volume tier</Text>
+      <Text style={styles.h2}>Turnkey price by volume tier</Text>
       {lede && <Text style={[styles.lede, styles.turnkeyLede]}>{lede}</Text>}
       <View style={styles.tkCards}>
         {tiers.map((t, ti) => {
@@ -202,13 +205,13 @@ export function TurnkeySummary({
                 {t.label}
               </Text>
               <Text style={styles.tkQty}>{qtyK(t.quantity)} units</Text>
-              {hasUnpriced ? (
+              {perUnit == null ? (
                 <Text style={[styles.tkTotal, styles.tkTotalReq]}>
                   total on request
                 </Text>
               ) : rec ? (
                 <Text style={[styles.tkTotal, styles.tkTotalRec]}>
-                  {money(total)}
+                  {hasUnpriced ? "from " : ""}{unit(perUnit)} /unit
                 </Text>
               ) : (
                 // Slice 11 Cluster-1 real fix (2026-07-27) — split the
@@ -259,14 +262,12 @@ export function TurnkeySummary({
                 // Certify against a DEPLOYED artifact. This has never
                 // reproduced locally, so a local pass is not evidence.
                 <Text style={[styles.tkTotal, styles.tkTotalStd]}>
-                  {money(total)}
+                  {hasUnpriced ? "from " : ""}{unit(perUnit)} /unit
                 </Text>
               )}
               {perUnit != null && (
                 <Text style={styles.tkPerunit}>
-                  {hasUnpriced ? "from " : ""}
-                  {unit(perUnit)}{" "}
-                  <Text style={styles.tkPerunitPer}>/unit</Text>
+                  Order total {hasUnpriced ? "from " : ""}{money(total)}
                 </Text>
               )}
               {rec && (

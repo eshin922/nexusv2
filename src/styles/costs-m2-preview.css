@@ -198,6 +198,13 @@
     12px 0 12px -12px oklch(0.20 0.02 255 / 0.10),
     inset 1px 0 0 0 var(--cm2-bd);
 }
+.cm2-ident[data-indent="3"] {
+  padding-left: 54px;
+  box-shadow:
+    -18px 0 0 0 var(--cm2-surf),
+    12px 0 12px -12px oklch(0.20 0.02 255 / 0.10),
+    inset 1px 0 0 0 var(--cm2-bd);
+}
 
 .cm2-label { font-size: 13px; color: var(--ink); }
 .cm2-label.cm2-strong { font-weight: 500; }
@@ -369,6 +376,15 @@
 .cm2-service-input:focus-visible {
   outline: 2px solid var(--cm2-acc-t);
   outline-offset: 1px;
+}
+.cm2-service-basis {
+  width: 100%;
+  margin-top: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--cm2-muted);
+  font: 10px var(--mono);
+  text-align: center;
 }
 .cm2-edit-error {
   max-width: 100%;
@@ -789,6 +805,42 @@
 }
 
 /* ── Notes, gaps, module entry ─────────────────────────────────────────── */
+
+.cm2-sku-accounting-note {
+  display: block;
+  width: min(100%, 620px);
+  margin: 10px 0;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.cm2-sku-accounting-note > span:first-child {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cm2-sku-accounting-note textarea {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 7px 9px;
+  border: 1px solid var(--cm2-bd);
+  border-radius: 5px;
+  background: var(--cm2-paper);
+  color: var(--ink);
+  font: 12px/1.4 var(--sans);
+}
+.cm2-sku-accounting-note textarea:focus-visible { outline: 2px solid var(--accent); }
+.cm2-sku-accounting-read { display: block; white-space: pre-wrap; color: var(--ink-2); }
+.cm2-sku-accounting-note small { display: block; margin-top: 3px; }
+.cm2-sku-accounting-error { color: var(--bad); }
+.cm2-owner-body > .cm2-sku-accounting-note { margin: 0 15px 12px; }
+.cm2-ident .cm2-sku-accounting-note { margin: 8px 0 2px; }
 
 .cm2-note {
   margin: 0 0 11px;

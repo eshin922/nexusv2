@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { CustomerViewLive } from "../../src/components/quote/customer-view-live.tsx";
 import { PricingTable } from "../../src/components/pdf/customer-pdf-pricing-table.tsx";
+import { TurnkeySummary } from "../../src/components/pdf/customer-pdf-turnkey-summary.tsx";
 import { composeTierMoney } from "../../src/lib/customer-money.ts";
 import type { CustomerView } from "../../src/types/quote.ts";
 import type { CpdfSku, CpdfTier } from "../../src/components/pdf/customer-pdf-types.ts";
@@ -99,4 +100,28 @@ test("customer PDF table follows the same group-subitem option as the preview", 
   assert.equal(count(shown, "Kit cap"), 1);
   assert.equal(count(hidden, "Kit bottle"), 0);
   assert.equal(count(hidden, "Kit cap"), 0);
+});
+
+test("turnkey preview names the item group without exposing its members and leads with unit price", () => {
+  const document = renderToStaticMarkup(<CustomerViewLive view={{ ...view, detailLevel: "turnkey_only" }} />);
+  assert.equal(count(document, "Finished kit"), 1);
+  assert.equal(count(document, "Separate carton"), 1);
+  assert.equal(count(document, "Kit bottle"), 0);
+  assert.equal(count(document, "Kit cap"), 0);
+  assert.match(document, /pp-grand-num[^>]*>\$1\.75<span class="per"> \/unit<\/span>/);
+  assert.match(document, /pp-grand-unit[^>]*>Order total \$175\.00/);
+});
+
+test("turnkey PDF names the group and standalone item without listing group members", () => {
+  const tiers: CpdfTier[] = view.tiers.map((tier) => ({ ...tier, full: tier.label, recommended: false }));
+  const pdfSkus: CpdfSku[] = skus.map((sku) => ({
+    id: sku.id!, code: sku.label, name: sku.name, pack: sku.pack,
+    item_group: sku.itemGroup ? { id: sku.itemGroup.id, name: sku.itemGroup.name, sku: sku.itemGroup.sku } : null,
+    tier_prices: sku.tierPrices, tier_line_totals: sku.tierLineTotals, shape: sku.shape,
+  }));
+  const document = renderToStaticMarkup(<TurnkeySummary skuSet={pdfSkus} tiers={tiers} recommendedTierIdx={null} serviceFees={[]} layout="tier_table" foldFees={false} freightAtCost={false} allInUnit={true} partial={false} />);
+  assert.equal(count(document, "Finished kit"), 1);
+  assert.equal(count(document, "Separate carton"), 1);
+  assert.equal(count(document, "Kit bottle"), 0);
+  assert.equal(count(document, "Kit cap"), 0);
 });

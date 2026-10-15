@@ -92,6 +92,7 @@ export function CustomerViewRail({
   onPdfLayoutChange,
   detailLevel,
   onDetailLevelChange,
+  onIncludeAddendumChange,
   pdfHref,
   presentation,
   hasItemGroups,
@@ -125,6 +126,7 @@ export function CustomerViewRail({
   onPdfLayoutChange: (next: CustomerViewPdfLayout) => void;
   detailLevel: CustomerViewDetailLevel;
   onDetailLevelChange: (next: CustomerViewDetailLevel) => void;
+  onIncludeAddendumChange: (next: boolean) => void;
   pdfHref: string;
   /**
    * Card 2 renders this as controls; Card 3 renders it as prose. ONE record,
@@ -392,6 +394,7 @@ export function CustomerViewRail({
           tiers={tiers}
           detailLevel={detailLevel}
           onDetailLevelChange={onDetailLevelChange}
+          onIncludeAddendumChange={onIncludeAddendumChange}
           pdfLayout={pdfLayout}
           onPdfLayoutChange={onPdfLayoutChange}
         />

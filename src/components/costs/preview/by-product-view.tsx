@@ -16,6 +16,7 @@ import { fmtPct1 } from "@/lib/money-display";
 import { M3Editor } from "./m3-editor-boundary";
 import { firstAnsweredRead } from "./spreadsheet-view";
 import { OrderQuantity } from "./order-quantity";
+import { SkuAccountingNote } from "./sku-accounting-note";
 
 /**
  * BY PRODUCT — prototype `editor()` / `edSection()` / `edCard()` / `edField()`.
@@ -62,6 +63,7 @@ export function ByProductView({
   const tier =
     overview.tiers.find((t) => t.id === activeTierId) ?? overview.tiers[0] ?? null;
   const groupedCost = owner && tier ? groupedCostByTier.get(owner.key)?.get(tier.id) : undefined;
+  const associatedServices = owner?.members.filter((member) => member.kind === "direct_service") ?? [];
 
   if (!owner || !tier) {
     return (
@@ -133,6 +135,16 @@ export function ByProductView({
             ))}
           </span>
         </div>
+
+        {owner.quoteLeafId && (owner.kind === "group_member" || owner.kind === "direct_product") && (
+          <SkuAccountingNote
+            quoteId={quoteId}
+            quoteLeafId={owner.quoteLeafId}
+            sku={owner.sku}
+            value={owner.accountingNote}
+            editable={editMode}
+          />
+        )}
 
         {owner.kind === "item_group" && (
           <div className="cm2-group-foot">
@@ -262,17 +274,17 @@ export function ByProductView({
             <article className="cm2-edcard" key={line.field}>
               <div className="cm2-edtitle">
                 <span className="cm2-edtitle-text">{line.label}</span>
-                <Tag>tier total</Tag>
+                <Tag>{owner.kind === "direct_service" ? "service cost" : "tier total"}</Tag>
               </div>
               <div className="cm2-edgrid">
                 {overview.tiers.map((t) => (
                   <EdField
                     key={t.id}
-                    label={`Tier total · ${t.label}`}
+                    label={`${line.basisByTier?.get(t.id) === "per_unit" ? "Cost per unit" : "Total cost"} · ${t.label}`}
                     value={line.amounts.get(t.id) ?? null}
                     hint={
                       t.qty === null
-                        ? "never multiplied by unit quantity"
+                        ? "quantity needed for per-unit total"
                         : `${t.qty.toLocaleString("en-US")} unit alternative`
                     }
                     mono
@@ -285,13 +297,37 @@ export function ByProductView({
                       ? "this service's own Production input"
                       : "the group's Production module"
                   }
-                  hint="a total for the tier"
+                  hint={owner.kind === "direct_service" ? "per-unit costs scale with tier quantity" : "a total for the tier"}
                   span
                 />
               </div>
             </article>
           ))}
         </section>
+
+        {associatedServices.length > 0 && (
+          <section className="cm2-section">
+            <div className="cm2-section-head">
+              <span className="cm2-section-title">Associated service costs</span>
+              <span className="cm2-section-note">{associatedServices.length} attached to {owner.name}</span>
+            </div>
+            {associatedServices.flatMap((service) => service.productionLines.map((line) => (
+              <article className="cm2-edcard" key={service.key + line.field}>
+                <div className="cm2-edtitle"><span className="cm2-edtitle-text">{service.name}</span><Tag tone="purple">associated service</Tag></div>
+                <div className="cm2-edgrid">
+                  {overview.tiers.map((t) => (
+                    editMode && service.quoteLeafId ? (
+                      <div className="cm2-edfield" key={t.id}>
+                        <span className="cm2-edlabel">{`Cost · ${t.label}`}</span>
+                        <M3Editor kind="service" quoteLeafId={service.quoteLeafId} tierId={t.id} value={line.amounts.get(t.id) ?? null} basis={line.basisByTier?.get(t.id) ?? "total"} quantity={t.qty} label={`Service amount for ${service.name} at ${t.label}`} disabled={false} />
+                      </div>
+                    ) : <EdField key={t.id} label={`Cost · ${t.label}`} value={line.amounts.get(t.id) ?? null} hint={line.basisByTier?.get(t.id) === "per_unit" ? "service cost per unit" : "service total for this product"} mono />
+                  ))}
+                </div>
+              </article>
+            )))}
+          </section>
+        )}
 
         <section className="cm2-section">
           <div className="cm2-section-head">

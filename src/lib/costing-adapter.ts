@@ -79,6 +79,10 @@ import {
 } from "./client-target";
 import type { ChargeElection } from "./commercial-recovery/resolve";
 import { packagingMarkupCategory } from "./costs/packaging-markup-authority";
+import {
+  DIRECT_SERVICE_PRODUCTION_INPUT,
+  type DirectServiceIdentity,
+} from "./product-structure/direct-service";
 import type {
   ComponentChargeInput,
   CostingCellOverride,
@@ -184,6 +188,8 @@ export type AdapterAssemblyProductionInputRow = {
   quoteLeafId: string | null;
   tierId: string;
   allocateServiceFeesToCost: boolean;
+  directServiceCostBasis?: "total" | "per_unit";
+  directServiceUnitCost?: string | null;
   fillingBlendingCost: string | null;
   cmAssemblyTotal: string | null;
   setupFeeTotal: string | null;
@@ -445,6 +451,23 @@ export function buildQuoteCostingInputFromNewModel(
       // Owned by a Direct Service. Present in the attachment set unless the
       // leaf was removed in the same read window; skipping is correct then.
       if (!directLeafIds.has(api.quoteLeafId)) continue;
+      // The engine consumes tier totals. A per-unit service input is expanded
+      // against this tier's quantity on every read, so changing quantity does
+      // not leave a stale total in a stored production column.
+      if (api.directServiceCostBasis === "per_unit") {
+        const service = args.quoteLeafAttachments.find(
+          (leaf) => leaf.quoteLeafId === api.quoteLeafId,
+        );
+        const column = service?.serviceIdentity
+          ? DIRECT_SERVICE_PRODUCTION_INPUT[service.serviceIdentity as DirectServiceIdentity]
+          : null;
+        if (!column) throw new Error(`Service ${api.quoteLeafId} has no governed cost column.`);
+        const qty = args.tiers.find((tier) => tier.id === api.tierId)?.qty ?? 0;
+        (columns as Record<string, number | boolean | null>)[column] =
+          api.directServiceUnitCost === null || api.directServiceUnitCost === undefined
+            ? null
+            : num(api.directServiceUnitCost) * qty;
+      }
       production.push({
         quoteSkuId: api.quoteLeafId,
         tierId: api.tierId,

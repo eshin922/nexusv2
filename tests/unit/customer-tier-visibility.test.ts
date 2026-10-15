@@ -46,7 +46,13 @@ const view = (): CustomerView =>
       {
         label: "A", name: "A", pack: null, unitsPerPack: 1,
     multiplicityPerUnit: null,
-        tierPrices: [1, 2, 3], tierLineTotals: [10, 20, 30], shape: "step↓",
+        itemGroup: { id: "group-a", name: "Group A", sku: "GA", tierSummaries: [
+          { unitPrice: 1, lineTotal: 100 },
+          { unitPrice: 2, lineTotal: 200 },
+          { unitPrice: 3, lineTotal: 300 },
+        ] },
+        tierPrices: [1, 2, 3], tierLineTotals: [10, 20, 30],
+        tierQuantities: [1000, 2000, 4000], shape: "step↓",
       },
       {
         label: "B", name: "B", pack: null, unitsPerPack: 1,
@@ -77,6 +83,11 @@ test("every index-aligned array drops the same position", () => {
   assert.deepEqual(out.tiers.map((t) => t.id), ["t1", "t3"]);
   assert.deepEqual(out.skus[0].tierPrices, [1, 3]);
   assert.deepEqual(out.skus[0].tierLineTotals, [10, 30]);
+  assert.deepEqual(out.skus[0].tierQuantities, [1000, 4000]);
+  assert.deepEqual(out.skus[0].itemGroup?.tierSummaries, [
+    { unitPrice: 1, lineTotal: 100 },
+    { unitPrice: 3, lineTotal: 300 },
+  ]);
   assert.deepEqual(out.skus[1].tierPrices, [4, 6]);
   assert.deepEqual(out.skus[1].tierLineTotals, [40, 60]);
   assert.deepEqual(out.serviceFees[0].tierAmounts, [7, 9]);

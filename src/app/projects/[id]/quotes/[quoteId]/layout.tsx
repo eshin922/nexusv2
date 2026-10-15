@@ -16,11 +16,19 @@
 // if a future surface joins (`(rail)/...` for the four working
 // surfaces; quote stays at outer level) — re-evaluate then.
 
-export default function QuoteLayout({
+import { QuotePagePresenceBanner } from "@/components/quote/quote-page-presence-banner";
+import { isProductionRealtimeConfigured } from "@/lib/integrations/realtime-composition";
+
+export default async function QuoteLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
   params: Promise<{ id: string; quoteId: string }>;
 }) {
-  return <>{children}</>;
+  const { id, quoteId } = await params;
+  return <>
+    <QuotePagePresenceBanner projectId={id} quoteId={quoteId} realtimeEnabled={isProductionRealtimeConfigured()} />
+    {children}
+  </>;
 }

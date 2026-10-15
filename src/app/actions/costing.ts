@@ -77,7 +77,8 @@ import { resolveQuoteCommercialSettings } from "@/lib/commercial-settings";
 import type { CommercialSettingsResolution } from "@/lib/commercial-settings-contract";
 import { buildQuoteCostingInputFromNewModel } from "@/lib/costing-adapter";
 import { quoteProductTierQuantities } from "@/db/schema";
-import { loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
+import { loadFreightWorkbook, loadShipmentMemberAnchors, type FreightWorkbook } from "@/lib/freight-workbook";
+import { selectCustomsMemberCharge } from "@/lib/costs/customs-sku-selection";
 import { resolveLegacyFreightAttribution } from "@/lib/freight-legacy-attribution";
 import {
   PAYLOAD_ORDERING_DOMAIN,
@@ -459,22 +460,22 @@ async function loadWorksheetFreightForQuote(
     list.push(row.quoteLeafId);
     membersBySubcategory.set(row.subcategoryId, list);
   }
+  const memberUnitsByTier = (await loadFreightWorkbook(quoteId)).costingContext.memberUnitsByTier ?? {};
 
   const customs = await db.select({
     subcategoryId: freightCustomsEntries.freightSubcategoryId,
     tierId: freightCustomsBreaks.tierId,
     chargeType: freightCustomsBreaks.chargeType,
+    quoteLeafId: freightCustomsBreaks.quoteLeafId,
     amount: freightCustomsBreaks.amount,
     markupPct: freightCustomsBreaks.markupPct,
   }).from(freightCustomsBreaks)
     .innerJoin(freightCustomsEntries, eq(freightCustomsEntries.id, freightCustomsBreaks.freightCustomsEntryId))
     .innerJoin(freightSubcategories, eq(freightSubcategories.id, freightCustomsEntries.freightSubcategoryId))
     .where(eq(freightSubcategories.quoteId, quoteId));
-  const charge = (subcategoryId: string, tierId: string, type: "duty" | "tariff") =>
-    customs.find((row) => row.subcategoryId === subcategoryId && row.tierId === tierId && row.chargeType === type);
+  const charge = (subcategoryId: string, tierId: string, type: "duty" | "tariff", memberId: string) =>
+    selectCustomsMemberCharge(customs.filter((row) => row.subcategoryId === subcategoryId && row.tierId === tierId && row.chargeType === type), memberId, membersBySubcategory.get(subcategoryId) ?? []);
   return rows.flatMap((row) => {
-    const duty = charge(row.subcategoryId, row.tierId, "duty");
-    const tariff = charge(row.subcategoryId, row.tierId, "tariff");
     const members = membersBySubcategory.get(row.subcategoryId) ?? [];
     // A PRICED SHIPMENT WITH NO RECORDED MEMBERS CONTRIBUTES NOTHING, AND DOES
     // NOT THROW.
@@ -496,20 +497,28 @@ async function loadWorksheetFreightForQuote(
     // ONE BREAK PER MEMBER. The amounts stay whole; `memberCount` carries the
     // split so the engine can state it and the trace can show the operator's
     // entered figure rather than a divided one.
-    return members.map((memberSkuId) => ({
+    return members.map((memberSkuId) => {
+      const duty = charge(row.subcategoryId, row.tierId, "duty", memberSkuId);
+      const tariff = charge(row.subcategoryId, row.tierId, "tariff", memberSkuId);
+      return ({
       freightSubcategoryId: row.subcategoryId,
       memberSkuId,
       memberCount: members.length,
+      dutyMemberCount: duty.perSku ? 1 : members.length,
+      tariffMemberCount: tariff.perSku ? 1 : members.length,
+      dutyTierUnits: duty.perSku ? memberUnitsByTier[`${memberSkuId}:${row.tierId}`] ?? row.tierUnits ?? 0 : row.tierUnits ?? 0,
+      tariffTierUnits: tariff.perSku ? memberUnitsByTier[`${memberSkuId}:${row.tierId}`] ?? row.tierUnits ?? 0 : row.tierUnits ?? 0,
       tierId: row.tierId,
       tierUnits: row.tierUnits ?? 0,
       treatment: row.treatment,
       freightAmount: numOrNull(row.freightAmount),
       freightMarkupPct: num(row.freightMarkupPct, 0),
-      dutyAmount: numOrNull(duty?.amount ?? null),
-      dutyMarkupPct: num(duty?.markupPct ?? null, 0),
-      tariffAmount: numOrNull(tariff?.amount ?? null),
-      tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
-    }));
+      dutyAmount: numOrNull(duty.row?.amount ?? null),
+      dutyMarkupPct: num(duty.row?.markupPct ?? null, 0),
+      tariffAmount: numOrNull(tariff.row?.amount ?? null),
+      tariffMarkupPct: num(tariff.row?.markupPct ?? null, 0),
+    });
+    });
   });
 }
 
@@ -522,9 +531,9 @@ function projectSnapshotWorkbook(
   );
   const selectedBreaks = workbook.breaks.filter((row) => selectedDestinationIds.has(row.freightDestinationId));
   const customsBySubcategory = new Map(workbook.customsEntries.map((row) => [row.freightSubcategoryId, row.id]));
-  const customsCharge = (subcategoryId: string, tierId: string, chargeType: "duty" | "tariff") => {
+  const customsCharge = (subcategoryId: string, tierId: string, chargeType: "duty" | "tariff", memberId: string, memberIds: string[]) => {
     const entryId = customsBySubcategory.get(subcategoryId);
-    return workbook.customsBreaks.find((row) => row.freightCustomsEntryId === entryId && row.tierId === tierId && row.chargeType === chargeType);
+    return selectCustomsMemberCharge(workbook.customsBreaks.filter((row) => row.freightCustomsEntryId === entryId && row.tierId === tierId && row.chargeType === chargeType), memberId, memberIds);
   };
   return selectedBreaks.flatMap((row) => {
     const destination = workbook.destinations.find((candidate) => candidate.id === row.freightDestinationId);
@@ -567,22 +576,29 @@ function projectSnapshotWorkbook(
         : null;
     const members = legacy?.eligible ? [legacy.memberSkuId] : recorded;
     if (members.length === 0) return [];
-    const duty = customsCharge(subcategory.id, row.tierId, "duty");
-    const tariff = customsCharge(subcategory.id, row.tierId, "tariff");
-    return members.map((memberSkuId) => ({
+    return members.map((memberSkuId) => {
+      const duty = customsCharge(subcategory.id, row.tierId, "duty", memberSkuId, members);
+      const tariff = customsCharge(subcategory.id, row.tierId, "tariff", memberSkuId, members);
+      const memberUnits = workbook.costingContext.memberUnitsByTier?.[`${memberSkuId}:${row.tierId}`] ?? workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0;
+      return ({
       freightSubcategoryId: subcategory.id,
       memberSkuId,
       memberCount: members.length,
+      dutyMemberCount: duty.perSku ? 1 : members.length,
+      tariffMemberCount: tariff.perSku ? 1 : members.length,
+      dutyTierUnits: duty.perSku ? memberUnits : workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0,
+      tariffTierUnits: tariff.perSku ? memberUnits : workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0,
       tierId: row.tierId,
       tierUnits: workbook.costingContext.tierUnitsByTier[row.tierId] ?? 0,
       treatment: subcategory.treatment,
       freightAmount: numOrNull(row.freightAmount),
       freightMarkupPct: num(row.freightMarkupPct, 0),
-      dutyAmount: numOrNull(duty?.amount ?? null),
-      dutyMarkupPct: num(duty?.markupPct ?? null, 0),
-      tariffAmount: numOrNull(tariff?.amount ?? null),
-      tariffMarkupPct: num(tariff?.markupPct ?? null, 0),
-    }));
+      dutyAmount: numOrNull(duty.row?.amount ?? null),
+      dutyMarkupPct: num(duty.row?.markupPct ?? null, 0),
+      tariffAmount: numOrNull(tariff.row?.amount ?? null),
+      tariffMarkupPct: num(tariff.row?.markupPct ?? null, 0),
+    });
+    });
   });
 }
 
@@ -1101,6 +1117,8 @@ export async function loadQuoteCostingInput(
           quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          directServiceCostBasis: r.directServiceCostBasis as 'total' | 'per_unit',
+          directServiceUnitCost: r.directServiceUnitCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
           setupFeeTotal: r.setupFeeTotal,
@@ -1706,6 +1724,8 @@ export async function applyClientTargetSolveTierAdj(
           quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          directServiceCostBasis: r.directServiceCostBasis as 'total' | 'per_unit',
+          directServiceUnitCost: r.directServiceUnitCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
           setupFeeTotal: r.setupFeeTotal,
@@ -2079,6 +2099,8 @@ export async function getCostingBundle(
           quoteLeafId: r.quoteLeafId,
           tierId: r.tierId,
           allocateServiceFeesToCost: r.allocateServiceFeesToCost,
+          directServiceCostBasis: r.directServiceCostBasis as 'total' | 'per_unit',
+          directServiceUnitCost: r.directServiceUnitCost,
           fillingBlendingCost: r.fillingBlendingCost,
           cmAssemblyTotal: r.cmAssemblyTotal,
           setupFeeTotal: r.setupFeeTotal,

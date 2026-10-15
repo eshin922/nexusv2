@@ -166,7 +166,7 @@ test("markup states one operator contract: whole percent", () => {
   for (const input of markupInputs) {
     assert.match(input, /step="1"/, "whole-percent fields must step by 1, not 0.01");
     assert.match(input, /placeholder="\d+"/, "a worked example must be shown");
-    assert.match(input, /aria-label=(?:"[^"]*whole percent|\{`\$\{label\} markup for \$\{tier\.label\}, whole percent`\})/);
+    assert.match(input, /aria-label=[^>]*whole percent/);
   }
 });
 

@@ -398,6 +398,11 @@ export type ShipmentContributionInput = {
    * where it can be stated as a step.
    */
   memberCount: number;
+  /** SKU customs totals have their own divisor; legacy pooled totals do not. */
+  dutyMemberCount?: number;
+  tariffMemberCount?: number;
+  dutyTierUnits?: number;
+  tariffTierUnits?: number;
   freightAmount: number | null;
   freightMarkupPct: number;
   dutyAmount: number | null;
@@ -447,9 +452,14 @@ export function computeShipmentContribution(
   const members = Math.max(1, Math.trunc(num(input.memberCount, 1)));
   const perUnit = (amount: number | null) =>
     units > 0 ? num(amount) / members / units : 0;
+  const customsPerUnit = (amount: number | null, memberCount: number | undefined, tierUnits: number | undefined) => {
+    const chargeMembers = Math.max(1, Math.trunc(num(memberCount, members)));
+    const chargeUnits = num(tierUnits, units);
+    return chargeUnits > 0 ? num(amount) / chargeMembers / chargeUnits : 0;
+  };
   const freightCostPerUnit = perUnit(input.freightAmount);
-  const dutyCostPerUnit = perUnit(input.dutyAmount);
-  const tariffCostPerUnit = perUnit(input.tariffAmount);
+  const dutyCostPerUnit = customsPerUnit(input.dutyAmount, input.dutyMemberCount, input.dutyTierUnits);
+  const tariffCostPerUnit = customsPerUnit(input.tariffAmount, input.tariffMemberCount, input.tariffTierUnits);
   const freightBillablePerUnit =
     freightCostPerUnit * (1 + num(input.freightMarkupPct));
   const dutyBillablePerUnit =
@@ -3147,6 +3157,8 @@ function computeLeafPerTier(args: {
         markupPct: number,
         costPerUnit: number,
         billablePerUnit: number,
+        chargeMembers = memberCount,
+        chargeUnits = units,
       ): CostingNode => ({
         key: nodeKey(shipBase, name),
         kind: "markup",
@@ -3161,8 +3173,8 @@ function computeLeafPerTier(args: {
             label: "Per unit",
             value: costPerUnit,
             unit: "usd",
-            divisor: units,
-            op: money(num(amount)) + " / " + memberCount + " member(s) / " + units + " units",
+            divisor: chargeUnits,
+            op: money(num(amount)) + " / " + chargeMembers + " member(s) / " + chargeUnits + " units",
             operands: [
               // The shipment's share for THIS member, stated as its own step so
               // the entered amount below stays the amount the operator entered.
@@ -3172,10 +3184,10 @@ function computeLeafPerTier(args: {
                 key: nodeKey(shipBase, name, "share"),
                 kind: "allocation",
                 label: "This product's share",
-                value: num(amount) / memberCount,
+                value: num(amount) / chargeMembers,
                 unit: "usd",
-                divisor: memberCount,
-                op: money(num(amount)) + " / " + memberCount + " product(s) in this shipment",
+                divisor: chargeMembers,
+                op: money(num(amount)) + " / " + chargeMembers + " product(s) in this shipment",
                 operands: [
                   originUsd(nodeKey(shipBase, name, "total"), "Entered amount", num(amount)),
                 ],
@@ -3195,8 +3207,8 @@ function computeLeafPerTier(args: {
         op: "freight + duty + tariff",
         operands: [
           charge("freight", shipment.freightAmount, shipment.freightMarkupPct, c.freightCostPerUnit, c.freightBillablePerUnit),
-          charge("duty", shipment.dutyAmount, shipment.dutyMarkupPct, c.dutyCostPerUnit, c.dutyBillablePerUnit),
-          charge("tariff", shipment.tariffAmount, shipment.tariffMarkupPct, c.tariffCostPerUnit, c.tariffBillablePerUnit),
+          charge("duty", shipment.dutyAmount, shipment.dutyMarkupPct, c.dutyCostPerUnit, c.dutyBillablePerUnit, shipment.dutyMemberCount ?? memberCount, shipment.dutyTierUnits ?? units),
+          charge("tariff", shipment.tariffAmount, shipment.tariffMarkupPct, c.tariffCostPerUnit, c.tariffBillablePerUnit, shipment.tariffMemberCount ?? memberCount, shipment.tariffTierUnits ?? units),
         ],
       });
     }

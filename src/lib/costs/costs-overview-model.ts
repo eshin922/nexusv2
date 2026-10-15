@@ -86,6 +86,7 @@ export type OverviewMemberFact = {
   quoteLeafId: string;
   name: string;
   sku: string;
+  accountingNote?: string | null;
   /** Membership quantity, as stored. A real structural quantity, never display. */
   quantity: string | null;
   position: number;
@@ -97,6 +98,7 @@ export type OverviewDirectProductFact = {
   quoteLeafId: string;
   name: string;
   sku: string;
+  accountingNote?: string | null;
   quantity: string | null;
   position: number;
   productType: string | null;
@@ -106,10 +108,11 @@ export type OverviewDirectServiceFact = {
   quoteLeafId: string;
   name: string;
   serviceIdentity: DirectServiceIdentity;
-  associatedProduct?: { name: string; sku: string } | null;
+  associatedProduct?: { quoteLeafId: string; name: string; sku: string } | null;
   position: number;
   /** tierId → the amount stored in this service's ONE governed column. */
   amountsByTier: Record<string, string | null>;
+  basisByTier?: Record<string, "total" | "per_unit">;
 };
 
 /** One `assembly_leaf_inputs` row, as stored. */
@@ -243,6 +246,7 @@ export type OverviewProductionLine = {
   label: string;
   /** tierId → amount as stored. Absent key means no row for that tier. */
   amounts: ReadonlyMap<string, string | null>;
+  basisByTier?: ReadonlyMap<string, "total" | "per_unit">;
 };
 
 /**
@@ -288,12 +292,16 @@ export type OverviewOwner = {
   assemblyId: string | null;
   name: string;
   sku: string;
+  /** Internal instruction on this quote's product attachment. */
+  accountingNote: string | null;
   /** Recorded catalogue Product Type, raw stored value. NULL where unclassified. */
   productType: string | null;
   /** Membership / attachment quantity, as stored. */
   quantity: string | null;
   /** For a Direct Service: which governed service this is. */
   serviceIdentity: DirectServiceIdentity | null;
+  /** Set only when a service is attached to this quote's product. */
+  associatedProductQuoteLeafId?: string | null;
   members: readonly OverviewOwner[];
   recurringLines: readonly OverviewRecurringLine[];
   productionLines: readonly OverviewProductionLine[];
@@ -549,6 +557,51 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
   const owners: OverviewOwner[] = [];
   const placedLeafIds = new Set<string>();
 
+  const serviceOwners = [...facts.directServices]
+    .sort((a, b) => a.position - b.position)
+    .map((s): { fact: OverviewDirectServiceFact; owner: OverviewOwner } => {
+      placedLeafIds.add(s.quoteLeafId);
+      const amounts = new Map<string, string | null>(Object.entries(s.amountsByTier));
+      return {
+        fact: s,
+        owner: {
+          key: `service:${s.quoteLeafId}`,
+          kind: "direct_service",
+          quoteLeafId: s.quoteLeafId,
+          assemblyId: null,
+          // The parent row supplies the product name when this service is attached.
+          name: s.name,
+          sku: "",
+          accountingNote: null,
+          productType: null,
+          quantity: null,
+          serviceIdentity: s.serviceIdentity,
+          associatedProductQuoteLeafId: s.associatedProduct?.quoteLeafId ?? null,
+          members: [],
+          recurringLines: linesByOwner.get(s.quoteLeafId) ?? [],
+          productionLines: [{
+            field: DIRECT_SERVICE_PRODUCTION_INPUT[s.serviceIdentity],
+            label: DIRECT_SERVICE_LABELS[s.serviceIdentity],
+            amounts,
+            basisByTier: new Map(Object.entries(s.basisByTier ?? {})),
+          }],
+          charges: chargesByOwner.get(s.quoteLeafId) ?? [],
+        },
+      };
+    });
+  const servicesByProduct = new Map<string, OverviewOwner[]>();
+  const productIds = new Set([
+    ...facts.members.map((member) => member.quoteLeafId),
+    ...facts.directProducts.map((product) => product.quoteLeafId),
+  ]);
+  for (const { fact, owner } of serviceOwners) {
+    const productId = fact.associatedProduct?.quoteLeafId;
+    if (!productId || !productIds.has(productId)) continue;
+    const bucket = servicesByProduct.get(productId) ?? [];
+    bucket.push(owner);
+    servicesByProduct.set(productId, bucket);
+  }
+
   for (const assembly of [...facts.assemblies].sort((a, b) => a.position - b.position)) {
     const members = (membersByAssembly.get(assembly.id) ?? [])
       .slice()
@@ -562,10 +615,11 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
           assemblyId: m.assemblyId,
           name: m.name,
           sku: m.sku,
+          accountingNote: m.accountingNote ?? null,
           productType: m.productType,
           quantity: m.quantity,
           serviceIdentity: null,
-          members: [],
+          members: servicesByProduct.get(m.quoteLeafId) ?? [],
           recurringLines: linesByOwner.get(m.quoteLeafId) ?? [],
           productionLines: [],
           charges: chargesByOwner.get(m.quoteLeafId) ?? [],
@@ -580,6 +634,7 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
       assemblyId: assembly.id,
       name: assembly.name,
       sku: assembly.sku,
+      accountingNote: null,
       productType: null,
       quantity: null,
       serviceIdentity: null,
@@ -599,52 +654,20 @@ export function buildCostsOverview(facts: CostsOverviewFacts): CostsOverview {
       assemblyId: null,
       name: p.name,
       sku: p.sku,
+      accountingNote: p.accountingNote ?? null,
       productType: p.productType,
       quantity: p.quantity,
       serviceIdentity: null,
-      members: [],
+      members: servicesByProduct.get(p.quoteLeafId) ?? [],
       recurringLines: linesByOwner.get(p.quoteLeafId) ?? [],
       productionLines: [],
       charges: chargesByOwner.get(p.quoteLeafId) ?? [],
     });
   }
 
-  for (const s of [...facts.directServices].sort((a, b) => a.position - b.position)) {
-    placedLeafIds.add(s.quoteLeafId);
-    // A service's economics are ONE governed column, presented as its own line
-    // rather than borrowed from the Item Group production vocabulary.
-    const amounts = new Map<string, string | null>(
-      Object.entries(s.amountsByTier),
-    );
-    owners.push({
-      key: `service:${s.quoteLeafId}`,
-      kind: "direct_service",
-      quoteLeafId: s.quoteLeafId,
-      assemblyId: null,
-      name: s.associatedProduct ? `${s.name} · for ${s.associatedProduct.name}` : s.name,
-      sku: s.associatedProduct?.sku ?? "",
-      productType: null,
-      quantity: null,
-      serviceIdentity: s.serviceIdentity,
-      members: [],
-      recurringLines: linesByOwner.get(s.quoteLeafId) ?? [],
-      // ALWAYS present, priced or not. A governed service owns exactly one
-      // input row whether or not anyone has costed it, and an unpriced service
-      // that rendered as no row at all would be indistinguishable from a quote
-      // that has no service — the same reasoning the readiness reader records
-      // for uncosted charges. Blank per-tier cells state the truth.
-      productionLines: [
-        {
-          // The service's ONE governed input, resolved from the service's own
-          // identity — never from whichever column happens to hold a value,
-          // which would accept an amount this service may not author.
-          field: DIRECT_SERVICE_PRODUCTION_INPUT[s.serviceIdentity],
-          label: `${DIRECT_SERVICE_LABELS[s.serviceIdentity]} · service line total`,
-          amounts,
-        },
-      ],
-      charges: chargesByOwner.get(s.quoteLeafId) ?? [],
-    });
+  for (const { fact, owner } of serviceOwners) {
+    if (fact.associatedProduct && productIds.has(fact.associatedProduct.quoteLeafId)) continue;
+    owners.push(owner);
   }
 
   // ── What did not land anywhere ──────────────────────────────────────────
@@ -713,7 +736,10 @@ export function focusableOwners(
 ): OverviewOwner[] {
   return flattenOwners(owners)
     .map((e) => e.owner)
-    .filter((o) => o.kind !== "item_group" || o.productionLines.length > 0);
+    .filter((o) =>
+      (o.kind !== "item_group" || o.productionLines.length > 0) &&
+      (!o.associatedProductQuoteLeafId || o.recurringLines.length > 0 || o.charges.length > 0),
+    );
 }
 
 export function countRecurring(owner: OverviewOwner): number {

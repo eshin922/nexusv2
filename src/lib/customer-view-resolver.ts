@@ -704,7 +704,13 @@ export async function resolveCustomerView(args: {
       )] as const),
   );
   const groupSummaries = summarizeCustomerItemGroups(skus, groupQuantities);
-  const displaySkus = orderCustomerItemGroupRows(skus).map((sku) => ({
+  // Customer-facing order: lead with the finished product and its components,
+  // then show direct services such as Filling / Blending. This is a display
+  // partition over the same priced lines; no amount is recomputed or omitted.
+  const directServiceIds = new Set(unitLines
+    .filter((line) => line.kind === "direct_service")
+    .map((line) => line.quoteLeafId ?? line.key));
+  const displaySkus = orderCustomerItemGroupRows(skus, directServiceIds).map((sku) => ({
     ...sku,
     itemGroup: sku.itemGroup ? {
       ...sku.itemGroup,
