@@ -3235,7 +3235,7 @@ export async function markAccepted(
         toStage = await hubspot.updateDealStage(
           project.hubspotDealId as string,
           firm.hubspotDealStageOnAccept,
-          { amount: tierTurnkeyAmount },
+          { amount: tierTurnkeyAmount, salesOrderSource: "nexus" },
         );
       }
     } catch (e) {
