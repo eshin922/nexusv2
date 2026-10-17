@@ -287,7 +287,7 @@ export interface HubSpotOperations {
   updateDealStage(
     dealId: string,
     targetStage: string,
-    options?: { amount?: number },
+    options?: { amount?: number; salesOrderSource?: "nexus" },
   ): Promise<HubSpotStage>;
   updateDealAmount(dealId: string, amount: number): Promise<void>;
 }

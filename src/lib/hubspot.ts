@@ -242,6 +242,9 @@ export async function updateDealStage(
      * (never a state problem per CA disposition — deal amount is
      * a salesperson estimate for reporting, not binding). */
     amount?: number;
+    /** Set alongside the stage so the HubSpot SO workflow sees the routing
+     * marker before it can enroll this deal. */
+    salesOrderSource?: "nexus";
   },
 ): Promise<DealStageInfo> {
   const stages = await loadPipelineStages();
@@ -273,6 +276,9 @@ export async function updateDealStage(
     // JS IEEE 754 arithmetic. Fix pairs with the mark-complete
     // §7.2 patch site (see mark-complete.ts:runAmountPatchIfNeeded).
     properties.amount = opts.amount.toFixed(2);
+  }
+  if (opts?.salesOrderSource) {
+    properties.nexus_sales_order_source = opts.salesOrderSource;
   }
 
   const c = getWriteClient();
