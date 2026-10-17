@@ -44,11 +44,28 @@ extension rather than replacement (§06).
 
 ## Ownership model
 
-Owner is a polymorphic reference, **never nullable**. Two v1 types:
+Owner is a polymorphic reference, **never nullable**. **Three v1 types as of
+2026-08-27** — `item_group` was promoted out of Deferred at the Phase 3 stop:
 
-- `owner.type = quote` — project setup, container freight, duty. Caused by the engagement.
+- `owner.type = quote` — genuinely engagement-caused. No population qualifies today.
 - `owner.type = component_attachment` — **new.** The packaging leaf on *this quote*.
-- `owner.type = item_group` — deferred. The field is already shaped for it.
+- `owner.type = item_group` — **v1, not deferred.** Existing Production one-time
+  charges, governed by BV-012 §1.a: *"Production costs belong to the Item Group
+  itself. They do not belong to an arbitrary packaging component underneath it."*
+
+> **Amended 2026-08-27 (Edward, Phase 3 disposition B).** This section previously
+> deferred `item_group` and sent existing Production charges to `quote`. Both were
+> wrong: BV-012 is an approved governing rule confirmed with Accounting, and every
+> existing one-time charge is Production economics stored against an assembly.
+> Grouping them under Project would detach them from the object that incurs them.
+>
+> The deferral reasoning — *"no demand until a charge is genuinely caused by an
+> assembly rather than a component in it"* — described a demand that was already
+> present and unrecognised.
+>
+> **If the Item Group caused the charge, Project is not its causal owner.** A
+> Project → Item Group nesting used merely to keep both prior documents true is
+> explicitly rejected.
 
 Rejected: **item group** as the packaging owner (too coarse — cannot say which of two cartons
 caused a plate, and swapping a component silently reassigns the charge). **Library definition**
@@ -323,7 +340,7 @@ library_charge_template                       -- memory of shape, never of money
 
 | Item | Why it can wait |
 |---|---|
-| Item-group ownership | No demand until a charge is genuinely caused by an assembly rather than a component in it. |
+| ~~Item-group ownership~~ | **PROMOTED TO V1, 2026-08-27.** The demand was already present: BV-012 governs it and the entire existing one-time population is stored against an assembly. See the Ownership model above. |
 | History-based suggestion ranking | V1 suggests from a static product-type map. Ranking needs volume to beat it, and a wrong suggestion costs more than none. |
 | Per-charge attachments | Plate proofs and die specs will want to hang off the charge. Quote-level attachments cover it badly but adequately. |
 | Other → type graduation tooling | Manual quarterly review is enough at V1 volume. Automating promotion before anyone has read the labels would govern an unseen vocabulary. |
@@ -386,6 +403,32 @@ an open design question.
 
 ## Status
 
-No code until beta clean-pair closure. Two items to resolve are resolved in this document;
-what remains before implementation is engineering's mapping of requirement 2 (instance grain)
-against the existing charge/recovery schema.
+**Phases 1, 1b and 2 shipped** — instance identity, component-owned storage, registry and
+costing input. Legacy population proved byte-identical throughout.
+
+**Phase 3 (Costs owner grouping) is STOPPED pending a Costs-specific design round trip**,
+per `docs/validation/od-032-phase-3-costs-grouping-mapping.md`. Two conflicts:
+
+1. **There is no one-time Costs section to group.** This bundle never draws the Costs
+   region — all three §03 states are drawn on **Setup**. The shipped Costs page composes
+   Packaging, Production and Freight; one-time charges live inside Production and
+   duty/customs inside Freight.
+2. **BV-012 against the two-type owner model** — resolved by disposition B above.
+
+**Phase 4 (the authoring sheet) is blocked** until the Costs destination is visually and
+semantically settled.
+
+### V1 scope constraint — recorded 2026-08-27 (Edward)
+
+The Phase 3 solution is **not** the permanent Costs-page architecture. For V1 it optimises
+for correct ownership, understandable placement, and **minimum disruption to the certified
+Costs workflow**.
+
+A dedicated post-V1 Costs redesign is expected, and it reconsiders the page as one system —
+Packaging, Production, Freight, landed costs, Project charges, Item Group charges and
+component-owned charges together. OD-032 must not redesign those regions incrementally now.
+
+So the Costs design answers *"where can these new charges live clearly and correctly in the
+existing V1 Costs page?"* — **not** *"what should the ideal future Costs page look like?"*
+Every V1 compromise is recorded explicitly so it becomes an input to that later redesign
+rather than accidental permanent architecture.
