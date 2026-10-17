@@ -1405,3 +1405,86 @@ correct for a product that does carry a specification.
 No merge, no production migration, no HubSpot option, no reclassification, no
 default-rule seeding. Existing classifications unchanged. The charge-defaults
 table remains separate with its two unresolved requirements.
+
+---
+---
+
+# Appendix G — RELEASED
+
+**2026-09-15 · Ingestibles and Topicals are live in production.**
+
+## G1 · What shipped
+
+| Step | Identifier | Result |
+|---|---|---|
+| Candidate | `c1bc8153801201b94ca65243164cf5638f46c407` | head verified identical on local, remote and PR before any action |
+| Migrations | `0129_formulated_spec_schema`, `0130_widen_spec_schema_check` | applied via `npm run db:migrate`; pending set was exactly these two, in order |
+| Merge | `5599548999c7b5cbfe61709069fac2669254e71b` | PR #594 squashed; `verify` on main: success |
+| Deployment | Production `6474711906` | success |
+| Options | production portal `21497798`, sandbox `46710404` | both created |
+| Superseded | PR #593 | closed |
+
+## G2 · Migration read-back
+
+```
+                    before → after
+leaf_formulated row      0 → 1        name "Formulated", 8 fields
+ledger rows            127 → 129      exactly two
+high-water   1789633920000 → 1789806720000   (= 0130)
+spec_schema CHECK   7 values → 8      'formulated' added
+existing spec rows       265, of which formulated: 0
+pending set after            0
+```
+
+Fields as approved: `fm_description, fm_form, fm_net_content, fm_actives,
+fm_additional_details, fm_factory_1, fm_factory_2, fm_packout_details`.
+
+**No product was reclassified.** 265 existing spec rows, none carrying the new
+schema.
+
+## G3 · Activation, verified with a control
+
+Against production: both values resolve `schema/formulated`, encode to
+`formulated`, decode back to a schema, and resolve to `leaf_formulated`.
+
+The CHECK was shown to accept the pin by inserting inside a transaction that
+was rolled back — **and a bogus value in the same position was refused with
+`23514`**. Without that control the acceptance would have proved nothing about
+the constraint. Zero rows left behind.
+
+A first probe reported *refused* and was wrong: it hit
+`leaf_specs_current_idx`, the partial unique index, because the leaf already
+had a current spec. Recorded because reporting it as the CHECK refusing would
+have been a false finding.
+
+## G4 · Option verification
+
+Read through the production API, independently of the browser:
+
+```
+option count           18
+16 originals preserved 16/16 — none lost
+Ingestibles   value="Ingestibles"  label="Ingestibles"  exact  visible
+Topicals      value="Topicals"     label="Topicals"     exact  visible
+blank or padded options: none
+```
+
+## G5 · Vocabulary, by portal
+
+| Portal | Options | UNMAPPED | AHEAD |
+|---|---:|---|---|
+| **production** | 18 | **none** | **0** |
+| **sandbox** | 17 | **2 — `Corrugated`, `Preliminary`** | 3 |
+
+**The command still exits 1, and that is correct.** The two sandbox values are
+pre-existing, belong to the separate residue investigation (D6), and were not
+disposed in `MAPPING` to obtain a green run.
+
+## G6 · Not done, deliberately
+
+No reclassification. No test products. No charge-default seeding. No type
+retirement. The `schema_pending` → `specified` snapshot defect remains
+separately tracked and unaddressed.
+
+**Nothing yet carries either new type.** The options exist and the schema is
+live; classifying products is a separate decision.
