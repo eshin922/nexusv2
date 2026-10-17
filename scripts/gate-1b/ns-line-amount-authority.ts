@@ -30,14 +30,22 @@
  *
  * NOT DPS-1073. This transaction is disposable and exists only to answer the
  * question; the certification fixture is untouched.
+ *
+ * ── CORRECTED 2026-09-01 ─────────────────────────────────────────────────
+ *
+ * The original run of this probe called `createRecord` directly, and the
+ * resulting SO2731 came back carrying $1,873.60 of CA_CA tax — because
+ * NetSuite defaults this customer's lines to 6% and nothing patched them. The
+ * probe was correct and the ARTIFACT was misleading: it reads as though Nexus
+ * had violated its own non-taxable rule, which it had not.
+ *
+ * It now goes through `createProbeSalesOrder`, which stamps the governed
+ * `-8 · Not Taxable` code from `tax-policy.ts` on every line. See that helper
+ * for why diagnostics still do NOT run through `markComplete`.
  */
 
-import {
-  createRecord,
-  getRecord,
-  suiteQL,
-  describeNetsuiteTarget,
-} from "@/lib/netsuite/client";
+import { getRecord, suiteQL, describeNetsuiteTarget } from "@/lib/netsuite/client";
+import { createProbeSalesOrder } from "./probe-sales-order";
 
 const CUSTOMER = "388800"; // ZZ-VALIDATION certification customer
 const ITEM = "76155"; // TRN-PP-BOTTLE-30
@@ -86,15 +94,15 @@ console.log(
     "  while L2 shows whatever NetSuite computes for the same qty x rate.",
 );
 
-const created = await createRecord({
-  recordType: "salesOrder",
-  body: {
-    entity: { id: CUSTOMER },
-    memo: "DISPOSABLE — line amount authority probe. Safe to delete.",
-    item: {
-      items: lines.map(({ label: _label, ...rest }) => rest),
-    },
-  },
+const created = await createProbeSalesOrder({
+  customerId: CUSTOMER,
+  memo: "DISPOSABLE — line amount authority probe. Safe to delete.",
+  lines: lines.map((l) => ({
+    itemId: l.item.id,
+    quantity: l.quantity,
+    rate: l.rate,
+    amount: l.amount,
+  })),
 });
 
 const soId = created.internalId;
