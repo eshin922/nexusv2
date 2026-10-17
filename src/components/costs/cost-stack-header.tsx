@@ -114,6 +114,16 @@ function fmtCurr2(n: number): string {
   });
 }
 
+// Customs totals can be real but smaller than half a cent per finished unit.
+// Keep the ordinary two-decimal register, while making those contributions
+// visible instead of displaying a misleading $0.00.
+function fmtComponentCurr(n: number): string {
+  if (n > 0 && n < 0.005) {
+    return n < 0.00005 ? "<$0.0001" : `$${n.toFixed(4)}`;
+  }
+  return fmtCurr2(n);
+}
+
 function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
@@ -580,7 +590,7 @@ function CompRow({
       )}
 
       <span className="price">
-        {values === null || isEmpty ? "—" : fmtCurr2(values.total)}
+        {values === null || isEmpty ? "—" : fmtComponentCurr(values.total)}
       </span>
     </div>
   );
