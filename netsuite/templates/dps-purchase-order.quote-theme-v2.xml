@@ -1,0 +1,461 @@
+<?xml version="1.0"?>
+<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">
+<pdf>
+
+    <head>
+        <link name="NotoSans" type="font" subtype="truetype" src="${nsfont.NotoSans_Regular}"
+            src-bold="${nsfont.NotoSans_Bold}" src-italic="${nsfont.NotoSans_Italic}"
+            src-bolditalic="${nsfont.NotoSans_BoldItalic}" bytes="2" />
+        <#if .locale=="zh_CN">
+            <link name="NotoSansCJKsc" type="font" subtype="opentype" src="${nsfont.NotoSansCJKsc_Regular}"
+                src-bold="${nsfont.NotoSansCJKsc_Bold}" bytes="2" />
+            <#elseif .locale=="zh_TW">
+                <link name="NotoSansCJKtc" type="font" subtype="opentype" src="${nsfont.NotoSansCJKtc_Regular}"
+                    src-bold="${nsfont.NotoSansCJKtc_Bold}" bytes="2" />
+                <#elseif .locale=="ja_JP">
+                    <link name="NotoSansCJKjp" type="font" subtype="opentype" src="${nsfont.NotoSansCJKjp_Regular}"
+                        src-bold="${nsfont.NotoSansCJKjp_Bold}" bytes="2" />
+                    <#elseif .locale=="ko_KR">
+                        <link name="NotoSansCJKkr" type="font" subtype="opentype" src="${nsfont.NotoSansCJKkr_Regular}"
+                            src-bold="${nsfont.NotoSansCJKkr_Bold}" bytes="2" />
+                        <#elseif .locale=="th_TH">
+                            <link name="NotoSansThai" type="font" subtype="opentype"
+                                src="${nsfont.NotoSansThai_Regular}" src-bold="${nsfont.NotoSansThai_Bold}" bytes="2" />
+        </#if>
+        <macrolist>
+            <macro id="nlheader">
+                <table class="nx-masthead" style="width:100%; border-bottom:1.1pt solid #131921;">
+                    <tr>
+                        <td width="56%" valign="top">
+                            <#if subsidiary.logo?length !=0>
+                                <img src="${subsidiary.logo@url}" style="width:50pt; height:50pt;" />
+                            </#if>
+                        </td>
+                        <td width="44%" align="right" valign="top">
+                            <p style="margin:0 0 5pt 0; line-height:18pt; font-family:NotoSans,sans-serif; font-size:14pt; font-weight:bold; color:#131921;">PURCHASE ORDER</p>
+                            <p class="nx-po-number" style="margin:0 0 6pt 0; line-height:15pt;">${record.tranid}</p>
+                            <p class="nx-meta" style="margin:0 0 3pt 0; line-height:11pt;">ISSUED · ${record.trandate}</p>
+                            <p class="nx-meta" style="margin:0; line-height:11pt;">REQUIRED BY · ${record.shipdate}</p>
+                        </td>
+                    </tr>
+                </table>
+            </macro>
+            <macro id="nlfooter">
+                <table class="nx-footer" style="width:100%; border-top:0.75pt solid #d3d1ca;">
+                    <tr>
+                        <td align="left" width="75%">THE DPS · PURCHASE ORDER ${record.tranid}</td>
+                        <td align="right" width="25%">PAGE <pagenumber /> OF <totalpages /></td>
+                    </tr>
+                </table>
+            </macro>
+        </macrolist>
+        <style type="text/css">
+            * {
+                <#if .locale=="zh_CN">font-family: NotoSans, NotoSansCJKsc, sans-serif;
+                <#elseif .locale=="zh_TW">font-family: NotoSans, NotoSansCJKtc, sans-serif;
+                <#elseif .locale=="ja_JP">font-family: NotoSans, NotoSansCJKjp, sans-serif;
+                <#elseif .locale=="ko_KR">font-family: NotoSans, NotoSansCJKkr, sans-serif;
+                <#elseif .locale=="th_TH">font-family: NotoSans, NotoSansThai, sans-serif;
+                <#else>font-family: NotoSans, sans-serif;
+                </#if>
+            }
+
+            table.details td {
+                border: none
+            }
+
+            table {
+                font-size: 9pt;
+                table-layout: fixed;
+            }
+
+            th {
+                font-weight: bold;
+                font-size: 8pt;
+                vertical-align: middle;
+                padding: 5px 6px 3px;
+                background-color: #e3e3e3;
+                color: #333333;
+            }
+
+            td {
+                padding: 4px 6px;
+            }
+
+            td p {
+                align: left
+            }
+
+            b {
+                font-weight: bold;
+                color: #333333;
+            }
+
+            table.header td {
+                padding: 0;
+                font-size: 10pt;
+            }
+
+            table.footer td {
+                padding: 0;
+                font-size: 8pt;
+            }
+
+            table.itemtable th {
+                padding-bottom: 10px;
+                padding-top: 10px;
+            }
+
+            table.body td {}
+
+            table.detail td {
+                border-top: 1px solid;
+                border-right: 1px solid;
+                border-left: 1px solid;
+            }
+
+            table.total {
+                page-break-inside: avoid;
+            }
+
+            tr.totalrow {
+                background-color: #e3e3e3;
+                line-height: 200%;
+            }
+
+            td.totalboxtop {
+                font-size: 12pt;
+                background-color: #e3e3e3;
+            }
+
+            td.addressheader {
+                font-size: 8pt;
+                padding-top: 6px;
+                padding-bottom: 2px;
+            }
+
+            td.address {
+                padding-top: 0;
+            }
+
+            td.totalboxmid {
+                font-size: 28pt;
+                padding-top: 20px;
+                background-color: #e3e3e3;
+            }
+
+            td.totalboxbot {
+                background-color: #e3e3e3;
+                font-weight: bold;
+            }
+
+            span.title {
+                font-size: 23pt;
+            }
+
+            span.number {
+                font-size: 18pt;
+            }
+
+            span.itemname {
+                font-weight: bold;
+                line-height: 150%;
+            }
+
+            hr {
+                width: 100%;
+                color: #d3d3d3;
+                background-color: #d3d3d3;
+                height: 1px;
+            }
+
+            body { color:#131921; background-color:#fefdfc; font-family:NotoSans,sans-serif; }
+            .nx-masthead td { padding:0 0 11pt 0; border:none; }
+            .nx-brand { font-family:Times,serif; font-size:20.25pt; color:#131921; }
+            .nx-subbrand { font-family:Times,serif; font-size:9pt; color:#646971; }
+            .nx-po-number { font-family:Courier,monospace; font-size:12pt; color:#131921; }
+            .nx-meta { font-family:Courier,monospace; font-size:7.5pt; color:#646971; line-height:1.8; }
+            .nx-parties { width:100%; margin-top:14pt; }
+            .nx-parties td { width:50%; vertical-align:top; padding:0 16pt 0 0; border:none; }
+            .nx-parties p { margin:0 0 3pt 0; line-height:11pt; }
+            .nx-label { font-family:Courier,monospace; font-size:6.75pt; color:#7b8187; letter-spacing:0.7pt; }
+            .nx-party-name { font-family:Times,serif; font-size:12pt; color:#131921; }
+            .nx-party-line { font-family:Times,serif; font-size:9pt; color:#383e46; line-height:1.45; }
+            .nx-facts { width:100%; margin-top:13pt; border-top:0.75pt solid #d3d1ca; border-bottom:0.75pt solid #d3d1ca; }
+            .nx-facts td { padding:7pt 8pt 7pt 0; vertical-align:top; border:none; }
+            .nx-fact-value { font-family:Times,serif; font-size:8.5pt; color:#383e46; }
+            .nx-items { width:100%; margin-top:17pt; table-layout:fixed; }
+            .nx-items th { font-family:Courier,monospace; font-size:7pt; font-weight:normal; color:#646971; background-color:#fefdfc; border-bottom:1.1pt solid #131921; padding:0 5pt 6pt 0; }
+            .nx-items td { padding:9pt 5pt 8pt 0; border-bottom:0.75pt solid #d3d1ca; vertical-align:top; }
+            .nx-item-name { font-family:Times,serif; font-size:10.5pt; color:#131921; }
+            .nx-item-sku { font-family:Courier,monospace; font-size:6.75pt; color:#7b8187; }
+            .nx-item-desc { font-family:Times,serif; font-size:8pt; color:#646971; }
+            .nx-num { font-family:Courier,monospace; font-size:9pt; color:#131921; }
+            .nx-spec td { padding:2pt 6pt 8pt 8pt; border-bottom:0.75pt solid #d3d1ca; color:#646971; font-size:7.5pt; }
+            .nx-spec-body { border-left:0.75pt solid #d3d1ca; padding-left:7pt; }
+            .nx-total td { padding-top:9pt; border-top:1.1pt solid #131921; border-bottom:none; }
+            .nx-total-label { font-family:Times,serif; font-size:12pt; color:#131921; }
+            .nx-total-value { font-family:Courier,monospace; font-size:11pt; color:#131921; }
+            .nx-legal-title { font-family:Times,serif; font-size:13.5pt; color:#131921; }
+            .nx-footer td { padding-top:8pt; font-family:Courier,monospace; font-size:6.5pt; color:#7b8187; }
+        </style>
+    </head>
+
+    <body header="nlheader" header-height="12%" footer="nlfooter" footer-height="30pt" padding="42pt 48pt 48pt 48pt" size="Letter">
+        <table class="nx-parties">
+            <tr>
+                <td>
+                    <p class="nx-label">PREPARED FOR</p>
+                    <p class="nx-party-name">${record.entity}</p>
+                    <p class="nx-party-line">${record.billattention}</p>
+                    <p class="nx-party-line">${record.billingaddress_text}</p>
+                </td>
+                <td>
+                    <p class="nx-label">PREPARED BY</p>
+                    <p class="nx-party-name">The DPS</p>
+                    <p class="nx-party-line">${subsidiary.mainaddress_text}</p>
+                    <p class="nx-party-line">${companyInformation.email}</p>
+                </td>
+            </tr>
+        </table>
+        <table class="nx-facts">
+            <tr>
+                <td width="50%"><span class="nx-label">SHIP TO</span><br /><span class="nx-fact-value">${record.custbody_dps_shipping_address}</span></td>
+                <td width="25%"><span class="nx-label">SHIP DATE</span><br /><span class="nx-fact-value">${record.shipdate}</span></td>
+                <td width="25%"><span class="nx-label">PAYMENT TERMS</span><br /><span class="nx-fact-value">${record.terms}</span></td>
+            </tr>
+        </table>
+        <#if record.item?has_content>
+            <#assign bomRevisionItemMap=record.custpage_bom_revision_item_map?eval_json>
+
+                <#assign hasRawIngredientsClass=false>
+                    <!-- <#list record.item as item>
+            <#if item.class == "Raw ingredients">
+                <#assign hasRawIngredientsClass = true>
+                <#break/>
+            </#if>
+        </#list> -->
+
+                    <#assign items=record.item?filter(i ->
+                        i.custcol_dps_hubspot_line?has_content)?sort_by("custcol_dps_hubspot_line") +
+                        record.item?filter(i -> !i.custcol_dps_hubspot_line?has_content)> <table class="nx-items">
+    <thead><tr>
+        <th width="53%" align="left">ITEM</th>
+        <th width="15%" align="right">QUANTITY</th>
+        <th width="16%" align="right">RATE</th>
+        <th width="16%" align="right">AMOUNT</th>
+    </tr></thead>
+    <#list items as item>
+        <tr>
+            <td width="53%"><span class="nx-item-name">${item.custcol_dps_item_display_name}</span><br />
+                <span class="nx-item-sku">${item.custcol_dps_sku}</span>
+                <#if item.description?has_content><br /><span class="nx-item-desc">${item.description}</span></#if></td>
+            <td width="15%" align="right"><span class="nx-num">${item.quantity} ${item.units}</span></td>
+            <td width="16%" align="right"><span class="nx-num"><#if hasRawIngredientsClass>$${(item.rate*1000)?string.number}<#else>$${(item.rate)?string.number}</#if></span></td>
+            <td width="16%" align="right"><span class="nx-num">${item.amount}</span></td>
+        </tr>
+        <#if item.custcol_nx_spec_text?has_content>
+            <tr class="nx-spec"><td colspan="4"><div class="nx-spec-body">
+                <span class="nx-label">ORDERED SPECIFICATION</span>
+                <#list item.custcol_nx_spec_text?replace("<br />", "\n")?replace("<br/>", "\n")?replace("<br>", "\n")?replace("\r", "")?split("\n") as specLine><#if specLine?has_content><br />${specLine?html}</#if></#list>
+            </div></td></tr>
+        </#if>
+    </#list>
+    <#if record.subtotal?has_content><tr><td colspan="3" align="right">Subtotal</td><td align="right" class="nx-num">${record.subtotal}</td></tr></#if>
+    <#if record.taxtotal?has_content><tr><td colspan="3" align="right">Tax</td><td align="right" class="nx-num">${record.taxtotal}</td></tr></#if>
+    <tr class="nx-total"><td colspan="3"><span class="nx-total-label">Total</span></td><td align="right"><span class="nx-total-value">${record.total}</span></td></tr>
+</table>
+        </#if>
+
+        <div style="text-align: center;">
+            <br />
+            <br />
+            <span class="nx-legal-title">Purchase Terms and Conditions</span>
+        </div>
+        <br />
+        <span style="font-size:9px;">1. Applicability. (a) This purchase order is an offer by The DPS (the
+            &quot;Buyer&quot;) for the purchase of the goods specified on the face of this purchase order&nbsp;(the
+            &quot;Goods&quot;) from the party to whom the purchase order is addressed (the &quot;Seller&quot;) in
+            accordance with and subject to these terms and conditions (the&nbsp;&quot;Terms&quot;; together with the
+            terms and conditions on the face of the purchase order, the &quot;Order&quot;). This Order, together with
+            any documents incorporated&nbsp;herein by reference, constitutes the sole and entire agreement of the
+            parties with respect to the Order, and supersedes all prior or contemporaneous&nbsp;understandings,
+            agreements, negotiations, representations and warranties, and communications, both written and oral, with
+            respect to the subject matter of the&nbsp;Order. The Order expressly limits Seller&#39;s acceptance to the
+            terms of the Order. These Terms prevail over any terms or condit ions contained in any
+            other&nbsp;documentation and expressly exclude any of Seller&#39;s general terms and conditions of sale or
+            any other document issued by Seller in connection with this&nbsp;Order. (b) These Terms apply to any
+            repaired or replacement Goods provided by Seller hereunder . (c) Buyer is not obligated to any minimum
+            purchase or&nbsp;future purchase obligations under this Order.<br role="presentation" />2. Acceptance. This
+            Order is not binding on Buyer until Seller accepts the Order in writing or starts to perform in accordance
+            with the Order. Buyer may withdraw the Order at any time before it is accepted by Seller.<br
+                role="presentation" />3. Delivery Date. Seller shall deliver the Goods in the quantities and on the
+            date(s) specified in this Order or as otherwise agreed in writing by the parties&nbsp;(the &quot;Delivery
+            Date&quot;). Timely delivery of the Goods is of the essence. If Seller fails to deliver the Goods in full on
+            the Delivery Date, Buyer may terminate&nbsp;the Order immediately by providing written notice to Seller and
+            Seller shall indemnify Buyer against any losses, claims, damages, and reasonable costs and&nbsp;expenses
+            attributable to Seller&#39;s failure to deliver the Goods on the Delivery Date.<br role="presentation" />4.
+            Quantity. If Seller delivers more than 10% or less than 10% of the quantity of Goods ordered, Buyer may
+            reject all or any Goods, including without limitation all or any excess Goods. Any such rejected Goods shall
+            be returned to Seller at Seller&#39;s risk and expense. If Buyer does not reject the Goods and instead
+            accepts the delivery of Goods at the increased or reduced quantity, the Price for the Goods shall be
+            adjusted on a pr o-rata basis.<br />5. Delivery Location. All Goods shall be delivered to the address
+            specified in this Order (the &quot;Delivery Location&quot;) during Buyer&#39;s normal business hours or as
+            otherwise instructed by Buyer.<br role="presentation" />6. Packing, Shipping, and Warehouse Terms. (a) If
+            delivering to Buyer, Buyer will not accept any goods which do not conform with the following packing
+            requirements: (i) All goods must be adequately contained, packaged, and labeled so as to satisfy all legal
+            and commercial requirements for such goods. (ii) Seller agrees to print &ldquo;Buyer&rdquo;, part number,
+            description, quantity, and lot number if applicable on each case. (iii) Seller must contact Buyer or
+            Buyer&rsquo;s third-party warehouse within a reasonable amount of time in (requested time, 48 hours or
+            greater ) advance of the arrival of a shipment in order to make an appointment for delivery of the goods.
+            Seller acknowledges that the failure to provide timely notice may delay receipt of the goods and Seller
+            agrees that, at Buyer sole discretion, it may be charged for any damages and/or costs resulting from any
+            such delay and/or it may result in the cancellation of the purchase order by Buyer. Each shipment must be
+            accompanied by a bill of lading specifying Buyer Purchase Order no., and the Buyer SKU no., product
+            description, total number of cases shipped, Seller name, and gross weight and a packing slip. (iv) If the
+            goods are to be delivered on pallets, Buyer does not pay for pallets and Seller agrees that the pallets will
+            conform to the requirements agreed upon in writing prior to shipment by Seller. Buyer does not<br
+                role="presentation" />participate in the CHEP pallet program. (v) Any goods which are delivered on
+            pallets which do not comply with the applicable pallet requirements will be repalletized and Seller agrees
+            that, at Buyer&rsquo;s sole discretion, it may be charged for the costs of repalletizing the goods. (vi)
+            Pallets that comply with the applicable pallet requirements will be exchanged for like-type and like-quality
+            pallets. Any non-conforming pallets will be rejected and it will be the driver&rsquo;s responsibility to
+            wait while the goods are repalletized and to take the rejected pallets at that time; otherwise, Buyer will
+            dispose of the rejected pallets. (vii) A delivery of goods will only be received by Buyer warehouse if the
+            goods are delivered in clean trucks, the packaging is clean and i ntact, there are no evident<br
+                role="presentation" />dents or tears, and the seals are intact. (b) If goods are to be delivered to
+            Retailer Distribution Center or Store, Seller and Buyer will agree upon method of packing and shipment in
+            writing prior to packout. All goods must be packed according to the pack/size, net weight per unit, and type
+            of packaging set forth in the purchase order. Any changes must be approved by Buyer in writing prior to
+            shipment by Seller. All goods must be adequately contained, packaged, and labeled so as to satisfy all legal
+            and commercial requirements for such goods.<br role="presentation" />7. Title. Title passes to Buyer upon
+            delivery of the Goods to the Delivery Location. Seller bears all risk of loss or damage to the Goods until
+            delivery of the Goods to the Delivery Location.<br role="presentation" />8. Amendment and Modification. No
+            change to this Order is binding upon Buyer unless it is in writing, specifically states that it amends this
+            Order and is signed by an authorized representative of Buyer.<br role="presentation" />9. Quality,
+            Inspection and Rejection of Nonconforming Goods. Buyer has the right to inspect the goods within a
+            reasonable time after their arrival at Buyer warehouse before accepting or rejecting the goods. Buyer will
+            notify Seller of any nonconformity, breach, or rejection of the goods within 30 days of said inspection. (a)
+            If Buyer rejects the goods or a portion of the goods, Seller will be responsible for all warehouse handling
+            charges, duties, freight, labels, and other costs associated with the rejected goods. Buyer will not be
+            required to accept any substitute performance or to allow Seller to cure the original tender. (b) Buyer
+            reserves the right to return to Seller any goods that are in violation of any of the terms, conditions,
+            warranties, or requirements of this Agreement or any purchase order issued by Buyer to Seller. (c) If at any
+            time Buyer determines products do not comply with the product specifications (including shelf-life
+            requirements), Buyer shall immediately notify Seller in writing of such nonconformity or defect(s). Seller
+            shall, reimburse Buyer for transportation costs and other costs incurred in connection therewith, and such
+            reimbursement shall include a full and complete refund should Seller&rsquo;s substitute performance or cure
+            be unacceptable to Buyer.<br role="presentation" />10. Price. The price of the Goods is the price stated in
+            the Order (the &quot;Price&quot;).<br role="presentation" />11. Payment Terms. The payment terms specified
+            in the Order shall commence upon receipt by Buyer of Seller&rsquo;s invoice, documentary proof of delivery
+            of goods, and, if applicable, a credit memo acknowledging any costs or damages chargeable to Seller. 12.
+            Setoff. Without prejudice to any other right or remedy it may have, Buyer reserves the right to set off at
+            any time any amount owing to it by Seller against any amount payable by Buyer to Seller under the Order.<br
+                role="presentation" />13. Warranties. Seller warrants to Buyer that all Goods will: (a) be free from any
+            defects in workmanship, material, and design; (b) conform to applicable specifications, drawings, designs,
+            samples, and other requirements specified by Buyer; (c) be fit for their intended purpose and operate as
+            intended; (d) be merchantable; (e) be free and clear of all liens, security interests, or other
+            encumbrances; and (f) not infringe or misappropriate any third p arty&#39;s patent or other intellectual
+            property rights. These warranties survive any delivery, inspection, acceptance, or payment of or for the
+            Goods by Buyer. These warranties are cumulative and in addition to any other warranty provided by law or
+            equity. An y applicable statute of limitations runs from the date of Buyer&#39;s discovery of<br
+                role="presentation" />the noncompliance of the Goods with the foregoing warranties.<br
+                role="presentation" />14. General Indemnification. Seller shall defend, indemnify, and hold harmless
+            Buyer and Buyer&#39;s parent companies its subsidiaries, affiliates, successors or assigns, and its
+            respective directors, managers, officers, shareholders, members, partners, agents, attorneys, accountants,
+            and employees and Buyer&#39;s customers (individually, an &quot;Indemnitee,&quot; and collectively,
+            &quot;Indemnitees&quot;) against any and all loss, injury, death, damage, liability, claim, deficiency,
+            action, judgment, interest, award, penalty, fine, cost or expense, including reasonable attorney and
+            professional fees and costs, and the cost of enforcing any right to indemnification hereunder and the cost
+            of pursuing any insurance providers (col lectively, &quot;Losses&quot;) arising out of or occurring in
+            connection with the products<br role="presentation" />purchased from Seller or Seller&#39;s negligence,
+            willful misconduct, or breach of the Terms. Seller shall not enter into any set tlement of third-party
+            claims without Buyer&#39;s or Indemnitee&#39;s prior written consent.<br />15. Insurance. During the term of
+            the Order, Seller shall, at its own expense, maintain and carry insurance in full force and effect which
+            includes, but is not limited to, commercial general liability (including product liability) in a sum no less
+            than five million dollars ($5, 000, 000) per occurrence and workers&rsquo; compensation insurance with not
+            less than one million dollars ($1, 000, 000) per occurrence, with financially sound and reputable insurers
+            acceptable to Buyer. Upon Buyer&#39;s request, Seller shall provide Buyer with a certificate of insurance
+            from Seller&#39;s insurer evidencing the insurance coverage specified in this Order. Seller shall provide
+            Buyer with thirty (30) days&#39; advance written notice in the event of a cancellation or material change in
+            Seller&#39;s insurance policy.<br role="presentation" />16. Compliance with Law. Seller is in compliance
+            with and shall comply with all applicable laws, regulations, and ordinances (federal, state, and government
+            agencies). In the manufacture of Buyer&rsquo;s products, Buyer requires that your production procedures
+            conform with the current Good Manufacturing Practices (GMP)(Code of Federal Regulations, Title 21). Seller
+            has and shall maintain in effect all the licenses, permissions, authorizations, consents, and permits that
+            it needs to carry out its obligations under the Order. Seller shall comply with all export and import laws
+            of all countries involved in the sale of Goods under this Order. Seller assumes all responsibility for
+            shipments of Goods requiring any governme nt import clearance. Buyer may terminate this Order if any
+            government authority imposes antidumping duties, countervailing duties, or any retaliatory duties on the
+            Goods. Without limitation of the foregoing, Seller represents and warrants that it has provided no item of
+            value to any of Buyer&#39;s employees or agents for the purpose of procuring the Order<br
+                role="presentation" />17. Termination. If the Seller becomes insolvent, files a petition for bankruptcy
+            or commences or has commenced against it proceedings relating to bankruptcy, receivership, reorganization,
+            or assignment for the benefit of creditors, then the Buyer may terminate this Order upon written notice to
+            Seller. If Buyer terminates the Order for any reason, Seller&#39;s sole and exclusive remedy is payment for
+            the Goods received and accepted by Buyer prior to the termination.<br role="presentation" />18. Limitation
+            of Liability. Nothing in this Order shall exclude or limit (a) Seller&#39;s liability under relevant
+            Sections pertaining to warranties, general indemnifications, intellectual property indemnification, and
+            confidential information hereof, or (b) Seller&#39;s liability for fraud, personal injury, or death caused
+            by its negligence or willful misconduct.<br role="presentation" />19. Waiver. No waiver by any party of any
+            of the provisions of the Order shall be effective unless explicitly set forth in writing and signed by the
+            party so waiving. Except as otherwise set forth in the Order, no failure to exercise, or delay in
+            exercising, any rights, remedy, p ower, or privilege arising from the Order shall operate or be construed as
+            a waiver thereof, nor shall any single or partial exercise of any right, remedy, power, or privilege
+            hereunder preclude any other or further exercise thereof or the exercise of any other right, remedy, power,
+            or privilege.<br role="presentation" />20. Confidential Information. All non-public, confidential, or
+            proprietary information of the Buyer, including, but not limited to, specifications, samples, patterns,
+            designs, plans, drawings, documents, data, business operations, customer lists, pricing, discounts, or
+            rebates, disclosed by Buyer to Seller, whether disclosed orally or disclosed or accessed in written,
+            electronic, or other form or media, and whether or not marked, designated, or otherwise identified as
+            &quot;confidential,&quot; in connection with the Order is confidential, solely for the use of performing the
+            Order, and may not be used for any other purpose, disclosed or copied unless authorized by Buyer in writing.
+            Upon Buyer&#39;s request, Seller shall promptly return all documents and other materials received from
+            Buyer. Buyer shall be entitled to injunctive relief without bond for any violation of this Section. This
+            Section shall not apply to information that is: (a) in the public domain; (b) known to the Seller at the
+            time of disclosure; or (c) rightfully obtained by the Seller on a non-confidential basis from a third
+            party.<br />21. Assignment. Seller shall not delegate or assign any obligation owed to it by Buyer, or the
+            performance of any obligation due from it to Buyer, without the prior written consent of Buyer, which may be
+            withheld at the Buyer&rsquo;s sole discretion. Any purported assignment or delegation in violation of this
+            Section shall be null and void.<br role="presentation" />22. No Third-Party Beneficiaries. This Order is for
+            the sole benefit of the parties hereto and their respective successors and permitted assigns and nothing
+            herein, express or implied, is intended to or shall confer upon any other person or entity any legal or
+            equitable right, benefit, or remedy of any nature whatsoever under or by reason of these Terms.<br
+                role="presentation" />23. Claims and Disputes. (a) Any controversy or claim arising out or relating to
+            this Agreement or any purchase order issued which incorporates this Agreement, or the breach thereof, shall
+            be settled in accordance with the Commercial Arbitration Rules of the American Arbitration Association. Any
+            award or decision resulting from any such arbitration proceeding will be final and binding on the parties
+            and judgment on such award or decision may be entered in any court having jurisdiction thereof. (b) This
+            Agreement and any purchase order issued which incorporates this Agreement shall be governed by and construed
+            in accordance with the laws of the State of California, excluding any laws regarding the conflict or choice
+            of laws and the United Nations Convention on Contracts For the International Sale of Goods. Venue for any
+            action or arbitration arising out of or relating to this Agreement or any purchase order issued which
+            incorporates this Agreement, or the breach thereof, shall be in Orange County, California, U.S.A. and the
+            parties hereby consent to personal jurisdiction in said county. (c) The prevailing party in any action,
+            arbitration, or other proceeding by which one party to this Agreement seeks to enforce its rights under the
+            Agreement or any purchase orders that incorporate this Agreement shall be entitled to re cover its
+            attorney&rsquo;s fees and all costs, fees,<br role="presentation" />and expenses incurred in connection with
+            said action, arbitration, or proceeding.<br role="presentation" />24. Notices. All notices, requests,
+            consents, claims, demands, waivers, and other communications hereunder (each, a &quot; Notice&quot;) shall
+            be in writing and addressed to the parties at the addresses set forth on the face of this Order or to such
+            other address that may be designated by the receiving party in writing. All Notices shall be delivered by
+            personal delivery, nationally recognized o vernight courier (with all fees pre-paid), facsimile (with
+            confirmation of transmission), or certified or registered mail (in each case, return receipt requested,
+            postage prepaid). Except as otherwise provided in this Order, a Notice is effective only (a) upon receipt by
+            the receiving party, and (b) if the party giving the Notice has complied with the requirements of this
+            Section.<br role="presentation" />25. Severability. If any term or provision of this Order is invalid,
+            illegal, or unenforceable in any jurisdiction, such invalidity, illegality, or unenforceability shall not
+            affect any other term or provision of this Agreement or invalidate or render unenforceable such ter m or
+            provision in any other jurisdiction.<br role="presentation" />26. Survival. Provisions of this Order which
+            by their nature should survive beyond the expiration or earlier termination of this Order will remain in
+            force after such expiration or earlier including, but not limited to, the following provisions: Warranties,
+            General Indemnification, Insurance, Compliance with Law, Confidential Information, Claims and Disputes, and
+            Survival. With respect to confidential information that constitutes a trade secret under applicable law, the
+            rights and obligations set forth in the relevant Section hereof shall survive the expiration or earlier
+            termination of this Order until, if ever, such confidential information loses its trade secret protection
+            other than due to an act or omission of Seller.</span>
+        <br role="presentation" />
+        <br role="presentation" />&nbsp;
+        <table style="width: 100%;padding-top:30px;"></table>
+    </body>
+</pdf>
