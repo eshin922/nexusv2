@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { computeQuoteCosting, type QuoteCostingInput } from "../../src/lib/costing.ts";
-import { projectCommercial } from "../../src/lib/commercial-projection.ts";
+import { projectCommercial, verifyProjectionTotals } from "../../src/lib/commercial-projection.ts";
+import { landedCostTransfers } from "../../src/lib/netsuite/landed-cost-transfer.ts";
+import type { FrozenSalesOrderLine } from "../../src/lib/netsuite/frozen-sales-order.ts";
 import type { HydrateSnapshot } from "../../src/lib/costing-store.ts";
 
 function fixture(): QuoteCostingInput {
@@ -39,6 +41,62 @@ test("five 5,000-unit variants reconcile costing, pricing, and customer line amo
     if (cell.state === "priced") assert.equal(cell.quantity, 5000);
   }
   assert.ok(Math.abs(projected.tiers[0].tierCommercialTotal - 97500) < 0.000001);
+});
+
+test("freight, duty and tariff transfer as one charge per selected SKU without changing the total", () => {
+  const input = fixture();
+  input.skus = input.skus.slice(0, 3);
+  input.packaging = input.packaging.slice(0, 3);
+  input.tiers[0].qty = 65000;
+  const quantities = [30000, 30000, 5000];
+  const duties = [100, 200, 300];
+  const tariffs = [20, 30, 40];
+  input.skus.forEach((sku, index) => { sku.orderQuantities = { tier: quantities[index] }; });
+  input.freightShipmentBreaks = input.skus.map((sku, index) => ({
+    memberSkuId: sku.id, tierId: "tier", freightSubcategoryId: "shipment",
+    treatment: "bundled" as const, memberCount: 3, tierUnits: quantities[index],
+    freightAmount: 6500, freightMarkupPct: 0.1,
+    dutyAmount: duties[index], dutyMemberCount: 1, dutyTierUnits: quantities[index], dutyMarkupPct: 0.1,
+    tariffAmount: tariffs[index], tariffMemberCount: 1, tariffTierUnits: quantities[index], tariffMarkupPct: 0.1,
+  }));
+  const costing = computeQuoteCosting(input);
+  const snapshot = { ...input, costing } as unknown as HydrateSnapshot;
+  const amortized = projectCommercial(snapshot);
+  const separate = projectCommercial(snapshot, { landedPresentation: "separate" });
+  assert.equal(separate.landedLines.length, 3);
+  assert.deepEqual(separate.landedLines.map((line) => line.sku), ["G-0", "G-1", "G-2"]);
+  assert.equal(separate.lines.filter((line) => line.key.startsWith("landed:")).length, 3);
+  assert.equal(separate.tiers[0].tierCommercialTotal, amortized.tiers[0].tierCommercialTotal);
+  assert.deepEqual(verifyProjectionTotals(separate), []);
+  const frozenLines = separate.lines
+    .filter((line) => line.kind === "direct_product" || line.key.startsWith("landed:"))
+    .map((line) => ({
+      kind: line.kind,
+      destination: line.bv011Destination,
+      quoteLeafId: line.quoteLeafId,
+      quantity: line.cells[0].state === "priced" ? line.cells[0].quantity : null,
+      description: line.displayName,
+    })) as FrozenSalesOrderLine[];
+  const transfers = landedCostTransfers(frozenLines, costing.skuRollups, "tier");
+  assert.equal(transfers.size, 3);
+  for (let index = 0; index < 3; index++) {
+    const original = amortized.lines.find((line) => line.key === `unit:product-${index}`)!.cells[0];
+    const product = separate.lines.find((line) => line.key === `unit:product-${index}`)!.cells[0];
+    const charge = separate.lines.find((line) => line.key === `landed:product-${index}`)!.cells[0];
+    assert.equal(original.state, "priced");
+    assert.equal(product.state, "priced");
+    assert.equal(charge.state, "priced");
+    if (original.state === "priced" && product.state === "priced" && charge.state === "priced") {
+      assert.equal(Math.round(original.lineAmount * 100), Math.round((product.lineAmount + charge.lineAmount) * 100));
+      assert.equal(charge.lineAmount, separate.landedLines[index].tierAmounts[0]);
+      assert.equal(charge.quantity, 1);
+    }
+    const rawCost = costing.skuRollups[index].perTier[0];
+    const transfer = transfers.get(`product-${index}`)!;
+    assert.ok(Math.abs(transfer.costPerProductUnit -
+      (rawCost.totalContainerFreightBeforeMarkup + rawCost.totalDutyTariffBeforeMarkup)) < 0.000001);
+    assert.ok(Math.abs(transfer.costForCharge - transfer.costPerProductUnit * quantities[index]) < 0.000001);
+  }
 });
 
 test("a 500-unit option supports unequal 200, 100, 100, 50, 50 product runs", () => {

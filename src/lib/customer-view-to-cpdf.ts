@@ -227,6 +227,8 @@ export function customerViewToCpdf(
     showItemGroupMembers: view.showItemGroupMembers !== false,
     serviceFees,
     freightLines,
+    landedPresentation: view.landedPresentation,
+    landedLines: view.landedLines,
   };
 
   // Compose flags per CA disposition (modified Option 1 —

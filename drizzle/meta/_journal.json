@@ -1058,6 +1058,13 @@
       "when": 1792094400000,
       "tag": "0153_customs_per_sku",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1792098000000,
+      "tag": "0154_quote_landed_presentation",
+      "breakpoints": true
     }
   ]
 }

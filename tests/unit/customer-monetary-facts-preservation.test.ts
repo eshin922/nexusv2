@@ -80,6 +80,7 @@ function composeMoney(ti: number, skus: ReadonlyArray<{ tierLineTotals: Readonly
   return {
     goodsTotal,
     feesTotal,
+    landedTotal: 0,
     turnkeyTotal,
     perUnitGoods: pricedCount > 0 ? goodsTotal / qty : null,
     perUnitTurnkey: pricedCount > 0 ? turnkeyTotal / qty : null,

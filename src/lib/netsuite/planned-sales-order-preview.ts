@@ -53,6 +53,7 @@ import {
   assemblyProductionInputs,
 } from "@/db/schema";
 import { getCostingBundle } from "@/app/actions/costing";
+import { landedCostTransfers } from "@/lib/netsuite/landed-cost-transfer";
 import { loadAssemblyTree } from "@/lib/assembly-tree";
 import { resolveNetsuiteCustomer } from "@/lib/netsuite/customer-map";
 import { resolveNetsuiteItem } from "@/lib/netsuite/item-resolver";
@@ -166,6 +167,11 @@ export async function loadSalesOrderPreview(
     const directProductsOnly = tree.directProducts.filter(
       (d: any) => d.commercialKind !== "service",
     );
+    const landedTransfers = landedCostTransfers(
+      frozenOrder.lines,
+      (bundle.data as any).costing.skuRollups,
+      tierId,
+    );
     const liveByLeafId = new Map<string, LiveStructureEntry>();
     for (const leafRollup of (bundle.data as any).costing.skuRollups) {
       if (leafRollup.skuRole !== "leaf") continue;
@@ -194,7 +200,8 @@ export async function loadSalesOrderPreview(
         independentMemberQuantity: perTier.independentMemberQuantity,
         unitCost:
           perTier.contributionCostPerUnit != null
-            ? Number(perTier.contributionCostPerUnit)
+            ? Number(perTier.contributionCostPerUnit) -
+              (landedTransfers.get(leafRollup.skuId)?.costPerProductUnit ?? 0)
             : null,
       });
     }
@@ -207,6 +214,11 @@ export async function loadSalesOrderPreview(
       .where(eq(assemblyProductionInputs.tierId, tierId));
     const otcByAssembly = new Map(otcRows.map((r: any) => [r.assemblyId, r]));
     const accountingCostFor = (line: FrozenSalesOrderLine): number | null => {
+      if (line.kind === "otc" && line.destination === "otc_freight_duties_tariffs") {
+        return line.quoteLeafId
+          ? (landedTransfers.get(line.quoteLeafId)?.costForCharge ?? null)
+          : null;
+      }
       if (line.kind !== "otc" || line.destination === null) return null;
       const column = (Object.keys(OTC_COLUMN_DESTINATION) as OtcColumn[]).find(
         (c) => OTC_COLUMN_DESTINATION[c] === line.destination,

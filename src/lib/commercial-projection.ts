@@ -233,6 +233,12 @@ export type CommercialTierTotal = {
 export type CommercialProjection = {
   tiers: CommercialTierTotal[];
   lines: CommercialLine[];
+  landedLines: Array<{
+    quoteLeafId: string | null;
+    sku: string;
+    name: string;
+    tierAmounts: Array<number | null>;
+  }>;
   /** The rate OTC was marked up at, or null when no governed default exists. */
   productionMarkupPct: number | null;
 };
@@ -310,7 +316,9 @@ function num(v: unknown): number | null {
  * that construction. The projection decides nothing about recovery.
  */
 export function projectCommercial(
-  bundle: HydrateSnapshot,): CommercialProjection {
+  bundle: HydrateSnapshot,
+  options: { landedPresentation?: "amortized" | "separate" } = {},
+): CommercialProjection {
   // Read straight off the snapshot. NOT a hand-written structural cast.
   //
   // It was a cast, and the cast named the tier key `id`. The engine emits
@@ -937,6 +945,74 @@ export function projectCommercial(
     );
   }
 
+  // A separate landed charge moves the already priced freight, duty and
+  // tariff recovery out of each product line. This is a transfer within the
+  // published commercial statement, never an additional charge. Preserve
+  // cents exactly so the customer total and the frozen Sales Order stay equal.
+  const landedLines: CommercialProjection["landedLines"] = [];
+  for (const rollup of costing.skuRollups) {
+      if (rollup.skuRole !== "leaf") continue;
+      const productLine = lines.find((line) => line.key === `unit:${rollup.skuId}`);
+      if (!productLine || productLine.kind === "direct_service") continue;
+      const landedCells: CommercialCell[] = tiers.map((tier, index) => {
+        const pt = rollup.perTier.find((cell) => cell.tierId === tier.tierId);
+        const billedPerUnit = (pt?.freightContainerMarkupSumPerUnit ?? 0) +
+          (pt?.freightDutyTariffMarkupSumPerUnit ?? 0);
+        const productCell = productLine.cells[index];
+        const landedAmount = publishedCents(billedPerUnit *
+          (productCell.state === "priced" ? productCell.quantity : (pt?.orderQuantity ?? 0)));
+        if (landedAmount === 0) return { state: "quote_on_request" };
+        if (productCell.state !== "priced") {
+          if (options.landedPresentation === "separate") {
+            throw new Error(`Cannot separate landed logistics for ${rollup.skuLabel} at ${tier.label}: the product is not priced.`);
+          }
+          return { state: "quote_on_request" };
+        }
+        if (options.landedPresentation !== "separate") {
+          return { state: "priced", quantity: 1, unitRate: landedAmount, lineAmount: landedAmount };
+        }
+        if (landedAmount < 0 || landedAmount > productCell.lineAmount) {
+          throw new Error(`Cannot separate landed logistics for ${rollup.skuLabel} at ${tier.label}: the product price does not cover its landed charge.`);
+        }
+        const remainingCents = Math.round(productCell.lineAmount * 100) - Math.round(landedAmount * 100);
+        const remaining = remainingCents / 100;
+        productLine.cells[index] = {
+          ...productCell,
+          unitRate: remaining / productCell.quantity,
+          lineAmount: remaining,
+        };
+        return { state: "priced", quantity: 1, unitRate: landedAmount, lineAmount: landedAmount };
+      });
+      if (!landedCells.some((cell) => cell.state === "priced")) continue;
+      landedLines.push({
+        quoteLeafId: rollup.canonicalQuoteLeafId ?? null,
+        sku: rollup.skuLabel,
+        name: rollup.productName,
+        tierAmounts: landedCells.map((cell) => cell.state === "priced" ? cell.lineAmount : null),
+      });
+      if (options.landedPresentation !== "separate") continue;
+      lines.push({
+        key: `landed:${rollup.skuId}`,
+        kind: "otc",
+        owningAssemblyId: null,
+        quoteLeafId: rollup.canonicalQuoteLeafId ?? null,
+        associatedProductQuoteLeafId: null,
+        chargeInstanceId: null,
+        displayName: `Freight, duty & tariff — ${rollup.productName} (${rollup.skuLabel})`,
+        displaySku: rollup.skuLabel || null,
+        displaySub: "Landed logistics for this SKU",
+        displayQtyLabel: "1",
+        memberMultiplicity: null,
+        serviceIdentity: null,
+        bv011Destination: "otc_freight_duties_tariffs",
+        destinationUnresolvedReason: null,
+        legacyUnresolved: false,
+        selectedNetsuiteItem: null,
+        cells: landedCells,
+        allocationByTier: tiers.map(() => "separately_billed"),
+      });
+  }
+
   // ── per-tier totals ────────────────────────────────────────────────────
   //
   // Unchanged, deliberately. This summation was already the only place tier
@@ -970,7 +1046,7 @@ export function projectCommercial(
     };
   });
 
-  return { tiers: tierTotals, lines, productionMarkupPct };
+  return { tiers: tierTotals, lines, landedLines, productionMarkupPct };
 }
 
 /**

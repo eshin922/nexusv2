@@ -86,6 +86,7 @@ import {
 // ── F1/F4 · the frozen accepted column as commercial authority ────────────
 import { buildFrozenSalesOrder } from "./frozen-sales-order";
 import type { FrozenSalesOrderLine } from "./frozen-sales-order";
+import { landedCostTransfers } from "./landed-cost-transfer";
 import { checkStructureAgreement } from "./frozen-order-assembly";
 import type { LiveStructureMember } from "./frozen-order-assembly";
 import { checkPostGroupingReg4 } from "./reg4-post-grouping";
@@ -597,6 +598,11 @@ export async function runMarkComplete(
     assembly: AssemblyNode | null;
     child: DirectProductNode;
   };
+  const landedTransfers = landedCostTransfers(
+    frozenOrder.lines,
+    bundle.data.costing.skuRollups,
+    effectiveAcceptedTierId,
+  );
   const liveByLeafId = new Map<string, LiveStructureEntry>();
   for (const leafRollup of bundle.data.costing.skuRollups) {
     if (leafRollup.skuRole !== "leaf") continue;
@@ -636,7 +642,8 @@ export async function runMarkComplete(
       // Reporting basis only. Never reaches a rate, an amount or REG-4.
       unitCost:
         perTierRollup.contributionCostPerUnit != null
-          ? Number(perTierRollup.contributionCostPerUnit)
+          ? Number(perTierRollup.contributionCostPerUnit) -
+            (landedTransfers.get(leafRollup.skuId)?.costPerProductUnit ?? 0)
           : null,
       assembly: treeLeaf.assembly,
       child: treeLeaf.child,
@@ -757,6 +764,11 @@ export async function runMarkComplete(
    * is available. Never invents, never falls back to a sibling figure.
    */
   function accountingCostFor(line: FrozenSalesOrderLine): number | null {
+    if (line.kind === "otc" && line.destination === "otc_freight_duties_tariffs") {
+      return line.quoteLeafId
+        ? (landedTransfers.get(line.quoteLeafId)?.costForCharge ?? null)
+        : null;
+    }
     if (line.kind === "direct_service") {
       return line.quoteLeafId ? (serviceCostByLeafId.get(line.quoteLeafId) ?? null) : null;
     }

@@ -249,6 +249,7 @@ export type ResolveCustomerViewResult =
 
 export async function resolveCustomerView(args: {
   quoteId: string;
+  proposedLandedPresentation?: "amortized" | "separate";
   searchParams?: CustomerViewSearchParams;
   commercialSettingsOverride?: CommercialSettingsResolution;
   /**
@@ -527,7 +528,28 @@ export async function resolveCustomerView(args: {
   // statements. Reconstructing them separately and comparing afterwards
   // cannot fix that, because the comparison is only ever as good as the pair
   // of reconstructions. Sharing the producer makes the agreement structural.
-  const projection = projectCommercial(bundle.data);
+  const landedPresentation = args.proposedLandedPresentation ?? quote.landedPresentation ?? "amortized";
+  const projection = projectCommercial(bundle.data, {
+    landedPresentation,
+  });
+  // A quote can carry more than one leaf for the same SKU. Accounting keeps
+  // their frozen lines distinct; the customer section presents one row per SKU.
+  const displayedLandedLines = (() => {
+    const bySku = new Map<string, { sku: string; name: string; tierAmounts: Array<number | null> }>();
+    for (const line of projection.landedLines) {
+      const key = line.sku || line.quoteLeafId || line.name;
+      const prior = bySku.get(key);
+      if (!prior) {
+        bySku.set(key, { sku: key, name: line.name, tierAmounts: [...line.tierAmounts] });
+        continue;
+      }
+      prior.tierAmounts = prior.tierAmounts.map((amount, index) => {
+        const next = line.tierAmounts[index];
+        return amount === null && next === null ? null : (amount ?? 0) + (next ?? 0);
+      });
+    }
+    return [...bySku.values()];
+  })();
   const unitLines = projection.lines.filter((l) => l.kind !== "otc");
   const itemGroupsById = new Map(
     bundle.data.costing.skuRollups
@@ -649,7 +671,7 @@ export async function resolveCustomerView(args: {
   // The amounts also now carry the governed Production markup (BV-013);
   // previously separately billed OTC left the firm at cost.
   const serviceFees: CustomerViewServiceFee[] = projection.lines
-    .filter((l) => l.kind === "otc")
+    .filter((l) => l.kind === "otc" && !l.key.startsWith("landed:"))
     .map((l) => ({
       id: l.key,
       // Threaded, not derived. `id` is `otc:instance:<uuid>` for a component
@@ -691,6 +713,9 @@ export async function resolveCustomerView(args: {
       quantity: t.quantity,
       lineTotals: skus.map((sku) => sku.tierLineTotals[ti]),
       feeAmounts: serviceFees.map((f) => f.tierAmounts[ti]),
+      landedAmounts: landedPresentation === "separate"
+        ? projection.landedLines.map((line) => line.tierAmounts[ti])
+        : [],
       embeddedRecovery: embeddedRecoveryByTier.get(t.id) ?? null,
     }),
   }));
@@ -736,7 +761,8 @@ export async function resolveCustomerView(args: {
       landedTierId === null
         ? null
         : (bundle.data.costing.quoteRollup.find((r) => r.tierId === landedTierId) ?? null),
-    separateFreightLineCount: freightLines.length,
+    separateFreightLineCount: freightLines.length +
+      (landedPresentation === "separate" ? projection.landedLines.length : 0),
   });
 
   // #431 Step 2 — the customer's CURRENTLY sourced identity, for drafts.
@@ -855,13 +881,16 @@ export async function resolveCustomerView(args: {
     skus: displaySkus,
     serviceFees,
     freightLines,
+    landedPresentation,
+    landedLines: displayedLandedLines,
     landedLogistics,
     recommendedTierIdx,
     // Decided once. Both renderers read it; neither re-derives it.
     feeBasisTierIdx: recommendedTierIdx ?? 0,
     // Same rule the adapter's `hasCharges` has always used, stated once here so
     // both renderers read it rather than each deriving it.
-    foldFeesIntoTotal: serviceFees.length > 0 || freightLines.length > 0,
+    foldFeesIntoTotal: serviceFees.length > 0 || freightLines.length > 0 ||
+      (landedPresentation === "separate" && projection.landedLines.length > 0),
     // Snapshot-or-live reads per Step 4.4 brief §4:
     //   isSent ? quote.{col} : (searchParams.{param} ?? quote.{col} ?? default)
     // ── DRAFT AXES NOW HAVE A RECORD ───────────────────────────────────
