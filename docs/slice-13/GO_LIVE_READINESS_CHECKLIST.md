@@ -1,5 +1,12 @@
 # Slice 13 Go-Live readiness checklist
 
+> **Historical Slice 13 dashboard, not the current cutover approval.** Its
+> statuses and manual-discovery placeholders have not been reconciled to the
+> October 2026 deployed baseline. For the next release decision use
+> [`../validation/2026-10-07-stabilization-and-cutover-readiness.md`](../validation/2026-10-07-stabilization-and-cutover-readiness.md)
+> and the linked production HubSpot–NetSuite cutover plan. Do not interpret an
+> unchecked row here as permission to change HubSpot or NetSuite production.
+
 This is the authoritative production Go / No-Go dashboard for Slice 13.
 Detailed procedures live in their linked plans. Status values are `NOT
 STARTED`, `IN PROGRESS`, `BLOCKED`, `READY`, or `APPROVED`. An owner shown as
