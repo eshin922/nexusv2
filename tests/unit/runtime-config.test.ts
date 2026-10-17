@@ -138,3 +138,80 @@ test("network allowlist accepts loopback protocols and rejects remote URLs", () 
   );
   assert.equal(isLoopbackNetworkUrl("not-a-url"), false);
 });
+
+const sandboxRef = "awmnppovoyghaocrjfck";
+const sandboxDatabase = `postgresql://postgres.${sandboxRef}:example@aws-1-us-west-2.pooler.supabase.com:5432/postgres`;
+
+function sharedSandboxEnv(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  return {
+    NODE_ENV: "production",
+    NEXUS_SHARED_SANDBOX: "1",
+    NEXT_PUBLIC_SUPABASE_URL: `https://${sandboxRef}.supabase.co`,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "sb_publishable_example",
+    SUPABASE_SERVICE_ROLE_KEY: "sb_secret_example",
+    DATABASE_URL: sandboxDatabase,
+    DIRECT_URL: sandboxDatabase,
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_example",
+    CLERK_SECRET_KEY: "sk_test_example",
+    ...extra,
+  };
+}
+
+test("accepts the dedicated shared sandbox without external production credentials", () => {
+  const result = assertRuntimeSafety(sharedSandboxEnv());
+  assert.equal(result.sharedSandbox, true);
+  assert.equal(result.mode, "production");
+});
+
+test("refuses production Supabase project even when sandbox mode is requested", () => {
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    NEXT_PUBLIC_SUPABASE_URL: "https://production-ref.supabase.co",
+  })), /Supabase URL does not match/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    DATABASE_URL: "postgresql://postgres.production-ref:example@aws-1-us-west-2.pooler.supabase.com:5432/postgres",
+  })), /dedicated session pooler/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    DIRECT_URL: "postgresql://postgres.production-ref:example@aws-1-us-west-2.pooler.supabase.com:5432/postgres",
+  })), /DIRECT_URL must target the dedicated session pooler/);
+});
+
+test("refuses transaction pooling and production integrations in the shared sandbox", () => {
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    DATABASE_URL: sandboxDatabase.replace(":5432/", ":6543/"),
+  })), /dedicated session pooler/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    HUBSPOT_WRITE_ACCESS_TOKEN: "production-token",
+  })), /refuses HubSpot configuration/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    HUBSPOT_DEV_ACCESS_TOKEN: "dev-token-before-routing-is-ready",
+  })), /refuses HubSpot configuration/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    NETSUITE_ACCOUNT_ID: "7924416",
+    NETSUITE_ENV: "sandbox",
+  })), /NetSuite sandbox account/);
+});
+
+test("requires a separate Clerk instance for the shared sandbox", () => {
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    CLERK_SECRET_KEY: "sk_live_production",
+  })), /Clerk development instance/);
+});
+
+test("Netlify cannot deploy without the sandbox guard", () => {
+  assert.throws(() => assertRuntimeSafety({ NODE_ENV: "production", NETLIFY: "true" }), /requires NEXUS_SHARED_SANDBOX=1/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    NEXUS_ISOLATED_TEST: "1",
+  })), /mutually exclusive/);
+});
+
+test("sandbox rejects partial NetSuite credentials and missing Supabase keys", () => {
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    NETSUITE_TOKEN_SECRET: "unexpected-token",
+  })), /NetSuite sandbox account/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    SUPABASE_SERVICE_ROLE_KEY: "",
+  })), /new-format Supabase/);
+  assert.throws(() => assertRuntimeSafety(sharedSandboxEnv({
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "legacy-or-production-key",
+  })), /new-format Supabase/);
+});

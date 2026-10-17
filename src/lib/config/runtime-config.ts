@@ -7,6 +7,8 @@
  */
 
 export const ISOLATED_MODE_ENV = "NEXUS_ISOLATED_TEST";
+export const SHARED_SANDBOX_ENV = "NEXUS_SHARED_SANDBOX";
+export const SHARED_SANDBOX_SUPABASE_REF = "awmnppovoyghaocrjfck";
 export const VALIDATION_DATABASE_MARKER = "nexus_validation";
 
 export const PROVIDER_KIND_ENV = {
@@ -22,6 +24,7 @@ export type ProviderKind = "production" | "isolated";
 
 export type RuntimeSafety = {
   mode: "production" | "isolated";
+  sharedSandbox: boolean;
   providers: Record<ProviderName, ProviderKind>;
   database?: {
     host: string;
@@ -74,6 +77,53 @@ function parseDatabaseUrl(raw: string): { host: string; name: string } {
   return { host, name };
 }
 
+function assertSharedSandboxDatabase(raw: string | undefined, key: string): void {
+  if (!raw?.trim()) throw new Error(`[runtime-config] shared sandbox requires ${key}`);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`[runtime-config] shared sandbox ${key} is invalid`);
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    url.hostname !== "aws-1-us-west-2.pooler.supabase.com" ||
+    url.port !== "5432" ||
+    decodeURIComponent(url.username) !== `postgres.${SHARED_SANDBOX_SUPABASE_REF}` ||
+    url.pathname !== "/postgres"
+  ) {
+    throw new Error(`[runtime-config] shared sandbox ${key} must target the dedicated session pooler`);
+  }
+}
+
+function assertSharedSandboxSafety(env: NodeJS.ProcessEnv): void {
+  const expectedUrl = `https://${SHARED_SANDBOX_SUPABASE_REF}.supabase.co`;
+  if (env.NEXT_PUBLIC_SUPABASE_URL !== expectedUrl) {
+    throw new Error("[runtime-config] shared sandbox Supabase URL does not match the dedicated project");
+  }
+  assertSharedSandboxDatabase(env.DATABASE_URL, "DATABASE_URL");
+  if (nonEmpty(env, "DIRECT_URL")) assertSharedSandboxDatabase(env.DIRECT_URL, "DIRECT_URL");
+  if (!env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.startsWith("sb_publishable_") ||
+      !env.SUPABASE_SERVICE_ROLE_KEY?.startsWith("sb_secret_")) {
+    throw new Error("[runtime-config] shared sandbox requires new-format Supabase publishable and secret keys");
+  }
+  if (!env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") ||
+      !env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
+    throw new Error("[runtime-config] shared sandbox requires a separate Clerk development instance");
+  }
+  const forbidden = ["HUBSPOT_ACCESS_TOKEN", "HUBSPOT_WRITE_ACCESS_TOKEN", "HUBSPOT_DEV_ACCESS_TOKEN", "HUBSPOT_PROD_HUB_ID"]
+    .filter((key) => nonEmpty(env, key));
+  if (forbidden.length) {
+    throw new Error(`[runtime-config] shared sandbox refuses HubSpot configuration until portal routing is isolated: ${forbidden.join(", ")}`);
+  }
+  const hasNetsuiteCredentials = ["NETSUITE_ACCOUNT_ID", "NETSUITE_CONSUMER_KEY", "NETSUITE_CONSUMER_SECRET", "NETSUITE_TOKEN_ID", "NETSUITE_TOKEN_SECRET"]
+    .some((key) => nonEmpty(env, key));
+  if (hasNetsuiteCredentials &&
+      (!/_SB\d+$/i.test(env.NETSUITE_ACCOUNT_ID!) || env.NETSUITE_ENV !== "sandbox")) {
+    throw new Error("[runtime-config] shared sandbox requires a NetSuite sandbox account and NETSUITE_ENV=sandbox");
+  }
+}
+
 function readProviderKinds(
   env: NodeJS.ProcessEnv,
   isolated: boolean,
@@ -108,9 +158,17 @@ export function assertRuntimeSafety(
   env: NodeJS.ProcessEnv = process.env,
 ): RuntimeSafety {
   const isolated = env[ISOLATED_MODE_ENV] === "1";
+  const sharedSandbox = env[SHARED_SANDBOX_ENV] === "1";
+  if (env.NETLIFY === "true" && !sharedSandbox) {
+    throw new Error("[runtime-config] Netlify deployment requires NEXUS_SHARED_SANDBOX=1");
+  }
+  if (isolated && sharedSandbox) {
+    throw new Error("[runtime-config] isolated validation and shared sandbox modes are mutually exclusive");
+  }
   const providers = readProviderKinds(env, isolated);
 
   if (!isolated) {
+    if (sharedSandbox) assertSharedSandboxSafety(env);
     if (nonEmpty(env, "NEXUS_VALIDATION_IDENTITY")) {
       throw new Error(
         "[runtime-config] NEXUS_VALIDATION_IDENTITY requires isolated mode",
@@ -118,6 +176,7 @@ export function assertRuntimeSafety(
     }
     return {
       mode: "production",
+      sharedSandbox,
       providers,
       allowedNetworkHosts: new Set(),
     };
@@ -183,6 +242,7 @@ export function assertRuntimeSafety(
 
   return {
     mode: "isolated",
+    sharedSandbox: false,
     providers,
     database,
     allowedNetworkHosts: new Set(LOCAL_DATABASE_HOSTS),
