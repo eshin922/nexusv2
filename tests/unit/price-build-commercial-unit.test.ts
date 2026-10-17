@@ -115,6 +115,38 @@ test("F2 · it reconciles to the unit's own rollup, which is what Costs and the 
   assert.ok(Math.abs(node.value - tier.totalRevenue / tier.qty) < 1e-9);
 });
 
+test("Costs' scoped bars reconcile to each top-level unit without counting grouped children twice", () => {
+  const input = quote({ skus: [leaf("d1", null)], packaging: [pkg("d1", 4)] });
+  const result = computeQuoteCosting(input);
+  for (const [id, expectedCost, expectedSell] of [["A", 16, 20], ["d1", 4, 5]] as const) {
+    const value = (name: string) => findNode(result.graph, priceBuildKey(id, TIER, name))?.value;
+    assert.equal(value("pkg/cost"), expectedCost);
+    assert.equal(value("pkg/markup"), expectedSell - expectedCost);
+    assert.equal(value("pkg"), expectedSell);
+    assert.equal(value("sell-before") + value("departure"), value("sell"));
+  }
+  assert.equal(findNode(result.graph, priceBuildKey("a1", TIER, "pkg/cost")), null);
+  assert.equal(findNode(result.graph, priceBuildKey("a2", TIER, "pkg/cost")), null);
+});
+
+test("a grouped production product and raw ingredient appear in their own scoped lanes", () => {
+  const input = quote({ skus: [
+    { ...leaf("a1", "A"), productType: "Ingestibles" },
+    { ...leaf("a2", "A"), productType: "Raw ingredients" },
+  ] });
+  // Replace the fixture's default leaves with the classified versions.
+  input.skus = [assembly("A"), ...input.skus.slice(-2)];
+  const graph = computeQuoteCosting(input).graph;
+  const value = (name: string) => findNode(graph, priceBuildKey("A", TIER, name))?.value;
+  assert.equal(value("pkg"), 0);
+  assert.equal(value("prod"), 12.5);
+  assert.equal(value("raw"), 7.5);
+  for (const name of ["pkg", "prod", "raw"]) {
+    assert.ok(Math.abs(value(`${name}/cost`) + value(`${name}/markup`) - value(name)) < 1e-9);
+  }
+  assert.equal(value("sell"), 20);
+});
+
 test("F3 · adding or removing a ZERO-VALUE component does not move the dollars", () => {
   // The operator's exact falsification: a zero-value leaf changed an 8-leaf
   // denominator to a 7-leaf one and the displayed dollars moved. Under a
